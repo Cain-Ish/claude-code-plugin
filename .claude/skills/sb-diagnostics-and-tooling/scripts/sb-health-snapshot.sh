@@ -136,7 +136,7 @@ echo "  vector deps: shared tree $SHARED at $VD; plugin junction $LINKED (heal: 
 EPI="$BRAIN_DIR/episodic-index.json"
 if [ -f "$EPI" ]; then
   jq -r '(.exchanges|length) as $t
-    | ([.exchanges[] | select((.embedding|length) > 0)] | length) as $e
+    | ([.exchanges[] | select(((.e8 // .embedding // "") | length) > 0)] | length) as $e
     | if $t == 0 then "  episodic coverage: no exchanges indexed yet"
       else "  episodic coverage: \($e)/\($t) exchanges (\(($e*100/$t)|floor)%) — <100% = those match by text only" end' "$EPI" 2>/dev/null
 else

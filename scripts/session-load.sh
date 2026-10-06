@@ -1509,7 +1509,8 @@ if [ -f "$SB_EPI_INDEX" ] && command -v jq >/dev/null 2>&1; then
   # ONE jq for the two counts — hot path. Empty (jq parse failure)
   # defaults to 0 below — same fail-soft as the old per-field `|| echo 0`.
   { IFS= read -r EPI_PENDING; IFS= read -r EPI_TOTAL; } < <(
-    jq -r '([.exchanges[]? | select((.embedding|length)==0)] | length), (.exchanges | length)' \
+    # A vector is `e8` (int8, base64) since 0.56.0; a float `embedding` array before (`[]` = none).
+    jq -r '([.exchanges[]? | select(((.e8 // .embedding // "") | length) == 0)] | length), (.exchanges | length)' \
       "$SB_EPI_INDEX" 2>/dev/null)
   EPI_PENDING="${EPI_PENDING//$'\r'/}"; EPI_TOTAL="${EPI_TOTAL//$'\r'/}"   # Windows jq CRLF, no tr spawn
   : "${EPI_PENDING:=0}" "${EPI_TOTAL:=0}"

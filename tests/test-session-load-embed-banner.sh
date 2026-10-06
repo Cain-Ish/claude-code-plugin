@@ -66,6 +66,27 @@ echo "$out" | grep -q "have no embedding" \
   || { echo "FAIL C: pending-count banner did not fire:"; echo "$out"; exit 1; }
 echo "PASS C: pending>10 fires (legacy behavior preserved)"
 
+# --- Case C2: a 0.56.0 index stores vectors as e8 (int8, base64), no float `embedding` ---
+# The pending count must read an e8 row as embedded. Reading only `.embedding` counted every
+# compact row as pending and fired "N of N have no embedding" on a fully embedded index.
+mkidx8() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+p, nf, ne = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+ex = [{"e8": "AAAA", "es": 0.01} for _ in range(nf)] + [{} for _ in range(ne)]
+json.dump({"exchanges": ex}, open(p, "w"))
+PY
+}
+BDC2="$TMP/c2"; mkdir -p "$BDC2"; mkidx8 "$BDC2/episodic-index.json" 15 0
+out=$(run BRAIN_DIR="$BDC2" CLAUDE_PLUGIN_ROOT="$CRB")
+echo "$out" | grep -q "have no embedding" \
+  && { echo "FAIL C2: a fully embedded e8 index fired the pending banner:"; echo "$out"; exit 1; }
+BDC3="$TMP/c3"; mkdir -p "$BDC3"; mkidx8 "$BDC3/episodic-index.json" 3 12
+out=$(run BRAIN_DIR="$BDC3" CLAUDE_PLUGIN_ROOT="$CRB")
+echo "$out" | grep -q "12 of 15 indexed exchanges have no embedding" \
+  || { echo "FAIL C2: vectorless rows in an e8 index did not fire:"; echo "$out"; exit 1; }
+echo "PASS C2: an e8 index counts its vectors (no false pending banner)"
+
 # --- Case D: deps ABSENT but suppressed via env ---
 out=$(run BRAIN_DIR="$BD" CLAUDE_PLUGIN_ROOT="$CRA" SB_EMBED_PENDING_BANNER=off)
 echo "$out" | grep -qi "degraded" \
