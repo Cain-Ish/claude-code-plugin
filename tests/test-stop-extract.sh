@@ -9,9 +9,11 @@
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
-#   review batch added the C2-9b..C2-14 cases; measured 174s alone on a loaded MSYS box; the S0
-#   F1 ruler cases (R5b-R13: ~20 more Stops + a 33 MB subagent volume fixture) measured 649s
-#   under heavy load (~70 concurrent bash) — raised from 480; each ~13s on MSYS under load)
+#   review batch added the C2-9b..C2-14 cases; the S0 F1 ruler cases (R5b-R13: ~20 more Stops
+#   + a 33 MB subagent volume fixture) measured 649s under heavy load (~70 concurrent bash).
+#   0.56.0 R2-F, same MSYS box, alone: 414s at the R2-F head vs 428s at fcb1abf (the cheap prune
+#   gate barely moves it: few archives here); 506-627s alone and 1334s under load were reported
+#   earlier, so this budget holds alone (~2x headroom) and not under a 2-3x load factor)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #
