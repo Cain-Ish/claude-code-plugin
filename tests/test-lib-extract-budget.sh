@@ -1,8 +1,11 @@
 #!/bin/bash
 # tests/test-lib-extract-budget.sh — R1.2 input cap: sb_extract_transcript must
-# feed the extractor at most SB_EXTRACT_MAX_BYTES of archive body, keeping the
-# NEWEST exchanges (tail). Uncapped multi-MB archives could never finish before
-# the timeout and burned full retry cycles toward quarantine (HOOK-4).
+# feed the extractor at most SB_EXTRACT_MAX_BYTES of archive body per call.
+# Uncapped multi-MB archives could never finish before the timeout and burned
+# full retry cycles toward quarantine (HOOK-4).
+# R2 (0.56.0): the cap is met by CHUNKING FORWARD, not by a tail cap — the old
+# `tail -c` silently dropped the oldest part of every big archive. Every line
+# reaches the extractor, oldest chunk first.
 set -u
 unset CLAUDECODE 2>/dev/null || true
 unset ANTHROPIC_API_KEY 2>/dev/null || true
@@ -17,7 +20,8 @@ export PROBE_IN="$SANDBOX/stdin-capture"
 mkdir -p "$SANDBOX/bin"
 cat > "$SANDBOX/bin/claude" <<'EOF'
 #!/bin/bash
-cat > "$PROBE_IN"
+n=$(( $(cat "$PROBE_IN.n" 2>/dev/null || echo 0) + 1 )); printf '%s' "$n" > "$PROBE_IN.n"
+cat > "$PROBE_IN.$n"
 echo '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
 EOF
 chmod +x "$SANDBOX/bin/claude"
@@ -35,11 +39,18 @@ TX="$BRAIN_DIR/transcripts/big_proj_2026-06-10.txt"
 ( source "$REPO_ROOT/scripts/lib.sh"
   sb_extract_transcript "$TX" proj >/dev/null 2>&1 )
 
-[ -f "$PROBE_IN" ] || fail "extractor never invoked"
-BYTES=$(wc -c < "$PROBE_IN" | tr -d ' ')
-# stdin = PROJECT.md scaffold + separator + capped body (200000) — generous slack:
-[ "$BYTES" -lt 230000 ] || fail "extractor stdin is $BYTES bytes — cap not applied"
-grep -q 'TAIL-SENTINEL' "$PROBE_IN" || fail "newest content (tail) missing from capped input"
-grep -q 'HEAD-SENTINEL' "$PROBE_IN" && fail "oldest content survived the cap (should be tail-capped)"
-echo "PASS: extractor input capped to newest ~200KB"
+N=$(cat "$PROBE_IN.n" 2>/dev/null || echo 0)
+[ "$N" -ge 2 ] || fail "a ~300KB body at a 200000-byte cap must take >= 2 extractor calls (got $N)"
+i=1
+while [ "$i" -le "$N" ]; do
+  BYTES=$(wc -c < "$PROBE_IN.$i" | tr -d ' ')
+  # stdin = PROJECT.md scaffold + separator + one capped chunk (200000) — generous slack:
+  [ "$BYTES" -lt 230000 ] || fail "extractor call $i stdin is $BYTES bytes — cap not applied"
+  i=$((i + 1))
+done
+echo "PASS: every extractor call is capped to ~200KB ($N calls)"
+grep -q 'HEAD-SENTINEL' "$PROBE_IN.1" || fail "the first call must carry the OLDEST content (chunked forward)"
+grep -q 'TAIL-SENTINEL' "$PROBE_IN.1" && fail "the first call already carries the newest content (not chunked forward)"
+grep -q 'TAIL-SENTINEL' "$PROBE_IN.$N" || fail "the last call must carry the newest content"
+echo "PASS: chunked forward — oldest content first, nothing dropped"
 echo "ALL PASS"
