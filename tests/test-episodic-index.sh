@@ -49,8 +49,10 @@ USER: what happens when the model is unavailable
 ASSISTANT: When @huggingface/transformers cannot be imported, embedTexts returns null and the rows are kept text-searchable while the next run repairs the embeddings.
 EOF
 
+# A row's vector is `e8` (int8 components, base64; 0.56.0). A row without one is pending. A full
+# vector decodes to 384 bytes; anything else would be a partial/garbage vector, also counted.
 count_pending() {
-  node -e "const i=JSON.parse(require('fs').readFileSync('$TMP/episodic-index.json','utf-8'));console.log(i.exchanges.filter(e=>!e.embedding||e.embedding.length===0).length)"
+  node -e "const i=JSON.parse(require('fs').readFileSync('$TMP/episodic-index.json','utf-8'));console.log(i.exchanges.filter(e=>typeof e.e8!=='string'||Buffer.from(e.e8,'base64').length!==384).length)"
 }
 count_total() {
   node -e "const i=JSON.parse(require('fs').readFileSync('$TMP/episodic-index.json','utf-8'));console.log(i.exchanges.length)"

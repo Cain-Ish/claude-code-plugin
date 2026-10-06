@@ -3,7 +3,7 @@ import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
 import { atomicWriteJson } from './atomic-write.js';
 
-const EMBEDDING_DIM = 384;
+export const EMBEDDING_DIM = 384;
 const CACHE_FILE = '.embeddings-cache.json';
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DISABLE_ENV = 'SECOND_BRAIN_DISABLE_EMBEDDINGS';
@@ -131,7 +131,9 @@ export async function embedTexts(texts: string[], wikiRoot: string, paths: strin
   const pipe = await getPipeline();
   if (!pipe) return null;
 
-  const cache = await loadCache(wikiRoot);
+  // Only keyed texts are ever saved, so a call with no key (the per-prompt query embed) can never
+  // hit the cache: do not parse it (transcripts/ held 5.7 MB, ~9 ms, on a live box in 2026-10).
+  const cache: EmbeddingCache = paths.some(p => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results: number[][] = [];
   let cacheUpdated = false;
 

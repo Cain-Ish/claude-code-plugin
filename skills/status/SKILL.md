@@ -97,13 +97,15 @@ If unavailable, skip — validation also runs automatically during `knowledge_re
 One line: what fraction of indexed episodic exchanges have vectors. 100% =
 healthy; anything less means vector recall silently misses those exchanges
 (the next session-end extraction backfills them when the deps are linked —
-SessionStart auto-relinks a missing cache symlink).
+SessionStart auto-relinks a missing cache symlink). A vector is `e8` (int8,
+base64) since 0.56.0, a float `embedding` array in an index not yet rewritten
+by a 0.56.0 build; the check counts either.
 
 ```bash
 EPI=${BRAIN_DIR:-$HOME/.second-brain}/episodic-index.json
 if [ -f "$EPI" ]; then
   jq -r '(.exchanges|length) as $t
-    | ([.exchanges[] | select((.embedding|length) > 0)] | length) as $e
+    | ([.exchanges[] | select(((.e8 // .embedding // "") | length) > 0)] | length) as $e
     | if $t == 0 then "Embeddings: no exchanges indexed yet"
       else "Embeddings coverage: \($e)/\($t) exchanges (\(($e * 100 / $t) | floor)%)" end' "$EPI"
 fi
