@@ -303,6 +303,8 @@ eq "counts: total/done/pending/dead" "$SB_DM_TOTAL $SB_DM_DONE $SB_DM_PENDING $S
 eq "counts: extracted = cursor > 0 (a, b, e) + unmigrated legacy ok (g)" "$SB_DM_EXTRACTED" "4"
 eq "counts: oldest pending mtime = g (first pending row)" "$SB_DM_OLDEST_PENDING_MTIME" "$G_MT"
 eq "dead letters come from the cursor map (e region + legacy i)" "$(sb_count_drain_dead_letters "$MS" "$MT")" "2"
+eq "counts: dead archives / windows / lines (e (9,13] + legacy i whole)" "$SB_DM_DEAD_ARCHIVES $SB_DM_DEAD_WINDOWS $SB_DM_DEAD_LINES" "2 2 13"
+eq "map: e dead columns" "$(mf "$MAP" e.txt 9) $(mf "$MAP" e.txt 10)" "1 4"
 
 echo "=== R2-B: sb_archive_window ==="
 W="$SANDBOX/win.txt"; mk_arch "$W" 10            # header 7 lines, body lines 8..17 of 8 bytes each
@@ -378,6 +380,8 @@ cmk toosmall.txt 3 202601050008      # done by a too-small row
 cmk norows.txt 4 202601050009        # no row at all
 cmk errkeep.txt 20 202601050010      # the dead-letter row is neither the max-lines row, the stop row nor the last ok|error
 cmk legacy_weird.txt 10 202601030001 # legacy rows; the last non-retry row is not ok|error
+cmk mid.txt 200 202601050011         # X2#1: dead window (0,100] then ok (100,200]: done, 100 dead lines
+cmk partial.txt 20 202601050012      # X2#1: dead (5,10] partly re-covered by a non-cursor ok (8,12]: 3 dead lines
 r() { printf '{"basename":"%s","ts":"%s","outcome":"%s"%s}\n' "$1" "$2" "$3" "${4:-}"; }
 T5="2026-01-05T00:00:00Z"; T3="2026-01-03T00:00:00Z"; T1="2026-01-01T00:00:00Z"
 {
@@ -404,14 +408,31 @@ T5="2026-01-05T00:00:00Z"; T3="2026-01-03T00:00:00Z"; T1="2026-01-01T00:00:00Z"
   r errkeep.txt "$T5" ok ',"from":0,"lines":8'; r errkeep.txt "$T5" error ',"from":8,"lines":20,"fails":3'
   r errkeep.txt "$T5" retry ',"from":8,"lines":20,"fails":1'; r errkeep.txt "$T5" ok ',"from":0,"lines":5'
   r legacy_weird.txt "$T3" ok; r legacy_weird.txt "$T3" weird
+  r mid.txt "$T5" error ',"from":0,"lines":100,"fails":3'; r mid.txt "$T5" ok ',"from":100,"lines":200'
+  r partial.txt "$T5" ok ',"from":0,"lines":5'; r partial.txt "$T5" error ',"from":5,"lines":10,"fails":3'
+  r partial.txt "$T5" ok ',"from":8,"lines":12'; r partial.txt "$T5" ok ',"from":12,"lines":20'
   r gone.txt "$T5" ok ',"from":0,"lines":9'                            # no archive: dropped
   printf '%s\n' 'not json' '{"basename":5,"outcome":"ok","lines":3}' '' '{"basename":"grown.txt","ts":"'"$T5"'","outcome":"ok","from":16,"li'
 } > "$CS"
 CM0=$(sb_drain_cursor_map "$CS" "$CT"); CN0=$(grep -c . "$CS")
-[ "$(printf '%s\n' "$CM0" | grep -c .)" -eq 14 ] || no "compact: fixture map should have 14 rows (got: $CM0)"
+[ "$(printf '%s\n' "$CM0" | grep -c .)" -eq 16 ] || no "compact: fixture map should have 16 rows (got: $CM0)"
 sb_compact_done_set "$CS" "$CT" && ok "compact: returns 0" || no "compact: returned non-zero"
 CM1=$(sb_drain_cursor_map "$CS" "$CT"); CN1=$(grep -c . "$CS")
-[ "$CM1" = "$CM0" ] && ok "compact: the cursor map is identical before and after (all 8 columns, 14 archives)" \
+# X2#1: a dead-lettered window stays counted (columns 9 dead_windows, 10 dead_lines) whatever the
+# state, before AND after compaction: a later ok window past it used to make it vanish.
+for cm in CM0 CM1; do
+  eq "dead ($cm): a dead window under the cursor still counts (state windows lines)" \
+    "$(mf "${!cm}" mid.txt 4) $(mf "${!cm}" mid.txt 9) $(mf "${!cm}" mid.txt 10)" "done 1 100"
+  eq "dead ($cm): an ok window overlapping a dead one takes its lines back" "$(mf "${!cm}" partial.txt 9) $(mf "${!cm}" partial.txt 10)" "1 3"
+  eq "dead ($cm): both dead regions of deadgrown count (one under the cursor)" "$(mf "${!cm}" deadgrown.txt 9) $(mf "${!cm}" deadgrown.txt 10)" "2 7"
+  eq "dead ($cm): a legacy dead archive counts whole" "$(mf "${!cm}" legacy_err.txt 9) $(mf "${!cm}" legacy_err.txt 10)" \
+    "$( [ "$(mf "${!cm}" legacy_err.txt 8)" = legacy-dead ] && echo '1 10' || echo '0 0')"
+  eq "dead ($cm): a recreated archive has none" "$(mf "${!cm}" recreated.txt 9) $(mf "${!cm}" recreated.txt 10)" "0 0"
+done
+sb_drain_map_counts "$CM1"
+eq "counts: dead archives / windows / lines after compaction" "$SB_DM_DEAD_ARCHIVES $SB_DM_DEAD_WINDOWS $SB_DM_DEAD_LINES" \
+  "$( [ "$(mf "$CM1" legacy_err.txt 8)" = legacy-dead ] && echo '6 7 144' || echo '5 6 134')"   # dead+deadgrown+errkeep+mid+partial (+legacy_err when its flag is legacy-dead in this TZ)
+[ "$CM1" = "$CM0" ] && ok "compact: the cursor map is identical before and after (all 10 columns, 16 archives)" \
   || no "compact: the map changed:"$'\n'"$(diff <(printf '%s\n' "$CM0") <(printf '%s\n' "$CM1"))"
 [ "$CN1" -lt "$CN0" ] && ok "compact: the ledger shrank ($CN0 -> $CN1 rows)" || no "compact: nothing was compacted ($CN0 -> $CN1)"
 eq "compact: grown keeps only its cursor row" "$(grep -c '"basename":"grown.txt"' "$CS")" "1"

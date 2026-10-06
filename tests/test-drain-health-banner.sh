@@ -50,11 +50,15 @@ for i in 1 2 3 4 5 6; do
 done
 O=$(emit)
 printf '%s' "$O" | grep -q "$BANNER" && pass "4: >=5 dead-letter transcripts fire the banner" || fail "4: dead-letter banner did not fire"
-# 4b: the same six archives GREW past their dead region — the new lines are pending work, not
-# dead letters (the old last-row-is-error fold still counted all six).
+# 4b (R2 fix X2#1): the same six archives GREW past their dead region. The new lines are pending
+# work, but the dead region (0,3] of each was never extracted and never will be: it still counts
+# (it used to vanish from every counter once the archive grew or a later window succeeded), and
+# the growth is not counted as dead.
 for i in 1 2 3 4 5 6; do printf 'USER: more\nASSISTANT: ok\n' >> "$B/transcripts/s$i.txt"; done
 O=$(emit)
-printf '%s' "$O" | grep -q "$BANNER" && fail "4b: grown archives still counted as dead letters" || pass "4b: growth past a dead region is pending, not dead-lettered"
+printf '%s' "$O" | grep -q "$BANNER" && printf '%s' "$O" | grep -q '6 transcript(s) hold dead-lettered windows (6 window(s), 18 lines' \
+  && pass "4b: a dead region stays counted after growth; the growth is not dead" \
+  || fail "4b: dead regions of grown archives miscounted (got: $(printf '%s' "$O" | grep 'signal:' | head -c 300))"
 rm -f "$B/transcripts"/s[1-6].txt
 
 # 5: kill switch suppresses
@@ -84,8 +88,9 @@ printf '%s\n' \
   '{"script":"x","message":"unrelated line, no token"}' > "$BRAIN_DIR/error-log.jsonl"
 HN=$(sb_count_drain_timeouts 40)
 [ "$HN" = "2" ] && pass "helper: sb_count_drain_timeouts counts ec=124 lines (2)" || fail "helper: timeouts=$HN (want 2)"
-# R2: a dead letter is an ARCHIVE whose unextracted tail is covered by an error row. a errored;
-# b retried then errored; c errored then recovered; d errored on (0,3] but grew to 5 lines since.
+# R2: a dead letter is an ARCHIVE holding a dead-lettered window (an error row whose lines no ok
+# row re-covered), whatever its state (X2#1). a errored; b retried then errored; c errored then an
+# ok row re-covered the same window; d errored on (0,3] and grew to 5 lines since (still dead).
 mkdir -p "$BRAIN_DIR/transcripts"
 for f in a b c; do printf 'l1\nl2\nl3\n' > "$BRAIN_DIR/transcripts/$f.txt"; done
 printf 'l1\nl2\nl3\nl4\nl5\n' > "$BRAIN_DIR/transcripts/d.txt"
@@ -97,7 +102,7 @@ printf '%s\n' \
   '{"basename":"c.txt","outcome":"ok","from":0,"lines":3}' \
   '{"basename":"d.txt","outcome":"error","from":0,"lines":3}' > "$BRAIN_DIR/.extraction-state.jsonl"
 HD=$(sb_count_drain_dead_letters)
-[ "$HD" = "2" ] && pass "helper: sb_count_drain_dead_letters (a+b dead, c recovered, d grew past its dead region → 2)" || fail "helper: dead-letters=$HD (want 2)"
+[ "$HD" = "3" ] && pass "helper: sb_count_drain_dead_letters (a, b, d hold a dead window; c re-covered → 3)" || fail "helper: dead-letters=$HD (want 3)"
 
 echo "=== capture-health extracted count ==="
 # R2: "N archived · M extracted" counts ARCHIVES (via the cursor map), not ok rows: delta extraction
@@ -125,13 +130,19 @@ SB2="$B/snap"; mkdir -p "$SB2/transcripts" "$SB2/sbin"
 printf '#!/bin/bash\nexit 0\n' > "$SB2/sbin/node"; chmod +x "$SB2/sbin/node"   # skip the auth probe
 printf 'l1\nl2\nl3\nl4\nl5\n' > "$SB2/transcripts/g1.txt"
 printf 'l1\nl2\nl3\n' > "$SB2/transcripts/g2.txt"
+printf 'l1\nl2\nl3\n' > "$SB2/transcripts/g3.txt"   # X2#1: dead (0,2], then ok (2,3]: done, 2 dead lines
 printf '%s\n' \
   '{"basename":"g1.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' \
-  '{"basename":"g2.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' > "$SB2/.extraction-state.jsonl"
+  '{"basename":"g2.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":0,"lines":3}' \
+  '{"basename":"g3.txt","ts":"2026-06-17T00:00:00Z","outcome":"error","from":0,"lines":2,"fails":3}' \
+  '{"basename":"g3.txt","ts":"2026-06-17T00:00:00Z","outcome":"ok","from":2,"lines":3}' > "$SB2/.extraction-state.jsonl"
 SO=$(env PATH="$SB2/sbin:$PATH" BRAIN_DIR="$SB2" KNOWLEDGE_DIR="$SB2/k" bash "$SNAP" "$ROOT" 2>/dev/null)
-printf '%s' "$SO" | grep -q 'backlog: 1 pending of 2 archived' \
+printf '%s' "$SO" | grep -q 'backlog: 1 pending of 3 archived' \
   && pass "S1: snapshot backlog counts the grown archive as pending" \
   || fail "S1: snapshot backlog wrong (got: $(printf '%s' "$SO" | grep 'backlog:'))"
+printf '%s' "$SO" | grep -q 'dead-lettered windows: 1 (2 lines) in 1 archive' && printf '%s\n' "$SO" | grep -q 'dead-letters=1$' \
+  && pass "S1b: snapshot surfaces a dead window under the cursor" \
+  || fail "S1b: snapshot hid the dead window (got: $(printf '%s' "$SO" | grep -E 'backlog:|dead-letters='))"
 
 echo "=== cursor-map failure is never 'nothing pending' (R2 fix X2#2) ==="
 # A jq shim on PATH fails ONLY the cursor-map program (the one jq program that defines `epoch`)

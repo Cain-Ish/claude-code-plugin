@@ -271,7 +271,7 @@ fi
 # --- R2 drain accounting (0.56.0): line cursors, not a basename set --------------------------
 # The done-set rows carry archive_line windows (R2 contract in lib.sh). sb_drain_cursor_map is the
 # ONE reader: one wc -l + one stat + one jq per call, never a per-archive loop. DRAIN_MAP holds its
-# output for the tick: basename cursor lines state next fails mtime flag.
+# output for the tick: basename cursor lines state next fails mtime flag dead_windows dead_lines.
 STATE="$BRAIN_DIR/.extraction-state.jsonl"   # TX_DIR set + checked (loudly) above the lock
 now() { date -u +%FT%TZ; }
 # drain_clock: DRAIN_TS (row ts) + DRAIN_NOW_S (epoch) from ONE date spawn.
@@ -395,7 +395,7 @@ drain_scrub_migrate() {
 sb_drain_migrate() {
   local b c n s nx f mt fl rows="" drop="" ndrop=0 tmp
   drain_scrub_migrate   # changes neither a line count nor an mtime: the map stays valid
-  while IFS=$'\t' read -r b c n s nx f mt fl; do
+  while IFS=$'\t' read -r b c n s nx f mt fl _rest; do
     case "$fl" in
       baseline)
         drain_json_str "$b"
@@ -494,7 +494,7 @@ sb_drain_latency_s() {
 # dead-lettered regions. Eligible when >= DELTA_MIN bytes are new or the archive has been quiet
 # QUIET_S. Extracted one forward chunk per call; every attempt, failed or not, takes a batch slot.
 drain_clock
-while IFS=$'\t' read -r base cur lines st next fails mt flag; do
+while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
   [ -n "$base" ] || continue
   [ "$attempts" -ge "$BATCH" ] && break
   [ "$st" = "pending" ] || continue
@@ -609,7 +609,10 @@ else
   RECON_MAX=$(printf '%s' "$RECON_LAT" | cut -d' ' -f1)
   RECON_P50=$(printf '%s' "$RECON_LAT" | cut -d' ' -f2)
   RECON_N=$(printf '%s' "$RECON_LAT" | cut -d' ' -f3); : "${RECON_N:=0}"
-  sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50 sampled_n=$RECON_N"
+  # dead_*: every dead-lettered window, whatever the archive's state (X2#1), so a dead window
+  # under the cursor stays visible in the durable metric series.
+  RECON_DEAD="dead_archives=$SB_DM_DEAD_ARCHIVES dead_windows=$SB_DM_DEAD_WINDOWS dead_lines=$SB_DM_DEAD_LINES"
+  sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50 sampled_n=$RECON_N $RECON_DEAD"
 fi
 
 # Don't clobber a real failure marker: only report ok if anything succeeded.

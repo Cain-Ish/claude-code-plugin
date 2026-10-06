@@ -1206,7 +1206,9 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
   DRAIN_TO_THRESH="${SB_DRAIN_TIMEOUT_BANNER_THRESHOLD:-3}"; case "$DRAIN_TO_THRESH" in ''|*[!0-9]*) DRAIN_TO_THRESH=3 ;; esac
   DEAD_THRESH="${SB_DRAIN_DEADLETTER_THRESHOLD:-5}"; case "$DEAD_THRESH" in ''|*[!0-9]*) DEAD_THRESH=5 ;; esac
   DRAIN_TO_N=$(sb_count_drain_timeouts 40)
-  _sl_drain_counts; DEAD_N=$SB_DM_DEAD
+  # Dead letters = archives holding a dead-lettered window, whatever their state (X2#1): a dead
+  # window in the middle is lost for good even after later windows succeed.
+  _sl_drain_counts; DEAD_N=$SB_DM_DEAD_ARCHIVES
   [ -z "$_SL_DM_FAILED" ] || DEAD_N='?'
   # Three OR'd triggers (quarantine is owned by dream-autostage.sh, not here); the third is the
   # accounting itself failing: an unknown backlog must not read as an empty one.
@@ -1215,7 +1217,7 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
     DRAIN_WHY=""
     [ "${DRAIN_TO_N:-0}" -ge "$DRAIN_TO_THRESH" ] && DRAIN_WHY="${DRAIN_TO_N} recent drain timeout(s) (ec=124 — the extractor hangs past its deadline)"
     [ -n "$_SL_DM_FAILED" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }drain accounting unavailable: the cursor map failed (sb_drain_cursor_map, see ~/.second-brain/error-log.jsonl), so the backlog and dead-letter counts are unknown"
-    [ "$DEAD_N" != '?' ] && [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }${DEAD_N} transcript(s) permanently failed extraction (poison-pilled)"
+    [ "$DEAD_N" != '?' ] && [ "${DEAD_N:-0}" -ge "$DEAD_THRESH" ] && DRAIN_WHY="${DRAIN_WHY:+$DRAIN_WHY; }${DEAD_N} transcript(s) hold dead-lettered windows (${SB_DM_DEAD_WINDOWS} window(s), ${SB_DM_DEAD_LINES} lines) that permanently failed extraction (poison-pilled)"
     [ -n "$DRAIN_WHY" ] || DRAIN_WHY="the out-of-band extractor is not draining"
     # OS-AWARE remedy. Linux: the drainer CAN run (bwrap) — raise the timeout (or
     # install bubblewrap if missing). macOS/Windows: no bwrap-contained headless

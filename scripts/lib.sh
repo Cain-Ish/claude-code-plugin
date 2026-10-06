@@ -3029,9 +3029,9 @@ sb_count_drain_timeouts() {
     | grep -c 'extractor-diag .*ec=124' 2>/dev/null || true
 }
 
-# Count archives whose unextracted tail is DEAD-LETTERED (an `error` row past SB_DRAIN_MAX_FAILS
-# covers every line the cursor has not reached — state `dead` in sb_drain_cursor_map). An archive
-# that recovered (a later ok row past the dead region) or grew past it is not counted.
+# Count archives holding a DEAD-LETTERED window (an `error` row past SB_DRAIN_MAX_FAILS whose
+# lines no ok row re-covered: dead_windows > 0 in sb_drain_cursor_map), whatever the archive's
+# state (X2#1): a dead window stays lost after a later window succeeds or the archive grows.
 # Echoes an integer; `?` and rc 1 when the cursor map failed (already logged by the map): a
 # failure must never read as "no dead letters". $1 / $2 = optional explicit state file /
 # transcripts dir (test override).
@@ -3039,7 +3039,7 @@ sb_count_drain_dead_letters() {
   local map
   map=$(sb_drain_cursor_map "${1:-}" "${2:-}") || { echo '?'; return 1; }
   sb_drain_map_counts "$map"
-  echo "$SB_DM_DEAD"
+  echo "$SB_DM_DEAD_ARCHIVES"
 }
 
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.
@@ -3102,11 +3102,24 @@ _sb_mtimes() {
 # and the drain-only fields: next = where the next window starts (skips dead-lettered regions),
 # fails = retry rows since the last non-retry row, flag = the first-tick migration verdict for a
 # basename whose rows all lack `lines` (legacy): baseline | regrow | legacy-dead.
+# dw / dl (X2#1) = the dead-lettered windows and their line total, WHATEVER the state: the union
+# of the error windows (from, lines] minus every ok|baseline window, clipped to the line count. A
+# dead window in the middle stays counted after a later window succeeds (it used to vanish from
+# every counter once the cursor passed it). recreated: 0 (its rows are purged); legacy-dead: the
+# whole archive (the migration's error row covers (0, lines]).
 _SB_DRAIN_MAP_JQ='
 def epoch: try fromdateiso8601 catch 0;
 def hasl: (.lines | type) == "number";
 def trailing_retries: reduce (reverse[]) as $x ({n: 0, stop: false};
   if .stop then . elif $x.outcome == "retry" then .n += 1 else .stop = true end) | .n;
+def ival: [((.from // 0) | if type == "number" then . else 0 end), .lines];
+def merged: sort | reduce .[] as $w ([];
+  if length > 0 and $w[0] <= .[length - 1][1]
+  then .[length - 1][1] = ([.[length - 1][1], $w[1]] | max) else . + [$w] end);
+def minus($o): reduce $o[] as $x ([.];
+  [ .[] | if $x[1] <= .[0] or $x[0] >= .[1] then .
+          else ((if $x[0] > .[0] then [[.[0], $x[0]]] else [] end)
+                + (if $x[1] < .[1] then [[$x[1], .[1]]] else [] end)) | .[] end ]);
 (reduce inputs as $l ({sec: "wc", L: {}, M: {}};
   if $l == "--mtime--" then .sec = "mt"
   else (([$l | sub("\r$"; "") | capture("^ *(?<n>[0-9]+) (?<f>.*)$")] | .[0])) as $m
@@ -3125,6 +3138,9 @@ def trailing_retries: reduce (reverse[]) as $x ({n: 0, stop: false};
     | ([$R[] | select(hasl) | .lines] | max // 0) as $hi
     | ([$R[] | select(.outcome == "error" and hasl) | .lines] | max // 0) as $err
     | ($R | trailing_retries) as $fails
+    | ([$R[] | select((.outcome == "ok" or .outcome == "baseline") and hasl) | ival] | merged) as $ok
+    | ([$R[] | select(.outcome == "error" and hasl) | ival] | merged
+       | [.[] | minus($ok) | .[] | [.[0], ([.[1], $n] | min)] | select(.[1] > .[0])]) as $dead
     | (if ($R | any(hasl)) then null else ([$R[] | select(.outcome | IN("ok", "error"))] | last) end) as $lt
     | (if $lt == null then false
        else ((($lt.ts | epoch)) as $t | $mt > 0 and $t > 0 and $mt <= ($t + 120)) end) as $same
@@ -3134,9 +3150,13 @@ def trailing_retries: reduce (reverse[]) as $x ({n: 0, stop: false};
       elif $lt != null and $same then {b: $b, cur: 0, n: $n, next: $n, fails: 0, mt: $mt, flag: "legacy-dead"}
       elif $lt != null then {b: $b, cur: 0, n: $n, next: 0, fails: 0, mt: $mt, flag: "regrow"}
       else {b: $b, cur: $cur, n: $n, next: ([$cur, $err] | max), fails: $fails, mt: $mt, flag: "-"} end
-    | .st = (if .cur >= .n then "done" elif .next >= .n then "dead" else "pending" end) ]
+    | .st = (if .cur >= .n then "done" elif .next >= .n then "dead" else "pending" end)
+    | (if .flag == "recreated" then {dw: 0, dl: 0}
+       elif .flag == "legacy-dead" then {dw: (if $n > 0 then 1 else 0 end), dl: $n}
+       else {dw: ($dead | length), dl: ($dead | map(.[1] - .[0]) | add // 0)} end) as $d
+    | .dw = $d.dw | .dl = $d.dl ]
 | sort_by(.mt, .b)[]
-| [.b, .cur, .n, .st, .next, .fails, .mt, .flag] | map(tostring) | join("\t")
+| [.b, .cur, .n, .st, .next, .fails, .mt, .flag, .dw, .dl] | map(tostring) | join("\t")
 '
 
 # sb_drain_cursor_map [STATE] [TXDIR]: THE drain accounting primitive. Every reader of "which
@@ -3145,10 +3165,12 @@ def trailing_retries: reduce (reverse[]) as $x ({n: 0, stop: false};
 # tests/test-extraction-helpers.sh bans the old basename-set derivation. ONE wc -l + ONE stat over
 # all archives and ONE jq over the done-set, never a per-file loop. Output, oldest-first by mtime,
 # one TSV row per archive on disk (the first three columns are the R2 contract):
-#   basename cursor lines state next fails mtime flag
+#   basename cursor lines state next fails mtime flag dead_windows dead_lines
 #   state: done (cursor >= lines) | dead (the unextracted tail is dead-lettered: next >= lines)
 #          | pending.   flag: - | recreated | baseline | regrow | legacy-dead  (never empty: a tab
-#          IFS read collapses empty fields).
+#          IFS read collapses empty fields). dead_windows / dead_lines: every dead-lettered
+#          window, whatever the state (see _SB_DRAIN_MAP_JQ). A bash reader names a trailing
+#          catch-all variable, so a later column never lands in its last field.
 # No transcripts dir: no output, rc 0. jq missing or failing: logged loud, rc 1.
 sb_drain_cursor_map() {
   local state="${1:-$BRAIN_DIR/.extraction-state.jsonl}" txd="${2:-$BRAIN_DIR/transcripts}"
@@ -3183,13 +3205,22 @@ sb_drain_cursor_map() {
 # SB_DM_EXTRACTED = archives with extraction evidence: some line extracted (cursor > 0), nothing
 # left to extract (done), or an unmigrated legacy ok row (flag baseline) — so a fresh upgrade
 # does not read as "nothing ever extracted" before the drainer's first tick migrates it.
+# SB_DM_DEAD counts archives in STATE dead (their whole tail is dead-lettered: the reconcile
+# row's observed = done + dead); SB_DM_DEAD_ARCHIVES / _WINDOWS / _LINES count every dead-lettered
+# window whatever the state (X2#1), which is what the dead-letter counters report.
 sb_drain_map_counts() {
   SB_DM_TOTAL=0; SB_DM_DONE=0; SB_DM_PENDING=0; SB_DM_DEAD=0; SB_DM_EXTRACTED=0
-  SB_DM_OLDEST_PENDING_MTIME=0
-  local b c n s nx f mt fl x
-  while IFS=$'\t' read -r b c n s nx f mt fl; do
+  SB_DM_OLDEST_PENDING_MTIME=0; SB_DM_DEAD_ARCHIVES=0; SB_DM_DEAD_WINDOWS=0; SB_DM_DEAD_LINES=0
+  local b c n s nx f mt fl dw dl _rest x
+  while IFS=$'\t' read -r b c n s nx f mt fl dw dl _rest; do
     [ -n "$b" ] || continue
     SB_DM_TOTAL=$((SB_DM_TOTAL + 1))
+    case "$dw" in ''|*[!0-9]*) dw=0 ;; esac
+    case "$dl" in ''|*[!0-9]*) dl=0 ;; esac
+    if [ "$dw" -gt 0 ]; then
+      SB_DM_DEAD_ARCHIVES=$((SB_DM_DEAD_ARCHIVES + 1))
+      SB_DM_DEAD_WINDOWS=$((SB_DM_DEAD_WINDOWS + dw)); SB_DM_DEAD_LINES=$((SB_DM_DEAD_LINES + dl))
+    fi
     x=0
     case "$c" in ''|0|*[!0-9]*) ;; *) x=1 ;; esac
     case "$s/$fl" in done/*|*/baseline) x=1 ;; esac
@@ -3209,7 +3240,9 @@ sb_drain_map_counts() {
 # Per live basename it keeps (verbatim, in file order) exactly the rows _SB_DRAIN_MAP_JQ reads:
 #   the ok|baseline row holding the cursor (max lines)         -> cursor
 #   a row holding max(lines) over every outcome                -> the recreated check ($hi)
-#   every error row past the cursor (the dead-lettered windows) -> next
+#   every error row (the dead-lettered windows, under the       -> next, dead_windows/dead_lines
+#   cursor too: X2#1) and every ok|baseline row whose window
+#   overlaps one (it takes lines back from the dead count)
 #   the trailing retry run, and the last non-retry row before it -> fails (trailing_retries
 #                                                                   stops at that row)
 #   the last ok|error row                                       -> a legacy (lines-less) archive's
@@ -3220,6 +3253,7 @@ sb_drain_map_counts() {
 _SB_COMPACT_JQ='
 def hasl: (.r.lines | type) == "number";
 def lastof(f): [.[] | select(f)] | last;
+def ival: [((.r.from // 0) | if type == "number" then . else 0 end), .r.lines];
 (reduce (inputs | sub("\r$"; "") | select(length > 0)) as $l ({}; .[$l] = true)) as $live
 | ($st | split("\n")) as $L
 | [ range(0; $L | length) as $i
@@ -3233,9 +3267,12 @@ def lastof(f): [.[] | select(f)] | last;
     | ([.[] | select(hasl) | .r.lines] | max) as $hi
     | (reduce (reverse[]) as $x ({run: [], stop: null};
         if .stop != null then . elif $x.r.outcome == "retry" then .run += [$x] else .stop = $x end)) as $t
+    | ([.[] | select(.r.outcome == "error" and hasl) | ival]) as $ew
     | [ lastof((.r.outcome == "ok" or .r.outcome == "baseline") and hasl and .r.lines == $cur),
         lastof(hasl and .r.lines == $hi),
-        (.[] | select(.r.outcome == "error" and hasl and .r.lines > $cur)),
+        (.[] | select(.r.outcome == "error" and hasl)),
+        (.[] | select((.r.outcome == "ok" or .r.outcome == "baseline") and hasl)
+             | (ival) as $w | select(any($ew[]; $w[0] < .[1] and .[0] < $w[1]))),
         $t.run[], $t.stop,
         lastof(.r.outcome == "ok" or .r.outcome == "error") ]
     | map(select(. != null)) | unique_by(.i) | .[])

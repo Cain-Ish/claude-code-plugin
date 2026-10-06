@@ -410,6 +410,11 @@ mk_lines "fr1_proj_2026-05-24.txt" 3                       # 16 lines
 rdrain
 eq "dead-letter: growth past the dead region extracts only the new window" "$(rlast)" "fr1_proj_2026-05-24.txt 13 16"
 eq "dead-letter: a later ok row lifts the cursor over the dead region" "$(cmap fr1_proj_2026-05-24.txt 2) $(cmap fr1_proj_2026-05-24.txt 4)" "16 done"
+# X2#1: ...but the dead region (10,13] is still counted, after the tick's ledger compaction too
+eq "dead-letter: the passed-over dead window still counts (windows lines)" "$(cmap fr1_proj_2026-05-24.txt 9) $(cmap fr1_proj_2026-05-24.txt 10)" "1 3"
+DROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+printf '%s' "$DROW" | grep -q 'dead_archives=1 dead_windows=1 dead_lines=3' \
+  && ok "dead-letter: the reconcile row surfaces the dead window" || no "dead-letter: reconcile row lacks the dead totals (got: $DROW)"
 
 # D3: first-tick migration. Legacy row (no lines) + archive unchanged since -> baseline, no LLM;
 # grown since -> legacy-regrow re-mined from the header end; legacy error unchanged -> stays dead.
