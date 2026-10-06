@@ -1147,7 +1147,12 @@ if [ -f "$SB_HEALTH_FILE" ] && command -v jq >/dev/null 2>&1; then
     #   - "empty after pty-retry..." / ec=124 timeouts → claude CLI hanging,
     #     usually recursive-claude conflict; fix is ANTHROPIC_API_KEY backstop
     #   - "api:..." → ANTHROPIC_API_KEY call failed (rate limit / billing)
+    #   - "cursor map unavailable..." → the drainer's accounting failed (extract-drain.sh writes
+    #     it when sb_drain_cursor_map fails): jq / lib.sh trouble, never login or a key
     case "$H_REASON" in
+      "cursor map unavailable"*)
+        H_HINT="cause: the drainer's accounting failed, not the extractor or your login: sb_drain_cursor_map (scripts/lib.sh) could not read the archives or the done-set. fix: check that \`jq --version\` runs in the drainer's environment (jq on the scheduler's PATH), then tail \`~/.second-brain/error-log.jsonl\` for the lib.sh sb_drain_cursor_map row naming the failing step."
+        ;;
       auth:*|*unauthorized*|*"not logged in"*|*"please run /login"*|*"invalid api key"*)
         H_HINT="fix: run \`claude /login\` (OAuth) or \`export ANTHROPIC_API_KEY=sk-ant-...\` (API key)."
         ;;
@@ -1211,8 +1216,9 @@ if [ "${SB_DRAIN_HEALTH_BANNER:-on}" != "off" ] && [ "${H_STATUS:-}" != "fail" ]
   _sl_drain_counts; DEAD_N=$SB_DM_DEAD_ARCHIVES
   [ -z "$_SL_DM_FAILED" ] || DEAD_N='?'
   # The one-time secret-scrub migration holds an archive from extraction until it is scrubbed; one
-  # whose scrub failed 3+ times (an attempt per drainer tick) is stuck there (X2#3). One builtin
-  # read of the small to-do list, only while the migration is unfinished.
+  # whose scrub failed 3+ times (an attempt per migration run: a drainer tick or a session start)
+  # is stuck there (X2#3). One builtin read of the small to-do list, only while the migration is
+  # unfinished.
   SCRUB_STUCK=0
   if [ ! -f "$BRAIN_DIR/.archive-scrub-v1" ] && sb_scrub_todo_counts; then SCRUB_STUCK=$SB_SCRUB_TODO_STUCK; fi
   # Four OR'd triggers (quarantine is owned by dream-autostage.sh, not here); one is the
@@ -2287,6 +2293,35 @@ if [ -f "$WIKI_INDEX" ]; then
     (
       sb_reindex_wiki "$(sb_knowledge_dir)" >/dev/null 2>&1 || true
     ) &
+    disown 2>/dev/null || true
+  fi
+fi
+
+# --- One-time archive scrub without a drainer (0.56.0; background, no output) ---
+# The migration (extract-drain.sh drain_scrub_migrate) runs on drainer ticks, but the drainer timer
+# is opt-in (install-extract-timer.sh --apply / self-heal) and absent on some installs, where
+# archives written before 0.56.0 would keep their keys in clear, and every listed one would stay
+# held out of extraction and recall, for good. So until the marker exists, each start forks the
+# SAME routine: extract-drain.sh --scrub-only (under the drain lock, skipped while it is held;
+# bounded per run by SB_SCRUB_MIGRATE_MAX_FILES / SB_SCRUB_MIGRATE_MAX_S). Detached: every fd of
+# the subshell is off the hook's pipes, so SessionStart waits for one fork, never for the run. The
+# check is builtins only (the marker, the to-do list, a glob stopped at its first archive). A run
+# that dies (nonzero exit) is logged with its stderr tail; its own failures it logs itself.
+if [ ! -f "$BRAIN_DIR/.archive-scrub-v1" ] && [ -d "$BRAIN_DIR/transcripts" ]; then
+  _sl_scrub=""
+  if [ -f "$BRAIN_DIR/.archive-scrub-v1.todo" ]; then _sl_scrub=1
+  else
+    for _sl_p in "$BRAIN_DIR"/transcripts/*.txt "$BRAIN_DIR"/dreams/*/transcripts/*.txt; do
+      [ -f "$_sl_p" ] && { _sl_scrub=1; break; }
+    done
+  fi
+  if [ -n "$_sl_scrub" ]; then
+    (
+      _sl_err="$BRAIN_DIR/.archive-scrub-v1.err.$$"
+      bash "$(dirname "$0")/extract-drain.sh" --scrub-only 2>"$_sl_err"; _sl_rc=$?
+      [ "$_sl_rc" -eq 0 ] || sb_log_error "session-load.sh" "background archive scrub (extract-drain.sh --scrub-only) exited $_sl_rc: $(tail -c 300 "$_sl_err" 2>/dev/null | tr '\r\n' '  ')" 1
+      rm -f "$_sl_err" 2>/dev/null
+    ) </dev/null >/dev/null 2>&1 &
     disown 2>/dev/null || true
   fi
 fi

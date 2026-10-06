@@ -493,6 +493,32 @@ LIT_MISS=$(LC_ALL=C grep -hvF "${_SB_SCRUB_LITERALS[@]}" "$SD/kinds.in" "$SD/for
 [ -z "$LIT_MISS" ] || fail "scrub: a redactable line holds none of the _SB_SCRUB_LITERALS (the migration would skip it): $LIT_MISS"
 pass "scrub: every format redacted to [redacted:<kind>], PEM per line, CRLF kept, line count invariant, idempotent"
 
+# The precise list (_SB_SCRUB_ERE, the one-time migration's to-do list) matches exactly what the
+# scrub changes, both ways, over every fixture above plus near-misses that each hold a bare literal
+# (the old -F listing named them): (1) every line the scrub changes is matched, except a PEM/PGP
+# body or END line (redacted only after its BEGIN line, which is matched); a miss would leave an
+# archive off the list and in clear for good. (2) No line the scrub leaves as it is is matched: a
+# match would hold a clean archive out of extraction and recall until its turn.
+printf '%s\n' "task-123 and disk-0" "id task-$(rep 0a1B 6) on disk-$(rep 0a1B 6)" "your PRIV""ATE KEY file lives in .ssh" \
+  "eyJson {}" "xoxo hugs" "Authorization: header docs" "AKIA12 short" "npm_config_cache=x" "hf_hub_download" \
+  "AIza short" "bearer of bad news" "github_pat_short" "sk_live_short" "glpat-short" "xapp-short" \
+  "aws_secret_access_key = short" "ghp_tooshort gho_x" > "$SD/nearmiss.in"
+[ "$(LC_ALL=C grep -cF "${_SB_SCRUB_LITERALS[@]}" "$SD/nearmiss.in")" -eq "$(wc -l < "$SD/nearmiss.in")" ] \
+  || fail "scrub-ere: a near-miss fixture line holds no bare literal (it would prove nothing)"
+for fx in kinds crlf pem pemcut pem1 adjacent clean oaiproj sentinel pemq formats pgp dbound zw notmatched nearmiss; do
+  cat "$SD/$fx.in"
+done > "$SD/all.in"
+sb_scrub_secrets < "$SD/all.in" > "$SD/all.out" || fail "scrub-ere: sb_scrub_secrets exited non-zero on the corpus"
+LC_ALL=C grep -nE "${_SB_SCRUB_ERE[@]}" "$SD/all.in" | cut -d: -f1 > "$SD/all.matched"
+ERE_BAD=$(LC_ALL=C awk 'FILENAME == ARGV[1] { m[$1] = 1; next } FILENAME == ARGV[2] { a[FNR] = $0; next }
+  { ch = (a[FNR] != $0); hit = (FNR in m)
+    if (ch && !hit && !(index($0, "[redacted:private-key]") && !index(a[FNR], "BEGIN"))) print "MISS " FNR ": " a[FNR]
+    if (!ch && hit) print "OVER " FNR ": " a[FNR] }' "$SD/all.matched" "$SD/all.in" "$SD/all.out" | head -10)
+[ -z "$ERE_BAD" ] || fail "scrub-ere: _SB_SCRUB_ERE and sb_scrub_secrets disagree (MISS = changed, not listed; OVER = listed, unchanged):
+$ERE_BAD"
+[ "$(grep -c . "$SD/all.matched")" -gt 40 ] || fail "scrub-ere: the precise list matched almost nothing ($(grep -c . "$SD/all.matched") lines): the parity check is vacuous"
+pass "scrub-ere: the precise list matches exactly the lines the scrub changes (both ways), near-misses unlisted"
+
 # A read error on stdin is the scrub's failure, never an empty "clean" output: `{ cat; printf
 # sentinel; }` reported the printf status, so a cat that failed returned 0.
 mkdir -p "$TMP/scrub/adir"
