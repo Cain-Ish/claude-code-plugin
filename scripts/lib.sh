@@ -2623,7 +2623,8 @@ sb_prune_transcripts() {
   local -a li=() lk=() lnm=()
   for i in "${!vn[@]}"; do
     lf="$archive_dir/.${vn[$i]}.lock"
-    if _sb_archive_lock_try "$lf"; then li+=("$i"); lk+=("$lf"); lnm+=("${vn[$i]}")
+    # A real owner token (pid.prune-nonce): sb_archive_lock reads an empty token as a dead holder.
+    if _sb_archive_lock_try "$lf" "${BASHPID:-$$}.prune$RANDOM"; then li+=("$i"); lk+=("$lf"); lnm+=("${vn[$i]}")
     elif [ -e "$lf" ]; then held=$((held + 1))
     else nolock=$((nolock + 1)); fi
   done
