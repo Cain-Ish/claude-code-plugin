@@ -57,8 +57,13 @@ fi
 # return). target = the tool's primary argument; ok/err derived from the
 # response's error markers CONSERVATIVELY (absent markers ⇒ ok:true — a wrong
 # ok:true is noise, a fabricated error would poison the error→fix mining).
-# tr -d '\r': jq stdout is CRLF on Windows git-bash (jq discipline, rule 4).
-printf '%s' "$RAW" | jq -c --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+# CRs stripped: jq stdout is CRLF on Windows git-bash (jq discipline, rule 4). The line is captured
+# (the same process count as the old jq | tr pipeline) so it can be secret-scrubbed before the
+# append (X2 S3): target is command[0:200] and err stderr[0:160], and both carry keys verbatim
+# (`ANTHROPIC_API_KEY=... claude -p`, `invalid x-api-key ...`), which the drainer then embedded
+# in its extractor input. A builtin literal check keeps the scrub's spawn off key-free lines; a
+# scrub that fails drops the observation (logged) rather than writing it unscrubbed.
+LINE=$(printf '%s' "$RAW" | jq -c --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
   (.tool_response // .tool_output // .tool_result // null) as $resp
   # PostToolUseFailure alone proves failure: upstream PostToolUse fires ONLY on
   # success (live-found 0.40.0 defect — a nonzero-exit Bash left NO ledger line),
@@ -87,6 +92,15 @@ printf '%s' "$RAW" | jq -c --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
                   else ($resp | tostring) end)
                 | gsub("[\r\n]"; " ") | .[0:160]) }
       else {} end )
-' 2>/dev/null | tr -d '\r' >> "$OBS_FILE" || true
+' 2>/dev/null)
+LINE="${LINE//$'\r'/}"
+[ -n "$LINE" ] || exit 0
+if sb_has_scrub_literal "$LINE"; then
+  if ! LINE=$(printf '%s\n' "$LINE" | sb_scrub_secrets) || [ -z "$LINE" ]; then
+    sb_log_error "observe-tool-use.sh" "secret scrub of an observation failed; the observation is dropped, not written unscrubbed (session=${SID:0:8} tool=$TOOL)" 1
+    exit 0
+  fi
+fi
+printf '%s\n' "$LINE" >> "$OBS_FILE" 2>/dev/null || true
 
 exit 0

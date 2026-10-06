@@ -622,6 +622,36 @@ rows_for ev1_proj_2026-05-24.txt | grep -q '"ts":"2026-05-24T00:00:00Z"' && no "
   || no "evicted+recreated: tombstone left after the tick"
 eq "evicted+recreated: done after the tick" "$(cmap ev1_proj_2026-05-24.txt 2) $(cmap ev1_proj_2026-05-24.txt 4)" "20 done"
 
+# D15: the REAL extraction path (no SB_EXTRACT_STUB: lib.sh sb_extract_transcript, the real
+# extract -> gate -> merge) with a fake `claude` on PATH that records every extractor input. HOME
+# and the knowledge dir are sandboxed: the real merge writes pages. One tick, several assertions
+# (each real pass costs seconds on MSYS).
+FAKEBIN="$SANDBOX/fakebin"; FCAP="$SANDBOX/fake-claude.in"; mkdir -p "$FAKEBIN" "$SANDBOX/fakehome" "$SANDBOX/fake-knowledge/wiki"
+cat > "$FAKEBIN/claude" <<EOF8
+#!/bin/bash
+{ cat; printf '\n=== END CALL ===\n'; } >> "$FCAP"
+printf '%s\n' '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+EOF8
+chmod +x "$FAKEBIN/claude"
+realdrain() {
+  env -u SB_EXTRACT_STUB -u ANTHROPIC_API_KEY -u SB_EXTRACTOR_LOCAL_URL PATH="$FAKEBIN:$PATH" HOME="$SANDBOX/fakehome" \
+    CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SANDBOX/fake-knowledge" "$@" bash "$DRAIN" >/dev/null 2>&1 || true
+}
+reset; rm -f "$FCAP"; : > "$SMARK"                         # the one-time migration is done
+mk_lines "rx1_proj_2026-05-24.txt" 3
+# X2 S3: an observation ledger written before the write-time scrub holds keys in target/err
+mkdir -p "$BRAIN_DIR/observations"
+jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
+  '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$BRAIN_DIR/observations/rx1.jsonl"
+realdrain
+grep -q '=== OBSERVATIONS' "$FCAP" 2>/dev/null && ok "real path: the extractor received the observations section" \
+  || no "real path: no extractor input recorded (got: $(head -c 300 "$FCAP" 2>/dev/null))"
+grep -qF 'ant-api03-' "$FCAP" 2>/dev/null && no "real path: the extractor RECEIVED a key from the observation ledger" \
+  || ok "real path: no key from the observation ledger reaches the extractor"
+rows_for rx1_proj_2026-05-24.txt | grep -q '"outcome":"ok","from":0,"lines":10' \
+  && ok "real path: ok row (0,10]" || no "real path: ledger row (got: $(rows_for rx1_proj_2026-05-24.txt))"
+rm -f "$SMARK"
+
 # D13 (R2 fix X2#2): a cursor-map failure is not "nothing pending". A jq shim fails ONLY the map
 # program (the one that defines `epoch`); the tick must not write reconcile 0/0/0 nor health ok.
 JQS="$SANDBOX/jqshim"; mkdir -p "$JQS"

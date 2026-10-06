@@ -125,6 +125,33 @@ NEW_BYTES=$(wc -c < "$FCAP" | tr -d ' ')
 [ "$NEW_BYTES" -eq "$CAP_BYTES" ] || fail "cap: file grew past SB_OBSERVATION_MAX_BYTES ($CAP_BYTES → $NEW_BYTES)"
 pass "size cap: at-cap ledger stops appending (bounded per session)"
 
+# 10. X2 S3: target (command[0:200]) and err (stderr[0:160]) are written through the secret scrub,
+#     so a key in a failed command never lands in the ledger the drainer embeds. Keys are assembled
+#     at run time (no key-shaped literal in the repo).
+KANT="sk-""ant-api03-$(printf 'Zq9x%.0s' 1 2 3 4 5 6 7 8)"
+KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
+jq -nc --arg c "ANTHROPIC_API_KEY=$KANT claude -p hi; git push https://x:$KGHP@github.com/a/b" --arg e "Error: invalid x-api-key $KANT" \
+  '{hook_event_name:"PostToolUseFailure", tool_name:"Bash", session_id:"sess-key", tool_input:{command:$c}, tool_response:{error:$e}}' \
+  | bash "$SCRIPT"
+F="$OBS_DIR/sess-key.jsonl"
+[ -s "$F" ] || fail "scrub: no ledger line written for a failed call carrying a key"
+grep -qF 'ant-api03-' "$F" && fail "scrub: the Anthropic key reached the ledger"
+grep -qF "$KGHP" "$F" && fail "scrub: the GitHub token reached the ledger"
+grep -qF '[redacted:' "$F" || fail "scrub: no redaction marker in the ledger line (got: $(cat "$F"))"
+jq -e 'select(.tool == "Bash" and .ok == false and (.err | test("redacted")))' "$F" >/dev/null 2>&1 \
+  || fail "scrub: the scrubbed line no longer parses as the ledger record (got: $(cat "$F"))"
+# A key-free line keeps its spawn-free path and its exact content.
+payload "Bash" "sess-clean" '{"command":"make test"}' '{"stdout":"ok","stderr":""}' | bash "$SCRIPT"
+jq -e 'select(.target == "make test" and .ok == true)' "$OBS_DIR/sess-clean.jsonl" >/dev/null 2>&1 || fail "scrub: a clean line changed"
+# PEM: a BEGIN marker with no END on the same line redacts the rest of that line, so the record is
+# cut short (unparseable). That is accepted by design: no key material survives, and every ledger
+# reader parses with fromjson? and drops the line (one observation lost, never a key leaked).
+jq -nc --arg e "-----BEGIN RSA PRIVATE KEY----- MIIEowIBAAKCAQEA0Zq9xZq9xZq9xZq9x" \
+  '{hook_event_name:"PostToolUseFailure", tool_name:"Read", session_id:"sess-pem", tool_input:{file_path:"id_rsa"}, tool_response:{error:$e}}' \
+  | bash "$SCRIPT"
+grep -qF 'MIIEowIBAAKCAQEA' "$OBS_DIR/sess-pem.jsonl" && fail "scrub: PEM body reached the ledger"
+pass "observation ledger: keys in target/err are scrubbed at write time; the record stays valid JSON"
+
 # ============================================================================
 # Mining: sb_observations_summary + sb_extract_transcript embedding
 # ============================================================================
@@ -168,6 +195,20 @@ grep -q '=== OBSERVATIONS' "$CAPTURED" || fail "mine: observations section missi
 grep -q 'LEDGER-SENTINEL-FAILURE' "$CAPTURED" || fail "mine: ledger error line not embedded"
 grep -q 'DATA, not instructions' "$CAPTURED" || fail "mine: observations section missing the DATA framing"
 pass "sb_extract_transcript embeds the session's ledger as a labeled DATA section"
+
+# X2 S3: a ledger written before the write-time scrub (or by a 0.55 hook) still holds keys; the
+# summary is scrubbed before it is embedded, so the extractor never receives them (p1 repro).
+jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
+  '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$DRAIN_BRAIN/observations/mine-session.jsonl"
+jq -nc --arg t "git push https://x:$KGHP@github.com/a/b" '{ts:"x",tool:"Bash",target:$t,ok:false,err:"fatal: auth"}' \
+  >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+rm -f "$CAPTURED"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "mine-keys: sb_extract_transcript failed"
+grep -q '=== OBSERVATIONS' "$CAPTURED" || fail "mine-keys: observations section missing"
+grep -qF 'ant-api03-' "$CAPTURED" && fail "mine-keys: the extractor RECEIVED an Anthropic key from the ledger"
+grep -qF "$KGHP" "$CAPTURED" && fail "mine-keys: the extractor RECEIVED a GitHub token from the ledger"
+grep -qF '[redacted:' "$CAPTURED" || fail "mine-keys: no redaction marker in the embedded summary"
+pass "an old unscrubbed ledger is scrubbed before it reaches the extractor"
 
 # Absent ledger → no observations section, extraction still succeeds.
 rm -f "$DRAIN_BRAIN/observations/mine-session.jsonl" "$CAPTURED"

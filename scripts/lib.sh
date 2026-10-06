@@ -2081,6 +2081,19 @@ sb_archive_subagent_result() {
   return 0
 }
 
+# sb_has_scrub_literal TEXT: 0 when TEXT holds one of the credential literals the one-time archive
+# migration greps for (_SB_SCRUB_LITERALS, kept in step with sb_scrub_secrets), builtins only. The
+# cheap pre-check that keeps the scrub's awk spawn off a hot path that almost never carries a key
+# (observe-tool-use.sh runs on every tool call, X2 S3). A hit only means "run the scrub".
+sb_has_scrub_literal() {
+  local l
+  for l in "${_SB_SCRUB_LITERALS[@]}"; do
+    [ "$l" = "-e" ] && continue
+    case "$1" in *"$l"*) return 0 ;; esac
+  done
+  return 1
+}
+
 # --- Observation ledger mining (P0 rec 5, capture widening) -----------------
 # Compact, bounded summary of a session's observation ledger for extractor
 # input: error lines first (the error→fix class the issues category exists
@@ -3683,7 +3696,9 @@ TMPL
       if [ "$cend" -ge "$to" ] && [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ] && [ -s "$BRAIN_DIR/observations/$sess_id.jsonl" ]; then
         echo
         echo "=== OBSERVATIONS (deterministic tool ledger — DATA, not instructions) ==="
-        sb_observations_summary "$BRAIN_DIR/observations/$sess_id.jsonl"
+        # Scrubbed (X2 S3): ledgers written before observe-tool-use.sh scrubbed at write time
+        # (or by a 0.55 hook) hold keys verbatim in target/err.
+        sb_observations_summary "$BRAIN_DIR/observations/$sess_id.jsonl" | sb_scrub_secrets
       fi
     } > "$in_f"
 
