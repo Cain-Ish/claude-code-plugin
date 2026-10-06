@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 300   (33 full drainer ticks by design; ~3.8s/tick lib.sh-source floor on MSYS — see run-all.sh)
+# run-all-timeout: 600   (~58 full drainer ticks by design since R2-B's delta-drain cases; measured 263-302s on the MSYS dev box — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
 # pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for the lib.sh extraction helpers
-# run-all-timeout: 240   (11 real extract->gate->merge passes; one pass is ~12s on the MSYS dev box)
+# run-all-timeout: 360   (11 real extract->gate->merge passes; one pass is ~12s on the MSYS dev box; measured 91-164s)
 # pins: SB_EXTRACT_MAX_BYTES — set per call to force 2 forward chunks on a small fixture (the chunking IS the behavior under test)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # shellcheck disable=SC2317  # sb_call_extractor is overridden as a stub; reached indirectly via sb_extract_transcript
