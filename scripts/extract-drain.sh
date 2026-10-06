@@ -631,8 +631,28 @@ done < <(printf '%s\n' "$DRAIN_MAP")
 # untouched for 30+ days (kept past the review skill's 14-day staleness window,
 # and past week-long idle sessions, per deep-review). Also sweeps legacy
 # slug-keyed markers (the retired marker-key scheme).
-# R2: the raw_line cursors (.last-archived-line-<slug>--<sid>, archive-first) age out the same way.
-find "$BRAIN_DIR" -maxdepth 1 \( -name '.last-extracted-line-*' -o -name '.last-archived-line-*' \) -mtime +30 -delete 2>/dev/null || true
+# R2: the raw_line cursors (.last-archived-line-<slug>--<sid>, archive-first) age out the same way,
+# except a session that can still resume (X2#8): a .last-archived-line-<key> whose recorded raw
+# transcript path still exists is kept, with its legacy .last-extracted-line-<key> sibling;
+# deleting it re-archived the resumed session from raw line 0 (a duplicate window). ONE find
+# lists the stale ones, builtins read each recorded path, ONE rm.
+_gc_stale=$(find "$BRAIN_DIR" -maxdepth 1 \( -name '.last-extracted-line-*' -o -name '.last-archived-line-*' \) -mtime +30 2>/dev/null)
+if [ -n "$_gc_stale" ]; then
+  _gc_live=$'\n'; _gc_del=()
+  while IFS= read -r _gc_f; do      # pass 1: archive cursors whose raw transcript still exists
+    case "${_gc_f##*/}" in .last-archived-line-*) ;; *) continue ;; esac
+    _gc_p=""; IFS=$'\t' read -r _ _gc_p < "$_gc_f" 2>/dev/null; _gc_p="${_gc_p%$'\r'}"
+    [ -n "$_gc_p" ] && [ -e "$_gc_p" ] && _gc_live="$_gc_live${_gc_f##*/.last-archived-line-}"$'\n'
+  done < <(printf '%s\n' "$_gc_stale")
+  while IFS= read -r _gc_f; do      # pass 2: delete everything else that is stale
+    [ -n "$_gc_f" ] || continue
+    _gc_k="${_gc_f##*/}"; _gc_k="${_gc_k#.last-archived-line-}"; _gc_k="${_gc_k#.last-extracted-line-}"
+    case "$_gc_live" in *$'\n'"$_gc_k"$'\n'*) continue ;; esac
+    _gc_del+=("$_gc_f")
+  done < <(printf '%s\n' "$_gc_stale")
+  [ "${#_gc_del[@]}" -eq 0 ] || rm -f -- "${_gc_del[@]}" 2>/dev/null \
+    || sb_log_error "extract-drain.sh" "GC: cannot remove ${#_gc_del[@]} stale extraction cursor file(s) in $BRAIN_DIR" 1
+fi
 # Per-archive locks (sb_archive_lock, R2-F#3) left by a writer that died: the next writer steals
 # one after 60 s, but an archive nobody writes again keeps its lock file. Eviction tombstones
 # (.<name>.evicted, X2 S2) protect only a same-day re-creation and are consumed by the compaction

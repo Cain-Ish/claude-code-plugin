@@ -812,7 +812,21 @@ touch "$BRAIN_DIR/.last-archived-line-new--sess"
 mkdir -p "$HOME/.claude/projects/-x-second-brain-scratch"
 touch -t 202601010000 "$HOME/.claude/projects/-x-second-brain-scratch/old.jsonl"
 touch "$HOME/.claude/projects/-x-second-brain-scratch/new.jsonl"
+# X2#8: a stale cursor whose raw transcript is still on disk (a session that can resume) is kept,
+# with its legacy sibling: deleting it re-archived the resumed session from raw line 0 (a
+# duplicate window in the archive). One whose transcript is gone still ages out.
+printf 'raw\n' > "$SANDBOX/live-transcript.jsonl"
+printf '42\t%s\n' "$SANDBOX/live-transcript.jsonl" > "$BRAIN_DIR/.last-archived-line-live--sess"
+printf '42\n' > "$BRAIN_DIR/.last-extracted-line-live--sess"
+printf '42\t%s\n' "$SANDBOX/gone-transcript.jsonl" > "$BRAIN_DIR/.last-archived-line-gone--sess"
+printf '42\n' > "$BRAIN_DIR/.last-extracted-line-gone--sess"
+touch -t 202601010000 "$BRAIN_DIR/.last-archived-line-live--sess" "$BRAIN_DIR/.last-extracted-line-live--sess" \
+  "$BRAIN_DIR/.last-archived-line-gone--sess" "$BRAIN_DIR/.last-extracted-line-gone--sess"
 bash "$DRAIN" >/dev/null 2>&1 || true
+[ -f "$BRAIN_DIR/.last-archived-line-live--sess" ] && [ -f "$BRAIN_DIR/.last-extracted-line-live--sess" ] \
+  && ok "cursor GC: a resumable session's stale cursors are kept" || no "cursor GC: a resumable session's cursor was swept (re-archived from 0)"
+[ ! -f "$BRAIN_DIR/.last-archived-line-gone--sess" ] && [ ! -f "$BRAIN_DIR/.last-extracted-line-gone--sess" ] \
+  && ok "cursor GC: cursors of a vanished transcript still age out" || no "cursor GC: a vanished transcript's cursors survived"
 [ ! -f "$BRAIN_DIR/.last-extracted-line-old--sess" ] && ok "stale marker swept (7d)" || no "stale marker survived"
 [ -f "$BRAIN_DIR/.last-extracted-line-new--sess" ] && ok "fresh marker kept" || no "fresh marker swept"
 [ ! -f "$BRAIN_DIR/.last-archived-line-old--sess" ] && ok "stale raw_line cursor (.last-archived-line-*) swept (30d)" || no "stale .last-archived-line-* survived"
