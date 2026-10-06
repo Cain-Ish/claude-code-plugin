@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 840   (~76 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path; measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel — see run-all.sh)
+# run-all-timeout: 840   (~79 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path, plus the integration scrub list + bound case D18 (3 ticks); measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
 # pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks
@@ -9,8 +9,8 @@
 # pins: SB_DRAIN_FLOOR — D2 turns the deterministic floor off so MAX_FAILS yields the error row under test
 # pins: SB_DRAIN_MAX_FAILS — D2 fixes the dead-letter threshold the retry/error rows are asserted against
 # pins: SB_DRAIN_MIN_BYTES — 0 for the tiny legacy fixtures; D7 and D16 set 1024 to test the too-small gate itself
-# pins: SB_SCRUB_MIGRATE_MAX_FILES — D11c/D17a/D18/D19 size the per-run scrub cap that is under test (1 = one scrub per tick)
-# pins: SB_SCRUB_MIGRATE_MAX_S — D19 sets 0 to test the per-run time bound itself (one scrub, then stop)
+# pins: SB_SCRUB_MIGRATE_MAX_FILES — D11c/D17a/D18 size the per-run scrub cap that is under test (1 = one scrub per tick)
+# pins: SB_SCRUB_MIGRATE_MAX_S — D18 sets 0 to test the per-run time bound itself (one scrub, then stop)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -551,7 +551,7 @@ eq "compact: a done archive makes no extractor call" "$(rcalls)" "0"
 
 # D11 (R2-F#4/#5): archives written before 0.56.0 hold secrets in clear. The first ticks scrub
 # them in place (sb_scrub_archive_file), under the drain lock and before the defer gate, pending
-# archives first, bounded per tick by a file cap and a time bound (D19, not SB_DRAIN_BATCH: a scrub
+# archives first, bounded per tick by a file cap and a time bound (D18, not SB_DRAIN_BATCH: a scrub
 # makes no LLM call), then write .archive-scrub-v1. No archive is extracted
 # before its scrub: the extractor never receives a key. The stub records the window it receives.
 SSTUB="$SANDBOX/sstub.sh"; SCAP="$SANDBOX/sstub.cap"
@@ -618,24 +618,6 @@ mk_key "sd1_proj_2026-05-24.txt" 202605240000
 SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 sdrain
 eq "scrub-migrate: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sd1_proj_2026-05-24.txt" && no "scrub-migrate: a deferred tick skipped the scrub" || ok "scrub-migrate: runs on a deferred tick"
-# D19 (0.56.0 integration, item 2): a scrub is cheap (no LLM call), so a run is bounded by its own
-# file cap (SB_SCRUB_MIGRATE_MAX_FILES, 50) and time bound (SB_SCRUB_MIGRATE_MAX_S, 20 s: no scrub
-# starts past it, one always does), not by SB_DRAIN_BATCH; it stays resumable, and an entry not
-# attempted keeps its attempt count.
-reset; rm -f "$SCAP" "$SMARK" "$STODO"
-for i in 1 2 3 4 5 6; do mk_key "tb${i}_proj_2026-05-24.txt" "20260524000$i"; done
-tcount() { if [ -f "$STODO" ]; then grep -c . "$STODO" || true; else echo 0; fi; }
-SB_SCRUB_MIGRATE_MAX_S=0 sdrain
-eq "scrub bound: past the time bound no scrub starts, one always does (5 of 6 left)" "$(tcount)" "5"
-eq "scrub bound: the entries not attempted keep 0 attempts" "$(grep -c "$(printf '\t0$')" "$STODO" 2>/dev/null || true)" "5"
-SB_DRAIN_BATCH=1 SB_SCRUB_MIGRATE_MAX_FILES=3 sdrain
-eq "scrub bound: the file cap, not SB_DRAIN_BATCH, sizes a run (3 scrubbed with a batch of 1)" "$(tcount)" "2"
-SB_DRAIN_BATCH=1 sdrain
-[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub bound: the default cap finishes the rest in one run, past a batch of 1" \
-  || no "scrub bound: the default run did not finish the list (left: $(tcount))"
-grep -lF 'sk-ant-' "$BRAIN_DIR"/transcripts/tb*_proj_2026-05-24.txt >/dev/null 2>&1 && no "scrub bound: a key survived the bounded runs" \
-  || ok "scrub bound: every key is scrubbed across the bounded runs"
-
 # D14 (X2 S2): the cap evicted an extracted archive (tombstone .<name>.evicted) and the same
 # session re-created the basename the same day, growing it past the old cursor, before this tick.
 # The tick must extract it from 0, drop the evicted incarnation's row and consume the tombstone.
@@ -800,12 +782,17 @@ grep -qF 'sk-ant-' "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt" &&
   || ok "scrub-migrate: a dream dir's transcript copy is scrubbed before the marker is written"
 rm -rf "$BRAIN_DIR/dreams"
 
-# D18 (0.56.0 integration, item 1): the to-do list names only archives the scrub would change. The
-# bare literals (_SB_SCRUB_LITERALS) also hit every task-/disk- id, so the list named most archives,
-# and each listed one is held out of extraction and recall until its turn. Near-miss archives each
-# hold a bare literal (the old listing named them) and nothing the scrub changes; they are the
-# newest, so the tick's one scrub takes a real-format archive and the list shows what was listed.
+# D18 (0.56.0 integration, items 1 and 2). Item 1: the to-do list names only archives the scrub
+# would change. The bare literals (_SB_SCRUB_LITERALS) also hit every task-/disk- id, so the list
+# named most archives, and each listed one is held out of extraction and recall until its turn.
+# Near-miss archives each hold a bare literal (the old listing named them) and nothing the scrub
+# changes; they are the newest, so the first tick's one scrub takes a real-format archive and the
+# list shows what was listed. Item 2: a scrub is cheap (no LLM call), so a run is bounded by its
+# own file cap (SB_SCRUB_MIGRATE_MAX_FILES, 50) and time bound (SB_SCRUB_MIGRATE_MAX_S, 20 s: no
+# scrub starts past it, one always does), not by SB_DRAIN_BATCH; it stays resumable, and an entry
+# not attempted keeps its attempt count. Three ticks over one fixture set cover both.
 reset; rm -f "$SCAP" "$SMARK" "$STODO"
+tcount() { if [ -f "$STODO" ]; then grep -c . "$STODO" || true; else echo 0; fi; }
 mk_fx() {  # $1 = archive, $2 = line, $3 = touch stamp
   mk_lines "$1" 2; printf '%s\n' "$2" >> "$BRAIN_DIR/transcripts/$1"; touch -t "$3" "$BRAIN_DIR/transcripts/$1"
 }
@@ -821,14 +808,18 @@ mk_fx "rf5_proj_2026-05-24.txt" "key sk-ab$(printf '\342\200\213')$(r4 cD3) end"
 # shellcheck disable=SC2016  # $1 expands inside the child shell
 NM_LIT=$(BRAIN_DIR="$BRAIN_DIR" bash -c '. "$1/lib.sh"; cd "$BRAIN_DIR" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- transcripts/nm*.txt' _ "$SCRIPT_DIR" | grep -c .)
 eq "scrub list: each near-miss archive holds a bare literal (the old listing named it)" "$NM_LIT" "3"
-SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
+SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain                 # tick 1: cap 1 under the default batch of 5
 eq "scrub list: no near-miss archive is listed" "$(grep -c '^transcripts/nm' "$STODO" 2>/dev/null || true)" "0"
-eq "scrub list: every real-format archive but the one scrubbed this tick is listed" \
+eq "scrub list: every real-format archive but the one scrubbed this tick is listed (the cap, not the batch, sizes a run)" \
   "$(grep -c '^transcripts/rf[2-5]_' "$STODO" 2>/dev/null || true)" "4"
 grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/rf1_proj_2026-05-24.txt" && no "scrub list: the first real-format archive was not scrubbed" \
   || ok "scrub list: the tick's scrub took a real-format archive"
-sdrain
-[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub list: the next run completes the migration" || no "scrub list: the migration did not complete (left: $(cat "$STODO" 2>/dev/null))"
+SB_SCRUB_MIGRATE_MAX_S=0 sdrain                     # tick 2: the time bound already passed
+eq "scrub bound: past the time bound no scrub starts, one always does (3 of 4 left)" "$(tcount)" "3"
+eq "scrub bound: the entries not attempted keep 0 attempts" "$(grep -c "$(printf '\t0$')" "$STODO" 2>/dev/null || true)" "3"
+SB_DRAIN_BATCH=1 sdrain                             # tick 3: the default budget, a batch of 1
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub bound: the default cap finishes the rest (3) in one run, past a batch of 1" \
+  || no "scrub bound: the default run did not finish the list (left: $(tcount))"
 eq "scrub list: every real-format archive is redacted" \
   "$( { grep -L '\[redacted:' "$BRAIN_DIR"/transcripts/rf*_proj_2026-05-24.txt 2>/dev/null || true; } | grep -c . || true)" "0"
 
