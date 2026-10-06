@@ -568,7 +568,7 @@ grep -q '^USER: question 7$' "$AL" || fail "lock: the Stop append that arrived d
 grep -qF '[redacted:github]' "$AL" || fail "lock: the scrub's rename did not land"
 grep -q 'ghp_' "$AL" && fail "lock: the second key survived the scrub"
 # a live holder: the append waits (bounded), then fails loud; the archive and the raw cursor stay
-printf '99999\n' > "$LK"
+printf '%s.1\n' "$$" > "$LK"
 A_SUM=$(cksum < "$AL"); : > "$BRAIN_DIR/error-log.jsonl"
 make_transcript "$T" 10
 ( sb_archive_raw_window "$T" proj lk 10 proj--lk ) && fail "lock: an append under a held lock returned 0"
@@ -601,6 +601,87 @@ sb_archive_raw_window "$T" proj lk 10 proj--lk || fail "lock: a stale lock was n
 [ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--lk")" = 10 ] || fail "lock: the append after a stale steal did not advance the cursor"
 [ ! -e "$LK" ] || fail "lock: the stolen lock was not released"
 pass "lock: append and scrub share the per-archive lock; a concurrent append is never lost; held = bounded wait then loud; stale = stolen"
+
+# === fix round (0.56.0) items 3 + B: a lock is stolen only from a holder that is gone (or hung past
+# a hard bound), the steal cannot take a fresh lock, and only the owner releases a lock ===
+# The lock holds "<pid>.<nonce>". The old steal took any lock older than 60 s, a live slow scrub's
+# too, and its rm after the age check could delete a fresh lock; unlock removed whatever was there.
+setup "lock-owner"
+AL="$BRAIN_DIR/transcripts/lo_proj_$(date +%Y-%m-%d).txt"; LK="$BRAIN_DIR/transcripts/.${AL##*/}.lock"
+T="$TMP/lock-owner/t.jsonl"; make_transcript "$T" 4
+_SB_ARCHIVE_LOCK_WAIT_S=1
+# a LIVE holder (this shell) whose lock is months old is not stolen below the hard bound
+printf '%s.1\n' "$$" > "$LK"; touch -t 202601010000 "$LK" || fail "touch -t unavailable"
+_SB_ARCHIVE_LOCK_HUNG_S=999999999; : > "$BRAIN_DIR/error-log.jsonl"
+( sb_archive_transcript "$T" proj lo 1 4 0 ) && fail "lock-owner: the append stole the lock of a live holder"
+[ "$(cat "$LK")" = "$$.1" ] || fail "lock-owner: the live holder's lock was removed or replaced"
+[ ! -e "$AL" ] || fail "lock-owner: the append wrote while a live holder held the lock"
+grep -q 'sb_archive_transcript.*lock' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the refused append was not logged"
+# past the hard bound (10 min by default) a holder that still answers is presumed hung: stolen, loudly
+_SB_ARCHIVE_LOCK_HUNG_S=600; : > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_transcript "$T" proj lo 1 4 0 || fail "lock-owner: a lock held past the hard bound was not stolen"
+grep -q 'stealing' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the hard-bound steal was not logged"
+[ ! -e "$LK" ] || fail "lock-owner: the lock was not released after the steal"
+# a holder that is gone: stolen once the lock is past the stale age (60 s)
+( : ) & DEADPID=$!; wait "$DEADPID"
+printf '%s.7\n' "$DEADPID" > "$LK"; touch -t 202601010000 "$LK"
+_SB_ARCHIVE_LOCK_HUNG_S=999999999; : > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_transcript "$T" proj lo 1 4 0 || fail "lock-owner: the lock of a holder that is gone was not stolen"
+grep -q 'not running' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the dead-holder steal was not logged as such"
+# rename-then-verify: a fresh lock that replaced the stale one between the age check and the steal
+# is put back, never deleted, and the writer keeps waiting (then fails, bounded)
+printf '%s.7\n' "$DEADPID" > "$LK"; touch -t 202601010000 "$LK"; : > "$BRAIN_DIR/error-log.jsonl"
+( mv() { case " $* " in *" $LK "*) printf 'fresh.9\n' > "$LK" ;; esac; command mv "$@"; }
+  sb_archive_transcript "$T" proj lo 1 4 0 ) && fail "lock-owner: the writer proceeded after taking a FRESH lock by mistake"
+[ "$(cat "$LK" 2>/dev/null)" = "fresh.9" ] || fail "lock-owner: the fresh lock taken by mistake was not put back ($(cat "$LK" 2>/dev/null || echo gone))"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '*steal*')" ] || fail "lock-owner: a steal scratch name was left behind"
+# unlock only your own: a lock that is no longer ours (stolen and re-taken) stays, and that is logged
+sb_archive_lock "$AL" t-unlock 2>/dev/null && fail "lock-owner: the fresh lock was taken over"
+rm -f "$LK"
+sb_archive_lock "$AL" t-unlock || fail "lock-owner: a free lock was not taken"
+MYTOK="$_SB_ARCHIVE_LOCK_TOKEN"
+case "$(cat "$LK")" in "${BASHPID:-$$}".?*) ;; *) fail "lock-owner: the lock does not hold <pid>.<nonce> ($(cat "$LK"))" ;; esac
+[ "$(cat "$LK")" = "$MYTOK" ] || fail "lock-owner: the token handed back is not the one in the lock"
+printf 'other.2\n' > "$LK"; : > "$BRAIN_DIR/error-log.jsonl"
+sb_archive_unlock "$AL" "$MYTOK" && fail "lock-owner: releasing a lock that is no longer ours returned 0"
+[ "$(cat "$LK")" = "other.2" ] || fail "lock-owner: unlock removed another writer's lock"
+grep -q 'no longer ours' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: the foreign unlock was not logged"
+rm -f "$LK"
+# own lock: released; a release whose rm fails is logged
+sb_archive_lock "$AL" t-unlock && sb_archive_unlock "$AL" "$_SB_ARCHIVE_LOCK_TOKEN" || fail "lock-owner: releasing our own lock failed"
+[ ! -e "$LK" ] || fail "lock-owner: our own lock was not removed"
+sb_archive_lock "$AL" t-unlock || fail "lock-owner: the lock could not be retaken"
+: > "$BRAIN_DIR/error-log.jsonl"
+( rm() { return 1; }; sb_archive_unlock "$AL" "$_SB_ARCHIVE_LOCK_TOKEN" ) && fail "lock-owner: a failed release returned 0"
+grep -q 'cannot remove' "$BRAIN_DIR/error-log.jsonl" || fail "lock-owner: a failed release was not logged"
+sb_archive_unlock "$AL" "$_SB_ARCHIVE_LOCK_TOKEN" || fail "lock-owner: the retried release failed"
+_SB_ARCHIVE_LOCK_WAIT_S=5; _SB_ARCHIVE_LOCK_HUNG_S=600
+pass "lock: <pid>.<nonce> owner token; a live holder is not stolen below the hard bound; a gone one is; rename-then-verify keeps a fresh lock; only the owner releases (failures logged)"
+
+# === fix round (0.56.0) item 2: one lock hold covers read cursor -> render -> append -> write cursor ===
+# Two hooks of one session (Stop + PreCompact) both read raw_line 0, both archived the window, and
+# the later cursor write could regress the earlier one. The first hook is held inside its render
+# (a ready file says it got there); the second starts then and must find the window archived. The
+# first hook is its own bash process, as a real hook is (a subshell shares $$ with this shell).
+setup "raw-race"
+T="$TMP/raw-race/t.jsonl"; make_transcript "$T" 6
+A="$BRAIN_DIR/transcripts/r1_proj_$(date +%Y-%m-%d).txt"; RDY="$TMP/raw-race/ready"
+cat > "$TMP/raw-race/first.sh" <<EOF
+source "$REPO_ROOT/scripts/lib.sh"
+eval "\$(declare -f sb_archive_transcript | sed '1s/sb_archive_transcript/_sb_real_archive/')"
+sb_archive_transcript() { : > "$RDY"; sleep 2; _sb_real_archive "\$@"; }
+sb_archive_raw_window "$T" proj r1 6 proj--r1
+EOF
+bash "$TMP/raw-race/first.sh" &
+RR_BG=$!; i=0
+while [ ! -e "$RDY" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$RDY" ] || { kill "$RR_BG" 2>/dev/null; fail "raw-race: the first hook never reached its render"; }
+sb_archive_raw_window "$T" proj r1 6 proj--r1 || fail "raw-race: the second hook returned non-zero"
+wait "$RR_BG" || fail "raw-race: the first hook returned non-zero"
+[ "$(acount "$A" '^USER: question 1$')" -eq 1 ] || fail "raw-race: two concurrent hooks archived the same window $(acount "$A" '^USER: question 1$') times"
+[ "$(cut -f1 "$BRAIN_DIR/.last-archived-line-proj--r1")" = 6 ] || fail "raw-race: the cursor is not 6"
+[ -z "$(find "$BRAIN_DIR/transcripts" -name '.*.lock')" ] || fail "raw-race: a lock was left behind"
+pass "raw-window: a concurrent hook waits for the cursor lock and finds the window archived (no double archive)"
 
 # === R2 (0.56.0) archive-first: sb_archive_transcript (checked) + sb_archive_raw_window (cursor) ===
 setup "archive-checked"

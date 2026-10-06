@@ -1597,35 +1597,69 @@ sb_sanitize_slug() {
   printf '%s' "$clean"
 }
 
-# --- Per-archive lock (0.56.0, R2-F#3) ---
+# --- Per-archive lock (0.56.0, R2-F#3; ownership + liveness: fix round items 3/B) ---
 # The Stop/PreCompact append (sb_archive_transcript) and the in-place scrub (sb_scrub_archive_file)
 # both rewrite an archive. Without a shared lock, an append that landed between the scrub's size
 # re-check and its rename was renamed away: lost. The lock is a noclobber-created file
-# transcripts/.<basename>.lock holding the owner's pid (O_EXCL create: atomic; dot-named and not
-# ending in .txt, so no archive reader sees it). Taking it is builtins only, so the uncontended
-# Stop path pays one `rm` to release it. Contended: poll every 0.1 s for about 5 s, then fail loud
-# and return 1 (the caller retries later: an append's raw_line cursor does not advance, a scrub
-# stays in the migration todo). A lock older than 60 s is stolen: its holder died mid-write (the
-# legitimate hold is milliseconds for an append, seconds for a scrub). Two writers that steal the
-# SAME dead lock in the same instant can both proceed; that needs a crash plus two simultaneous
-# waiters, and the drain lock accepts the same residue.
+# transcripts/.<basename>.lock (O_EXCL create: atomic; dot-named and not ending in .txt, so no
+# archive reader sees it; extract-drain.sh sweeps `.*.txt.lock` older than a day). It holds the
+# owner token `<pid>.<nonce>` (pid = ${BASHPID:-$$}); sb_archive_lock leaves that token in
+# _SB_ARCHIVE_LOCK_TOKEN and the caller hands it back to sb_archive_unlock, which removes the lock
+# only while it still holds that token (a stolen and re-taken lock is someone else's) and logs a
+# release it could not do. sb_archive_raw_window also takes one for its raw_line cursor (a pseudo
+# archive name, transcripts/cursor-<key>.txt), always BEFORE the archive lock, never inside it,
+# and the scrub takes only the archive lock: no lock-order cycle.
+# Taking it is builtins only. Contended: poll every 0.1 s for about _SB_ARCHIVE_LOCK_WAIT_S, then
+# fail loud and return 1 (the caller retries later: an append's raw_line cursor does not advance,
+# a scrub stays in the migration todo). A lock is stolen only when it is older than
+# _SB_ARCHIVE_LOCK_STALE_S and its holder pid is gone (`kill -0` fails), or older than
+# _SB_ARCHIVE_LOCK_HUNG_S whatever the pid says (a reused pid, or a holder hung for good; the
+# legitimate hold is milliseconds for an append, seconds for a scrub). A live slow holder is
+# waited for, never stolen below that bound. A holder under another MSYS runtime may not answer
+# `kill -0`: it then counts as gone after the stale age, as every holder did before. The steal
+# renames the lock to a unique name and checks it took the token it judged stale: a fresh lock
+# that replaced it in between is put back (noclobber) instead of deleted. On bash 3.2 (no
+# BASHPID) two subshells of one process share the pid part of the token; the nonce separates
+# them unless $RANDOM repeats, which only same-process subshells contending one lock could hit.
 _SB_ARCHIVE_LOCK_WAIT_S=5
 _SB_ARCHIVE_LOCK_STALE_S=60
+_SB_ARCHIVE_LOCK_HUNG_S=600
+_SB_ARCHIVE_LOCK_TOKEN=""
 # One noclobber create attempt; noclobber is on for this redirect only (a caller's own setting is
 # restored, and nothing else runs under it: log rotation rewrites files with `>`).
-_sb_archive_lock_try() {  # $1 = lock path
+_sb_archive_lock_try() {  # $1 = lock path, $2 = owner token
   local r had=""
   case "$-" in *C*) had=1 ;; esac
   set -C
-  { printf '%s\n' "$$" > "$1"; } 2>/dev/null; r=$?
+  { printf '%s\n' "$2" > "$1"; } 2>/dev/null; r=$?
   [ -n "$had" ] || set +C
   return "$r"
 }
+# Steal the lock at $1 that held token $2 when it was judged stale: rename, then verify. 0 = the
+# stale lock is gone (the caller retries its create); 1 = nothing stolen.
+_sb_archive_lock_steal() {  # $1 = lock path, $2 = judged token, $3 = caller, $4 = why
+  local lf="$1" judged="$2" who="$3" grab got=""
+  grab="${lf%/*}/.steal-${BASHPID:-$$}-$RANDOM${lf##*/}"
+  mv -f "$lf" "$grab" 2>/dev/null || return 1   # gone already (released, or another stealer won)
+  IFS= read -r got < "$grab" 2>/dev/null; got="${got%$'\r'}"
+  if [ "$got" != "$judged" ]; then
+    # A fresh lock replaced the stale one between the age check and the rename: put it back.
+    if ! _sb_archive_lock_try "$lf" "$got"; then
+      sb_log_error "lib.sh" "$who: took a fresh archive lock by mistake (holder $got) and could not put it back (taken meanwhile); two writers may overlap on ${lf##*/}" 1
+    fi
+    rm -f "$grab" 2>/dev/null
+    return 1
+  fi
+  rm -f "$grab" 2>/dev/null || sb_log_error "lib.sh" "$who: cannot remove the stolen lock copy $grab" 1
+  sb_log_error "lib.sh" "$who: stealing a stale archive lock ($4, holder ${judged:-?}) on ${lf##*/}" 1
+  return 0
+}
 sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
-  local f="$1" who="${2:-lib.sh}" lf tries=0 nofile=0 end="" mt now
+  local f="$1" who="${2:-lib.sh}" lf tries=0 nofile=0 end="" mt now age holder hpid token
   case "$f" in */*) ;; *) f="./$f" ;; esac
   lf="${f%/*}/.${f##*/}.lock"
-  until _sb_archive_lock_try "$lf"; do
+  token="${BASHPID:-$$}.$RANDOM$RANDOM"
+  until _sb_archive_lock_try "$lf" "$token"; do
     tries=$((tries + 1))
     [ -n "$end" ] || end=$((SECONDS + _SB_ARCHIVE_LOCK_WAIT_S))
     if [ -e "$lf" ]; then
@@ -1633,10 +1667,16 @@ sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
       if [ $((tries % 10)) -eq 1 ]; then   # stale check: on first contention, then about once a second
         mt=$(sb_mtime "$lf"); now=$(date +%s)
         case "$mt" in ''|0|*[!0-9]*) continue ;; esac   # released meanwhile: just retry
-        if [ $((now - mt)) -gt "$_SB_ARCHIVE_LOCK_STALE_S" ]; then
-          sb_log_error "lib.sh" "$who: stealing a stale archive lock ($((now - mt)) s old, holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')) on ${f##*/}" 1
-          rm -f "$lf" 2>/dev/null
-          continue
+        age=$((now - mt))
+        if [ "$age" -gt "$_SB_ARCHIVE_LOCK_STALE_S" ]; then
+          holder=""; IFS= read -r holder < "$lf" 2>/dev/null; holder="${holder%$'\r'}"
+          hpid="${holder%%.*}"
+          case "$hpid" in ''|*[!0-9]*) hpid="" ;; esac
+          if [ -z "$hpid" ] || ! kill -0 "$hpid" 2>/dev/null; then
+            _sb_archive_lock_steal "$lf" "$holder" "$who" "$age s old, holder not running" && continue
+          elif [ "$age" -gt "$_SB_ARCHIVE_LOCK_HUNG_S" ]; then
+            _sb_archive_lock_steal "$lf" "$holder" "$who" "$age s old, past the ${_SB_ARCHIVE_LOCK_HUNG_S} s hard bound although pid $hpid answers" && continue
+          fi
         fi
       fi
     elif [ "$((nofile += 1))" -ge 3 ]; then   # the create keeps failing with no lock there
@@ -1649,12 +1689,23 @@ sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
     fi
     [ -e "$lf" ] && sleep 0.1
   done
+  _SB_ARCHIVE_LOCK_TOKEN="$token"
   return 0
 }
-sb_archive_unlock() {
-  local f="$1"
+sb_archive_unlock() {  # $1 = archive path, $2 = owner token (default: the last sb_archive_lock's)
+  local f="$1" token="${2:-$_SB_ARCHIVE_LOCK_TOKEN}" lf held=""
   case "$f" in */*) ;; *) f="./$f" ;; esac
-  rm -f "${f%/*}/.${f##*/}.lock" 2>/dev/null
+  lf="${f%/*}/.${f##*/}.lock"
+  IFS= read -r held < "$lf" 2>/dev/null; held="${held%$'\r'}"
+  if [ -z "$token" ] || [ "$held" != "$token" ]; then
+    sb_log_error "lib.sh" "sb_archive_unlock: the archive lock on ${f##*/} is no longer ours (ours ${token:-none}, now ${held:-none}: stolen while held); left as it is" 1
+    return 1
+  fi
+  if ! rm -f "$lf" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_unlock: cannot remove our archive lock $lf; writers wait for it until it is stolen as stale" 1
+    return 1
+  fi
+  return 0
 }
 
 # --- Secret scrub (0.56.0, R2#3) ---
@@ -1809,8 +1860,9 @@ sb_scrub_archive_file() {
     return 1
   fi
   sb_archive_lock "$f" sb_scrub_archive_file || return 1
+  local tok="$_SB_ARCHIVE_LOCK_TOKEN"
   _sb_scrub_archive_locked "$f"; rc=$?
-  sb_archive_unlock "$f"
+  sb_archive_unlock "$f" "$tok"
   return "$rc"
 }
 _sb_scrub_archive_locked() {  # sb_scrub_archive_file's body; the caller holds the archive lock
@@ -1929,7 +1981,7 @@ sb_archive_transcript() {
   date_str=$(date +%Y-%m-%d)
   local archive_file="$archive_dir/${session_id}_${slug}_${date_str}.txt"
   # Scratch files end in .part: invisible to every *.txt reader, swept when a killed hook leaves them.
-  local stage="$archive_dir/.stage-${session_id}-$$.part" errf="$archive_dir/.stage-${session_id}-$$.err.part"
+  local stage="$archive_dir/.stage-${session_id}-${BASHPID:-$$}.part" errf="$archive_dir/.stage-${session_id}-${BASHPID:-$$}.err.part"
 
   sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | sb_preprocess_transcript "$errf" > "$stage"
   local ps="${PIPESTATUS[*]}" skipped
@@ -1974,10 +2026,10 @@ sb_archive_transcript() {
     rm -f "$stage" "$errf" 2>/dev/null
     return 1
   fi
-  local rc=0
+  local rc=0 tok="$_SB_ARCHIVE_LOCK_TOKEN"
   _sb_archive_append_locked "$archive_file" "$stage" "$slug" "$session_id" "$date_str" \
     "$start_line" "$end_line" "$tool_count" || rc=1
-  sb_archive_unlock "$archive_file"
+  sb_archive_unlock "$archive_file" "$tok"
   rm -f "$stage" "$errf" 2>/dev/null
   [ "$rc" -eq 0 ] || return 1
   sb_prune_transcripts
@@ -2031,16 +2083,33 @@ _sb_archive_append_locked() {
 # transcript was replaced or shrank): 0. The window ends at the last COMPLETE raw line (newline
 # count, at most TOTAL): Stop can read the transcript while its last record is half flushed, and
 # a cursor past that line would skip the record for good; it is archived whole by the next hook.
-# The cursor advances only after a checked append.
+# The cursor advances only after a checked append. Reading the cursor, rendering, appending and
+# writing the cursor run under ONE hold of the session's cursor lock (sb_archive_lock on the
+# pseudo archive transcripts/cursor-<MARKER_KEY>.txt): a Stop and a PreCompact of one session
+# that both read the same raw_line archived the window twice, and the later cursor write could
+# regress the earlier one. The archive lock is taken inside it (sb_archive_transcript).
 # Returns 0 when archived or there is nothing to do, 1 on a failure (already logged).
 sb_archive_raw_window() {
-  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5"
-  local cursor_file raw_line="" saved_path="" tpath raw_end
+  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5" lock_path tok rc
   case "$total" in ''|*[!0-9]*)
     sb_log_error "lib.sh" "sb_archive_raw_window: transcript line count '$total' is not a number; nothing archived (session=$session_id)" 1
     return 1 ;;
   esac
   [ -n "$key" ] || key=$(sb_extraction_marker_key "$slug" "$session_id")
+  if [ ! -d "$BRAIN_DIR/transcripts" ] && ! mkdir -p "$BRAIN_DIR/transcripts" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot create $BRAIN_DIR/transcripts; nothing archived (session=$session_id)" 1
+    return 1
+  fi
+  lock_path="$BRAIN_DIR/transcripts/cursor-$key.txt"
+  sb_archive_lock "$lock_path" sb_archive_raw_window || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  _sb_archive_raw_window_locked "$transcript" "$slug" "$session_id" "$total" "$key"; rc=$?
+  sb_archive_unlock "$lock_path" "$tok"
+  return "$rc"
+}
+_sb_archive_raw_window_locked() {  # sb_archive_raw_window's body; the caller holds the cursor lock
+  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5"
+  local cursor_file raw_line="" saved_path="" tpath raw_end
   cursor_file="$BRAIN_DIR/.last-archived-line-$key"
   tpath=$(sb_normalize_path "$transcript")
   [ -f "$cursor_file" ] && IFS=$'\t' read -r raw_line saved_path < "$cursor_file"
