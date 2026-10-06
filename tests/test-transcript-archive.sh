@@ -123,7 +123,11 @@ COUNT=$(find "$D" -name '*.txt' -type f | wc -l | tr -d ' ')
 grep -q "UN-EXTRACTED" "$BRAIN_DIR/error-log.jsonl" || fail "default hard-cap eviction of un-mined transcripts was silent"
 setup "subagent-subcap-default"
 D="$BRAIN_DIR/transcripts"
-i=1; while [ "$i" -le 205 ]; do printf -v n '%03d' "$i"; printf 'r\n' > "$D/sub-agent${n}_proj_2026-07-02.txt"; i=$((i + 1)); done
+# X2 S4: the sub-cap evicts by cursor state like the main cap, so the 205 fixture subs are marked
+# EXTRACTED (an un-mined sub is protected up to 3x the sub-cap; test-extraction-helpers.sh covers it).
+i=1; while [ "$i" -le 205 ]; do printf -v n '%03d' "$i"; printf 'r\n' > "$D/sub-agent${n}_proj_2026-07-02.txt"
+  printf '{"basename":"sub-agent%s_proj_2026-07-02.txt","ts":"2026-07-02T00:00:00Z","outcome":"ok","from":0,"lines":1}\n' "$n" >> "$BRAIN_DIR/.extraction-state.jsonl"
+  i=$((i + 1)); done
 sb_archive_subagent_result agentnew general-purpose proj sess 1 "final answer" || fail "subagent archive write failed"
 SUBS=$(find "$D" -name 'sub-*.txt' -type f | wc -l | tr -d ' ')
 [ "$SUBS" -eq 200 ] || fail "the subagent sub-cap should default to 200 (proportional to the 400 cap), got $SUBS"

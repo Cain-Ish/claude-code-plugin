@@ -125,6 +125,33 @@ NEW_BYTES=$(wc -c < "$FCAP" | tr -d ' ')
 [ "$NEW_BYTES" -eq "$CAP_BYTES" ] || fail "cap: file grew past SB_OBSERVATION_MAX_BYTES ($CAP_BYTES → $NEW_BYTES)"
 pass "size cap: at-cap ledger stops appending (bounded per session)"
 
+# 10. X2 S3: target (command[0:200]) and err (stderr[0:160]) are written through the secret scrub,
+#     so a key in a failed command never lands in the ledger the drainer embeds. Keys are assembled
+#     at run time (no key-shaped literal in the repo).
+KANT="sk-""ant-api03-$(printf 'Zq9x%.0s' 1 2 3 4 5 6 7 8)"
+KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
+jq -nc --arg c "ANTHROPIC_API_KEY=$KANT claude -p hi; git push https://x:$KGHP@github.com/a/b" --arg e "Error: invalid x-api-key $KANT" \
+  '{hook_event_name:"PostToolUseFailure", tool_name:"Bash", session_id:"sess-key", tool_input:{command:$c}, tool_response:{error:$e}}' \
+  | bash "$SCRIPT"
+F="$OBS_DIR/sess-key.jsonl"
+[ -s "$F" ] || fail "scrub: no ledger line written for a failed call carrying a key"
+grep -qF 'ant-api03-' "$F" && fail "scrub: the Anthropic key reached the ledger"
+grep -qF "$KGHP" "$F" && fail "scrub: the GitHub token reached the ledger"
+grep -qF '[redacted:' "$F" || fail "scrub: no redaction marker in the ledger line (got: $(cat "$F"))"
+jq -e 'select(.tool == "Bash" and .ok == false and (.err | test("redacted")))' "$F" >/dev/null 2>&1 \
+  || fail "scrub: the scrubbed line no longer parses as the ledger record (got: $(cat "$F"))"
+# A key-free line keeps its spawn-free path and its exact content.
+payload "Bash" "sess-clean" '{"command":"make test"}' '{"stdout":"ok","stderr":""}' | bash "$SCRIPT"
+jq -e 'select(.target == "make test" and .ok == true)' "$OBS_DIR/sess-clean.jsonl" >/dev/null 2>&1 || fail "scrub: a clean line changed"
+# PEM: a BEGIN marker with no END on the same line redacts the rest of that line, so the record is
+# cut short (unparseable). That is accepted by design: no key material survives, and every ledger
+# reader parses with fromjson? and drops the line (one observation lost, never a key leaked).
+jq -nc --arg e "-----BEGIN RSA PRIVATE KEY----- MIIEowIBAAKCAQEA0Zq9xZq9xZq9xZq9x" \
+  '{hook_event_name:"PostToolUseFailure", tool_name:"Read", session_id:"sess-pem", tool_input:{file_path:"id_rsa"}, tool_response:{error:$e}}' \
+  | bash "$SCRIPT"
+grep -qF 'MIIEowIBAAKCAQEA' "$OBS_DIR/sess-pem.jsonl" && fail "scrub: PEM body reached the ledger"
+pass "observation ledger: keys in target/err are scrubbed at write time; the record stays valid JSON"
+
 # ============================================================================
 # Mining: sb_observations_summary + sb_extract_transcript embedding
 # ============================================================================
@@ -168,6 +195,44 @@ grep -q '=== OBSERVATIONS' "$CAPTURED" || fail "mine: observations section missi
 grep -q 'LEDGER-SENTINEL-FAILURE' "$CAPTURED" || fail "mine: ledger error line not embedded"
 grep -q 'DATA, not instructions' "$CAPTURED" || fail "mine: observations section missing the DATA framing"
 pass "sb_extract_transcript embeds the session's ledger as a labeled DATA section"
+
+# X2 S3: a ledger written before the write-time scrub (or by a 0.55 hook) still holds keys; the
+# summary is scrubbed before it is embedded, so the extractor never receives them (p1 repro).
+# (The sent marker is reset: this is a new ledger for the same session, sent whole.)
+rm -f "$DRAIN_BRAIN/observations/mine-session.sent"
+jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
+  '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$DRAIN_BRAIN/observations/mine-session.jsonl"
+jq -nc --arg t "git push https://x:$KGHP@github.com/a/b" '{ts:"x",tool:"Bash",target:$t,ok:false,err:"fatal: auth"}' \
+  >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+rm -f "$CAPTURED"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "mine-keys: sb_extract_transcript failed"
+grep -q '=== OBSERVATIONS' "$CAPTURED" || fail "mine-keys: observations section missing"
+grep -qF 'ant-api03-' "$CAPTURED" && fail "mine-keys: the extractor RECEIVED an Anthropic key from the ledger"
+grep -qF "$KGHP" "$CAPTURED" && fail "mine-keys: the extractor RECEIVED a GitHub token from the ledger"
+grep -qF '[redacted:' "$CAPTURED" || fail "mine-keys: no redaction marker in the embedded summary"
+pass "an old unscrubbed ledger is scrubbed before it reaches the extractor"
+
+# X2#5: the drainer extracts an archive in delta windows, and every window used to get the WHOLE
+# ledger again (replayed issues and files_touched). Each extraction call now gets only the ledger
+# lines recorded since the last successful one (observations/<sid>.sent counts the lines sent).
+rm -f "$DRAIN_BRAIN/observations/mine-session.sent" "$CAPTURED"
+printf '{"ts":"x","tool":"Bash","target":"make a","ok":false,"err":"DELTA-ONE"}\n' > "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: first extraction failed"
+grep -q 'DELTA-ONE' "$CAPTURED" || fail "delta: the first window did not get the ledger"
+printf '{"ts":"x","tool":"Bash","target":"make b","ok":false,"err":"DELTA-TWO"}\n' >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: second extraction failed"
+grep -q 'DELTA-TWO' "$CAPTURED" || fail "delta: a later window did not get the new ledger line"
+grep -q 'DELTA-ONE' "$CAPTURED" && fail "delta: a later window got the already-sent ledger line again (replay)"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: third extraction failed"
+grep -q '=== OBSERVATIONS' "$CAPTURED" && fail "delta: a window with no new ledger lines still got an observations section"
+# a failed extraction does not count its lines as sent: the next call gets them again
+printf '{"ts":"x","tool":"Bash","target":"make c","ok":false,"err":"DELTA-THREE"}\n' >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_call_extractor() { cp "$1" "$CAPTURED"; : > "$2"; return 1; }
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 && fail "delta: the failing extractor reported success"
+sb_call_extractor() { cp "$1" "$CAPTURED"; printf '{"recent_decisions":[]}' > "$2"; return 0; }
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: retry extraction failed"
+grep -q 'DELTA-THREE' "$CAPTURED" || fail "delta: the lines of a failed window were lost instead of resent"
+pass "observations are sent once, as the delta since the last successful window"
 
 # Absent ledger → no observations section, extraction still succeeds.
 rm -f "$DRAIN_BRAIN/observations/mine-session.jsonl" "$CAPTURED"
