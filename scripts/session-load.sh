@@ -1346,9 +1346,9 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
   _cap_txt=( "$BRAIN_DIR/transcripts"/*.txt )
   CAP_N=0; { [ -e "${_cap_txt[0]}" ] || [ -L "${_cap_txt[0]}" ]; } && CAP_N=${#_cap_txt[@]}
   if [ "${CAP_N:-0}" -gt 0 ]; then
-    # "extracted" = archives fully extracted or with some lines extracted (cursor > 0): a live
-    # archive that grew since its last window still counts, so the nag below never fires on a
-    # working drainer between two ticks.
+    # "extracted" = archives with extraction evidence (SB_DM_EXTRACTED): a live archive that grew
+    # since its last window still counts, so the nag below never fires on a working drainer
+    # between two ticks, nor on a fresh upgrade before the first tick migrates legacy rows.
     _sl_drain_counts; CAP_DONE=$SB_DM_EXTRACTED
     # Per-OS scheduler probe (else it false-alarms "no timer" off Linux).
     CAP_TIMER=no

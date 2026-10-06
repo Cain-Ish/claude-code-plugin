@@ -300,7 +300,7 @@ eq "map: absent transcripts dir -> empty, rc 0" "$(sb_drain_cursor_map "$MS" "$S
 
 sb_drain_map_counts "$MAP"
 eq "counts: total/done/pending/dead" "$SB_DM_TOTAL $SB_DM_DONE $SB_DM_PENDING $SB_DM_DEAD" "9 1 6 2"
-eq "counts: extracted = archives with cursor > 0 (a, b, e)" "$SB_DM_EXTRACTED" "3"
+eq "counts: extracted = cursor > 0 (a, b, e) + unmigrated legacy ok (g)" "$SB_DM_EXTRACTED" "4"
 eq "counts: oldest pending mtime = g (first pending row)" "$SB_DM_OLDEST_PENDING_MTIME" "$G_MT"
 eq "dead letters come from the cursor map (e region + legacy i)" "$(sb_count_drain_dead_letters "$MS" "$MT")" "2"
 
@@ -382,6 +382,8 @@ for lf in "$LOCK_ROOT"/scripts/*.sh "$LOCK_ROOT"/.claude/skills/*/scripts/*.sh $
   while IFS= read -r h; do
     [ -n "$h" ] || continue
     [ "$rel:${h#*:}" = "$LOCK_ALLOW" ] && continue
+    hl="${h#*:}"; hl="${hl#"${hl%%[![:space:]]*}"}"
+    case "$hl" in '#'*|'//'*|'*'*) continue ;; esac   # a comment naming the old reader is not one
     LOCK_HITS="$LOCK_HITS$rel:$h"$'\n'
   done <<< "$hits"
 done

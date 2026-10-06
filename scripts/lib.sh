@@ -2873,17 +2873,22 @@ sb_drain_cursor_map() {
 }
 
 # sb_drain_map_counts MAP: totals over one sb_drain_cursor_map output, builtins only. Sets
-# SB_DM_TOTAL SB_DM_DONE SB_DM_PENDING SB_DM_DEAD, SB_DM_EXTRACTED (archives with any extracted
-# line: cursor > 0) and SB_DM_OLDEST_PENDING_MTIME (0 = nothing pending; the map is oldest-first,
-# so the first pending row is the oldest).
+# SB_DM_TOTAL SB_DM_DONE SB_DM_PENDING SB_DM_DEAD, SB_DM_EXTRACTED and SB_DM_OLDEST_PENDING_MTIME
+# (0 = nothing pending; the map is oldest-first, so the first pending row is the oldest).
+# SB_DM_EXTRACTED = archives with extraction evidence: some line extracted (cursor > 0), nothing
+# left to extract (done), or an unmigrated legacy ok row (flag baseline) — so a fresh upgrade
+# does not read as "nothing ever extracted" before the drainer's first tick migrates it.
 sb_drain_map_counts() {
   SB_DM_TOTAL=0; SB_DM_DONE=0; SB_DM_PENDING=0; SB_DM_DEAD=0; SB_DM_EXTRACTED=0
   SB_DM_OLDEST_PENDING_MTIME=0
-  local b c n s nx f mt fl
+  local b c n s nx f mt fl x
   while IFS=$'\t' read -r b c n s nx f mt fl; do
     [ -n "$b" ] || continue
     SB_DM_TOTAL=$((SB_DM_TOTAL + 1))
-    case "$c" in ''|0|*[!0-9]*) ;; *) SB_DM_EXTRACTED=$((SB_DM_EXTRACTED + 1)) ;; esac
+    x=0
+    case "$c" in ''|0|*[!0-9]*) ;; *) x=1 ;; esac
+    case "$s/$fl" in done/*|*/baseline) x=1 ;; esac
+    [ "$x" -eq 0 ] || SB_DM_EXTRACTED=$((SB_DM_EXTRACTED + 1))
     case "$s" in
       done) SB_DM_DONE=$((SB_DM_DONE + 1)) ;;
       dead) SB_DM_DEAD=$((SB_DM_DEAD + 1)) ;;
