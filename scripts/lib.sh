@@ -2337,14 +2337,19 @@ sb_prune_transcripts() {
   fi
   [ "${#vn[@]}" -gt 0 ] || return 0
 
-  # Lock each victim without waiting (_sb_archive_lock_try: one O_EXCL create, builtins only).
-  local i lf held=0
+  # Lock each victim without waiting (_sb_archive_lock_try: one O_EXCL create, builtins only). A
+  # failed try with the lock file present = a writer holds it; with none = it cannot be created
+  # (an unwritable directory would otherwise skip every victim forever, with no error row).
+  local i lf held=0 nolock=0
   local -a li=() lk=() lnm=()
   for i in "${!vn[@]}"; do
     lf="$archive_dir/.${vn[$i]}.lock"
-    if _sb_archive_lock_try "$lf"; then li+=("$i"); lk+=("$lf"); lnm+=("${vn[$i]}"); else held=$((held + 1)); fi
+    if _sb_archive_lock_try "$lf"; then li+=("$i"); lk+=("$lf"); lnm+=("${vn[$i]}")
+    elif [ -e "$lf" ]; then held=$((held + 1))
+    else nolock=$((nolock + 1)); fi
   done
   [ "$held" -eq 0 ] || sb_log_error "lib.sh" "gate=transcript-cap ${held} archive(s) to evict are locked by a writer; skipped this round" 0
+  [ "$nolock" -eq 0 ] || sb_log_error "lib.sh" "sb_prune_transcripts: cannot create the archive lock for ${nolock} archive(s) to evict in $archive_dir (directory unwritable?); not evicted, the archive stays over its cap" 1
   [ "${#li[@]}" -gt 0 ] || return 0
 
   # Re-check under the locks: ONE wc -l. A line count that moved since the snapshot (an append

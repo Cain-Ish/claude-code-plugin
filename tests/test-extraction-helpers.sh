@@ -2,6 +2,8 @@
 # Tests for the lib.sh extraction helpers
 # run-all-timeout: 360   (11 real extract->gate->merge passes; one pass is ~12s on the MSYS dev box; measured 91-164s)
 # pins: SB_EXTRACT_MAX_BYTES — set per call to force 2 forward chunks on a small fixture (the chunking IS the behavior under test)
+# pins: SB_TRANSCRIPT_CAP — the X2 S1/S2 eviction cases cap at 3 so a 4-archive fixture is over the cap
+# pins: SB_SUBAGENT_ARCHIVE_CAP — the X2 S4 cases cap the subagent archives at 2 (soft) / 6 (hard) to exercise both passes
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # shellcheck disable=SC2317  # sb_call_extractor is overridden as a stub; reached indirectly via sb_extract_transcript
 set -euo pipefail
@@ -465,15 +467,20 @@ pfour() {  # A (done, oldest) + three newer pending archives: one over a cap of 
   pmk sA.txt 10 202610010000; pok sA.txt 10
   pmk o1.txt 2 202610020000; pmk o2.txt 2 202610020001; pmk o3.txt 2 202610020002
 }
-# S2: eviction leaves a tombstone; the re-created archive restarts at 0 even past the old cursor
-preset; pfour
+# S2: eviction leaves a tombstone; the re-created archive restarts at 0 even past the old cursor.
+# The evicted incarnation also holds a dead window (an error row: compaction keeps every one), so
+# only the tombstone filter can drop its rows.
+preset; pmk sA.txt 12 202610010000; pok sA.txt 10
+printf '{"basename":"sA.txt","ts":"2026-10-01T00:00:00Z","outcome":"error","from":10,"lines":12,"fails":3}\n' >> "$PS"
+pmk o1.txt 2 202610020000; pmk o2.txt 2 202610020001; pmk o3.txt 2 202610020002
 ( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts )
 [ ! -e "$PT/sA.txt" ] && [ -f "$PT/.sA.txt.evicted" ] && ok "tombstone: the evicted archive leaves .<name>.evicted" \
   || no "tombstone: missing after eviction ($(ls -a "$PT" | tr '\n' ' '))"
 pmk sA.txt 15 202610030000                            # same basename, re-created, grew past cursor 10
-eq "tombstone: a re-created archive restarts at 0 (cursor state next)" "$(pmap sA.txt 2) $(pmap sA.txt 4) $(pmap sA.txt 5)" "0 pending 0"
-pok sA.txt 15 2099-01-01T00:00:00Z                    # the new incarnation's own row (after the tombstone)
-eq "tombstone: rows written after the eviction count" "$(pmap sA.txt 2) $(pmap sA.txt 4)" "15 done"
+eq "tombstone: a re-created archive restarts at 0 (cursor state next dead)" \
+  "$(pmap sA.txt 2) $(pmap sA.txt 4) $(pmap sA.txt 5) $(pmap sA.txt 9)" "0 pending 0 0"
+pok sA.txt 5 2099-01-01T00:00:00Z                     # the new incarnation's first window (after the tombstone)
+eq "tombstone: rows written after the eviction count" "$(pmap sA.txt 2) $(pmap sA.txt 4)" "5 pending"
 TM0=$(BRAIN_DIR="$PB" sb_drain_cursor_map "$PS" "$PT")
 ( BRAIN_DIR="$PB" sb_compact_done_set "$PS" "$PT" ) || no "tombstone: compaction failed"
 grep -q '"ts":"2026-10-01T00:00:00Z"' "$PS" && no "tombstone: compaction kept the stale row" || ok "tombstone: compaction drops the pre-eviction rows"
@@ -497,6 +504,10 @@ preset; pfour; printf '99999\n' > "$PT/.sA.txt.lock"
 ( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts )
 [ -f "$PT/sA.txt" ] && [ -f "$PT/.sA.txt.lock" ] && ok "lock: a locked archive is skipped and its lock left alone" \
   || no "lock: a locked archive was evicted or its lock removed"
+# ...a lock that cannot be created at all (no lock file) is an error, not a skip-forever in silence
+( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3; _sb_archive_lock_try() { return 1; }; rm -f "$PT/.sA.txt.lock"; sb_prune_transcripts )
+[ -f "$PT/sA.txt" ] && grep -q 'cannot create the archive lock' "$PB/error-log.jsonl" \
+  && ok "lock: an uncreatable lock keeps the archive and is logged as an error" || no "lock: an uncreatable lock was silent or evicted anyway"
 rm -f "$PT/.sA.txt.lock"
 ( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts )
 [ ! -e "$PT/sA.txt" ] && [ ! -e "$PT/.sA.txt.lock" ] && ok "lock: evicted next round, and the prune's own lock released" \
