@@ -70,14 +70,28 @@ EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-25}"
 RAW=$(cat 2>/dev/null || true)
 if [ -z "$RAW" ]; then log_gate "empty-stdin"; exit 0; fi
 
-if ! echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
-  log_gate "stdin-not-json-object"
+# jq -e: 1 = parsed but not an object, 4/5 = no value / not JSON (2: jq 1.6's parse error). Any other
+# status (126/127 jq not runnable, 128+N killed, 3 broken jq) is jq failing, not the payload: an error
+# row with its status, never the routine gate row (the window is not archived; the next Stop retries).
+echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _se_jq_rc=$?
+case "$_se_jq_rc" in
+  0) ;;
+  1|2|4|5) log_gate "stdin-not-json-object"; exit 0 ;;
+  *) sb_log_error "stop-extract.sh" "jq exited $_se_jq_rc checking the Stop payload (jq missing, not executable or killed); this Stop's window is neither archived nor extracted, the next Stop retries it" 1
+     exit 0 ;;
+esac
+
+# The payload is an object, so a nonzero jq status on a field read is jq failing (killed, missing):
+# an empty field then is not the payload's, and must not read as transcript-path-empty or as an
+# empty session id. jq's status leaves each substitution through its own `exit`.
+_se_jq_rc=0
+TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _se_jq_rc=$?
+CWD=$(echo       "$RAW" | jq -r '.cwd             // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _se_jq_rc=$?
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id     // "unknown"' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _se_jq_rc=$?
+if [ "$_se_jq_rc" -ne 0 ]; then
+  sb_log_error "stop-extract.sh" "jq exited $_se_jq_rc reading the Stop payload's fields; this Stop's window is neither archived nor extracted, the next Stop retries it" 1
   exit 0
 fi
-
-TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
-CWD=$(echo       "$RAW" | jq -r '.cwd             // empty' 2>/dev/null | tr -d '\r')
-SESSION_ID=$(echo "$RAW" | jq -r '.session_id     // "unknown"' 2>/dev/null | tr -d '\r')
 if [ -z "$TRANSCRIPT" ]; then log_gate "transcript-path-empty cwd=$CWD"; exit 0; fi
 if [ ! -f "$TRANSCRIPT" ]; then log_gate "transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 

@@ -224,13 +224,26 @@ EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-30}"
 RAW=$(cat 2>/dev/null || true)
 if [ -z "$RAW" ]; then SB_GATE="empty-stdin"; exit 0; fi
 
-if ! echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
-  SB_GATE="stdin-not-json-object"; exit 0
-fi
+# jq -e status: 1 = not an object, 4/5 = no value / not JSON (2: jq 1.6's parse error); any other
+# status is jq itself failing (126/127 not runnable, 128+N killed): an error row with the status,
+# never the routine gate (stop-extract.sh does the same). The window is not archived; a later hook
+# retries it. The field reads below check jq's status for the same reason.
+echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _pc_jq_rc=$?
+case "$_pc_jq_rc" in
+  0) ;;
+  1|2|4|5) SB_GATE="stdin-not-json-object"; exit 0 ;;
+  *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PreCompact payload (jq missing, not executable or killed); the window is neither archived nor extracted, a later hook retries it" 1
+     exit 0 ;;
+esac
 
-TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
-CWD=$(echo "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
-SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
+_pc_jq_rc=0
+TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _pc_jq_rc=$?
+CWD=$(echo "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _pc_jq_rc=$?
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _pc_jq_rc=$?
+if [ "$_pc_jq_rc" -ne 0 ]; then
+  sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc reading the PreCompact payload's fields; the window is neither archived nor extracted, a later hook retries it" 1
+  exit 0
+fi
 if [ -z "$TRANSCRIPT" ]; then SB_GATE="transcript-path-empty"; exit 0; fi
 if [ ! -f "$TRANSCRIPT" ]; then SB_GATE="transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 

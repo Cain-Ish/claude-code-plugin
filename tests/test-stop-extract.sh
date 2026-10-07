@@ -651,6 +651,47 @@ for pr in stop pre-compact; do
 done
 pass "PR1: a window the render could not produce is never sent to the extractor (Stop and PreCompact): logged, floor merged"
 
+# A jq shim that fails ONE program: the call whose arguments contain $JQ_FAIL_MATCH exits $JQ_FAIL_RC
+# without running (126: jq not executable, 137: jq killed); every other jq call (the error row's
+# own jq included) runs the real jq.
+JQ_FAIL_SHIM="$TMP/jq-fail-shim"; mkdir -p "$JQ_FAIL_SHIM"
+printf '#!/bin/bash\nif [ -n "${JQ_FAIL_MATCH:-}" ]; then case "$*" in *"$JQ_FAIL_MATCH"*) exit "${JQ_FAIL_RC:-137}" ;; esac; fi\nexec "%s" "$@"\n' "$REAL_JQ" > "$JQ_FAIL_SHIM/jq"
+chmod +x "$JQ_FAIL_SHIM/jq"
+# run_jqfail <hook> <match> <rc> [hook arg]: one hook run with the shim first on PATH.
+run_jqfail() {
+  stop_payload | env PATH="$JQ_FAIL_SHIM:$PATH" JQ_FAIL_MATCH="$2" JQ_FAIL_RC="$3" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= \
+    bash "$1" ${4:+"$4"} >/dev/null 2>"$SANDBOX/hook.err"
+}
+# jq_err_row <text>: an exit_code 1 error-log row carrying <text>.
+jq_err_row() { grep -F "$1" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep -q '"exit_code":1'; }
+
+# JQ1 (R3-B): before the archive step, a jq that cannot run (exit 126) or was killed (137) is not a
+# payload that "is not a JSON object" or "has no transcript_path". Stop and PreCompact used to
+# write that routine gate row (audit-log, exit 0) and exit: the window went unarchived with no
+# error anywhere (a failed session_id read archived it under an empty session id). Now an error row
+# names jq's exit status, nothing is archived, and the next hook retries the window.
+for jq1 in "stop|$SCRIPT|type == \"object\"|126|stdin-not-json-object" \
+           "stop-field|$SCRIPT|.transcript_path // empty|137|transcript-path-empty" \
+           "pc|$REPO_ROOT/scripts/pre-compact.sh|type == \"object\"|126|stdin-not-json-object" \
+           "pc-field|$REPO_ROOT/scripts/pre-compact.sh|.session_id // \"unknown\"|137|-"; do
+  IFS='|' read -r J1_NAME J1_HOOK J1_MATCH J1_RC J1_GATE <<< "$jq1"
+  init_sandbox "jq1-$J1_NAME"
+  seed_transcript_long_with_edit
+  run_jqfail "$J1_HOOK" "$J1_MATCH" "$J1_RC"
+  jq_err_row "jq exited $J1_RC" || fail "JQ1 ($J1_NAME): jq exit $J1_RC before the archive step left no error row naming it"
+  [ "$J1_GATE" = - ] || ! grep -qF "gate=$J1_GATE" "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+    || fail "JQ1 ($J1_NAME): jq exit $J1_RC was logged as the routine gate '$J1_GATE'"
+  [ -z "$(ls "$SANDBOX/.second-brain/transcripts/" 2>/dev/null)" ] || fail "JQ1 ($J1_NAME): a window was archived with a payload jq never read"
+done
+# Control: a payload that really is not an object keeps its routine gate (jq status 1 and 5).
+for jq1c in '[1]' 'not json'; do
+  init_sandbox "jq1-control"
+  printf '%s' "$jq1c" | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$SCRIPT" >/dev/null 2>"$SANDBOX/hook.err"
+  grep -qF 'gate=stdin-not-json-object' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "JQ1 control: stdin '$jq1c' lost its routine stdin-not-json-object gate"
+  grep -qF 'jq exited' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "JQ1 control: stdin '$jq1c' was reported as a jq failure"
+done
+pass "JQ1: a jq exec failure (126/137) before the archive step is an error row with jq's exit status, not a routine gate (Stop, PreCompact); a non-object payload keeps its gate"
+
 # === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
 # Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.
 rep() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
