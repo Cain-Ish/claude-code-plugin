@@ -1247,6 +1247,28 @@ fi
 
 _ptg_spine
 
+# --- Verdict first, its audit row after (perf, R3 2026-10-07) ---------------------------------
+# sb_log_audit spends ~7 process creations (date, mkdir, two jq, tr, their subshells: 0.5-1.5 s on a
+# loaded MSYS box, where one creation costs 50 ms at p50 and 300-550 ms at p90), and they ran before
+# the answer. Every verdict below is printed first; its row follows from a detached job, every fd
+# redirected so the hook's stdout closes at once (1d82fc1's shape), with the late flag of the
+# verdict's own moment (G2), not the job's. SB_GUARD_LOG_SYNC=on writes the row before exiting
+# instead (tests that read the row at once).
+_ptg_log() {  # _ptg_log VERDICT RULE TARGET REASON — call _fp_late at the verdict first
+  local _pg_x='{}'
+  [ "$_FP_LATE" = 1 ] && _pg_x='{"late":true}'
+  if [ "${SB_GUARD_LOG_SYNC:-off}" = on ]; then
+    SB_HOOK_LATE_MS= sb_log_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" "$_pg_x"
+  else
+    ( SB_HOOK_LATE_MS=; sb_log_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" "$_pg_x" ) </dev/null >/dev/null 2>&1 &
+  fi
+}
+_ptg_verdict() {  # _ptg_verdict ask|deny RULE TARGET REASON: the verdict, then its row
+  _fp_late
+  _fp_emit "$1" "$4"
+  _ptg_log "$@"
+}
+
 # --- Tool-scope guard (sar_tool channel) ---------------------------------
 # Ask before a tool is invoked when it's outside the declared allowlist.
 # Per HarnessAudit, out-of-scope tool use is one of three L1 boundary-
@@ -1265,8 +1287,7 @@ if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
     done
     if [ "$in_tool_scope" = "0" ]; then
       TS_REASON="Tool '$TOOL' is not in the declared tool_scope allowlist. HarnessAudit treats out-of-scope tool use as one of three L1 boundary-violation channels. Confirm intent or extend via SB_TOOL_SCOPE_EXTRA (colon-separated)."
-      sb_log_audit "persona-tool-guard.sh" "ask" "tool-scope-out-of-scope" "$TOOL" "$TS_REASON" "$SESSION_ID"
-      _fp_emit ask "$TS_REASON"
+      _ptg_verdict ask tool-scope-out-of-scope "$TOOL" "$TS_REASON"
       exit 0
     fi
   fi
@@ -1281,8 +1302,7 @@ if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
   _ptg_abs "$PATH_INPUT" "$CWD"
   if _ptg_cred "$_PTG_ABS"; then
     _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"
-    sb_log_audit "persona-tool-guard.sh" "ask" "credential-read" "$_PTG_ABS" "$_PTG_SR" "$SESSION_ID"
-    _fp_emit ask "$_PTG_SR"
+    _ptg_verdict ask credential-read "$_PTG_ABS" "$_PTG_SR"
     exit 0
   fi
 fi
@@ -1307,8 +1327,7 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_L
       if ! _ptg_scope "$PATH_INPUT" "$CWD" "$RS_ALLOW" "$_PTG_PROJ"; then
         abs_path="$_PTG_ABS"
         _ptg_scope_reason "$abs_path"; SCOPE_REASON="$_PTG_SR"
-        sb_log_audit "persona-tool-guard.sh" "ask" "resource-scope-out-of-scope" "$abs_path" "$SCOPE_REASON" "$SESSION_ID"
-        _fp_emit ask "$SCOPE_REASON"
+        _ptg_verdict ask resource-scope-out-of-scope "$abs_path" "$SCOPE_REASON"
         exit 0
       fi
     fi
@@ -1413,13 +1432,8 @@ if [ "$_PTG_LONG" = 1 ] && [ "$V_RANK" -lt 3 ]; then
 fi
 
 case "$V_ACTION" in
-  deny)
-    sb_log_audit "persona-tool-guard.sh" "deny" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
-    _fp_emit deny "$V_REASON"
-    ;;
-  ask)
-    sb_log_audit "persona-tool-guard.sh" "ask" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
-    _fp_emit ask "$V_REASON"
+  deny|ask)
+    _ptg_verdict "$V_ACTION" "$V_RULE" "$V_TARGET" "$V_REASON"
     ;;
   rewrite)
     # Only reached when NO deny/ask rule matched. SOH (\x01) as the sed delimiter: `|` would
@@ -1443,30 +1457,30 @@ case "$V_ACTION" in
     esac
     if [ "$REWRITE_OK" = "0" ]; then
       FAIL_REASON="Rewrite rule '$V_RULE' produced an invalid replacement (sed could not safely apply match_command/replace) — refusing to auto-allow an unverifiable rewrite. Original reason: $V_REASON"
-      sb_log_audit "persona-tool-guard.sh" "ask" "$V_RULE" "$V_TARGET" "$FAIL_REASON" "$SESSION_ID"
-      _fp_emit ask "$FAIL_REASON"
+      _ptg_verdict ask "$V_RULE" "$V_TARGET" "$FAIL_REASON"
     else
       # The rewritten command reaches jq on stdin, not as an --arg: a native jq.exe on Windows gets
       # no command line past ~32 KB and prints nothing, which left the tool to run UNrewritten with
       # no row saying so. A jq that still yields nothing now logs and asks instead.
       _ptg_rw=$(printf '%s' "$NEW_CMD" | jq -Rsc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:.}}}' 2>/dev/null)
       if [ -n "$_ptg_rw" ]; then
-        sb_log_audit "persona-tool-guard.sh" "rewrite" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+        _fp_late
         printf '%s
 ' "$_ptg_rw"
+        _ptg_log rewrite "$V_RULE" "$V_TARGET" "$V_REASON"
       else
         FAIL_REASON="Rewrite rule '$V_RULE' matched, but the rewritten command could not be emitted (jq produced no output, ${#NEW_CMD} chars) — refusing to run it unrewritten without confirmation. Original reason: $V_REASON"
+        _ptg_verdict ask "$V_RULE" "$V_TARGET" "$FAIL_REASON"
         sb_log_error "persona-tool-guard.sh" "rewrite rule $V_RULE: jq produced no output for a ${#NEW_CMD}-char rewritten command; asked instead" 1
-        sb_log_audit "persona-tool-guard.sh" "ask" "$V_RULE" "$V_TARGET" "$FAIL_REASON" "$SESSION_ID"
-        _fp_emit ask "$FAIL_REASON"
       fi
     fi
     ;;
   warn)
     # Advisory-only: additionalContext, deliberately NO permissionDecision — an advisory must
     # never widen permissions, only inform.
-    sb_log_audit "persona-tool-guard.sh" "warn" "$V_RULE" "$V_TARGET" "$V_REASON" "$SESSION_ID"
+    _fp_late
     jq -nc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$r}}'  || true
+    _ptg_log warn "$V_RULE" "$V_TARGET" "$V_REASON"
     ;;
 esac
 

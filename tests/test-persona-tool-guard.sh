@@ -1,5 +1,6 @@
 #!/bin/bash
 # run-all-timeout: 480   (measured 94s alone on MSYS 2026-09-28; 145-195s alone on a loaded MSYS box 2026-09-29 after the T2/L3/parity/512 KB cases)
+# pins: SB_GUARD_LOG_SYNC — =on writes the full logic's audit row before exit, so assertions can read it at once; the detached default has its own case (perf, R3)
 # pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the phase alone (Test 29)
 # pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 27)
 # pins: SB_RESOURCE_SCOPE — kill-switch test: asserts =off widens the default resource scope
@@ -18,6 +19,10 @@ pass() { echo "PASS: $1"; }
 # exits at once) leaves no brain or fixture dir behind.
 PTG_TMP=$(mktemp -d); export TMPDIR="$PTG_TMP"
 trap 'rm -rf "$PTG_TMP"' EXIT
+# The full logic's audit row follows its verdict from a detached job (perf, R3); the assertions here
+# read rows right after the guard returns, so they run with the row written before exit. The
+# detached default is tested on its own below.
+export SB_GUARD_LOG_SYNC=on
 
 # Test 1 (INVERTED 2026-08-23): 2>/dev/null is ADVISORY, never rewritten, never auto-allowed.
 # The old oracle asserted the shipped default REWROTE the command and emitted "allow". That
@@ -1166,6 +1171,29 @@ if [ -n "${EPOCHREALTIME:-}" ]; then
 else
   echo "SKIP: G2 late stamp — no EPOCHREALTIME (bash < 5): no clock without a process"
 fi
+
+# --- perf (R3, 2026-10-07): the verdict first, its audit row after ----------------------------
+# The full logic's sb_log_audit (~7 process creations) ran before the verdict was printed. Now the
+# verdict comes first and the row follows, from a detached job unless SB_GUARD_LOG_SYNC=on. A jq
+# stand-in for the row's jq (the one given `--arg target`) copies the guard's output so far when it
+# runs (the verdict must already be there), or sleeps 30 s (the guard must not wait for it, and its
+# stdout must close). A user rules file stands the fast path down.
+PF=$(mktemp -d); mkdir -p "$PF/bin" "$PF/brain"
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$PF/brain/persona-rules.json"
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in target) cp "$PF_OUT" "$PF_SEEN" 2>/dev/null; [ -n "${PF_SLEEP:-}" ] && sleep "$PF_SLEEP"; break ;; esac; done\nexec "%s" "$@"\n' "$(command -v jq)" > "$PF/bin/jq"
+chmod +x "$PF/bin/jq"
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj","session_id":"pf"}' > "$PF/p.json"
+PF_OUT="$PF/out1" PF_SEEN="$PF/seen1" BRAIN_DIR="$PF/brain" PATH="$PF/bin:$PATH" bash "$SCRIPT" < "$PF/p.json" > "$PF/out1"
+grep -q '"permissionDecision":"ask"' "$PF/out1" || fail "perf: the full logic must still ask for an out-of-scope Read (got: $(cat "$PF/out1"))"
+grep -q '"permissionDecision":"ask"' "$PF/seen1" 2>/dev/null \
+  || fail "perf: the audit row's jq ran before the verdict was printed (output at that moment: '$(cat "$PF/seen1" 2>/dev/null)')"
+grep -q '"rule":"resource-scope-out-of-scope"' "$PF/brain/audit-log.jsonl" || fail "perf: SB_GUARD_LOG_SYNC=on must write the row before exit"
+pf_s=$SECONDS
+out=$(PF_OUT=/dev/null PF_SEEN=/dev/null PF_SLEEP=30 SB_GUARD_LOG_SYNC=off BRAIN_DIR="$PF/brain" PATH="$PF/bin:$PATH" bash "$SCRIPT" < "$PF/p.json")
+pf_s=$(( SECONDS - pf_s ))
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "perf (detached): the verdict must arrive (got: $out)"
+[ "$pf_s" -lt 25 ] || fail "perf (detached): the guard waited ${pf_s}s for its audit row (the row's jq sleeps 30 s)"
+pass "perf: the verdict is printed before its audit row; detached, the guard returns (stdout closed) in ${pf_s}s while the row's jq sleeps 30 s"
 
 # --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
 # bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard in the background, stdout to a file,
