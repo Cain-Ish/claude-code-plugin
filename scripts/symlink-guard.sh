@@ -416,11 +416,15 @@ _fp_late() {
   return 0
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source, extra.late a verdict past hook-timer's
-# deadline: _fp_late), appended by one printf >> (D120).
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
   local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -428,11 +432,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
-  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="$_fa_x"',"late":true'
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
   printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl"
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -658,7 +663,7 @@ _sg_deny() {  # _sg_deny TOOL FILE_PATH RESOLVED LABEL SESSION
   local _sd_p _sd_x _sd_r
   _sg_short _sd_p "$2"; _sg_short _sd_x "$3"
   _sd_r="Write to '$_sd_p' resolves to '$_sd_x' which is inside the credential directory '$4'. Symlink-guard denies to prevent credential overwrite or exfil. Suppress: SB_SYMLINK_GUARD=off."
-  _fp_audit "symlink-guard.sh" "deny" "credential-dir:$4" "$1($_sd_p)" "$_sd_r" "$5"
+  _fp_audit "symlink-guard.sh" "deny" "credential-dir:$4" "$1($_sd_p)" "$_sd_r" "$5" "$_SG_FULL"
   _fp_emit deny "$_sd_r"
 }
 
@@ -690,7 +695,7 @@ _sg_alias() {
   case "$_sa_p" in [A-Za-z]:*) _sa_t=${_sa_p:2} ;; *) _sa_t=$_sa_p ;; esac
   case "$_sa_t" in
     *:*) _sa_m="Write to '$_sa_d' uses NTFS stream syntax (a ':' after the drive), which can name another file or a directory itself (.ssh::\$INDEX_ALLOCATION is ~/.ssh). Symlink-guard denies it. Suppress: SB_SYMLINK_GUARD=off."
-         _fp_audit "symlink-guard.sh" "deny" "windows-alias:stream" "$1($_sa_d)" "$_sa_m" "$3"
+         _fp_audit "symlink-guard.sh" "deny" "windows-alias:stream" "$1($_sa_d)" "$_sa_m" "$3" "$_SG_FULL"
          _fp_emit deny "$_sa_m"
          return 0 ;;
   esac
@@ -703,7 +708,7 @@ _sg_alias() {
     [A-Za-z]\$/*) _SG_MAPPED="${_sa_s%%\$*}:${_sa_s#?\$}"; return 2 ;;
   esac
   _sa_m="Write to '$_sa_d' is a UNC network path: symlink-guard cannot tell whether that share leads to a credential directory on this machine. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
-  _fp_audit "symlink-guard.sh" "ask" "windows-alias:unc" "$1($_sa_d)" "$_sa_m" "$3"
+  _fp_audit "symlink-guard.sh" "ask" "windows-alias:unc" "$1($_sa_d)" "$_sa_m" "$3" "$_SG_FULL"
   _fp_emit ask "$_sa_m"
   return 0
 }
@@ -787,7 +792,10 @@ _sg_fast() {
   fi
   return 1
 }
+_SG_FULL=""
 _sg_fast && exit 0
+# Every row from here on is the full logic's (_sg_deny and _sg_alias are shared with the fast path).
+_SG_FULL=full
 
 # --- Full logic (the fast path could not decide) -----------------------------------------------
 _fp_raw_all
@@ -814,7 +822,7 @@ if ! _sg_fields; then
     IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; IFS= read -r -d '' SESSION_ID
   } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (if ([.tool_name, .tool_input.file_path, .session_id] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' 2>/dev/null)
   if [ "$_FP_JST" = nul ]; then
-    _fp_audit "symlink-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_audit "symlink-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain symlink-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
     exit 0
   fi
@@ -922,7 +930,7 @@ if [ "$SG_LEN" -gt 4096 ] || [ "$SG_SEGS" -gt 256 ]; then
   _sg_short _sg_sp "$FILE_PATH"
   if [ "$SG_LEN" -gt 4096 ]; then _sg_why="$SG_LEN characters"; else _sg_why="$SG_SEGS components"; fi
   _sg_lr="Write to '$_sg_sp' is too long to resolve through its symlinks inside the hook's time budget ($_sg_why; the limits are 4096 characters and 256 components), so symlink-guard cannot tell whether it leads into a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
-  _fp_audit "symlink-guard.sh" "ask" "path-too-long" "$TOOL($_sg_sp)" "$_sg_lr" "$SESSION_ID"
+  _fp_audit "symlink-guard.sh" "ask" "path-too-long" "$TOOL($_sg_sp)" "$_sg_lr" "$SESSION_ID" full
   _fp_emit ask "$_sg_lr"
   exit 0
 fi
@@ -987,7 +995,7 @@ if [ "$_sn_windows_host" -eq 1 ] && _sg_has_83 "$FILE_PATH" "$RESOLVED"; then
     RESOLVED="$EXPANDED"
   else
     SHORTNAME_REASON="Write to '$FILE_PATH' (resolved '$RESOLVED') contains an NTFS 8.3 short-name path component (e.g. 'NAME~1') that could not be expanded back to its long form (no cygpath, or nothing on the path exists to query). Symlink-guard denies rather than risk a credential-dir alias slipping past the prefix check. Suppress: SB_SYMLINK_GUARD=off."
-    _fp_audit "symlink-guard.sh" "deny" "ntfs-8.3-shortname" "${TOOL}(${FILE_PATH})" "$SHORTNAME_REASON" "$SESSION_ID"
+    _fp_audit "symlink-guard.sh" "deny" "ntfs-8.3-shortname" "${TOOL}(${FILE_PATH})" "$SHORTNAME_REASON" "$SESSION_ID" full
     _fp_emit deny "$SHORTNAME_REASON"
     exit 0
   fi

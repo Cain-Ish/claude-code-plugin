@@ -391,11 +391,15 @@ _fp_late() {
   return 0
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source, extra.late a verdict past hook-timer's
-# deadline: _fp_late), appended by one printf >> (D120).
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
   local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -403,11 +407,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
-  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="$_fa_x"',"late":true'
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
   printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl"
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -567,7 +572,7 @@ if ! _wwg_fields; then
   { IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; } \
     < <(_fp_feed "$RAW" jq -j '(if ([.tool_name, .tool_input.file_path] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000"' 2>/dev/null)
   if [ "$_FP_JST" = nul ]; then
-    _fp_audit "wiki-write-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_audit "wiki-write-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain wiki-write-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
     exit 0
   fi

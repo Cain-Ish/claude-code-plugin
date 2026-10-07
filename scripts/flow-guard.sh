@@ -408,11 +408,15 @@ _fp_late() {
   return 0
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source, extra.late a verdict past hook-timer's
-# deadline: _fp_late), appended by one printf >> (D120).
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
   local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -420,11 +424,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
-  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="$_fa_x"',"late":true'
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
   printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl"
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -574,7 +579,7 @@ TOOL="" SESSION_ID="" FG_HITS="" _FP_JST="" _FG_END=""
   IFS= read -r -d '' FG_HITS; IFS= read -r -d '' _FG_END
 } < <(_fp_feed "$RAW" jq -j --arg net "$FG_NET" "$FG_JQ" --args "${FG_JQRES[@]}" 2>/dev/null)
 if [ "$_FP_JST" = nul ]; then
-  _fp_audit "flow-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+  _fp_audit "flow-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
   _fp_emit ask "second-brain flow-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
   exit 0
 fi
@@ -650,28 +655,27 @@ fi
 # everything they need.
 TARGET="${TOOL}:(${MATCHED_LABELS})"
 _fg_reason "$TOOL" "$MATCHED_LABELS"
-_fp_late
 _fp_emit ask "$FG_REASON"
+# The verdict is out; its audit row follows at once, written by this process (_fp_audit: builtins,
+# no fork — GS5, R3B), so it is on disk when the hook exits and carries the verdict's late flag.
+_fp_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$FG_REASON" "$SESSION_ID" full
 
-# The verdict is out; its audit row and the buddy line follow (#110). Detached by default, every fd
-# redirected so the hook's stdout closes at once (1d82fc1's shape): lib.sh's sourcing and the rows'
-# jq/date spawns no longer stand between the guard and its answer. The late flag is the verdict's
-# (taken above), not the job's. SB_GUARD_LOG_SYNC=on writes them before exiting (tests that read
-# the row at once). lib.sh unsourceable: the verdict stands, the row is lost (as before).
-_fg_log() {
-  local x='{}'
-  [ "$_FP_LATE" = 1 ] && x='{"late":true}'
-  unset SB_HOOK_LATE_MS
+# The buddy line needs lib.sh and jq: it follows from a detached job, every fd redirected so the
+# hook's stdout closes at once (1d82fc1's shape). SB_GUARD_LOG_SYNC=on writes it before exiting
+# (tests). lib.sh unsourceable: the verdict and its row stand, the buddy line is lost — logged.
+_fg_buddy() {
   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-  source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null || return 0
-  sb_log_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$FG_REASON" "$SESSION_ID" "$x"
+  if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
+    _fp_err "flow-guard.sh" "lib.sh could not be sourced from $PLUGIN_ROOT/scripts: the buddy line for this ask (${MATCHED_LABELS:0:60}) is lost"
+    return 0
+  fi
   command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SESSION_ID" guard alert "Held for your OK: credential-shaped data heading out (${MATCHED_LABELS:0:60})." flow-guard 300
   return 0
 }
 if [ "${SB_GUARD_LOG_SYNC:-off}" = on ]; then
-  _fg_log
+  _fg_buddy
 else
-  ( _fg_log ) </dev/null >/dev/null 2>&1 &
+  ( _fg_buddy ) </dev/null >/dev/null 2>&1 &
 fi
 
 exit 0

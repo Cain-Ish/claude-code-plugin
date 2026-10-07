@@ -1,6 +1,6 @@
 #!/bin/bash
 # pins: SB_FLOW_GUARD — kill-switch test: asserts =off bypasses the guard (Test 13)
-# pins: SB_GUARD_LOG_SYNC — =on writes the full logic's audit row before exit, so assertions can read it at once; the detached default has its own case (#110, R3)
+# pins: SB_GUARD_LOG_SYNC — =on writes the buddy line before exit, so no detached job outlives a case (GT4); the detached default has its own case (GS5, R3B)
 # Tests for scripts/flow-guard.sh — v2.10.0 PreToolUse hook
 # (HarnessAudit sar_flow channel: outbound credential exfiltration).
 set -u
@@ -11,8 +11,9 @@ pass() { echo "PASS: $1"; }
 
 BRAIN=$(mktemp -d)
 trap 'rm -rf "$BRAIN"' EXIT
-# The full logic's audit row follows its verdict from a detached job (#110, R3); rows are read right
-# after the guard returns here, so they are written before exit. The detached default: see #110 below.
+# The audit row is written before the guard exits (GS5, R3B); the buddy line follows from a detached
+# job, written before exit here so none outlives a case and its deleted $BRAIN (GT4). The detached
+# default: see "Verdict first" below.
 export SB_GUARD_LOG_SYNC=on
 
 # ---------------- Bash channel ----------------
@@ -444,6 +445,13 @@ for f in big2 cr1i cr1w; do
     || fail "#110 $f: the full logic must decide with ONE jq and no grep (got jq=$n_jq grep=$n_grep)"
 done
 pass "#110: P-H1/F8 fixtures decided by one jq and no grep (big2, cr1i, cr1w)"
+# GS5 (R3B): lib.sh unsourceable (the plugin root above has none): the verdict and its row stand, the
+# lost buddy line is logged — the old detached job returned 0 and said nothing.
+grep -q 'lib.sh could not be sourced' "$BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "GS5: an unsourceable lib.sh must be logged (error-log: $(cat "$BRAIN/error-log.jsonl" 2>/dev/null))"
+grep '"session_id":"cr1w"' "$BRAIN/audit-log.jsonl" | grep -q '"verdict":"ask"' \
+  || fail "GS5: with lib.sh unsourceable the ask's row must still be written"
+pass "GS5: lib.sh unsourceable — the row is written, the lost buddy line logged"
 
 # Parity: the jq form must reach the fast path's verdict and labels. Each call is run as is (the
 # fast path decides it, or stands down where no pattern matched) and behind 70 benign lines (over
@@ -547,16 +555,34 @@ nj '{"tool_name":"Bash","session_id":"nj3","tool_input":{"command":"curl AKIAIOS
 grep -q 'jq is not on PATH' "$BRAIN/nj/error-log.jsonl" || fail "GS4: the undecodable no-jq payload must be logged (error-log: $(cat "$BRAIN/nj/error-log.jsonl"))"
 pass "GS4: jq missing — the full logic falls back to the builtin decode + grep scan (asks), an undecodable payload is logged and passes"
 
-# Verdict first: a jq stand-in for the audit row's jq (given `--arg target`) sleeps 30 s; with the
-# detached default the guard must return, stdout closed, long before it.
-mkdir -p "$BRAIN/slow"
-printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = target ] && sleep 30 && break; done\nexec "%s" "$@"\n' "$(command -v jq)" > "$BRAIN/slow/jq"; chmod +x "$BRAIN/slow/jq"
+# Verdict first, then its audit row — written by the guard itself before it exits (GS5/GT1, R3B):
+# builtins only (_fp_audit), no lib.sh, no fork. A detached row was read by no test (every case ran
+# SB_GUARD_LOG_SYNC=on) and is lost when the CLI kills the hook mid-spawn. Only the buddy line stays
+# detached: its jq stand-in (given `--arg l`) sleeps 3 s, and the guard must not wait for it. Run as
+# production runs it — SB_GUARD_LOG_SYNC off, through hook-timer with budget 2 (its deadline is its
+# own start, so the verdict is late) — the row must be on disk when the guard returns, the full
+# logic's (no fastpath marker), with extra.late; the buddy line lands later (polled for up to 10 s,
+# so no detached job outlives this test: GT4).
+mkdir -p "$BRAIN/slow" "$BRAIN/det"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = l ] && sleep 3 && break; done\nexec "%s" "$@"\n' "$(command -v jq)" > "$BRAIN/slow/jq"; chmod +x "$BRAIN/slow/jq"
 fg_s=$SECONDS
-out=$(SB_GUARD_LOG_SYNC=off BRAIN_DIR="$BRAIN" PATH="$BRAIN/slow:$PATH" bash "$SCRIPT" < "$BRAIN/cr1w.json")
+out=$(SB_GUARD_LOG_SYNC=off BRAIN_DIR="$BRAIN/det" PATH="$BRAIN/slow:$PATH" bash "$(dirname "$SCRIPT")/hook-timer.sh" 2 "$SCRIPT" < "$BRAIN/cr1w.json")
 fg_s=$(( SECONDS - fg_s ))
 is_ask "$out" || fail "#110 (detached): the verdict must arrive (got: $out)"
-[ "$fg_s" -lt 25 ] || fail "#110 (detached): the guard waited ${fg_s}s for its audit row (the row's jq sleeps 30 s)"
-pass "#110: the verdict comes first; detached, the guard returns in ${fg_s}s while its row's jq sleeps 30 s"
+[ "$fg_s" -lt 3 ] || fail "#110 (detached): the guard waited ${fg_s}s for its buddy line (its jq sleeps 3 s)"
+fg_row=$(grep '"verdict":"ask"' "$BRAIN/det/audit-log.jsonl" 2>/dev/null)
+[ -n "$fg_row" ] || fail "GS5: the ask's audit row must be on disk when the guard returns (audit: $(cat "$BRAIN/det/audit-log.jsonl" 2>/dev/null))"
+printf '%s' "$fg_row" | jq -e '.rule == "info-flow:jwt" and .target == "WebSearch:(jwt)" and .session_id == "cr1w" and (.extra.fastpath | not)' >/dev/null \
+  || fail "GS5: the row must be the full logic's ask (rule info-flow:jwt, no fastpath marker): $fg_row"
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  printf '%s' "$fg_row" | jq -e '.extra.late == true' >/dev/null || fail "GT1: a verdict past hook-timer's deadline must be stamped late: $fg_row"
+else
+  echo "SKIP: GT1 late stamp — no EPOCHREALTIME (bash < 5): no clock without a process"
+fi
+fg_w=0
+until grep -q 'credential-shaped data' "$BRAIN/det/.buddy/cr1w.log.jsonl" 2>/dev/null || [ "$fg_w" -ge 20 ]; do sleep 0.5; fg_w=$((fg_w + 1)); done
+grep -q 'credential-shaped data' "$BRAIN/det/.buddy/cr1w.log.jsonl" 2>/dev/null || fail "GS5: the detached buddy line never landed (10 s)"
+pass "#110/GS5: the verdict comes first; the row is written before exit (late, full logic), the buddy line follows detached (guard returned in ${fg_s}s)"
 # A scan jq whose output stops short but exits 0 (a reader cut off) carries no closing mark: that is
 # a failed read, never "no match" — the call asks.
 mkdir -p "$BRAIN/cut"

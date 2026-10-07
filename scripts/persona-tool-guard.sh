@@ -394,11 +394,15 @@ _fp_late() {
   return 0
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source, extra.late a verdict past hook-timer's
-# deadline: _fp_late), appended by one printf >> (D120).
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
   local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -406,11 +410,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
-  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="$_fa_x"',"late":true'
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
   printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl"
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -913,7 +918,7 @@ if ! _ptg_fields; then
   _FP_RRC=$?
   [ "$_FP_RRC" -gt 1 ] && _FP_JST=nul   # a failed read of the last field: undecidable, like a NUL
   if [ "$_FP_JST" = nul ]; then
-    _fp_audit "persona-tool-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_audit "persona-tool-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain persona-tool-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
     exit 0
   fi
@@ -1130,7 +1135,7 @@ _ptg_rd_fail() {
   local _pr_m="jq exited $_PTG_RD_RC reading the rules at $1"
   [ "$_PTG_RD_RC" = 0 ] && _pr_m="$_pr_m, its output cut short (no closing mark)"
   _fp_err "persona-tool-guard.sh" "$_pr_m — asked instead of checking the call against no rules"
-  _fp_audit "persona-tool-guard.sh" "ask" "rules-unreadable" "$1" "$_pr_m" "${SESSION_ID:-}"
+  _fp_audit "persona-tool-guard.sh" "ask" "rules-unreadable" "$1" "$_pr_m" "${SESSION_ID:-}" full
   _fp_emit ask "second-brain persona-tool-guard.sh could not read its rules (jq failed on $1; details in error-log.jsonl), so it cannot check this call. Confirm the call."
   exit 0
 }
@@ -1247,24 +1252,17 @@ fi
 
 _ptg_spine
 
-# --- Verdict first, its audit row after (perf, R3 2026-10-07) ---------------------------------
+# --- Verdict first, its audit row after (perf, R3 2026-10-07; GS5, R3B) ------------------------
 # sb_log_audit spends ~7 process creations (date, mkdir, two jq, tr, their subshells: 0.5-1.5 s on a
 # loaded MSYS box, where one creation costs 50 ms at p50 and 300-550 ms at p90), and they ran before
-# the answer. Every verdict below is printed first; its row follows from a detached job, every fd
-# redirected so the hook's stdout closes at once (1d82fc1's shape), with the late flag of the
-# verdict's own moment (G2), not the job's. SB_GUARD_LOG_SYNC=on writes the row before exiting
-# instead (tests that read the row at once).
-_ptg_log() {  # _ptg_log VERDICT RULE TARGET REASON — call _fp_late at the verdict first
-  local _pg_x='{}'
-  [ "$_FP_LATE" = 1 ] && _pg_x='{"late":true}'
-  if [ "${SB_GUARD_LOG_SYNC:-off}" = on ]; then
-    SB_HOOK_LATE_MS= sb_log_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" "$_pg_x"
-  else
-    ( SB_HOOK_LATE_MS=; sb_log_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" "$_pg_x" ) </dev/null >/dev/null 2>&1 &
-  fi
+# the answer. Every verdict below is printed first; its row follows from this process, by
+# _fp_audit (builtins: no lib.sh, no fork, so it is on disk when the hook exits, with the late flag
+# of its own moment). R3's detached sb_log_audit job was lost with a hook the CLI killed, and no test
+# read its row.
+_ptg_log() {  # _ptg_log VERDICT RULE TARGET REASON
+  _fp_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" full
 }
 _ptg_verdict() {  # _ptg_verdict ask|deny RULE TARGET REASON: the verdict, then its row
-  _fp_late
   _fp_emit "$1" "$4"
   _ptg_log "$@"
 }
@@ -1464,7 +1462,6 @@ case "$V_ACTION" in
       # no row saying so. A jq that still yields nothing now logs and asks instead.
       _ptg_rw=$(printf '%s' "$NEW_CMD" | jq -Rsc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:.}}}' 2>/dev/null)
       if [ -n "$_ptg_rw" ]; then
-        _fp_late
         printf '%s
 ' "$_ptg_rw"
         _ptg_log rewrite "$V_RULE" "$V_TARGET" "$V_REASON"
@@ -1478,7 +1475,6 @@ case "$V_ACTION" in
   warn)
     # Advisory-only: additionalContext, deliberately NO permissionDecision — an advisory must
     # never widen permissions, only inform.
-    _fp_late
     jq -nc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$r}}'  || true
     _ptg_log warn "$V_RULE" "$V_TARGET" "$V_REASON"
     ;;
