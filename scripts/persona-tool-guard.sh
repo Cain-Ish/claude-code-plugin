@@ -1074,21 +1074,49 @@ RULE_FRAMES='
 # allowlists (\u001f-joined), then the rule frames. A file holding several JSON documents keeps
 # the old per-call meanings: flags from the first document, lists and rules from all of them,
 # and no resource-scope tool match (the old test compared the whole multi-line output to "yes").
+# G3 (R3, 2026-10-07): 0 = CHECK held; 1 = it did not — a file that is not JSON, or a CHECK that
+# errors on it, is caught inside the program and reads as "did not" (jq -e's meaning, as before);
+# 2 = jq itself failed: a non-zero exit, or output without the closing mark (killed, out of memory,
+# the file gone), so the file's verdict is unknown (_PTG_RD_RC = jq's status). Before, 2 was 1: the
+# unchecked default read went on with no rules at all (resource scope and every rule left to the
+# full logic off, the call passed silently), and the layered read logged a lock-invariant failure
+# and deleted a cache that was never shown bad. A 2 asks (_ptg_rd_fail).
+_PTG_RD_RC=0
 _ptg_rules_data() {
+  _PTG_RD_RC=0
   RD=$(jq -rn --arg t "$TOOL" --rawfile p "$EFF_PF" --rawfile u "$EFF_UF" '
-[inputs] as $docs
+(try [inputs] catch null) as $all
+| ($all // []) as $docs
 | ($docs[0] // {}) as $d0
 | (if ($docs|length) == 0 then "false"
-   else ([$docs[] | ('"$2"')] | last | if . == false or . == null then "false" else "true" end) end),
+   else ([$docs[] | (try ('"$2"') catch "\u0000err")] | if any(. == "\u0000err") then "false" else (last | if . == false or . == null then "false" else "true" end) end) end),
   (try (($d0.tool_scope.enabled // false) | tostring) catch "false"),
   (try (($d0.resource_scope.enabled // false) | tostring) catch "false"),
   (if ($docs|length) == 1 then (try ($d0.resource_scope.tools // [] | index($t) | if . == null then "no" else "yes" end) catch "no") else "multi" end),
   ([$docs[] | (try .tool_scope.allowlist[] catch empty) | tostring | gsub("[\r\n\u001f]"; " ")] | join("\u001f")),
   ([$docs[] | (try .resource_scope.allowlist[] catch empty) | tostring | gsub("[\r\n\u001f]"; " ")] | join("\u001f")),
-  ($docs[] | try ('"$RULE_FRAMES"') catch empty)
-' "$1" 2>/dev/null)
+  ($docs[] | try ('"$RULE_FRAMES"') catch empty),
+  "--SB-RD-END--"
+' "$1" 2>/dev/null) || _PTG_RD_RC=$?
   RD="${RD//$'\r'/}"
+  if [ "$_PTG_RD_RC" != 0 ]; then RD=""; return 2; fi
+  case "$RD" in
+    *"$_fp_nl--SB-RD-END--") RD="${RD%"$_fp_nl--SB-RD-END--"}" ;;
+    *) RD=""; return 2 ;;
+  esac
   [ "${RD%%$'\n'*}" = true ]
+}
+# _ptg_rd_fail FILE: _ptg_rules_data's 2 — jq failed reading FILE, so not one rule can be checked
+# (the resource scope included). Logged with the real cause, audited, asked: the _fp_jqfail pattern
+# (a guard that cannot read its rules must not pass the call silently). Builtins only, so it holds
+# with lib.sh unsourceable as well.
+_ptg_rd_fail() {
+  local _pr_m="jq exited $_PTG_RD_RC reading the rules at $1"
+  [ "$_PTG_RD_RC" = 0 ] && _pr_m="$_pr_m, its output cut short (no closing mark)"
+  _fp_err "persona-tool-guard.sh" "$_pr_m — asked instead of checking the call against no rules"
+  _fp_audit "persona-tool-guard.sh" "ask" "rules-unreadable" "$1" "$_pr_m" "${SESSION_ID:-}"
+  _fp_emit ask "second-brain persona-tool-guard.sh could not read its rules (jq failed on $1; details in error-log.jsonl), so it cannot check this call. Confirm the call."
+  exit 0
 }
 
 RD=""
@@ -1097,15 +1125,27 @@ if [ -n "$EFF" ] && [ -s "$EFF" ]; then
   if [ "${SB_RULES_LAYERS:-on}" = "off" ]; then
     # No cache exists in this mode (sb_rules_effective returns the raw U/P file directly) —
     # the lock invariant has nothing to protect; keep today's plain D154 check.
-    _ptg_rules_data "$EFF" "$D154_CHECK" && eff_ok=1
+    _ptg_rules_data "$EFF" "$D154_CHECK"; _ptg_rc=$?
+    [ "$_ptg_rc" = 2 ] && _ptg_rd_fail "$EFF"
+    [ "$_ptg_rc" = 0 ] && eff_ok=1
   else
-    _ptg_rules_data "$EFF" "$EFF_CHECK" && eff_ok=1
+    _ptg_rules_data "$EFF" "$EFF_CHECK"; _ptg_rc=$?
+    [ "$_ptg_rc" = 2 ] && _ptg_rd_fail "$EFF"
+    [ "$_ptg_rc" = 0 ] && eff_ok=1
     if [ "$eff_ok" = "0" ]; then
-      sb_log_error "persona-tool-guard.sh" "rules-effective cache at $EFF failed the lock invariant — discarded and rebuilt" 1
-      rm -f "$EFF" 2>/dev/null
+      sb_log_error "persona-tool-guard.sh" "rules-effective cache at $EFF failed the lock invariant — rebuilt in place" 1
+      # G3: rebuilt in place, never deleted first. An emptied .sig makes sb_rules_effective rebuild
+      # (it writes a temp file and renames it over the cache), so a guard running beside this one,
+      # which may just have been handed this path, still reads a whole file. The old `rm` left it
+      # none: its jq failed and it logged one more lock-invariant failure, or now would ask.
+      : > "$EFF.sig" 2>/dev/null
       EFF=$(sb_rules_effective "$EFF_SLUG" 2>/dev/null)
       EFF="${EFF//$'\r'/}"
-      [ -n "$EFF" ] && [ -s "$EFF" ] && _ptg_rules_data "$EFF" "$EFF_CHECK" && eff_ok=1
+      if [ -n "$EFF" ] && [ -s "$EFF" ]; then
+        _ptg_rules_data "$EFF" "$EFF_CHECK"; _ptg_rc=$?
+        [ "$_ptg_rc" = 2 ] && _ptg_rd_fail "$EFF"
+        [ "$_ptg_rc" = 0 ] && eff_ok=1
+      fi
       if [ "$eff_ok" = "0" ]; then
         sb_log_error "persona-tool-guard.sh" "rules-effective rebuilt cache STILL fails lock invariant — falling back to user/default rules; repo layer NOT applied" 1
       fi
@@ -1128,7 +1168,10 @@ elif [ -f "$USER_RULES" ]; then
   # with enabled:false — that is still an intentional declaration, not
   # silence), stays valid. Fall back to the shipped defaults and say so, loud,
   # once — `-s` guards the check against jq 1.6's "empty input exits 0".
-  if [ -s "$USER_RULES" ] && _ptg_rules_data "$USER_RULES" "$D154_CHECK"; then
+  _ptg_rc=1
+  if [ -s "$USER_RULES" ]; then _ptg_rules_data "$USER_RULES" "$D154_CHECK"; _ptg_rc=$?; fi
+  [ "$_ptg_rc" = 2 ] && _ptg_rd_fail "$USER_RULES"
+  if [ "$_ptg_rc" = 0 ]; then
     RULES_FILE="$USER_RULES"
   else
     RD=""
@@ -1148,8 +1191,18 @@ if [ -z "$RULES_FILE" ]; then
   exit 0
 fi
 # The data read above belongs to RULES_FILE whenever its check held; otherwise (the trusted
-# default, or the file chosen after a failed cache) read it now, unchecked as before.
-[ "${RD%%$'\n'*}" = true ] || _ptg_rules_data "$RULES_FILE" true
+# default, or the file chosen after a failed cache) read it now, unchecked as before. G3: a jq that
+# failed asks (_ptg_rd_fail); a default that is not JSON at all is no usable rules — denied, as the
+# D154 block above denies when there is no rules file.
+if [ "${RD%%$'\n'*}" != true ]; then
+  _ptg_rules_data "$RULES_FILE" true; _ptg_rc=$?
+  [ "$_ptg_rc" = 2 ] && _ptg_rd_fail "$RULES_FILE"
+  if [ "$_ptg_rc" != 0 ]; then
+    _fp_err "persona-tool-guard.sh" "the rules at $RULES_FILE are not JSON (or empty) — denying (fail-safe)"
+    _fp_emit deny "persona-tool-guard: rules unavailable"
+    exit 0
+  fi
+fi
 _RDR="$RD" _L=""
 _ptg_pop() {  # next RD line into _L
   case "$_RDR" in *"$_fp_nl"*) _L="${_RDR%%"$_fp_nl"*}"; _RDR="${_RDR#*"$_fp_nl"}" ;; *) _L="$_RDR"; _RDR="" ;; esac

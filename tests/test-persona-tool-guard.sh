@@ -4,6 +4,7 @@
 # pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 27)
 # pins: SB_RESOURCE_SCOPE — kill-switch test: asserts =off widens the default resource scope
 # pins: SB_RESOURCE_SCOPE_EXTRA — exercises the extra-scope allowlist directly — the value itself is the subject of that subtest
+# pins: SB_RULES_LAYERS — G3: =off is the mode whose rules read names the default file twice (the jq-failure stand-in's trigger)
 # pins: SB_TOOL_SCOPE — kill-switch test: asserts =off (Test 16)
 # pins: SB_TOOL_SCOPE_EXTRA — exercises the extra-tool allowlist directly — the value itself is the subject of that subtest
 # Tests for scripts/persona-tool-guard.sh — Layer 3 PreToolUse hook.
@@ -1080,6 +1081,62 @@ if [ -r /proc/mounts ] && command -v cygpath >/dev/null 2>&1 && W2_TMP=$(cygpath
 else
   echo "SKIP: G1 mounts — no MSYS mount table on this host (no drive paths to respell)"
 fi
+
+# --- G3 (R3, 2026-10-07): a failed rules read is not "no rules" ------------------------------
+# _ptg_rules_data's jq failing came back as an empty RD: the unchecked default read went on to
+# `exit 0` (resource scope and every rule off the fast path silently disarmed), and the layered read
+# called it "failed the lock invariant", deleted the cache and rebuilt (live: 62 such rows, 2 "STILL
+# fails"). Stand-ins for a jq that fails (killed, out of memory): one failing only when it names
+# the default rules file twice (the default read), one failing on every rules-file read.
+G3=$(mktemp -d); mkdir -p "$G3/dup" "$G3/rules" "$G3/brain/.injected" "$G3/nolib/scripts"
+G3_JQ=$(command -v jq)
+printf '#!/bin/sh\nn=0\nfor a in "$@"; do case "$a" in *persona-rules.default.json) n=$((n+1)) ;; esac; done\n[ "$n" -ge 2 ] && exit 5\nexec "%s" "$@"\n' "$G3_JQ" > "$G3/dup/jq"
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in *persona-rules.default.json|*.rules-effective.json) exit 5 ;; esac; done\nexec "%s" "$@"\n' "$G3_JQ" > "$G3/rules/jq"
+chmod +x "$G3/dup/jq" "$G3/rules/jq"
+printf '%s' g3proj > "$G3/brain/.injected/g3.slug"
+g3() {  # g3 <stand-in dir, or -> [VAR=val…] -> out, for a benign Bash call (the full logic decides it)
+  local p="$PATH"; [ "$1" = - ] || p="$G3/$1:$PATH"; shift
+  out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | env "$@" PATH="$p" BRAIN_DIR="$G3/brain" bash "$SCRIPT")
+}
+g3_ask() {  # g3_ask <label>: out is an ask, and error-log.jsonl names the failed jq read
+  [ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    || fail "G3 $1: a failed rules read must ask, not pass the call silently (got: '$out')"
+  grep -q 'jq exited [0-9]* reading' "$G3/brain/error-log.jsonl" 2>/dev/null \
+    || fail "G3 $1: error-log.jsonl must name the failed jq read (got: $(cat "$G3/brain/error-log.jsonl" 2>/dev/null))"
+  grep -q 'lock invariant' "$G3/brain/error-log.jsonl" 2>/dev/null \
+    && fail "G3 $1: a failed jq is not a lock-invariant failure (error-log: $(cat "$G3/brain/error-log.jsonl"))"
+  return 0
+}
+# (a) SB_RULES_LAYERS=off: the rules file is the default itself, read with --rawfile p and as input.
+: > "$G3/brain/error-log.jsonl"; g3 dup SB_RULES_LAYERS=off; g3_ask "layers off"
+# (b) lib.sh unsourceable: no layered read at all, the default read is the only one.
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$G3/nolib/scripts/"
+: > "$G3/brain/error-log.jsonl"; g3 dup CLAUDE_PLUGIN_ROOT="$G3/nolib"; g3_ask "default read, no lib.sh"
+# (c) Layered: a cache built by a healthy call, then every rules read fails. The cache stays (it was
+#     never shown bad), and nothing is called a lock-invariant failure.
+: > "$G3/brain/error-log.jsonl"; g3 -
+[ -z "$out" ] || fail "G3 (c) precondition: a benign call with a healthy jq is silent (got: $out)"
+G3_EFF="$G3/brain/projects/g3proj/.rules-effective.json"
+[ -s "$G3_EFF" ] || fail "G3 (c) precondition: the healthy call builds $G3_EFF"
+: > "$G3/brain/error-log.jsonl"; g3 rules; g3_ask "layered read"
+[ -s "$G3_EFF" ] || fail "G3 (c): a cache that was never shown bad must not be deleted on a failed jq read"
+# (d) A jq whose output stops short but exits 0 (a reader cut off): no closing mark, so no verdict.
+mkdir -p "$G3/cut"
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in *persona-rules.default.json) "%s" "$@" | head -n 3; exit 0 ;; esac; done\nexec "%s" "$@"\n' "$G3_JQ" "$G3_JQ" > "$G3/cut/jq"; chmod +x "$G3/cut/jq"
+: > "$G3/brain/error-log.jsonl"; g3 cut SB_RULES_LAYERS=off; g3_ask "output cut short"
+pass "G3: a failed rules read asks and logs the jq failure (layers off, no lib.sh, layered, cut short), never 'lock invariant', cache kept"
+# (e) A default that jq reads fine but that is not JSON: no usable rules, denied (D154's stance).
+mkdir -p "$G3/broken/scripts"; printf '{"rules":[' > "$G3/broken/scripts/persona-rules.default.json"
+out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | CLAUDE_PLUGIN_ROOT="$G3/broken" BRAIN_DIR="$G3/brain" bash "$SCRIPT")
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "G3 (e): a default rules file that is not JSON must deny (no usable rules), not pass (got: '$out')"
+pass "G3: a default rules file that is not JSON denies"
+# A cache that IS bad is rebuilt in place: its .sig is dropped so sb_rules_effective rebuilds (tmp +
+# mv), never deleted first — a concurrent guard that had just been handed the path read a missing file.
+grep -qE '^[[:space:]]*rm -f "\$EFF"' "$SCRIPT" \
+  && fail "G3: the guard deletes the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
+pass "G3: a failed cache is rebuilt in place, not deleted"
+rm -rf "$G3"
 
 # --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
 # bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard in the background, stdout to a file,
