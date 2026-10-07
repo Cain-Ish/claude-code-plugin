@@ -523,13 +523,21 @@ fi
 #     pages exist, decide which to read in full". That's stronger than a
 #     decorative snippet.
 # Cap at 12 slugs to bound size (~30 chars each = ~360B, well under CAP_WIKI).
+# D11 (2026-10-07): a registered local doc is a file, not a wiki page, so the CLI prints it as
+# "Read <absolute path> — gist" (injectedHitLine, knowledge-search.ts); knowledge_fetch cannot open
+# it and it used to arrive here as [[SKILL]]. Its path goes on a line of its own after the slug
+# list (gist dropped like a wiki description), kept only while the whole value fits CAP_WIKI bytes,
+# so the cut below never lands inside a path. One awk, LC_ALL=C: length() counts bytes.
 if [ -n "$WIKI_RAW" ]; then
-  WIKI_HITS=$(printf '%s' "$WIKI_RAW" \
-    | grep -oE '\[\[[a-zA-Z0-9_-]+\]\]' \
-    | awk '!seen[$0]++' \
-    | head -12 \
-    | tr '\n' ' ' \
-    | sed 's/ *$//')
+  WIKI_HITS=$(printf '%s\n' "$WIKI_RAW" | LC_ALL=C awk -v cap="$CAP_WIKI" '
+    /^Read / { d = $0; sub(/ — .*$/, "", d); if (!(d in seen_d)) { seen_d[d] = 1; docs[++nd] = d }; next }
+    { s = $0
+      while (match(s, /\[\[[a-zA-Z0-9_-]+\]\]/)) {
+        t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+        if (!(t in seen) && ns < 12) { seen[t] = 1; out = out (ns++ ? " " : "") t }
+      } }
+    END { for (i = 1; i <= nd; i++) if (length(out) + 1 + length(docs[i]) <= cap) out = out (out != "" ? "\n" : "") docs[i]
+          if (out != "") print out }')
   [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
 fi
 [ ${#EPISODIC_HINT} -gt $CAP_EPISODIC ] && EPISODIC_HINT=$(printf '%s' "$EPISODIC_HINT" | head -c $CAP_EPISODIC)
@@ -693,7 +701,7 @@ Installed specialists: $CATALOG_ABS"
 STORE_BLOCK=""
 [ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] && STORE_BLOCK="$STORE_BLOCK
 
-[Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them.]
+[Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them. A line starting \"Read \" is a local project doc: open that absolute path with Read.]
 $WIKI_HITS"
 # D-bug 4: session-load was the ONLY sb_manifest_add caller, so the per-prompt wiki
 # hits injected here (often the bulk of a session's injections) never reached the

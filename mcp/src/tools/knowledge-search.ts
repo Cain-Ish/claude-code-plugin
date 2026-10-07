@@ -11,6 +11,7 @@ import { projectFamily } from './project-registry.js';
 import { parseDoc, ParsedDoc } from './frontmatter.js';
 import { walkWiki } from './walk-wiki.js';
 import { assertWithin, validateSlug } from '../path-guard.js';
+import { foldServedSnippet } from './episodic-search.js';
 
 // Frontmatter parsing lives in ./frontmatter.ts (single source); re-exported here for back-compat.
 export { parseDoc, extractYamlValue, extractYamlList } from './frontmatter.js';
@@ -705,6 +706,26 @@ export function injectableWiki<C extends KnowledgeSearchResult['candidates'][num
   return candidates.filter(c => !c.stub
     && c.score >= o.minScore && c.relevance >= o.minRelevance
     && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
+}
+
+/** The one line an injecting CLI prints per gated candidate: knowledge-search-cli (read by
+ *  session-load.sh's SessionStart enrichment) and context-serve-cli (read by persona-context.sh).
+ *  The hooks put these lines inside an "[Untrusted reference …] … [End untrusted reference]"
+ *  frame, so every page-controlled field is folded (foldServedSnippet: one line, no square
+ *  bracket): a page description used to reach the frame verbatim and could close it (D1).
+ *  A local doc (doc-sources registry) is a file, not a wiki page — knowledge_fetch globs only the
+ *  wiki, so the [[basename]] it used to get ([[SKILL]]) led to "Page not found" (D11). It renders
+ *  as a Read line on its absolute path instead. A path the fold would change (a bracket, a line
+ *  break) can be neither shown safely nor opened once folded, so that candidate prints nothing
+ *  (''). The recall harness reads this CLI ungated, but its corpus has no registry. */
+export function injectedHitLine(c: { path: string; description?: string; source: string }): string {
+  const desc = foldServedSnippet(c.description ?? '').trim();
+  const tail = desc ? ` — ${desc}` : '';
+  if (c.source === 'local-doc') {
+    return foldServedSnippet(c.path) === c.path ? `Read ${c.path}${tail}` : '';
+  }
+  const slug = foldServedSnippet(c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, ''));
+  return `### [[${slug}]]${tail}`;
 }
 
 interface FieldIndex { counts: Map<string, number>; len: number; weight: number }

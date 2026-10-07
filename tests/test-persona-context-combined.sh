@@ -136,4 +136,31 @@ grep -q 'torn line' "$BRAIN_H/error-log.jsonl" 2>/dev/null \
   || fail "H: torn dismissals line must be logged via sb_log_error"
 pass "H: torn dismissals line logged once via sb_log_error"
 
+# --- Fake combined CLI: the hook's handling of the CLI output contract, isolated from retrieval ---
+# A plugin tree whose context-serve-cli bundle prints $FAKE_CTX_OUT verbatim (no SB_ var: the hook
+# passes its environment through to node).
+FT="$SANDBOX/fake-tree"; mkdir -p "$FT/mcp/dist/tools"
+cp -r "$REPO_ROOT/scripts" "$FT/scripts"
+cp "$REPO_ROOT/kb-schema.json" "$FT/kb-schema.json" 2>/dev/null || true
+printf 'process.stdout.write(process.env.FAKE_CTX_OUT || "");\n' > "$FT/mcp/dist/tools/context-serve-cli.bundle.js"
+fake_run() {  # $1 = brain dir name, $2 = fake CLI output; prints the hook's additionalContext
+  local b="$SANDBOX/$1"; mkdir -p "$b"
+  printf '{"prompt":"implement the tunnel alpha page feature now","session_id":"%s"}' "$1" \
+    | env FAKE_CTX_OUT="$2" CLAUDE_PLUGIN_ROOT="$FT" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" \
+        KNOWLEDGE_DIR="$KD" BRAIN_DIR="$b" bash "$FT/scripts/persona-context.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null | tr -d '\r'
+}
+
+# --- I (D11): a local doc reaches the prompt as a Read line, never as [[basename]] ------------
+# The CLI prints a registered local doc as "Read <absolute path> — gist" (injectedHitLine): it is a
+# file, and knowledge_fetch globs only the wiki. The hook used to keep ONLY [[slug]] tokens, so the
+# doc vanished here (and before the CLI change it arrived as an unopenable [[SKILL]]).
+I_CTX=$(fake_run brain-i "$(printf '### [[tunnel-alpha]] — about tunnels\nRead /repo/skills/tunnel/SKILL.md — Tunnel skill\n%s\n' "$SEP")")
+printf '%s\n' "$I_CTX" | grep -qF '[[tunnel-alpha]]' || fail "I: the wiki slug was lost: $I_CTX"
+printf '%s\n' "$I_CTX" | grep -qxF 'Read /repo/skills/tunnel/SKILL.md' \
+  || fail "I: the local doc did not reach the prompt as its own Read line: $I_CTX"
+printf '%s\n' "$I_CTX" | grep -F 'Wiki — auto-retrieved' | grep -qF 'starting "Read "' \
+  || fail "I: the wiki hint does not say how to open a Read line (hint must stay true): $I_CTX"
+pass "I: a local-doc Read line survives the slug filter on a line of its own, and the hint covers it"
+
 echo "ALL PASS"

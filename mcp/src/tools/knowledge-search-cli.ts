@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision, injectedHitLine } from './knowledge-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
@@ -72,7 +72,9 @@ const top = (injectGate
   .slice(0, 2);
 if (top.length === 0) { process.exit(0); }
 
+// injectedHitLine folds every page-controlled field (the hooks frame these lines as untrusted)
+// and renders a local doc as a Read line; '' = a candidate that must not be printed.
 for (const c of top) {
-  const slug = c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
-  console.log(`### [[${slug}]]${c.description ? ' — ' + c.description : ''}`);
+  const line = injectedHitLine(c);
+  if (line) console.log(line);
 }
