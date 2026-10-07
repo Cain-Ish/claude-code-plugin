@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_HOOK_LATE_MS — (h)/(g): a past deadline (1) handed to sb_log_audit and to the skip arm is the subject — late stamping and its unset
+# pins: SB_HOOK_LATE_PID — (h)/(g): which process the deadline belongs to is the subject (GT11: the direct child only)
 # R7 hook latency telemetry: scripts/hook-timer.sh wraps heavy hook commands
 # (hooks.json: bash hook-timer.sh <budget_s> <script> [args…]) and appends
 # {kind:"latency", hook, duration_ms, exit_code} to audit-log.jsonl — the R1

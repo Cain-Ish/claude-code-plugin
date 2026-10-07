@@ -1,5 +1,5 @@
 #!/bin/bash
-# run-all-timeout: 480   (measured 94s alone on MSYS 2026-09-28; 145-195s alone on a loaded MSYS box 2026-09-29 after the T2/L3/parity/512 KB cases)
+# run-all-timeout: 600   (measured 296s alone on MSYS 2026-10-08 with 9.6 GB free and ~400 processes, after the R3B credential-alias/GX3/GX6 cases; 208-282s in other runs that day; 94s on 2026-09-28)
 # pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the phase alone (Test 29)
 # pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 27)
 # pins: SB_RESOURCE_SCOPE — kill-switch test: asserts =off widens the default resource scope

@@ -1,4 +1,5 @@
 #!/bin/bash
+# run-all-timeout: 180   (measured 68s alone on MSYS 2026-10-08 with 9.7 GB free and ~400 processes, after the R3B ReDoS/parity/late cases; 35-56s in other runs that day)
 # pins: SB_FLOW_GUARD — kill-switch test: asserts =off bypasses the guard (Test 13)
 # pins: SB_GUARD_LOG_SYNC — =on writes the buddy line before exit, so no detached job outlives a case (GT4); the detached default has its own case (GS5, R3B)
 # Tests for scripts/flow-guard.sh — v2.10.0 PreToolUse hook

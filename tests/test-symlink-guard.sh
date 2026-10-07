@@ -1,4 +1,5 @@
 #!/bin/bash
+# run-all-timeout: 180   (measured 67s alone on MSYS 2026-10-08 with 9.3 GB free and ~400 processes, after the R3B GX6 cases; 32-72s in other runs that day)
 # pins: SB_SYMLINK_GUARD — kill-switch test: asserts =off yields no decision (Test 10)
 # Tests for scripts/symlink-guard.sh — PreToolUse credential-dir symlink guard.
 # Closes G-HOOK-2 from wiki/security/plugin-hardening-gap-analysis-2026-05-28.md.
