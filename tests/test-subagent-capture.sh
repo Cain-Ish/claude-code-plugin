@@ -3,6 +3,8 @@
 # pins: SB_HEADLESS_CONTEXT — opt-in test (36): asserts =on restores capture for a foreign headless child
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
+# pins: SB_SUBAGENT_ARCHIVE_CAP — Test 11 lowers the subagent prune cap to 5 so 7 calls prove the cap
+#   evicts sub-* archives only (the cap is the subject, not a gate bypass)
 # run-all-timeout: 240   (~40 hook runs plus two real episodic-indexer runs; 48-52 s alone on an idle MSYS box, over half of run-all's 120 s default)
 # Tests for scripts/subagent-capture.sh — the SubagentStop hook that archives a
 # substantive, non-self subagent's FINAL RESULT into ~/.second-brain/transcripts/.
@@ -96,7 +98,9 @@ P3C="$TMP/plug3c"; mkdir -p "$P3C/scripts" "$P3C/agents"
 cp "$SCRIPT" "$ROOT/scripts/lib.sh" "$ROOT/scripts/kb-schema.sh" "$P3C/scripts/"
 cp "$ROOT/agents/"*.md "$P3C/agents/"
 printf -- '---\r\nname: zz-new-agent\r\ndescription: a test agent with CRLF frontmatter\r\n---\r\nname: not-this-one\r\n' > "$P3C/agents/zz-new-agent.md"
-for at3c in zz-new-agent second-brain:zz-new-agent not-this-one; do
+# A frontmatter without a name: the body's name: line must not count either.
+printf -- '---\ndescription: no name here\n---\nname: body-only-name\n' > "$P3C/agents/zz-noname.md"
+for at3c in zz-new-agent second-brain:zz-new-agent not-this-one body-only-name; do
   B="$TMP/b3c-${at3c//:/_}"; mkdir -p "$B"; T="$TMP/t3c-${at3c//:/_}.jsonl"; mk_transcript "$T" 1 "$LONG"
   printf '%s' "$(jq -nc --arg at "$at3c" --arg tp "$T" --arg cw "$TMP/repo" \
       '{hook_event_name:"SubagentStop", agent_type:$at, agent_id:"aid3c", transcript_path:$tp, cwd:$cw, session_id:"sess1"}')" \
@@ -105,6 +109,7 @@ done
 [ -z "$(arc "$TMP/b3c-zz-new-agent")" ] || fail "3c: an agent shipped in agents/*.md (zz-new-agent) was archived; the self list is not read from the frontmatter"
 [ -z "$(arc "$TMP/b3c-second-brain_zz-new-agent")" ] || fail "3c: the namespaced form of a shipped agent was archived"
 [ -n "$(arc "$TMP/b3c-not-this-one")" ] || fail "3c: a name: line in an agent's BODY made that name a self agent (only the frontmatter counts)"
+[ -n "$(arc "$TMP/b3c-body-only-name")" ] || fail "3c: a body name: line of an agent whose frontmatter has no name made it a self agent"
 pass "self agents are read from agents/*.md frontmatter (CRLF-safe, body ignored)"
 
 # --- Test 3d: the literal floor (used when agents/ cannot be read) names every shipped agent.
