@@ -1136,6 +1136,22 @@ pass "G3: a default rules file that is not JSON denies"
 grep -qE '^[[:space:]]*rm -f "\$EFF"' "$SCRIPT" \
   && fail "G3: the guard deletes the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
 pass "G3: a failed cache is rebuilt in place, not deleted"
+# GC4 (R3B): a missing jq is not a failed rules read. _fp_jqfail's rule — jq ran and failed: ask; jq
+# absent: log and pass (SessionStart's banner reports it) — held for the payload read but not for the
+# rules read, so every call the fast path left undecided (every allow) asked. PATH: exec shims for
+# what the full logic and lib.sh use, and no jq (on Linux jq shares /usr/bin with grep).
+mkdir -p "$G3/nojq"
+for t in grep sed cat tr date mkdir dirname head tail cut wc awk sort uniq mv rm uname basename git cygpath readlink realpath; do
+  g4_p=$(command -v "$t") || continue
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$g4_p" > "$G3/nojq/$t"; chmod +x "$G3/nojq/$t"
+done
+PATH="$G3/nojq" "$BASH" -c 'command -v jq' >/dev/null 2>&1 && fail "GC4 precondition: jq must be off the shim PATH"
+: > "$G3/brain/error-log.jsonl"
+out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>/dev/null)
+[ -z "$out" ] || fail "GC4: with jq missing, a benign call is logged and passes, it does not ask (got: $out)"
+grep -q 'jq is not on PATH' "$G3/brain/error-log.jsonl" \
+  || fail "GC4: the missing jq must be logged (error-log: $(cat "$G3/brain/error-log.jsonl"))"
+pass "GC4: jq missing — the rules cannot be read, the call is logged and passes (jq that ran and failed still asks)"
 rm -rf "$G3"
 
 # --- G2 (R3, 2026-10-07): a verdict written past the hook deadline says so --------------------

@@ -1130,8 +1130,14 @@ _ptg_rules_data() {
 # _ptg_rd_fail FILE: _ptg_rules_data's 2 — jq failed reading FILE, so not one rule can be checked
 # (the resource scope included). Logged with the real cause, audited, asked: the _fp_jqfail pattern
 # (a guard that cannot read its rules must not pass the call silently). Builtins only, so it holds
-# with lib.sh unsourceable as well.
+# with lib.sh unsourceable as well. jq absent from PATH is _fp_jqfail's other case (GC4, R3B): logged,
+# and the call passes — SessionStart's banner reports the missing jq; asking here asked on every call
+# the fast path left undecided, every allow included.
 _ptg_rd_fail() {
+  if ! command -v jq >/dev/null 2>&1; then
+    _fp_err "persona-tool-guard.sh" "jq is not on PATH: the rules at $1 could not be read and the call passed unchecked"
+    exit 0
+  fi
   local _pr_m="jq exited $_PTG_RD_RC reading the rules at $1"
   [ "$_PTG_RD_RC" = 0 ] && _pr_m="$_pr_m, its output cut short (no closing mark)"
   _fp_err "persona-tool-guard.sh" "$_pr_m — asked instead of checking the call against no rules"
