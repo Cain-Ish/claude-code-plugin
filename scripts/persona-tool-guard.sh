@@ -49,6 +49,17 @@ _fp_ob=0
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
+# _FP_DL: the epoch ms from which this guard's verdict counts as late (G2; GS6/GC5/GX5, R3B): Claude
+# Code had likely cancelled the hook and run the call. hook-timer's SB_HOOK_LATE_MS when this guard is
+# its direct child (SB_HOOK_LATE_PID is $PPID; GT11: one inherited through a process the wrapped hook
+# spawned is not this guard's); otherwise — the guards hooks.json does not wrap — this guard's own
+# start plus the 5 s hook timeout less the same 2000 ms head start. Taken here, before the payload is
+# read. bash 5 only (EPOCHREALTIME): before it there is no clock without a process, and no stamp.
+_FP_DL=""
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _FP_DL=${EPOCHREALTIME//[!0-9]/}; _FP_DL=$(( 10#$_FP_DL / 1000 + 3000 ))
+  case "${SB_HOOK_LATE_MS:-}" in ''|*[!0-9]*) ;; *) [ "${SB_HOOK_LATE_PID:-}" = "$PPID" ] && _FP_DL="$SB_HOOK_LATE_MS" ;; esac
+fi
 _FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
 _FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
@@ -342,11 +353,18 @@ _fp_path() {
       _fp_joinsl _fq_p
       _fq_p="$_fq_p$_fq_t" ;;
   esac
-  case "$_fq_p" in "//?/"*) _fq_p=${_fq_p:4} ;; esac
-  case "$_fq_p" in "//./"*) _fq_p=${_fq_p:4} ;; esac
+  # \\?\ and \\.\ (Win32 device paths) are cut before a drive only, and \\?\UNC\host\… is the UNC
+  # path \\host\…. Any other device path (\\?\Volume{…}\, \\?\GLOBALROOT\…) keeps its //?/ prefix: it
+  # names no drive path, so no scope root or credential prefix matches it (GS2/GX2b, R3B: the old
+  # unconditional cut left Volume{…}/… and UNC/… relative — joined to the cwd, in scope).
   case "$_fq_p" in
-    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
+    //[?.]/[A-Za-z]:*) _fq_p=${_fq_p:4} ;;
+    //[?.]/[Uu][Nn][Cc]/*) _fq_p="//${_fq_p:8}" ;;
+  esac
+  # The loopback admin share is the drive itself, in any case (Windows host names are).
+  case "$_fq_p" in
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$|//[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$|//127.0.0.1/[A-Za-z]\$/*)
+      _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:/${_fq_p:15}" ;;
   esac
   if [ "${3:-}" = lex ]; then
     case "$_fq_p" in
@@ -380,25 +398,27 @@ _fp_emit() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
 }
 
-# _fp_late: _FP_LATE=1 once hook-timer's deadline has passed (SB_HOOK_LATE_MS, epoch ms: its start +
-# budget - 2000 ms; G2, R3): a verdict written then was likely cancelled with the hook, and the call
-# ran. EPOCHREALTIME only (bash 5): before that there is no clock without a process, and no stamp.
+# _fp_late: _FP_LATE=1 once this guard's deadline (_FP_DL, above) has passed: a verdict written then
+# was likely cancelled with the hook, and the call ran.
 _FP_LATE=0
 _fp_late() {
   local _fy_n="${EPOCHREALTIME:-}"
   _FP_LATE=0
-  case "${SB_HOOK_LATE_MS:-}" in ''|*[!0-9]*) return 0 ;; esac
-  [ -n "$_fy_n" ] || return 0
+  [ -n "$_FP_DL" ] && [ -n "$_fy_n" ] || return 0
   _fy_n="${_fy_n//[!0-9]/}"
-  [ $(( 10#$_fy_n / 1000 )) -ge "$SB_HOOK_LATE_MS" ] && _FP_LATE=1
+  [ $(( 10#$_fy_n / 1000 )) -ge "$_FP_DL" ] && _FP_LATE=1
   return 0
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source, extra.late a verdict past hook-timer's
-# deadline: _fp_late), appended by one printf >> (D120).
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
   local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -406,11 +426,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
-  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="$_fa_x"',"late":true'
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
   printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl"
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -556,13 +577,16 @@ _ptg_spine() {
   return 0
 }
 
-# _ptg_abs PATH CWD: _PTG_ABS = PATH made absolute (against CWD; ~/ from HOME) with '.'/'..'
-# folded lexically (D155: "$CWD/../../etc/shadow" must not prefix-match $CWD).
+# _ptg_abs PATH CWD: _PTG_ABS = PATH made absolute (against CWD; ~ and ~/… from HOME, spelled as a
+# target is: _ptg_homes) with '.'/'..' folded lexically (D155: "$CWD/../../etc/shadow" must not
+# prefix-match $CWD). The ~ arm is quoted (GC3/GX2a, R3B): an unquoted ~/* pattern is tilde-expanded
+# itself, so a literal ~/.ssh/id_rsa went to $CWD/~/.ssh/id_rsa — in scope, no credential match. A
+# drive path left in its X:/ form (cygpath failed, GS3) is absolute too.
 _PTG_ABS=""
 _ptg_abs() {
   case "$1" in
-    /*)  _PTG_ABS="$1" ;;
-    ~/*) _PTG_ABS="$HOME/${1#~/}" ;;
+    /*|[A-Za-z]:/*) _PTG_ABS="$1" ;;
+    "~"|"~/"*) _ptg_homes; _PTG_ABS="${_PTG_H[0]:-${HOME:-}}${1#"~"}" ;;
     *)   _PTG_ABS="$2/$1" ;;
   esac
   _fp_collapse _PTG_ABS "$_PTG_ABS"
@@ -581,9 +605,13 @@ _ptg_scope() {
   _ps_x="${SB_RESOURCE_SCOPE_EXTRA:-}"; _ps_x=${_ps_x//:/"$_fp_nl"}
   _fp_split "$_fp_nl" "$3$_fp_nl$_ps_x"
   for _ps_pre in ${_FP_A[@]+"${_FP_A[@]}"}; do
-    _ps_pre="${_ps_pre//\$HOME/$HOME}"
-    _ps_pre="${_ps_pre//\$CWD/$2}"
-    _ps_pre="${_ps_pre//\$PROJECT/${4:-}}"
+    # Quoted replacements (GC6): bash 5.2's patsub_replacement makes an unquoted '&' the matched text.
+    _ps_pre=${_ps_pre//\$HOME/"$HOME"}
+    _ps_pre=${_ps_pre//\$CWD/"$2"}
+    _ps_pre=${_ps_pre//\$PROJECT/"${4:-}"}
+    # A trailing separator is no part of the root (GT9, R3B): C:\w\repo\ and a drive root C:\ came
+    # out /c/w/repo/ and /c/, which no target matched as "<root>/…".
+    case "$_ps_pre" in ?*/) _ps_pre="${_ps_pre%/}" ;; esac
     [ -n "$_ps_pre" ] || continue
     case "$_PTG_ABS" in "$_ps_pre"|"$_ps_pre"/*) return 0 ;; esac
   done
@@ -604,32 +632,70 @@ _ptg_proj() {
 # Credential stores (G1, R3): a Read of one asks, on the fast path and in the full logic alike,
 # whatever the resource scope says — a session started in HOME has ~/.ssh in scope, and
 # SB_RESOURCE_SCOPE=off drops the scope ask altogether. The list is symlink-guard's (the guard
-# that denies writes into these; tests/test-persona-tool-guard.sh locks the two lists together):
-# directories label:path under HOME, then single files. symlink-guard's /etc arm is not mirrored:
+# that denies writes into these; tests/test-persona-tool-guard.sh locks the lists together): label:path
+# entries under HOME (and USERPROFILE: _ptg_homes), then under APPDATA (Windows: gh keeps its tokens in
+# %APPDATA%\GitHub CLI\hosts.yml, gcloud its in %APPDATA%\gcloud). Each entry is the path itself or
+# anything inside it — a file has nothing inside, and ~/.claude is no entry (plans/, projects/ and
+# settings.json live there). GX6 (R3B) added gcloud, azure, .git-credentials, .npmrc,
+# .docker/config.json, .kube/config, .pypirc and the APPDATA list. symlink-guard's /etc arm is not mirrored:
 # /etc is outside every default scope root already (an out-of-scope ask), and reading /etc/hosts or
 # /etc/os-release is routine — a project kept under /etc would ask on every Read. Case-insensitive
 # (nocasematch), as there: NTFS and default APFS are, and on Linux it only widens toward an ask.
-_PTG_CRED_DIRS='ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store'
-_PTG_CRED_FILES='netrc:.netrc claude-oauth:.claude/.credentials.json'
-# _ptg_cred ABS: _PTG_CL = the credential store ABS is (or is inside); false when none. HOME is
-# spelled as the target is: lexically, a drive form as /x/… (the full logic's cygpath spelling of a
-# drive path that sits under no MSYS mount — see _ptg_mnt).
+_PTG_CRED_H=(ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store gcloud:.config/gcloud azure:.azure netrc:.netrc claude-oauth:.claude/.credentials.json git-credentials:.git-credentials npmrc:.npmrc docker-config:.docker/config.json kube-config:.kube/config pypirc:.pypirc)
+_PTG_CRED_A=('gh-hosts:GitHub CLI/hosts.yml' gcloud:gcloud)
+# _ptg_homes: _PTG_H = the directories _PTG_CRED_H is spelled under, _PTG_HA those _PTG_CRED_A is,
+# each as _ptg_fpath spells a target (lexically, a drive form as /x/…: the full logic's cygpath spelling
+# of a drive path that sits under no MSYS mount — see _ptg_mnt), without repeats: HOME, then USERPROFILE
+# (GX6, R3B: with HOME pointed elsewhere, the native tools keep ~/.ssh and ~/.claude/.credentials.json
+# under the Windows profile still), and APPDATA; each also in its physical spelling (a junction or a
+# symlinked profile; GT10, R3B — builtin cd -P, cwd restored, no subshell: symlink-guard's
+# _sg_homes). Once per run.
+_PTG_H=() _PTG_HA=() _PTG_H_RD=0
+_ptg_homes() {
+  local _ph_v _ph_s _ph_o="$PWD"
+  [ "$_PTG_H_RD" = 1 ] && return 0
+  _PTG_H_RD=1 _PTG_H=() _PTG_HA=()
+  for _ph_v in HOME USERPROFILE APPDATA; do
+    _ph_s="${!_ph_v:-}"
+    [ -n "$_ph_s" ] || continue
+    _ptg_hadd "$_ph_v" "$_ph_s"
+    if CDPATH= cd -P -- "$_ph_s" 2>/dev/null; then _ptg_hadd "$_ph_v" "$PWD"; cd -- "$_ph_o" 2>/dev/null; fi
+  done
+  return 0
+}
+_ptg_hadd() {  # _ptg_hadd VAR DIR: DIR spelled as a target, appended to _PTG_H (_PTG_HA for APPDATA) unless there
+  local _pa_h _pa_x
+  _ptg_fpath _pa_h "$2"; _pa_h="${_pa_h%/}"
+  [ -n "$_pa_h" ] || return 0
+  if [ "$1" = APPDATA ]; then
+    for _pa_x in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do [ "$_pa_x" = "$_pa_h" ] && return 0; done
+    _PTG_HA[${#_PTG_HA[@]}]="$_pa_h"
+  else
+    for _pa_x in ${_PTG_H[@]+"${_PTG_H[@]}"}; do [ "$_pa_x" = "$_pa_h" ] && return 0; done
+    _PTG_H[${#_PTG_H[@]}]="$_pa_h"
+  fi
+}
+# _ptg_cred ABS: _PTG_CL = the credential store ABS is (or is inside), under any _PTG_H / _PTG_HA
+# spelling; false when none.
 _PTG_CL=""
 _ptg_cred() {
   local _pc_h _pc_e _pc_p _pc_o=0
   _PTG_CL=""
-  [ -n "${HOME:-}" ] || return 1
-  _ptg_fpath _pc_h "$HOME"; _pc_h="${_pc_h%/}"
-  [ -n "$_pc_h" ] || return 1
+  _ptg_homes
   shopt -q nocasematch && _pc_o=1
   shopt -s nocasematch
-  for _pc_e in $_PTG_CRED_DIRS; do
-    _pc_p="$_pc_h/${_pc_e#*:}"
-    case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break ;; esac
+  for _pc_h in ${_PTG_H[@]+"${_PTG_H[@]}"}; do
+    for _pc_e in "${_PTG_CRED_H[@]}"; do
+      _pc_p="$_pc_h/${_pc_e#*:}"
+      case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break 2 ;; esac
+    done
   done
   if [ -z "$_PTG_CL" ]; then
-    for _pc_e in $_PTG_CRED_FILES; do
-      case "$1" in "$_pc_h/${_pc_e#*:}") _PTG_CL="${_pc_e%%:*}"; break ;; esac
+    for _pc_h in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do
+      for _pc_e in "${_PTG_CRED_A[@]}"; do
+        _pc_p="$_pc_h/${_pc_e#*:}"
+        case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break 2 ;; esac
+      done
     done
   fi
   [ "$_pc_o" = 1 ] || shopt -u nocasematch
@@ -637,6 +703,89 @@ _ptg_cred() {
 }
 _ptg_cred_reason() {  # _ptg_cred_reason ABS LABEL -> _PTG_SR, the credential Read ask's reason text
   _PTG_SR="Read of '$1' opens a credential store ($2). Reading a secret is the first step of credential exfiltration, the classic goal of a prompt injection. Confirm intent."
+}
+_ptg_alias_reason() {  # _ptg_alias_reason PATH WHAT -> _PTG_SR: a Read no store can be compared with
+  _PTG_SR="Read of '$1' uses $2, a Windows spelling persona-tool-guard cannot compare with the credential stores (~/.ssh, ~/.aws, ~/.netrc, …), so it may open one. Confirm intent."
+}
+# _ptg_w32 VAR PATH: PATH with each component's trailing dots and spaces dropped, as Win32 opens it:
+# .ssh.\id_rsa and ".ssh \id_rsa" are .ssh\id_rsa (GS2, R3B). '.', '..' and all-dot names stay. The
+# trailing run is measured by one shortest-suffix cut per component, not a loop per character.
+_ptg_w32() {
+  local _pw_s _pw_t IFS=/
+  local -a _pw_a=()
+  case "$2/" in *[.\ ]/*) ;; *) printf -v "$1" '%s' "$2"; return 0 ;; esac
+  _fp_split / "$2"
+  for _pw_s in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    case "$_pw_s" in
+      .|..) ;;
+      *[.\ ]) _pw_t="${_pw_s%[!.\ ]*}"; _pw_s="${_pw_s:0:${#_pw_t}+1}" ;;
+    esac
+    _pw_a[${#_pw_a[@]}]="$_pw_s"
+  done
+  printf -v "$1" '%s' "${_pw_a[*]-}"
+}
+# _ptg_credread NORM ABS: the credential-store check of a Read (G1; GS2/GC2/GX2, R3B), shared by the
+# fast path and the full logic. NORM is the target as normalized (_fp_path: \\?\UNC\localhost\C$\…
+# and \\localhost\c$\… are the drive), ABS as _ptg_abs made it absolute. 0 = ask: _PTG_CRR (rule),
+# _PTG_CRT (target), _PTG_SR (reason). 1 = no credential store. 2 = an 8.3 short-name component (SSH~1
+# is .ssh) the lexical match cannot read: the fast path stands down, the full logic asks test -ef
+# (_ptg_inode). On a Windows host, before the match: a target still spelled //… (a UNC share — another
+# machine's, or this one's under its own name — or a \\?\ device path naming no drive: Volume{…},
+# GLOBALROOT) or holding a ':' past its drive (NTFS stream syntax: .netrc::$DATA is .netrc,
+# .ssh::$INDEX_ALLOCATION the directory) cannot be compared with any store and asks
+# (windows-alias:unc, windows-alias:stream); every component is matched as Win32 opens it (_ptg_w32).
+# Elsewhere ':' is a file-name character, // is /, and there are no 8.3 names.
+_PTG_CRR="" _PTG_CRT=""
+_ptg_credread() {
+  local _pr_t _pr_a="$2" _pr_w=0
+  _PTG_CRR="" _PTG_CRT=""
+  if _ptg_win; then
+    _pr_w=1
+    case "$1" in
+      //*) _PTG_CRR=windows-alias:unc _PTG_CRT="$1"; _ptg_alias_reason "$1" "a UNC or device path"; return 0 ;;
+    esac
+    case "$1" in [A-Za-z]:*) _pr_t="${1:2}" ;; *) _pr_t="$1" ;; esac
+    case "$_pr_t" in
+      *:*) _PTG_CRR=windows-alias:stream _PTG_CRT="$1"; _ptg_alias_reason "$1" "NTFS stream syntax (a ':' past the drive)"; return 0 ;;
+    esac
+    _ptg_w32 _pr_a "$2"
+  fi
+  if _ptg_cred "$_pr_a"; then
+    _PTG_CRR=credential-read _PTG_CRT="$2"; _ptg_cred_reason "$2" "$_PTG_CL"; return 0
+  fi
+  if [ "$_pr_w" = 1 ]; then
+    case "$_pr_a" in *~[0-9]*) return 2 ;; esac
+  fi
+  return 1
+}
+# _ptg_inode ABS: _PTG_CL = the credential store ABS is, or lies in, by identity (test -ef: device and
+# inode) rather than by spelling — for a target with an 8.3 short-name component, which no lexical
+# match reads (GC2/GX2c, R3B; symlink-guard's _sg_inode). ABS and each existing ancestor is compared
+# with every store under every _PTG_H spelling: builtins only. 1 = none; _PTG_INO=proven when ABS
+# itself exists (its identity was compared), else unknown (nothing on disk answered for it).
+_PTG_INO=""
+_ptg_inode() {
+  local _pi_p="$1" _pi_h _pi_e _pi_n=0
+  _PTG_CL="" _PTG_INO=unknown
+  _ptg_homes
+  [ -e "$1" ] && _PTG_INO=proven
+  while [ "$_pi_n" -lt 128 ]; do
+    if [ -e "$_pi_p" ]; then
+      for _pi_h in ${_PTG_H[@]+"${_PTG_H[@]}"}; do
+        for _pi_e in "${_PTG_CRED_H[@]}"; do
+          [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:}" ] && { _PTG_CL="${_pi_e%%:*}"; return 0; }
+        done
+      done
+      for _pi_h in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do
+        for _pi_e in "${_PTG_CRED_A[@]}"; do
+          [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:}" ] && { _PTG_CL="${_pi_e%%:*}"; return 0; }
+        done
+      done
+    fi
+    case "$_pi_p" in /*/*) _pi_p="${_pi_p%/*}" ;; *) break ;; esac
+    _pi_n=$((_pi_n + 1))
+  done
+  return 1
 }
 
 # _ptg_mnt PATH: true when the drive path PATH (X:/…, '/'-separated) may not be spelled /x/… by
@@ -679,19 +828,24 @@ _ptg_mnt() {
 # X:/… as /x/… on a Windows host), in one pass. 1 when cygpath -u may spell that drive path
 # otherwise (_ptg_mnt), so the full logic's spelling of it is unknown here. A path past 4096
 # characters is not looked up: the full logic keeps its lexical spelling too (_ptg_norm, G3).
-# The Windows-host test is _fp_path's, asked once per run and OSTYPE first: `command -v` searches
-# PATH on every call, ~30 ms each over a long Windows PATH on a loaded MSYS box.
+# The Windows-host test is _fp_path's (_ptg_win).
+# _ptg_win: true on a Windows host (MSYS/Cygwin bash, or cygpath on PATH) — asked once per run and
+# OSTYPE first: `command -v` searches PATH on every call, ~30 ms each over a long Windows PATH on a
+# loaded MSYS box.
 _PTG_WIN=""
+_ptg_win() {
+  if [ -z "$_PTG_WIN" ]; then
+    _PTG_WIN=0
+    if [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1; then _PTG_WIN=1; fi
+  fi
+  [ "$_PTG_WIN" = 1 ]
+}
 _ptg_fpath() {
   local _pf_p _pf_d _pf_r=0
   _fp_path _pf_p "$2"
   case "$_pf_p" in
     [A-Za-z]:/*)
-      if [ -z "$_PTG_WIN" ]; then
-        _PTG_WIN=0
-        if [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1; then _PTG_WIN=1; fi
-      fi
-      if [ "$_PTG_WIN" = 1 ]; then
+      if _ptg_win; then
         # The bound is _ptg_norm's: the length before the lexical steps.
         [ "${#2}" -le 4096 ] && _ptg_mnt "$_pf_p" && _pf_r=1
         _fp_lower _pf_d "${_pf_p:0:1}"; _pf_p="/$_pf_d${_pf_p:2}"
@@ -757,7 +911,7 @@ _ptg_layer_ok() {
   return 1
 }
 _ptg_fast() {
-  local tool sid="" cmd="" path="" lc root me pf a="" b="" bd f slug="" rc cwd tgt proj amb=0 plen=0
+  local tool sid="" cmd="" path="" lc root me pf a="" b="" bd f slug="" rc cwd tgt proj amb=0 plen=0 cr=0
   _fp_str tool_name || return 1
   tool="$_FP"
   # Read (G1): no rule in the default names it, but resource_scope covers it and a credential store
@@ -858,12 +1012,12 @@ _ptg_fast() {
       if [ "$tool" = Read ]; then
         [ "$amb" = 0 ] || return 1
         _ptg_abs "$path" "$cwd"
-        if _ptg_cred "$_PTG_ABS"; then
-          _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"
-          _PTG_RULE=credential-read _PTG_REASON="$_PTG_SR" tgt="$_PTG_ABS"
-        fi
+        # An 8.3 short name (2) takes test -ef: the full logic's.
+        _ptg_credread "$path" "$_PTG_ABS"; rc=$?
+        [ "$rc" = 2 ] && return 1
+        [ "$rc" = 0 ] && { _PTG_RULE="$_PTG_CRR" _PTG_REASON="$_PTG_SR" tgt="$_PTG_CRT"; cr=1; }
       fi
-      if [ "$_PTG_RULE" != credential-read ] && [ "${SB_RESOURCE_SCOPE:-on}" != off ] \
+      if [ "$cr" = 0 ] && [ "${SB_RESOURCE_SCOPE:-on}" != off ] \
          && ! _ptg_scope "$path" "$cwd" "$_PTG_RS_ALLOW" "$proj"; then
         [ "$amb" = 0 ] || [ -n "$_PTG_RULE" ] || return 1
         _ptg_scope_reason "$_PTG_ABS"
@@ -913,7 +1067,7 @@ if ! _ptg_fields; then
   _FP_RRC=$?
   [ "$_FP_RRC" -gt 1 ] && _FP_JST=nul   # a failed read of the last field: undecidable, like a NUL
   if [ "$_FP_JST" = nul ]; then
-    _fp_audit "persona-tool-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_audit "persona-tool-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain persona-tool-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
     exit 0
   fi
@@ -966,7 +1120,7 @@ _ptg_norm_read() {
 # the end of a 40,000-character path was gone before any rule saw it. The full logic asks about such a
 # target at least.
 _ptg_norm() {
-  local _pn_v _pn_p _pn_out _pn_i=0
+  local _pn_v _pn_p _pn_out _pn_i=0 _pn_e=0
   local -a _pn_vars=() _pn_args=()
   for _pn_v in "$@"; do
     _pn_p="${!_pn_v}"
@@ -976,14 +1130,26 @@ _ptg_norm() {
     printf -v "$_pn_v" '%s' "$_pn_p"
     case "$_pn_p" in [A-Za-z]:/*) _pn_vars+=("$_pn_v"); _pn_args+=("$_pn_p") ;; esac
   done
-  [ ${#_pn_args[@]} -gt 0 ] && command -v cygpath >/dev/null 2>&1 || return 0
-  _pn_out=$(cygpath -u ${_pn_args[@]+"${_pn_args[@]}"} 2>/dev/null) || _pn_out=""
-  [ -n "$_pn_out" ] && _fp_feed "$_pn_out" _ptg_norm_read
-  # A cygpath that answered fewer lines than it was given paths (failed, or takes one path):
-  # the rest one call each, as sb_normalize_path would.
-  while [ "$_pn_i" -lt ${#_pn_vars[@]} ]; do
-    _pn_p=$(cygpath -u "${_pn_args[$_pn_i]}" 2>/dev/null) && [ -n "$_pn_p" ] && printf -v "${_pn_vars[$_pn_i]}" '%s' "$_pn_p"
-    _pn_i=$((_pn_i + 1))
+  [ ${#_pn_args[@]} -gt 0 ] || return 0
+  if command -v cygpath >/dev/null 2>&1; then
+    _pn_out=$(cygpath -u ${_pn_args[@]+"${_pn_args[@]}"} 2>/dev/null) || _pn_out=""
+    [ -n "$_pn_out" ] && _fp_feed "$_pn_out" _ptg_norm_read
+    # A cygpath that answered fewer lines than it was given paths (failed, or takes one path):
+    # the rest one call each, as sb_normalize_path would.
+    while [ "$_pn_i" -lt ${#_pn_vars[@]} ]; do
+      _pn_p=$(cygpath -u "${_pn_args[$_pn_i]}" 2>/dev/null) && [ -n "$_pn_p" ] && printf -v "${_pn_vars[$_pn_i]}" '%s' "$_pn_p"
+      _pn_i=$((_pn_i + 1))
+    done
+  fi
+  # GS3 (R3B): a value still in its drive form (cygpath failed, answered nothing, or is missing) is
+  # spelled as the fast path spells it, /x/… — _ptg_abs took C:/… for a relative path: joined to the
+  # cwd, in scope, no credential prefix matched, and nothing said so. Logged once per call.
+  for _pn_v in ${_pn_vars[@]+"${_pn_vars[@]}"}; do
+    case "${!_pn_v}" in
+      [A-Za-z]:/*)
+        _fp_path _pn_p "${!_pn_v}" lex; printf -v "$_pn_v" '%s' "$_pn_p"
+        [ "$_pn_e" = 1 ] || { _pn_e=1; _fp_err "persona-tool-guard.sh" "cygpath -u left a drive path in its drive form (cygpath failed or is missing); matched it lexically as ${_pn_p:0:200}"; } ;;
+    esac
   done
   return 0
 }
@@ -1125,12 +1291,18 @@ _ptg_rules_data() {
 # _ptg_rd_fail FILE: _ptg_rules_data's 2 — jq failed reading FILE, so not one rule can be checked
 # (the resource scope included). Logged with the real cause, audited, asked: the _fp_jqfail pattern
 # (a guard that cannot read its rules must not pass the call silently). Builtins only, so it holds
-# with lib.sh unsourceable as well.
+# with lib.sh unsourceable as well. jq absent from PATH is _fp_jqfail's other case (GC4, R3B): logged,
+# and the call passes — SessionStart's banner reports the missing jq; asking here asked on every call
+# the fast path left undecided, every allow included.
 _ptg_rd_fail() {
+  if ! command -v jq >/dev/null 2>&1; then
+    _fp_err "persona-tool-guard.sh" "jq is not on PATH: the rules at $1 could not be read and the call passed unchecked"
+    exit 0
+  fi
   local _pr_m="jq exited $_PTG_RD_RC reading the rules at $1"
   [ "$_PTG_RD_RC" = 0 ] && _pr_m="$_pr_m, its output cut short (no closing mark)"
   _fp_err "persona-tool-guard.sh" "$_pr_m — asked instead of checking the call against no rules"
-  _fp_audit "persona-tool-guard.sh" "ask" "rules-unreadable" "$1" "$_pr_m" "${SESSION_ID:-}"
+  _fp_audit "persona-tool-guard.sh" "ask" "rules-unreadable" "$1" "$_pr_m" "${SESSION_ID:-}" full
   _fp_emit ask "second-brain persona-tool-guard.sh could not read its rules (jq failed on $1; details in error-log.jsonl), so it cannot check this call. Confirm the call."
   exit 0
 }
@@ -1247,24 +1419,17 @@ fi
 
 _ptg_spine
 
-# --- Verdict first, its audit row after (perf, R3 2026-10-07) ---------------------------------
+# --- Verdict first, its audit row after (perf, R3 2026-10-07; GS5, R3B) ------------------------
 # sb_log_audit spends ~7 process creations (date, mkdir, two jq, tr, their subshells: 0.5-1.5 s on a
 # loaded MSYS box, where one creation costs 50 ms at p50 and 300-550 ms at p90), and they ran before
-# the answer. Every verdict below is printed first; its row follows from a detached job, every fd
-# redirected so the hook's stdout closes at once (1d82fc1's shape), with the late flag of the
-# verdict's own moment (G2), not the job's. SB_GUARD_LOG_SYNC=on writes the row before exiting
-# instead (tests that read the row at once).
-_ptg_log() {  # _ptg_log VERDICT RULE TARGET REASON — call _fp_late at the verdict first
-  local _pg_x='{}'
-  [ "$_FP_LATE" = 1 ] && _pg_x='{"late":true}'
-  if [ "${SB_GUARD_LOG_SYNC:-off}" = on ]; then
-    SB_HOOK_LATE_MS= sb_log_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" "$_pg_x"
-  else
-    ( SB_HOOK_LATE_MS=; sb_log_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" "$_pg_x" ) </dev/null >/dev/null 2>&1 &
-  fi
+# the answer. Every verdict below is printed first; its row follows from this process, by
+# _fp_audit (builtins: no lib.sh, no fork, so it is on disk when the hook exits, with the late flag
+# of its own moment). R3's detached sb_log_audit job was lost with a hook the CLI killed, and no test
+# read its row.
+_ptg_log() {  # _ptg_log VERDICT RULE TARGET REASON
+  _fp_audit "persona-tool-guard.sh" "$1" "$2" "$3" "$4" "$SESSION_ID" full
 }
 _ptg_verdict() {  # _ptg_verdict ask|deny RULE TARGET REASON: the verdict, then its row
-  _fp_late
   _fp_emit "$1" "$4"
   _ptg_log "$@"
 }
@@ -1298,13 +1463,25 @@ fi
 # (in scope when the session runs in HOME; no scope ask at all under SB_RESOURCE_SCOPE=off). The
 # fast path asks the same; _ptg_cred holds the list (symlink-guard's) and why /etc is not on it.
 # Not past 4096 characters: the path-too-long floor below asks for such a target anyway.
+# A floor below the rules (GX3, R3B), as path-too-long is: decided here, applied after the rule loop
+# unless a rule asked or denied — its ask used to exit ahead of the loop and weaken a user or repo
+# rule that DENIES the Read to an ask. It stands in for the resource-scope ask as well (the fast
+# path's order: the credential ask, then the scope one).
+_PTG_CR_RULE="" _PTG_CR_TGT="" _PTG_CR_REASON=""
+# The Windows spellings (GS2/GC2/GX2, R3B) are _ptg_credread's; an 8.3 short name is resolved here
+# by identity (_ptg_inode) and asks unless the target exists and neither it nor an existing ancestor
+# is a store.
 if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
   _ptg_abs "$PATH_INPUT" "$CWD"
-  if _ptg_cred "$_PTG_ABS"; then
-    _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"
-    _ptg_verdict ask credential-read "$_PTG_ABS" "$_PTG_SR"
-    exit 0
+  _ptg_credread "$PATH_INPUT" "$_PTG_ABS"; _ptg_rc=$?
+  if [ "$_ptg_rc" = 2 ]; then
+    if _ptg_inode "$_PTG_ABS"; then
+      _PTG_CRR=credential-read _PTG_CRT="$_PTG_ABS"; _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"; _ptg_rc=0
+    elif [ "$_PTG_INO" != proven ]; then
+      _PTG_CRR=windows-alias:8.3 _PTG_CRT="$_PTG_ABS"; _ptg_alias_reason "$_PTG_ABS" "an NTFS 8.3 short name (NAME~1) that names no existing file"; _ptg_rc=0
+    fi
   fi
+  [ "$_ptg_rc" = 0 ] && _PTG_CR_RULE="$_PTG_CRR" _PTG_CR_TGT="$_PTG_CRT" _PTG_CR_REASON="$_PTG_SR"
 fi
 
 # --- Resource-scope guard -------------------------------------------------
@@ -1317,7 +1494,7 @@ fi
 # payload-sized path — above ~400 KB the scope ask arrived past the 5 s hook timeout (fail-open). A
 # target over 4096 characters (_PTG_LONG) is left to the path-too-long floor below: it also asks (and
 # a deny rule stays reachable), so skipping the scope collapse here loses no verdict and no time.
-if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
+if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ] && [ -z "$_PTG_CR_RULE" ]; then
   if [ "${RS_ENABLED:-false}" = "true" ]; then
     # Is this tool subject to scope checking?
     if [ "$RS_TOOL_IN" = "yes" ]; then
@@ -1334,7 +1511,7 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_L
   fi
 fi
 
-[ -z "$RULE_STREAM" ] && [ "$_PTG_LONG" = 0 ] && exit 0
+[ -z "$RULE_STREAM" ] && [ "$_PTG_LONG" = 0 ] && [ -z "$_PTG_CR_RULE" ] && exit 0
 
 # Pre-filter: ONE grep per field says whether ANY rule pattern can match (grep -E with every
 # pattern as a -e argument is true exactly when one of them matches a line); the per-rule greps
@@ -1423,6 +1600,11 @@ done
 }
 _fp_feed "$RULE_STREAM" _ptg_match
 
+# GX3: the credential Read floor (decided above the scope check): a rule's ask or deny stands.
+if [ -n "$_PTG_CR_RULE" ] && [ "$V_RANK" -lt 3 ]; then
+  V_RANK=3 V_ACTION=ask V_RULE="$_PTG_CR_RULE" V_TARGET="$_PTG_CR_TGT" V_REASON="$_PTG_CR_REASON"
+fi
+
 # G3: a target past 4096 characters was matched in its lexical spelling only (_ptg_norm) — every rule
 # saw all of it, but not cygpath's spelling (an MSYS mount name such as /tmp). A call no rule asked
 # about or denied is asked about; a verdict a rule gave stands, under that rule's name.
@@ -1464,7 +1646,6 @@ case "$V_ACTION" in
       # no row saying so. A jq that still yields nothing now logs and asks instead.
       _ptg_rw=$(printf '%s' "$NEW_CMD" | jq -Rsc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r,updatedInput:{command:.}}}' 2>/dev/null)
       if [ -n "$_ptg_rw" ]; then
-        _fp_late
         printf '%s
 ' "$_ptg_rw"
         _ptg_log rewrite "$V_RULE" "$V_TARGET" "$V_REASON"
@@ -1478,7 +1659,6 @@ case "$V_ACTION" in
   warn)
     # Advisory-only: additionalContext, deliberately NO permissionDecision — an advisory must
     # never widen permissions, only inform.
-    _fp_late
     jq -nc --arg r "$V_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$r}}'  || true
     _ptg_log warn "$V_RULE" "$V_TARGET" "$V_REASON"
     ;;

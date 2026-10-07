@@ -804,10 +804,12 @@ sb_log_audit() {
   # budget - 2000 ms) gets extra.late — Claude Code had likely cancelled the hook and run the call, so
   # the verdict enforced nothing. The guards' builtin _fp_audit stamps the same. bash 5 only
   # (EPOCHREALTIME: no clock without a process before it). A caller that writes the row after its
-  # verdict passes the verdict's own flag in extra and clears SB_HOOK_LATE_MS for the call.
+  # verdict passes the verdict's own flag in extra and clears SB_HOOK_LATE_MS for the call. The
+  # deadline is hook-timer's direct child's only (SB_HOOK_LATE_PID = $PPID; GT11, R3B): a claude -p
+  # that hook spawned runs hooks of its own with the export still set.
   case "${SB_HOOK_LATE_MS:-}" in
     ''|*[!0-9]*) ;;
-    *) [ -n "$late_n" ] && [ $(( 10#${late_n//[!0-9]/} / 1000 )) -ge "$SB_HOOK_LATE_MS" ] && late=true ;;
+    *) [ "${SB_HOOK_LATE_PID:-}" = "$PPID" ] && [ -n "$late_n" ] && [ $(( 10#${late_n//[!0-9]/} / 1000 )) -ge "$SB_HOOK_LATE_MS" ] && late=true ;;
   esac
   # Cap the free-text args before they reach jq (see sb_cap_arg): a 40 KB target/reason is
   # dropped whole by a native jq.exe on Windows. Callers already trim targets to ~200 chars.
@@ -847,7 +849,9 @@ sb_log_audit() {
     esc_t=$(printf '%s' "$target"    | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     esc_reason=$(printf '%s' "$reason" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     esc_sid=$(printf '%s' "$session_id" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    # The caller's own late flag survives (GX8, R3B): the rest of a caller's extra is not rebuilt here.
     local x=''
+    case "$extra_json" in *'"late":true'*|*'"late": true'*) late=true ;; esac
     [ "$late" = true ] && x='"late":true'
     printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
       "$ts" "$esc_h" "$verdict" "$esc_r" "$esc_t" "$esc_reason" "$esc_sid" "$x" \

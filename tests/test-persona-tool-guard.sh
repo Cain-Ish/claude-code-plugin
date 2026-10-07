@@ -1,6 +1,5 @@
 #!/bin/bash
-# run-all-timeout: 480   (measured 94s alone on MSYS 2026-09-28; 145-195s alone on a loaded MSYS box 2026-09-29 after the T2/L3/parity/512 KB cases)
-# pins: SB_GUARD_LOG_SYNC — =on writes the full logic's audit row before exit, so assertions can read it at once; the detached default has its own case (perf, R3)
+# run-all-timeout: 600   (measured 296s alone on MSYS 2026-10-08 with 9.6 GB free and ~400 processes, after the R3B credential-alias/GX3/GX6 cases; 208-282s in other runs that day; 94s on 2026-09-28)
 # pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the phase alone (Test 29)
 # pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 27)
 # pins: SB_RESOURCE_SCOPE — kill-switch test: asserts =off widens the default resource scope
@@ -19,10 +18,6 @@ pass() { echo "PASS: $1"; }
 # exits at once) leaves no brain or fixture dir behind.
 PTG_TMP=$(mktemp -d); export TMPDIR="$PTG_TMP"
 trap 'rm -rf "$PTG_TMP"' EXIT
-# The full logic's audit row follows its verdict from a detached job (perf, R3); the assertions here
-# read rows right after the guard returns, so they run with the row written before exit. The
-# detached default is tested on its own below.
-export SB_GUARD_LOG_SYNC=on
 
 # Test 1 (INVERTED 2026-08-23): 2>/dev/null is ADVISORY, never rewritten, never auto-allowed.
 # The old oracle asserted the shipped default REWROTE the command and emitted "allow". That
@@ -1042,34 +1037,185 @@ rm -rf "$B7"
 # G1 structural lock: the credential stores a Read asks about are symlink-guard's (the guard that
 # denies writes into them) — the same directories and files, under the same labels, so the two
 # lists cannot drift apart. symlink-guard's /etc arm is deliberately not mirrored (see _ptg_cred).
+# GX6/GT10 (R3B): one HOME-relative and one APPDATA-relative list per guard (arrays: "GitHub CLI"
+# holds a space), and symlink-guard's every credential test — the spelling match and the inode
+# match — reads its lists: no inline copy of an entry is left to drift.
 SG="$(dirname "$SCRIPT")/symlink-guard.sh"
-sg_dirs=$(grep -E 'for _sc_e in .*; do' "$SG" | head -1 | sed -E 's/.*for _sc_e in (.*); do.*/\1/' | tr ' ' '\n' | sort)
-ptg_dirs=$(eval "$(grep -E '^_PTG_CRED_DIRS=' "$SCRIPT")"; printf '%s\n' $_PTG_CRED_DIRS | sort)
-[ -n "$sg_dirs" ] && [ "$sg_dirs" = "$ptg_dirs" ] \
-  || fail "G1: _PTG_CRED_DIRS != symlink-guard's credential dirs. want: $(echo $sg_dirs) | have: $(echo $ptg_dirs)"
-ptg_files=$(eval "$(grep -E '^_PTG_CRED_FILES=' "$SCRIPT")"; printf '%s\n' $_PTG_CRED_FILES | sort)
-sg_files=$(grep -oE '"\$_sc_h/[^"]+"\) _SG_LABEL=[a-z-]+' "$SG" | sed -E 's|"\$_sc_h/([^"]+)"\) _SG_LABEL=(.*)|\2:\1|' | sort)
-[ -n "$sg_files" ] && [ "$sg_files" = "$ptg_files" ] \
-  || fail "G1: _PTG_CRED_FILES != symlink-guard's credential files. want: $(echo $sg_files) | have: $(echo $ptg_files)"
-pass "G1: the Read credential list mirrors symlink-guard's (dirs and files)"
+for g1_l in H A; do
+  g1_p=$(eval "$(grep -E "^_PTG_CRED_$g1_l=" "$SCRIPT")"; eval "printf '%s\n' \"\${_PTG_CRED_$g1_l[@]}\"" | sort)
+  g1_s=$(eval "$(grep -E "^_SG_CRED_$g1_l=" "$SG")"; eval "printf '%s\n' \"\${_SG_CRED_$g1_l[@]}\"" | sort)
+  [ -n "$g1_s" ] && [ "$g1_s" = "$g1_p" ] \
+    || fail "G1: _PTG_CRED_$g1_l != symlink-guard's _SG_CRED_$g1_l. want: $(echo $g1_s) | have: $(echo $g1_p)"
+done
+for g1_f in _sg_cred_match _sg_inode; do
+  sed -n "/^$g1_f()/,/^}/p" "$SG" | grep -q '_SG_CRED_H\[@\]' || fail "GT10: symlink-guard's $g1_f must read _SG_CRED_H"
+  sed -n "/^$g1_f()/,/^}/p" "$SG" | grep -q '_SG_CRED_A\[@\]' || fail "GT10: symlink-guard's $g1_f must read _SG_CRED_A"
+done
+[ "$(grep -c 'ssh:\.ssh' "$SG")" = 1 ] || fail "GT10: symlink-guard spells an entry outside _SG_CRED_H (a copy that can drift)"
+[ "$(grep -c 'ssh:\.ssh' "$SCRIPT")" = 1 ] || fail "GT10: persona-tool-guard spells an entry outside _PTG_CRED_H"
+pass "G1: the Read credential lists mirror symlink-guard's, which every one of its credential tests reads"
+
+# GX3 (R3B): credential-read is a floor below the rules, as path-too-long is. Before, its ask exited
+# ahead of the rule loop, so a user or repo rule that DENIES a Read of a credential store was
+# weakened to an ask. A rules file with Read rules stands the fast path down; in scope or out of it,
+# the deny wins, and a rule that only warns still gets the credential ask.
+GX3=$(mktemp -d)
+jq '.rules += [{name:"deny-ssh-read",tool:"Read",action:"deny",match_path:"/\\.ssh/",reason:"user layer: no ssh reads"},
+               {name:"warn-aws-read",tool:"Read",action:"warn",match_path:"/\\.aws/",reason:"user layer: aws reads"}]' \
+  "$(dirname "$SCRIPT")/persona-rules.default.json" > "$GX3/persona-rules.json"
+gx3() {  # gx3 <file> <cwd> -> out
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$1" --arg c "$2" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"gx3"}' \
+    | HOME=/home/gx3 BRAIN_DIR="$GX3" bash "$SCRIPT")
+}
+gx3 /home/gx3/.ssh/id_rsa /home/gx3
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("user layer"))' >/dev/null \
+  || fail "GX3: a user rule denying a credential Read must stay a deny (in scope) (got: $out)"
+gx3 /home/gx3/.ssh/id_rsa /w/proj
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "GX3: a user rule denying a credential Read must stay a deny (out of scope) (got: $out)"
+gx3 /home/gx3/.aws/credentials /home/gx3
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | contains("credential store"))' >/dev/null \
+  || fail "GX3: a warn rule must not lower the credential Read ask (got: $out)"
+grep -q '"rule":"credential-read"' "$GX3/audit-log.jsonl" || fail "GX3: the floor's ask must be audited as credential-read"
+pass "GX3: credential-read is a floor below the rules — a deny rule stays deny, a warn rule still asks"
+
+# GS2/GC2/GX2 (R3B): other spellings of a credential store. symlink-guard's _sg_alias saw them for
+# writes; the Read check compared the plain spelling only, and node reads every one of these. A
+# literal ~/… is HOME's on every host (GX2a: the `~/*)` case arm was tilde-expanded, dead, and ~/.ssh
+# went to $CWD/~/.ssh). On a Windows host: \\?\UNC\localhost\C$\…, \\LOCALHOST\c$\… (any case) and
+# \\127.0.0.1\C$\… are the drive; a \\?\ device path naming no drive (GLOBALROOT, Volume{…}) and a
+# UNC share under the machine's own name cannot be compared, nor can NTFS stream syntax (.netrc::$DATA,
+# .ssh::$INDEX_ALLOCATION\id_rsa): they ask; trailing dots and spaces are dropped as Win32 drops them.
+# Fast path and full logic alike (a user rules file stands the fast path down), the scope off so only
+# the credential check can ask.
+A2=$(mktemp -d); mkdir -p "$A2/fast" "$A2/full"
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$A2/full/persona-rules.json"
+w() { printf '%s' "$1" | tr '|' '\134'; }
+a2() {  # a2 <rule|-> <file_path> <cwd> <HOME> [VAR=val…]: both paths reach <rule> (- = no verdict)
+  local b p r="$1" f="$2" c="$3" h="$4"
+  shift 4
+  p=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$f" --arg c "$c" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}')
+  set -- "$r" "$f" "$c" "$h" "$@"
+  for b in fast full; do
+    : > "$A2/$b/audit-log.jsonl"
+    out=$(printf '%s' "$p" | env SB_RESOURCE_SCOPE=off HOME="$4" BRAIN_DIR="$A2/$b" "${@:5}" bash "$SCRIPT" 2>"$A2/err"); a2_rc=$?
+    if [ "$1" = - ]; then
+      [ -z "$out" ] && [ "$a2_rc" = 0 ] && [ ! -s "$A2/err" ] \
+        || fail "GS2 $b: a Read of '$2' must not ask (rc=$a2_rc, out: $out, stderr: $(head -c 300 "$A2/err"))"
+    else
+      printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "GS2 $b: a Read of '$2' must ask ($1) (got: '$out')"
+      grep -q "\"rule\":\"$1\"" "$A2/$b/audit-log.jsonl" || fail "GS2 $b: '$2' must ask as $1 (audit: $(cat "$A2/$b/audit-log.jsonl"))"
+    fi
+  done
+}
+a2 credential-read '~/.ssh/id_rsa' /w/proj /home/a2u
+a2 credential-read '~/.claude/.credentials.json' /w/proj /home/a2u
+# GX6: the stores beyond the first eight, under HOME, under USERPROFILE when HOME points elsewhere,
+# and under APPDATA (Windows: gh's hosts.yml, gcloud's directory).
+for a2_f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json; do
+  a2 credential-read "/home/a2u/$a2_f" /w/proj /home/a2u
+done
+a2 - /home/a2u/.docker/daemon.json /w/proj /home/a2u
+a2 credential-read /home/a2p/.claude/.credentials.json /w/proj /home/a2u USERPROFILE=/home/a2p
+a2 credential-read "/home/a2u/AppData/Roaming/GitHub CLI/hosts.yml" /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
+a2 credential-read /home/a2u/AppData/Roaming/gcloud/credentials.db /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
+a2 - /home/a2u/AppData/Roaming/Code/settings.json /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
+# GT10: HOME's physical spelling counts as well (a junctioned or symlinked profile reaches the full
+# logic resolved — cygpath, realpath — while HOME keeps its own spelling): builtin cd -P, as
+# symlink-guard's _sg_homes. A HOME spelled through '..', and a symlinked one where ln -s makes links.
+mkdir -p "$A2/phys/home/.ssh" "$A2/phys/x"; : > "$A2/phys/home/.ssh/id_rsa"
+a2 credential-read "$A2/phys/home/.ssh/id_rsa" /w/proj "$A2/phys/x/../home"
+ln -s "$A2/phys/home" "$A2/phys/link" 2>/dev/null
+if [ -L "$A2/phys/link" ]; then
+  a2 credential-read "$A2/phys/home/.ssh/id_rsa" /w/proj "$A2/phys/link"
+else
+  echo "SKIP: GT10 symlinked HOME — ln -s makes no symlink here (MSYS copies)"
+fi
+if command -v cygpath >/dev/null 2>&1; then
+  a2 credential-read "$(w '||?|UNC|localhost|C$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w '||LOCALHOST|c$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w '||127.0.0.1|C$|Users|a2u|.netrc')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:unc "$(w '||?|GLOBALROOT|Device|HarddiskVolume3|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:unc "$(w '||?|Volume{2a024647-cc9f-415d-963e-f119fc16be42}|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:unc "$(w '||MYHOST|C$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:stream "$(w 'C:|Users|a2u|.netrc::$DATA')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:stream "$(w 'C:|Users|a2u|.ssh::$INDEX_ALLOCATION|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w 'C:|Users|a2u|.ssh.|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w 'C:|Users|a2u|.ssh |id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w 'C:|Users|a2u|.claude|.credentials.json.')" 'C:\w\proj' /c/Users/a2u
+  a2 - "$(w 'C:|Users|a2u|notes.txt')" 'C:\w\proj' /c/Users/a2u
+  # 8.3 short names (GC2/GX2c), on disk: SSH~1 is .ssh. The fast path cannot resolve one and stands
+  # down; the full logic asks unless test -ef shows no credential store among the target and its
+  # existing ancestors (a long-named project directory's short name stays silent).
+  A2H="$A2/home"; mkdir -p "$A2H/.ssh" "$A2H/longprojectdirectory"; : > "$A2H/.ssh/id_rsa"; : > "$A2H/longprojectdirectory/notes.txt"
+  A2S=$(cygpath -d "$A2H/.ssh" 2>/dev/null); A2L=$(cygpath -d "$A2H/longprojectdirectory" 2>/dev/null)
+  case "$A2S" in
+    *'~'[0-9]*)
+      a2 credential-read "$A2S\\id_rsa" 'C:\w\proj' "$A2H"
+      grep -q '"fastpath":true' "$A2/fast/audit-log.jsonl" && fail "GS2: an 8.3 Read must be left to the full logic (the fast path cannot resolve it)"
+      a2 - "$A2L\\notes.txt" 'C:\w\proj' "$A2H"
+      a2 windows-alias:8.3 "$A2L\\missing.txt" 'C:\w\proj' "$A2H" ;;
+    *) echo "SKIP: GS2 8.3 cases — no short names on this volume (cygpath -d gave '$A2S')" ;;
+  esac
+  # GS3: a cygpath that fails leaves C:/… — the full logic spells it /c/… as the fast path does (and
+  # logs it once), where _ptg_abs had taken it for a relative path: in scope, no credential match.
+  mkdir -p "$A2/cyg"; printf '#!/bin/sh\nexit 1\n' > "$A2/cyg/cygpath"; chmod +x "$A2/cyg/cygpath"
+  : > "$A2/full/error-log.jsonl"; : > "$A2/full/audit-log.jsonl"
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$(w 'C:|Users|a2u|.ssh|id_rsa')" --arg c "$(w 'C:|w|proj')" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}' \
+    | HOME=/c/Users/a2u PATH="$A2/cyg:$PATH" BRAIN_DIR="$A2/full" bash "$SCRIPT")
+  grep -q '"rule":"credential-read"' "$A2/full/audit-log.jsonl" \
+    || fail "GS3: with cygpath failing, a credential Read must still ask (out: $out, audit: $(cat "$A2/full/audit-log.jsonl"))"
+  grep -q 'cygpath' "$A2/full/error-log.jsonl" || fail "GS3: the failed cygpath must be logged (error-log: $(cat "$A2/full/error-log.jsonl"))"
+  # GT9: a project root given with a trailing backslash (C:\w\repo\, a drive root C:\) is still a
+  # scope root — its /x/… spelling kept the separator and no target matched "/c/w/repo//*".
+  for a2_p in 'C:\w\repo\' 'C:\'; do
+    out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f 'C:\w\repo\.claude\worktrees\r3-ro\scripts\lib.sh' --arg c 'C:\w\repo\.claude\worktrees\r3-mt' '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}' \
+      | CLAUDE_PROJECT_DIR="$a2_p" BRAIN_DIR="$A2/fast" bash "$SCRIPT")
+    [ -z "$out" ] || fail "GT9: CLAUDE_PROJECT_DIR='$a2_p' must be a scope root (got: $out)"
+  done
+else
+  echo "SKIP: GS2/GS3/GT9 Windows spellings — not a Windows host (no cygpath)"
+fi
+# Off Windows a ':' is a file-name character and nothing here is an alias.
+if ! command -v cygpath >/dev/null 2>&1 && [[ ${OSTYPE:-} != msys* && ${OSTYPE:-} != cygwin* ]]; then
+  a2 - '/w/proj/notes:2026.txt' /w/proj /home/a2u
+fi
+pass "GS2/GS3/GT9: Windows spellings of a credential store ask on both paths; a literal ~ is HOME; cygpath failure and a trailing-separator project root are handled"
 
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
 # r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
 # <repo>/.claude/worktrees/r3-ro/… got the out-of-scope ask. $PROJECT (CLAUDE_PROJECT_DIR, the
 # directory the session was started in) is a scope root beside $CWD; an empty one adds nothing.
 GW=$(mktemp -d)
-gw() {  # gw <CLAUDE_PROJECT_DIR> -> out
+gw() {  # gw <CLAUDE_PROJECT_DIR> -> out, gw_rc (stderr in $GW/err)
   out=$(printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/w/repo/.claude/worktrees/r3-ro/scripts/lib.sh"},"cwd":"/w/repo/.claude/worktrees/r3-mt","session_id":"gw"}' \
-    | CLAUDE_PROJECT_DIR="$1" BRAIN_DIR="$GW" bash "$SCRIPT")
+    | CLAUDE_PROJECT_DIR="$1" BRAIN_DIR="$GW" bash "$SCRIPT" 2>"$GW/err"); gw_rc=$?
 }
+# GT7 (R3B): silent = no output, rc 0 and an empty stderr (a guard that aborts prints nothing either).
+gw_silent() { [ -z "$out" ] && [ "$gw_rc" = 0 ] && [ ! -s "$GW/err" ]; }
 gw /w/repo
-[ -z "$out" ] || fail "GW: a Read under the session's project root (cwd in a sibling worktree) must be in scope (got: $out)"
+gw_silent || fail "GW: a Read under the session's project root (cwd in a sibling worktree) must be in scope (rc=$gw_rc, got: $out, stderr: $(head -c 300 "$GW/err"))"
 gw '/w/repo/'
-[ -z "$out" ] || fail "GW: a project root with a trailing '/' must still be a scope root (got: $out)"
+gw_silent || fail "GW: a project root with a trailing '/' must still be a scope root (rc=$gw_rc, got: $out, stderr: $(head -c 300 "$GW/err"))"
 gw ''
 [ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "GW: with CLAUDE_PROJECT_DIR empty the sibling worktree is out of scope again — an empty \$PROJECT must not match every path (got: $out)"
 pass "GW: the session's project root (CLAUDE_PROJECT_DIR) is in scope, worktrees included; an empty one adds nothing"
+# GC6 (R3B): bash 5.2's patsub_replacement turns an unquoted '&' in a ${v//pat/rep} replacement into
+# the matched text — a project root, cwd or HOME holding '&' became another prefix ("/w/R$PROJECTD"),
+# and every Read under it asked.
+gc6() {  # gc6 <file> <cwd> <CLAUDE_PROJECT_DIR> [HOME] -> out
+  # MSYS2_ARG_CONV_EXCL: MSYS would rewrite a /w/… argument to C:/Program Files/Git/w/… for jq.exe.
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$1" --arg c "$2" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"gc6"}' \
+    | CLAUDE_PROJECT_DIR="$3" HOME="${4:-$HOME}" BRAIN_DIR="$GW" bash "$SCRIPT" 2>"$GW/err"); gw_rc=$?
+}
+gc6 '/w/R&D/repo/.claude/worktrees/r3-ro/x.sh' '/w/R&D/repo/.claude/worktrees/r3-mt' '/w/R&D/repo'
+gw_silent || fail "GC6: a Read under a project root holding '&' must be in scope (rc=$gw_rc, got: $out)"
+gc6 '/w/R&D/proj/a.txt' '/w/R&D/proj' ''
+gw_silent || fail "GC6: a Read under a cwd holding '&' must be in scope (rc=$gw_rc, got: $out)"
+gc6 '/h/a&b/knowledge/x.md' '/w/proj' '' '/h/a&b'
+gw_silent || fail "GC6: a Read under \$HOME/knowledge with '&' in HOME must be in scope (rc=$gw_rc, got: $out)"
+pass "GC6: '&' in the project root, cwd or HOME keeps its scope root"
 rm -rf "$GW"
 
 # G1 MSYS mounts: cygpath spells a drive path under a mount by the mount's name (%TEMP% is /tmp),
@@ -1079,8 +1225,9 @@ if [ -r /proc/mounts ] && command -v cygpath >/dev/null 2>&1 && W2_TMP=$(cygpath
    && case "$W2_TMP" in [A-Za-z]:/*) true ;; *) false ;; esac; then
   W2=$(mktemp -d)
   out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$W2_TMP/g1-w2.txt" '{tool_name:"Read",tool_input:{file_path:$f},cwd:"C:\\Workplace\\proj",session_id:"w2"}' \
-    | BRAIN_DIR="$W2" bash "$SCRIPT")
-  [ -z "$out" ] || fail "G1 mounts: a Read of $W2_TMP/g1-w2.txt (= /tmp/g1-w2.txt, in scope) must not ask (got: $out)"
+    | BRAIN_DIR="$W2" bash "$SCRIPT" 2>"$W2/err"); w2_rc=$?
+  [ -z "$out" ] && [ "$w2_rc" = 0 ] && [ ! -s "$W2/err" ] \
+    || fail "G1 mounts: a Read of $W2_TMP/g1-w2.txt (= /tmp/g1-w2.txt, in scope) must not ask (rc=$w2_rc, got: $out, stderr: $(head -c 300 "$W2/err"))"
   pass "G1 mounts: a drive path under an MSYS mount (the temp dir) gets no false out-of-scope ask"
   rm -rf "$W2"
 else
@@ -1138,9 +1285,27 @@ out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"sessio
 pass "G3: a default rules file that is not JSON denies"
 # A cache that IS bad is rebuilt in place: its .sig is dropped so sb_rules_effective rebuilds (tmp +
 # mv), never deleted first — a concurrent guard that had just been handed the path read a missing file.
-grep -qE '^[[:space:]]*rm -f "\$EFF"' "$SCRIPT" \
-  && fail "G3: the guard deletes the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
+# GT6 (R3B): any spelling of it — rm or unlink with any flags, ${EFF}, an mv away, or a truncation.
+grep -vE '^[[:space:]]*#' "$SCRIPT" \
+  | grep -qE '((^|[^A-Za-z_])(rm|unlink|mv)[[:space:]]+([^;&|#]*[[:space:]])?|>[[:space:]]*)"?\$\{?EFF\}?"?([[:space:];&|)]|$)' \
+  && fail "G3: the guard deletes (or empties) the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
 pass "G3: a failed cache is rebuilt in place, not deleted"
+# GC4 (R3B): a missing jq is not a failed rules read. _fp_jqfail's rule — jq ran and failed: ask; jq
+# absent: log and pass (SessionStart's banner reports it) — held for the payload read but not for the
+# rules read, so every call the fast path left undecided (every allow) asked. PATH: exec shims for
+# what the full logic and lib.sh use, and no jq (on Linux jq shares /usr/bin with grep).
+mkdir -p "$G3/nojq"
+for t in grep sed cat tr date mkdir dirname head tail cut wc awk sort uniq mv rm uname basename git cygpath readlink realpath; do
+  g4_p=$(command -v "$t") || continue
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$g4_p" > "$G3/nojq/$t"; chmod +x "$G3/nojq/$t"
+done
+PATH="$G3/nojq" "$BASH" -c 'command -v jq' >/dev/null 2>&1 && fail "GC4 precondition: jq must be off the shim PATH"
+: > "$G3/brain/error-log.jsonl"
+out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>/dev/null)
+[ -z "$out" ] || fail "GC4: with jq missing, a benign call is logged and passes, it does not ask (got: $out)"
+grep -q 'jq is not on PATH' "$G3/brain/error-log.jsonl" \
+  || fail "GC4: the missing jq must be logged (error-log: $(cat "$G3/brain/error-log.jsonl"))"
+pass "GC4: jq missing — the rules cannot be read, the call is logged and passes (jq that ran and failed still asks)"
 rm -rf "$G3"
 
 # --- G2 (R3, 2026-10-07): a verdict written past the hook deadline says so --------------------
@@ -1172,28 +1337,35 @@ else
   echo "SKIP: G2 late stamp — no EPOCHREALTIME (bash < 5): no clock without a process"
 fi
 
-# --- perf (R3, 2026-10-07): the verdict first, its audit row after ----------------------------
-# The full logic's sb_log_audit (~7 process creations) ran before the verdict was printed. Now the
-# verdict comes first and the row follows, from a detached job unless SB_GUARD_LOG_SYNC=on. A jq
-# stand-in for the row's jq (the one given `--arg target`) copies the guard's output so far when it
-# runs (the verdict must already be there), or sleeps 30 s (the guard must not wait for it, and its
-# stdout must close). A user rules file stands the fast path down.
+# --- perf (R3, 2026-10-07) + GS5/GT1 (R3B): the verdict, then its row from this process -------
+# The full logic's sb_log_audit (~7 process creations) ran before the verdict was printed; R3 moved
+# it into a detached job, which no test read (every case ran SB_GUARD_LOG_SYNC=on) and which is lost
+# with a hook the CLI kills. Now the row is _fp_audit's, written after the verdict and before exit:
+# builtins, no lib.sh, no fork. Run as production runs it — SB_GUARD_LOG_SYNC off, through hook-timer
+# with budget 2 (deadline = its start, so the verdict is late) — with a jq stand-in that sleeps 30 s
+# for sb_log_audit's row jq (given `--arg target`): the guard returns at once, its row already on
+# disk, the full logic's (no fastpath marker), stamped late. A user rules file stands the fast path
+# down.
 PF=$(mktemp -d); mkdir -p "$PF/bin" "$PF/brain"
 cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$PF/brain/persona-rules.json"
-printf '#!/bin/sh\nfor a in "$@"; do case "$a" in target) cp "$PF_OUT" "$PF_SEEN" 2>/dev/null; [ -n "${PF_SLEEP:-}" ] && sleep "$PF_SLEEP"; break ;; esac; done\nexec "%s" "$@"\n' "$(command -v jq)" > "$PF/bin/jq"
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in target) sleep 30; break ;; esac; done\nexec "%s" "$@"\n' "$(command -v jq)" > "$PF/bin/jq"
 chmod +x "$PF/bin/jq"
 printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj","session_id":"pf"}' > "$PF/p.json"
-PF_OUT="$PF/out1" PF_SEEN="$PF/seen1" BRAIN_DIR="$PF/brain" PATH="$PF/bin:$PATH" bash "$SCRIPT" < "$PF/p.json" > "$PF/out1"
-grep -q '"permissionDecision":"ask"' "$PF/out1" || fail "perf: the full logic must still ask for an out-of-scope Read (got: $(cat "$PF/out1"))"
-grep -q '"permissionDecision":"ask"' "$PF/seen1" 2>/dev/null \
-  || fail "perf: the audit row's jq ran before the verdict was printed (output at that moment: '$(cat "$PF/seen1" 2>/dev/null)')"
-grep -q '"rule":"resource-scope-out-of-scope"' "$PF/brain/audit-log.jsonl" || fail "perf: SB_GUARD_LOG_SYNC=on must write the row before exit"
 pf_s=$SECONDS
-out=$(PF_OUT=/dev/null PF_SEEN=/dev/null PF_SLEEP=30 SB_GUARD_LOG_SYNC=off BRAIN_DIR="$PF/brain" PATH="$PF/bin:$PATH" bash "$SCRIPT" < "$PF/p.json")
+out=$(SB_GUARD_LOG_SYNC=off BRAIN_DIR="$PF/brain" PATH="$PF/bin:$PATH" bash "$(dirname "$SCRIPT")/hook-timer.sh" 2 "$SCRIPT" < "$PF/p.json")
 pf_s=$(( SECONDS - pf_s ))
-printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "perf (detached): the verdict must arrive (got: $out)"
-[ "$pf_s" -lt 25 ] || fail "perf (detached): the guard waited ${pf_s}s for its audit row (the row's jq sleeps 30 s)"
-pass "perf: the verdict is printed before its audit row; detached, the guard returns (stdout closed) in ${pf_s}s while the row's jq sleeps 30 s"
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "perf: the full logic must still ask for an out-of-scope Read (got: $out)"
+[ "$pf_s" -lt 25 ] || fail "perf: the guard waited ${pf_s}s for a jq (sb_log_audit's sleeps 30 s): its row must not need one"
+pf_row=$(grep '"verdict":"ask"' "$PF/brain/audit-log.jsonl" 2>/dev/null)
+[ -n "$pf_row" ] || fail "GS5: the ask's audit row must be on disk when the guard returns (audit: $(cat "$PF/brain/audit-log.jsonl" 2>/dev/null))"
+printf '%s' "$pf_row" | jq -e '.rule == "resource-scope-out-of-scope" and .session_id == "pf" and (.extra.fastpath | not)' >/dev/null \
+  || fail "GS5: the row must be the full logic's resource-scope ask (no fastpath marker): $pf_row"
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  printf '%s' "$pf_row" | jq -e '.extra.late == true' >/dev/null || fail "GT1: a verdict past hook-timer's deadline must be stamped late: $pf_row"
+else
+  echo "SKIP: GT1 late stamp — no EPOCHREALTIME (bash < 5): no clock without a process"
+fi
+pass "perf/GS5: production mode — the guard returned in ${pf_s}s, its row already on disk (full logic, late)"
 
 # --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
 # bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard in the background, stdout to a file,

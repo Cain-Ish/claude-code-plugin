@@ -1,4 +1,5 @@
 #!/bin/bash
+# run-all-timeout: 180   (measured 67s alone on MSYS 2026-10-08 with 9.3 GB free and ~400 processes, after the R3B GX6 cases; 32-72s in other runs that day)
 # pins: SB_SYMLINK_GUARD — kill-switch test: asserts =off yields no decision (Test 10)
 # Tests for scripts/symlink-guard.sh — PreToolUse credential-dir symlink guard.
 # Closes G-HOOK-2 from wiki/security/plugin-hardening-gap-analysis-2026-05-28.md.
@@ -752,6 +753,25 @@ EOF
 else
   echo "SKIP: G1 — no directory link can be made here (no real symlinks, no node junction)"
 fi
+
+# --- GX6 (R3B): the credential stores beyond the first eight ------------------------------------
+# ~/.git-credentials, ~/.npmrc, ~/.docker/config.json, ~/.kube/config, ~/.pypirc, ~/.config/gcloud
+# and ~/.azure hold tokens as surely as ~/.netrc; on Windows so do %APPDATA%\GitHub CLI\hosts.yml and
+# %APPDATA%\gcloud, and the native tools keep theirs under %USERPROFILE% when HOME points elsewhere.
+for f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json; do
+  OUT=$(run_guard Write "$HOME/$f"); assert_deny "GX6: write to ~/$f" "$OUT" "credential"
+done
+OUT=$(run_guard Write "$HOME/.docker/daemon.json"); assert_allow "GX6: ~/.docker/daemon.json is no credential store" "$OUT"
+OUT=$(USERPROFILE="$TMP/profile" run_guard Write "$TMP/profile/.claude/.credentials.json")
+assert_deny "GX6: write to USERPROFILE's .claude/.credentials.json (HOME elsewhere)" "$OUT" "credential"
+OUT=$(USERPROFILE="$TMP/profile" run_guard Edit "$TMP/profile/.ssh/authorized_keys")
+assert_deny "GX6: edit of USERPROFILE's .ssh/authorized_keys (HOME elsewhere)" "$OUT" "credential"
+OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/GitHub CLI/hosts.yml")
+assert_deny "GX6: write to %APPDATA%/GitHub CLI/hosts.yml" "$OUT" "credential"
+OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/gcloud/credentials.db")
+assert_deny "GX6: write into %APPDATA%/gcloud" "$OUT" "credential"
+OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/Code/settings.json")
+assert_allow "GX6: other %APPDATA% files are no credential store" "$OUT"
 
 # Mutation i (source-scan): the `_sg_segs SG_SEGS` count must stay gated by the length cap. Without the
 # gate, a 300 KB run of '/' spends ~1.6 s splitting into ~300k fields for a count that is moot past the
