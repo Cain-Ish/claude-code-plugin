@@ -481,8 +481,26 @@ FG_RES=(
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '@[^[:space:]]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
+  '@[^[:space:]@]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
 )
+# The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
+# be followed by something else is retried from every start inside a long run of its own characters,
+# O(n^2) where grep and the fast path's ERE stay linear (GS1/GC1/GX1, R3B: 20K '@' 10.7 s, 100 KB of
+# 'ey' 9-11 s, BEGIN + 80K spaces 17 s — past the 5 s timeout, so the call ran). Each copy matches
+# the same lines as its FG_RES twin, in linear time; tests/test-flow-guard.sh holds the two paths to
+# one verdict over a corpus and times the adversarial shapes.
+# - credential-file-upload: its run excludes '@' in FG_RES itself (both paths): a match from an
+#   earlier '@' still matches from the last '@' of its run, so no line changes verdict.
+# - jwt: the first segment's run must end where its '.' is — the end of its run of token
+#   characters — so whether some 'ey' in a run starts a match is decided by the first 'ey' of that
+#   run with 10 characters after it. The copy starts only at a run's start (lookbehind), takes that
+#   'ey' and the whole run atomically, and never retries later ones. Its last segment needs 10
+#   characters, as {10,} with nothing after it does.
+# - pem-private: BEGIN s+ X? s* is BEGIN s+ (X s*)?; every whitespace run is taken atomically (none
+#   can hold the letters after it). The line bound ([^\S\n]) is FG_JQ's rewrite of [[:space:]].
+FG_JQRES=("${FG_RES[@]}")
+FG_JQRES[0]='(?<![A-Za-z0-9_-])(?>[A-Za-z0-9_-]*?ey[A-Za-z0-9_-]{10,})\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10}'
+FG_JQRES[6]='BEGIN(?>[[:space:]]+)(?:(?:RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)(?>[[:space:]]*))?PRIVATE(?>[[:space:]]+)KEY'
 _fg_reason() {  # _fg_reason TOOL LABELS -> FG_REASON (the one reason text, fast path and full logic)
   FG_REASON="Outbound info-flow guard: tool '$1' invocation appears to carry credential-shaped content ($2). HarnessAudit treats credentialed egress as the sar_flow boundary-violation channel. Confirm intent — the agent should not be sending real secrets over the wire. Kill switch: SB_FLOW_GUARD=off."
 }
@@ -526,8 +544,8 @@ _fp_raw_all
 # a loaded MSYS box, 50,000 interior newlines 6.7-7.3 s — past the 5 s timeout, so the call ran.
 # Now jq builds the haystack the fast path reads (a Bash command, a WebSearch query, a WebFetch's
 # url and prompt joined by a space; CRs dropped except in WebFetch's), applies FG_NET to a Bash
-# command (the egress gate, D103: a local `echo $TOKEN > file` is no egress) and FG_RES to the
-# haystack, and returns the indices of the patterns that matched. The verdict is printed before
+# command (the egress gate, D103: a local `echo $TOKEN > file` is no egress) and FG_JQRES (FG_RES's
+# linear-time copy) to the haystack, and returns the indices of the patterns that matched. The verdict is printed before
 # lib.sh is sourced; its rows follow from a detached job (_fg_log).
 # Line semantics: grep and the fast path's _fp_lines match line by line; a jq regex sees the whole
 # string, where [[:space:]] also matches a newline. So the quantified [[:space:]] runs (pem,
@@ -554,7 +572,7 @@ TOOL="" SESSION_ID="" FG_HITS="" _FP_JST="" _FG_END=""
 {
   IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID
   IFS= read -r -d '' FG_HITS; IFS= read -r -d '' _FG_END
-} < <(_fp_feed "$RAW" jq -j --arg net "$FG_NET" "$FG_JQ" --args "${FG_RES[@]}" 2>/dev/null)
+} < <(_fp_feed "$RAW" jq -j --arg net "$FG_NET" "$FG_JQ" --args "${FG_JQRES[@]}" 2>/dev/null)
 if [ "$_FP_JST" = nul ]; then
   _fp_audit "flow-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
   _fp_emit ask "second-brain flow-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
