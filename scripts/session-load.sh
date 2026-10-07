@@ -1977,26 +1977,50 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SEARCH_CLI="$PLUGIN_ROOT/mcp/dist/tools/knowledge-search-cli.bundle.js"
 
 if [ -f "$project_file" ] && [ -f "$SEARCH_CLI" ] && command -v node >/dev/null 2>&1 && sb_enrich_headroom wiki-enrichment 200; then
-  STOP_RE='(the|a|an|is|are|was|were|will|be|have|has|had|do|does|did|can|could|should|would|to|of|in|for|on|at|by|with|from|and|but|or|not|no|this|that|auto|scaffolded|describe|active|resolved|stale|decision|pinned|project|goal|state|open|recent|cross|references|conventions)'
+  STOP_WORDS='the is are was were will have has had does did can could should would for with from and but not this that auto scaffolded describe active resolved stale decision pinned project goal state open recent cross references conventions'
 
   # In-section FLAGS, not awk range expressions: a range `/^## X$/,/^## /` collapses to
   # the single header line because the START line ALSO matches the `^## ` END pattern —
   # so the harvest was ALWAYS empty and the whole wiki-enrichment block below never ran
   # (every session started missing its project's wiki recall). Same trap the comment at
   # ~lines 245-253 already fixed for the Never-rules block; this one was left unfixed.
-  PROJ_KW=$(LC_ALL=C awk '
-    /^## (Goal|State|Conventions)$/ { f=1; next }
-    /^## Recent decisions$/         { f=2; next }
-    /^## Open blockers$/            { f=3; next }
-    /^## Cross-references$/         { f=4; next }
+  # D6 (2026-10-07): the query was the ALPHABETICALLY first 10 distinct words (`sort -u |
+  # head -10`; live: "aaf ab abf about above absent ...", 0 hits). Now salience, in ONE awk
+  # (no pipeline, no per-word spawn): lowercase, split on non-alphanumerics, drop a token that
+  # holds a digit (a commit hash, date or version — "1aaf3e2" used to leave "aaf"), a token
+  # under 3 chars and a stopword; score = occurrences, a Goal/State occurrence counting 3; the
+  # 10 best scores, ties in first-seen order (so Goal words first). [[slug]] brackets in
+  # Cross-references are separators like any other punctuation.
+  PROJ_KW=$(LC_ALL=C awk -v stop="$STOP_WORDS" '
+    function take(line, wt,    n, i, t, a) {
+      n = split(tolower(line), a, "[^a-z0-9]+")
+      for (i = 1; i <= n; i++) {
+        t = a[i]
+        if (length(t) < 3 || t ~ /[0-9]/ || (t in isstop)) continue
+        if (!(t in score)) order[++nw] = t
+        score[t] += wt
+      }
+    }
+    BEGIN { n = split(stop, s, " "); for (i = 1; i <= n; i++) isstop[s[i]] = 1 }
+    /^## (Goal|State)$/             { f=1; w=3; next }
+    /^## Conventions$/              { f=1; w=1; next }
+    /^## Recent decisions$/         { f=2; w=1; next }
+    /^## Open blockers$/            { f=3; w=1; next }
+    /^## Cross-references$/         { f=4; w=1; next }
     /^## /                          { f=0 }
-    f==1 && NF>0 && !/^\(auto-scaffolded/   { print }
-    (f==2 || f==3) && /^- /                 { print }
-    f==4 && /\[\[/ { gsub(/[\[\]]/, ""); print }
-  ' "$project_file" 2>/dev/null | \
-    tr -cs '[:alpha:]' '\n' | \
-    grep -vxiE "$STOP_RE" | \
-    sort -u | head -10 | tr '\n' ' ')
+    f==1 && NF>0 && !/^\(auto-scaffolded/   { take($0, w) }
+    (f==2 || f==3) && /^- /                 { take($0, w) }
+    f==4 && /\[\[/                          { take($0, w) }
+    END {
+      for (k = 1; k <= 10; k++) {
+        best = 0
+        for (i = 1; i <= nw; i++) if (!(order[i] in used) && score[order[i]] > best) { best = score[order[i]]; bi = i }
+        if (best == 0) break
+        used[order[bi]] = 1; out = out (k > 1 ? " " : "") order[bi]
+      }
+      print out
+    }
+  ' "$project_file" 2>/dev/null)
 
   if [ -n "${PROJ_KW// /}" ]; then
     # SP-1: scope the session-start wiki enrichment to the active project, same as the

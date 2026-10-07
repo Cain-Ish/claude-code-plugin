@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_SESSION_LOAD_SOFT_S — lifts session-load's soft time budget: on a loaded box the hook passes 9s before the enrichment and skips the very spawn this test observes
 # 0.29.4: session-load.sh harvests PROJ_KW keywords from the active PROJECT.md and, when
 # non-empty, calls the knowledge-search CLI to enrich the SessionStart context with the
 # project's wiki notes. The harvest used awk RANGE expressions (/^## X$/,/^## /) whose
@@ -30,6 +31,7 @@ cat > "$STUB/node" <<'NODE'
 case "$*" in
   *knowledge-search-cli*)
     q="${!#}"
+    [ -n "${WIKI_Q_CAPTURE:-}" ] && printf '%s' "$q" > "$WIKI_Q_CAPTURE"
     [ -n "${q// /}" ] && printf 'demo-note :: WIKIENRICH_SENTINEL gate=%s' "${SB_INJECT_GATE:-unset}"
     ;;
 esac
@@ -58,9 +60,12 @@ See [[routing-patterns]] and [[crlf-frontmatter]].
 EOF
 printf '{"slug":"%s","path":"%s","plan_done":0,"plan_total":0}\n' "$SLUG" "$PROJDIR" > "$B/projects.jsonl"
 
-OUT=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
-  | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" \
-        KNOWLEDGE_DIR="$B/knowledge" ANTHROPIC_API_KEY="" bash "$SL" 2>/dev/null)
+run_sl() {
+  printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
+    | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" SB_SESSION_LOAD_SOFT_S=600 \
+          WIKI_Q_CAPTURE="$B/query.txt" KNOWLEDGE_DIR="$B/knowledge" ANTHROPIC_API_KEY="" bash "$SL" 2>/dev/null
+}
+OUT=$(run_sl)
 
 printf '%s' "$OUT" | grep -q 'WIKIENRICH_SENTINEL' \
   || fail "wiki-enrichment did not fire — PROJ_KW harvest is empty (awk range-collapse?); session starts without project wiki recall"
@@ -79,11 +84,50 @@ sed 's/$/\r/' "$B/projects/$SLUG/PROJECT.md" > "$B/projects/$SLUG/PROJECT.md.crl
 # Use od for CR detection: Git-Bash grep reads in text mode and strips \r from CRLF pairs,
 # so `grep -q $'\r'` always exits 1 even when CR bytes are present. od is binary-safe.
 od -An -tx1 "$B/projects/$SLUG/PROJECT.md" 2>/dev/null | grep -q ' 0d' || fail "test setup: PROJECT.md is not actually CRLF"
-OUT_CRLF=$(printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$PROJDIR" \
-  | env PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$PROJDIR" BRAIN_DIR="$B" \
-        KNOWLEDGE_DIR="$B/knowledge" ANTHROPIC_API_KEY="" bash "$SL" 2>/dev/null)
+OUT_CRLF=$(run_sl)
 printf '%s' "$OUT_CRLF" | grep -q 'WIKIENRICH_SENTINEL' \
   || fail "CRLF PROJECT.md defeated the harvest — session-load did not CR-normalize before the awk readers"
 pass "CRLF PROJECT.md still harvests (session-load normalizes \\r before the awk readers)"
+
+# D6 (2026-10-07): the query was the ALPHABETICALLY first 10 distinct words (`sort -u | head -10`;
+# live: "aaf ab abf about above absent ...", 0 hits on the live wiki — "aaf"/"abf" are what a
+# commit hash leaves once its digits are split off). Contract now: weighted frequency, a Goal/State
+# occurrence counting 3, no token under 3 chars, no token holding a digit, top 10, ties in
+# first-seen order. Scores for this fixture: tracking 6 (Goal+State), rig 4 (State+decision),
+# zebrafish/larvae/online 3, wireguard 3 (three decisions), then the once-only words in order.
+# Ten alphabetically-early once-only words sit in a decision, AFTER a hash, so the old query was
+# "Zebrafish aaf abacus abf able absent acorn adder aft agile" and lost every other salient word.
+cat > "$B/projects/$SLUG/PROJECT.md" <<'EOF'
+# PROJECT: demo
+## Goal
+Zebrafish larvae tracking.
+## State
+Tracking rig online on the Pi.
+## Recent decisions
+- [2026-10-01] commit 1aaf3e2 abf09c1: abacus able absent acorn adder aft agile amber ample apex
+- [2026-10-02] wireguard tunnel for the rig
+- [2026-10-03] wireguard keys rotated, wireguard config moved
+## Open blockers
+- none
+EOF
+rm -f "$B/query.txt"; run_sl >/dev/null
+Q=$(cat "$B/query.txt" 2>/dev/null)
+[ "$Q" = "tracking rig zebrafish larvae online wireguard commit abacus able absent" ] \
+  || fail "salience query wrong: got [$Q], want [tracking rig zebrafish larvae online wireguard commit abacus able absent]"
+pass "enrichment query ranks by weighted frequency (Goal/State x3), drops hash fragments and short tokens"
+
+# Weighting, isolated: a word ONCE in the Goal (3) outranks a word TWICE in Open blockers (2).
+cat > "$B/projects/$SLUG/PROJECT.md" <<'EOF'
+# PROJECT: demo
+## Goal
+Quokka habitat survey.
+## Open blockers
+- firmware flashing fails; firmware vendor silent
+EOF
+rm -f "$B/query.txt"; run_sl >/dev/null
+Q=$(cat "$B/query.txt" 2>/dev/null)
+[ "$Q" = "quokka habitat survey firmware flashing fails vendor silent" ] \
+  || fail "Goal weighting wrong: got [$Q], want [quokka habitat survey firmware flashing fails vendor silent]"
+pass "a Goal word outranks a more frequent blocker word"
 
 rm -rf "$B" "$PROJDIR" "$STUB"; echo; echo "ALL PASS"
