@@ -70,4 +70,39 @@ OUT=$(printf 'p' | BRAIN_DIR=/nonexistent_dir_zz9 bash "$TIMER" 60 "$CHILD" 2>/d
 [ "$rc" -eq 0 ] && [ "$OUT" = "child-stdout:p" ] || fail "(f) timer failure broke the child (rc=$rc out=$OUT)"
 pass "(f) fail-open: unwritable audit log, child unaffected"
 
+# --- (g) G2 (R3, 2026-10-07): late verdicts and the hook version ------------
+# A guard verdict written after Claude Code cancelled the hook was enforced by no one, yet counted
+# as one. The wrapper hands its children SB_HOOK_LATE_MS (its start + budget - 2000 ms: the CLI's
+# clock starts 70-2000 ms before this wrapper does), marks its own row late past it, and names the
+# plugin version the hook came from (two installed versions' sessions write one log).
+PLUG="$SANDBOX/plug"; mkdir -p "$PLUG/scripts" "$PLUG/.claude-plugin"
+printf '{\n  "name": "second-brain",\n  "version": "9.8.7-rc.1"\n}\n' > "$PLUG/.claude-plugin/plugin.json"
+# The child prints the deadline and its own clock: deadline - now = 3000 ms less the child's start-up,
+# so it is at most 3000 (a larger margin, or none, lands past that) and at least 3000 - 6000.
+printf '#!/bin/bash\nn="${EPOCHREALTIME:-}"; printf "%%s %%s" "${SB_HOOK_LATE_MS:-unset}" "${n//[!0-9]/}"\n' > "$PLUG/scripts/deadline.sh"
+printf '#!/bin/bash\nsleep 1\n' > "$PLUG/scripts/slow.sh"
+: > "$AUD"
+OUT=$(printf '' | bash "$TIMER" 5 "$PLUG/scripts/deadline.sh" 2>/dev/null)
+g_late="${OUT%% *}" g_now="${OUT#* }"
+case "$g_late" in ''|unset|*[!0-9]*) fail "(g) the child must get a numeric SB_HOOK_LATE_MS (got: '$OUT')" ;; esac
+if [ -n "$g_now" ] && [ "$g_now" != "$OUT" ]; then
+  g_left=$(( g_late - 10#$g_now / 1000 ))
+  [ "$g_left" -le 3000 ] && [ "$g_left" -ge -3000 ] \
+    || fail "(g) SB_HOOK_LATE_MS must be the wrapper's start + 5000 - 2000 ms: the child, just started, saw ${g_left} ms left (want 3000 less its start-up)"
+fi
+LINE=$(grep '"kind":"latency"' "$AUD" | tail -1)
+printf '%s' "$LINE" | jq -e '.plugin_version == "9.8.7-rc.1" and (has("late") | not)' >/dev/null \
+  || fail "(g) an on-time row names the plugin version and is not late: $LINE"
+: > "$AUD"
+printf '' | bash "$TIMER" 1 "$PLUG/scripts/slow.sh" >/dev/null 2>&1
+LINE=$(grep '"kind":"latency"' "$AUD" | tail -1)
+printf '%s' "$LINE" | jq -e '.late == true' >/dev/null \
+  || fail "(g) a 1 s child against a 1 s budget ends past the deadline: the row must say late: $LINE"
+: > "$AUD"
+printf '' | bash "$TIMER" 60 "$CHILD" >/dev/null 2>&1
+LINE=$(grep '"kind":"latency"' "$AUD" | tail -1)
+printf '%s' "$LINE" | jq -e '(has("plugin_version") | not) and (has("late") | not)' >/dev/null \
+  || fail "(g) a script with no plugin.json beside it gets no version, and a fast one no late flag: $LINE"
+pass "(g) deadline handed to the child; latency row: plugin_version, late past the deadline"
+
 echo "ALL PASS"

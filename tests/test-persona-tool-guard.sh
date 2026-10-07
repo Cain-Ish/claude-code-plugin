@@ -1138,6 +1138,35 @@ grep -qE '^[[:space:]]*rm -f "\$EFF"' "$SCRIPT" \
 pass "G3: a failed cache is rebuilt in place, not deleted"
 rm -rf "$G3"
 
+# --- G2 (R3, 2026-10-07): a verdict written past the hook deadline says so --------------------
+# hook-timer.sh hands the guard SB_HOOK_LATE_MS (its start + budget - 2000 ms). A verdict row
+# written at or past it carries extra.late:true: Claude Code had likely cancelled the hook and run
+# the call, so the row records an ask that enforced nothing. Budget 2 puts the deadline at the
+# wrapper's own start (every verdict is late); budget 60 puts it out of reach. Both the fast path's
+# row (_fp_audit) and the full logic's (sb_log_audit: a user rules file stands the fast path down).
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  G2=$(mktemp -d); mkdir -p "$G2/fast" "$G2/full"
+  cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$G2/full/persona-rules.json"
+  for b in fast full; do
+    for budget in 2 60; do
+      : > "$G2/$b/audit-log.jsonl"
+      printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj","session_id":"g2"}' \
+        | BRAIN_DIR="$G2/$b" bash "$(dirname "$SCRIPT")/hook-timer.sh" "$budget" "$SCRIPT" >/dev/null
+      g2_row=$(grep '"verdict":"ask"' "$G2/$b/audit-log.jsonl" | head -1)
+      [ -n "$g2_row" ] || fail "G2 $b, budget $budget: no verdict row (audit: $(cat "$G2/$b/audit-log.jsonl"))"
+      g2_want=false; [ "$budget" = 2 ] && g2_want=true
+      printf '%s' "$g2_row" | jq -e --argjson w "$g2_want" '((.extra.late // false) == $w)' >/dev/null \
+        || fail "G2 $b, budget $budget: extra.late must be $g2_want: $g2_row"
+    done
+  done
+  grep -q '"fastpath":true' "$G2/fast/audit-log.jsonl" || fail "G2: the fast brain's verdict must come from the fast path"
+  grep -q '"fastpath":true' "$G2/full/audit-log.jsonl" && fail "G2: the full brain's verdict must come from the full logic"
+  pass "G2: a verdict row past hook-timer's deadline carries extra.late (fast path and full logic); one before it does not"
+  rm -rf "$G2"
+else
+  echo "SKIP: G2 late stamp — no EPOCHREALTIME (bash < 5): no clock without a process"
+fi
+
 # --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
 # bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard in the background, stdout to a file,
 # a watchdog killing it past LIMIT seconds — a hung guard must FAIL the test, not hang it. BD_OUT;

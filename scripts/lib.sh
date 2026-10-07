@@ -751,9 +751,18 @@ sb_log_audit() {
   local reason="${5:-}"
   local session_id="${6:-${SB_SESSION_ID:-}}"
   local extra_json="${7:-{\}}"        # raw JSON object; '{}' when omitted
-  local ts
+  local ts late=false late_n="${EPOCHREALTIME:-}"
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   mkdir -p "$BRAIN_DIR" 2>/dev/null || return 0
+  # G2 (R3): a row written at or past hook-timer's deadline (SB_HOOK_LATE_MS, epoch ms: its start +
+  # budget - 2000 ms) gets extra.late — Claude Code had likely cancelled the hook and run the call, so
+  # the verdict enforced nothing. The guards' builtin _fp_audit stamps the same. bash 5 only
+  # (EPOCHREALTIME: no clock without a process before it). A caller that writes the row after its
+  # verdict passes the verdict's own flag in extra and clears SB_HOOK_LATE_MS for the call.
+  case "${SB_HOOK_LATE_MS:-}" in
+    ''|*[!0-9]*) ;;
+    *) [ -n "$late_n" ] && [ $(( 10#${late_n//[!0-9]/} / 1000 )) -ge "$SB_HOOK_LATE_MS" ] && late=true ;;
+  esac
   # Cap the free-text args before they reach jq (see sb_cap_arg): a 40 KB target/reason is
   # dropped whole by a native jq.exe on Windows. Callers already trim targets to ~200 chars.
   sb_cap_arg target 256
@@ -775,8 +784,8 @@ sb_log_audit() {
     line=$(jq -nc \
       --arg t "$ts" --arg h "$hook" --arg v "$verdict" \
       --arg r "$rule" --arg target "$target" --arg reason "$reason" \
-      --arg sid "$session_id" --argjson x "$extra_json" \
-      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' 2>/dev/null | tr -d '\r')
+      --arg sid "$session_id" --argjson x "$extra_json" --argjson late "$late" \
+      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:(if $late then $x + {late:true} else $x end)}' 2>/dev/null | tr -d '\r')
     if [ -n "$line" ]; then
       printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
     else
@@ -792,8 +801,10 @@ sb_log_audit() {
     esc_t=$(printf '%s' "$target"    | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     esc_reason=$(printf '%s' "$reason" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     esc_sid=$(printf '%s' "$session_id" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
-    printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{}}\n' \
-      "$ts" "$esc_h" "$verdict" "$esc_r" "$esc_t" "$esc_reason" "$esc_sid" \
+    local x=''
+    [ "$late" = true ] && x='"late":true'
+    printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
+      "$ts" "$esc_h" "$verdict" "$esc_r" "$esc_t" "$esc_reason" "$esc_sid" "$x" \
       >> "$SB_AUDIT_FILE" 2>/dev/null
   fi
 }
