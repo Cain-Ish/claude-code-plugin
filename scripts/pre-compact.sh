@@ -327,14 +327,15 @@ fi
 # Every part of the input is checked, as stop-extract.sh and the drainer's sb_extract_transcript
 # do: a failed render (sb_preprocess_transcript returns 1: jq killed or missing, the scrub failed;
 # its output must not be used) is never sent to the extractor; the deterministic floor runs.
-EXTRACT_INPUT_OK=1
+EXTRACT_INPUT_OK=1 _ei_why=""
 {
   echo "=== PROJECT.md ===" && cat "$PROJECT_MD" && echo && echo "---SEPARATOR---" && echo \
     && echo "=== TRANSCRIPT (preprocessed) ==="
-} > "$EXTRACT_INPUT" || EXTRACT_INPUT_OK=0
+} > "$EXTRACT_INPUT" || { EXTRACT_INPUT_OK=0; _ei_why="its PROJECT.md header could not be written"; }
 sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript >> "$EXTRACT_INPUT"
 _ei_ps="${PIPESTATUS[*]}"
-[ "$_ei_ps" = "0 0" ] || EXTRACT_INPUT_OK=0
+# The row names the part that failed: a header failure used to read "render pipe status 0 0".
+[ "$_ei_ps" = "0 0" ] || { EXTRACT_INPUT_OK=0; _ei_why="${_ei_why:+$_ei_why; }the transcript render failed (sed|render status $_ei_ps)"; }
 
 # --- Run LLM extraction ---
 DELTA_JSON=""
@@ -344,7 +345,7 @@ DELTA_JSON=""
 if [ "${SB_EXTRACT:-on}" = "off" ]; then
   SB_GATE="extract-off"
 elif [ "$EXTRACT_INPUT_OK" != 1 ]; then
-  sb_log_error "pre-compact.sh" "extractor input for raw lines ${WINDOW_START}-${TOTAL_LINES} could not be built (render pipe status $_ei_ps); not sent to the extractor, deterministic floor instead (the archived window is mined later)" 1
+  sb_log_error "pre-compact.sh" "extractor input for raw lines ${WINDOW_START}-${TOTAL_LINES} could not be built: ${_ei_why}; not sent to the extractor, deterministic floor instead (the archived window is mined later)" 1
 elif sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else

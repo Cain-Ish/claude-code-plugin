@@ -721,6 +721,26 @@ for tc2 in stop pc; do
 done
 pass "TC2: a failed tool count keeps the marker with an error row (Stop and PreCompact); the next run extracts the window"
 
+# HD1 (R3-B, S9): the extractor input's PROJECT.md header failing (here: a `cat` of PROJECT.md that
+# fails) was reported as "render pipe status 0 0", a render failure whose status says it succeeded.
+# The row names the part that failed; the input is still never sent and the floor still merges.
+REAL_CAT=$(command -v cat)
+CAT_SHIM="$TMP/cat-fail-shim"; mkdir -p "$CAT_SHIM"
+printf '#!/bin/bash\ncase "$*" in *PROJECT.md) exit 1 ;; esac\nexec "%s" "$@"\n' "$REAL_CAT" > "$CAT_SHIM/cat"
+chmod +x "$CAT_SHIM/cat"
+for hd in stop pre-compact; do
+  init_sandbox "hd1-header-$hd"
+  if [ "$hd" = stop ]; then seed_transcript_with_edit; HD_HOOK="$SCRIPT"; else seed_transcript_long_with_edit; HD_HOOK="$REPO_ROOT/scripts/pre-compact.sh"; fi
+  stub_claude_sentinel '{"recent_decisions":["hd1 must not be extracted"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  stop_payload | env PATH="$CAT_SHIM:$PATH" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$HD_HOOK" >/dev/null 2>"$SANDBOX/hook.err"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "HD1 ($hd): the extractor ran on an input without its PROJECT.md header"
+  grep -q 'render pipe status 0 0' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "HD1 ($hd): a header failure was reported as a render failure with status 0 0"
+  grep 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep 'PROJECT.md header' | grep -q '"exit_code":1' \
+    || fail "HD1 ($hd): no error row says the extractor input's PROJECT.md header could not be written"
+  restore_path
+done
+pass "HD1: a failed PROJECT.md header of the extractor input is reported as such, not as a render with status 0 0 (Stop and PreCompact)"
+
 # === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
 # Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.
 rep() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
