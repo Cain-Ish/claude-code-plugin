@@ -97,9 +97,13 @@ fi
 # short "verdict=N" lines. Before, every DISTINCT verdict string in the session's rows (any
 # writer, any length) became a line, and the list is read back through a `<<<` here-string,
 # which blocks Git-Bash for good at 65,537..~65,650 bytes — past this Stop hook's timeout.
+# G2 (R3): an ask/deny stamped extra.late (written after the hook's deadline: Claude Code had likely
+# cancelled the hook and run the tool) also yields a "late" line, counted on its own; so does a late
+# rewrite (GC7, R3B: the command then ran unrewritten).
 counts=$(jq -Rr --arg sid "$SESSION_ID" '
-  fromjson? | select(type == "object" and .session_id == $sid) | .verdict // empty
-  | select(. == "allow" or . == "ask" or . == "deny" or . == "flag" or . == "rewrite")
+  fromjson? | select(type == "object" and .session_id == $sid)
+  | ((.verdict // empty | select(. == "allow" or . == "ask" or . == "deny" or . == "flag" or . == "rewrite")),
+     (select((.verdict == "ask" or .verdict == "deny" or .verdict == "rewrite") and (.extra | type) == "object" and .extra.late == true) | "late"))
 ' "$AUDIT" 2>/dev/null | sort | uniq -c | awk '{print $2 "=" $1}')
 
 # Log a torn line ONCE per read (not once per skipped row) so a corrupt audit-log
@@ -111,7 +115,7 @@ fi
 
 [ -z "$counts" ] && exit 0
 
-allow=0; ask=0; deny=0; flag=0; rewrite=0
+allow=0; ask=0; deny=0; flag=0; rewrite=0; late=0
 while IFS='=' read -r v n; do
   [ -z "$v" ] && continue
   case "$v" in
@@ -120,8 +124,9 @@ while IFS='=' read -r v n; do
     deny)    deny=$n ;;
     flag)    flag=$n ;;
     rewrite) rewrite=$n ;;
+    late)    late=$n ;;
   esac
-done <<<"$counts"   # <<<-bounded: <= 5 lines "verdict=N" (the jq filter above keeps 5 verdicts)
+done <<<"$counts"   # <<<-bounded: <= 6 lines "verdict=N" (the jq filter above keeps 5 verdicts + "late")
 
 total=$((allow + ask + deny + flag + rewrite))
 [ "$total" -eq 0 ] && exit 0
@@ -138,9 +143,12 @@ top=$(jq -Rr --arg sid "$SESSION_ID" '
   | awk '{ count=$1; $1=""; sub(/^ /,""); printf "  - %s x%s\n", $0, count }')
 
 SID_SHORT="${SESSION_ID:0:8}"
-BANNER=$(printf '[second-brain SAR] session=%s\n  verdicts: allow=%d ask=%d deny=%d flag=%d rewrite=%d (total %d)\n  sar=%s  (1.00 = clean, 0.00 = every-call-blocked)\n%s  Detail: jq '\''select(.session_id=="%s")'\'' %s' \
+LATE_LINE=""
+[ "$late" -gt 0 ] && LATE_LINE="  asked after cancel: $late (ask/deny/rewrite written past the hook deadline — Claude Code had likely cancelled the hook and run the call unchanged)"$'\n'
+BANNER=$(printf '[second-brain SAR] session=%s\n  verdicts: allow=%d ask=%d deny=%d flag=%d rewrite=%d (total %d)\n%s  sar=%s  (1.00 = clean, 0.00 = every-call-blocked)\n%s  Detail: jq '\''select(.session_id=="%s")'\'' %s' \
   "$SID_SHORT" \
   "$allow" "$ask" "$deny" "$flag" "$rewrite" "$total" \
+  "$LATE_LINE" \
   "$sar" \
   "${top:+$top$'\n'}" \
   "$SESSION_ID" "$AUDIT")

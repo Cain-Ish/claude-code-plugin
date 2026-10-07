@@ -6,7 +6,9 @@
 # patterns, and knowledge from early in long sessions survive compaction cycles.
 #
 # Works in tandem with stop-extract.sh: both use a shared line-marker file
-# (.last-extracted-line-<slug>--<session_id>) so each processes a disjoint window.
+# (.last-extracted-line-<slug>--<session_id>) so each processes a disjoint window, and a shared
+# archive cursor (.last-archived-line-<slug>--<session_id>, sb_archive_raw_window) so each
+# appends a disjoint window to the archive, archive-first.
 #
 # Honors env overrides:
 #   SB_EXTRACT_TIMEOUT — seconds to wait for `claude` (default: 30)
@@ -49,9 +51,15 @@ if [ "${1:-}" = "post" ]; then
   [ "${SB_COMPACT_CAPTURE:-on}" = "off" ] && { SB_GATE="postcompact-capture reason=off"; exit 0; }
 
   P_RAW=$(cat 2>/dev/null || true)
-  if [ -z "$P_RAW" ] || ! echo "$P_RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
-    SB_GATE="postcompact-capture reason=bad-stdin"; exit 0
-  fi
+  [ -n "$P_RAW" ] || { SB_GATE="postcompact-capture reason=bad-stdin"; exit 0; }
+  # Same jq status classes as the PreCompact check below: only 1/2/4/5 are the payload's.
+  echo "$P_RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _pc_jq_rc=$?
+  case "$_pc_jq_rc" in
+    0) ;;
+    1|2|4|5) SB_GATE="postcompact-capture reason=bad-stdin"; exit 0 ;;
+    *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PostCompact payload (jq missing, not executable or killed); its Pending Tasks are not captured" 1
+       exit 0 ;;
+  esac
 
   { IFS= read -r P_SID; IFS= read -r P_CWD; IFS= read -r P_TPATH; IFS= read -r P_TRIGGER; } < <(
     printf '%s' "$P_RAW" | jq -r '.session_id // "", .cwd // "", .transcript_path // "", .trigger // ""' 2>/dev/null | tr -d '\r'
@@ -222,13 +230,26 @@ EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-30}"
 RAW=$(cat 2>/dev/null || true)
 if [ -z "$RAW" ]; then SB_GATE="empty-stdin"; exit 0; fi
 
-if ! echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
-  SB_GATE="stdin-not-json-object"; exit 0
-fi
+# jq -e status: 1 = not an object, 4/5 = no value / not JSON (2: jq 1.6's parse error); any other
+# status is jq itself failing (126/127 not runnable, 128+N killed): an error row with the status,
+# never the routine gate (stop-extract.sh does the same). The window is not archived; a later hook
+# retries it. The field reads below check jq's status for the same reason.
+echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _pc_jq_rc=$?
+case "$_pc_jq_rc" in
+  0) ;;
+  1|2|4|5) SB_GATE="stdin-not-json-object"; exit 0 ;;
+  *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PreCompact payload (jq missing, not executable or killed); the window is neither archived nor extracted, a later hook retries it" 1
+     exit 0 ;;
+esac
 
-TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
-CWD=$(echo "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
-SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
+_pc_jq_rc=0
+TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _pc_jq_rc=$?
+CWD=$(echo "$RAW" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _pc_jq_rc=$?
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _pc_jq_rc=$?
+if [ "$_pc_jq_rc" -ne 0 ]; then
+  sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc reading the PreCompact payload's fields; the window is neither archived nor extracted, a later hook retries it" 1
+  exit 0
+fi
 if [ -z "$TRANSCRIPT" ]; then SB_GATE="transcript-path-empty"; exit 0; fi
 if [ ! -f "$TRANSCRIPT" ]; then SB_GATE="transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 
@@ -242,7 +263,6 @@ MARKER_KEY=$(sb_extraction_marker_key "$SLUG" "$SESSION_ID")
 
 PROJECT_MD="$BRAIN_DIR/projects/$SLUG/PROJECT.md"
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
-if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0; fi
 
 # --- Determine unprocessed window ---
 LAST_LINE=$(sb_get_extraction_marker "$MARKER_KEY")
@@ -255,6 +275,15 @@ TOTAL_LINES=$(awk 'END{print NR}' "$TRANSCRIPT" 2>/dev/null)
 if [ "$LAST_LINE" -gt "$TOTAL_LINES" ]; then
   LAST_LINE=0
 fi
+
+# --- Archive-first (0.56.0, R2#2) ---
+# Append the raw window (raw_line cursor, TOTAL_LINES] to the session archive before every
+# extraction gate (PROJECT.md present, >= 20 new lines, a tool_use) and before the merge:
+# archiving needs none of them, and a window the gates skip is still captured. Same helper and
+# cursor (.last-archived-line-*) as stop-extract.sh, so the two hooks append disjoint windows.
+sb_archive_raw_window "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$TOTAL_LINES" "$MARKER_KEY" || true
+
+if [ ! -f "$PROJECT_MD" ]; then SB_GATE="project-md-missing slug=$SLUG"; exit 0; fi
 NEW_LINES=$((TOTAL_LINES - LAST_LINE))
 
 if [ "$NEW_LINES" -lt 20 ]; then
@@ -265,16 +294,16 @@ fi
 START_LINE=$((LAST_LINE + 1))
 
 # Gate: at least one tool_use in the window. The buddy's end-of-turn buddy_react call is chat,
-# not work (same rule as stop-extract.sh's substantive gate).
-TOOL_COUNT=$(sed -n -- "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
-  select(.type == "assistant")
-  | .message.content[]?
-  | select(.type == "tool_use")
-  | .name
-  | select((. // "") | endswith("buddy_react") | not)
-' 2>/dev/null | wc -l | tr -d ' ')
+# not work (same rule as stop-extract.sh's substantive gate). Per-line parse
+# (sb_window_tool_count): a record cut mid-write no longer hides the rest of the window.
+# A failed count (sed or jq killed or missing) is not "no tool calls": the marker stays, and the
+# next PreCompact or Stop examines the window again (stop-extract.sh does the same).
+if ! TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES"); then
+  sb_log_error "pre-compact.sh" "the tool count of raw lines ${START_LINE}-${TOTAL_LINES} failed (sed or jq); the marker stays at $LAST_LINE and a later hook examines the window again" 1
+  exit 0
+fi
 
-if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
+if [ "$TOOL_COUNT" -lt 1 ]; then
   SB_GATE="tool-count-zero-in-window new_lines=$NEW_LINES"
   sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
   exit 0
@@ -301,15 +330,18 @@ else
   WINDOW_START=$START_LINE
 fi
 
+# Every part of the input is checked, as stop-extract.sh and the drainer's sb_extract_transcript
+# do: a failed render (sb_preprocess_transcript returns 1: jq killed or missing, the scrub failed;
+# its output must not be used) is never sent to the extractor; the deterministic floor runs.
+EXTRACT_INPUT_OK=1 _ei_why=""
 {
-  echo "=== PROJECT.md ==="
-  cat "$PROJECT_MD"
-  echo
-  echo "---SEPARATOR---"
-  echo
-  echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
-} > "$EXTRACT_INPUT"
+  echo "=== PROJECT.md ===" && cat "$PROJECT_MD" && echo && echo "---SEPARATOR---" && echo \
+    && echo "=== TRANSCRIPT (preprocessed) ==="
+} > "$EXTRACT_INPUT" || { EXTRACT_INPUT_OK=0; _ei_why="its PROJECT.md header could not be written"; }
+sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript >> "$EXTRACT_INPUT"
+_ei_ps="${PIPESTATUS[*]}"
+# The row names the part that failed: a header failure used to read "render pipe status 0 0".
+[ "$_ei_ps" = "0 0" ] || { EXTRACT_INPUT_OK=0; _ei_why="${_ei_why:+$_ei_why; }the transcript render failed (sed|render status $_ei_ps)"; }
 
 # --- Run LLM extraction ---
 DELTA_JSON=""
@@ -318,6 +350,8 @@ DELTA_JSON=""
 # and writes .extractor-health.json so session-load.sh can surface failures.
 if [ "${SB_EXTRACT:-on}" = "off" ]; then
   SB_GATE="extract-off"
+elif [ "$EXTRACT_INPUT_OK" != 1 ]; then
+  sb_log_error "pre-compact.sh" "extractor input for raw lines ${WINDOW_START}-${TOTAL_LINES} could not be built: ${_ei_why}; not sent to the extractor, deterministic floor instead (the archived window is mined later)" 1
 elif sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else
@@ -325,48 +359,13 @@ else
   sb_log_error "pre-compact.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
-# Deterministic fallback: single [degraded] breadcrumb in a SIDECAR (not PROJECT.md
-# decisions — SP-E), deduped per day. The transcript is archived for out-of-band drainer
-# recovery of the real knowledge; this just logs the gap.
+# Deterministic fallback when the LLM is unavailable (sb_degraded_floor, lib.sh, shared with
+# stop-extract.sh): the files-changed floor of the FULL window reaches PROJECT.md, and ONE
+# [degraded] breadcrumb per day goes to the pending-extraction.log SIDECAR (SP-E). This path used to
+# merge an empty delta, so a compaction under a dead LLM captured no decision at all. The window is
+# archived (archive-first) for the drainer's later recovery of the real knowledge.
 if [ -z "$DELTA_JSON" ]; then
-  TODAY=$(date -u +%Y-%m-%d)
-  PENDING_LOG="$(dirname "$PROJECT_MD")/pending-extraction.log"
-  if grep -qF "[$TODAY] [degraded]" "$PENDING_LOG" 2>/dev/null; then
-    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
-  else
-    # Scratch-path filter: /tmp, /var/tmp, /proc, /dev, /run are session-ephemeral
-    # and have no value as future-session context — they only bloat the hot tier.
-    FILES_JSON=$(sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
-      [
-        .[]
-        | select(.type == "assistant")
-        | .message.content[]?
-        | select(.type == "tool_use")
-        | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
-        | .input.file_path
-      ]
-      | unique
-      | map(select(. != null and . != ""))
-    ' 2>/dev/null || echo '[]')
-    FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
-    # D111: sb_filter_scratch_paths (lib.sh) catches Windows AppData\Local\Temp and
-    # macOS $TMPDIR (/var/folders/...) forms the old POSIX-only test() missed.
-    FILES_JSON=$(sb_filter_scratch_paths "$FILES_JSON")
-    FILES_JSON=$(printf '%s' "$FILES_JSON" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
-    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null | tr -d '\r')
-    if [ -n "$FILES_LIST" ]; then
-      NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"
-    else
-      NOTE="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
-    fi
-    # Sidecar (out of PROJECT.md decisions), bounded to 50 lines.
-    mkdir -p "$(dirname "$PENDING_LOG")" 2>/dev/null || true
-    printf '[%s] %s\n' "$TODAY" "$NOTE" >> "$PENDING_LOG" 2>/dev/null || true
-    if [ -f "$PENDING_LOG" ]; then
-      tail -n 50 "$PENDING_LOG" > "$PENDING_LOG.tmp" 2>/dev/null && mv "$PENDING_LOG.tmp" "$PENDING_LOG" 2>/dev/null || rm -f "$PENDING_LOG.tmp" 2>/dev/null
-    fi
-    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
-  fi
+  DELTA_JSON=$(sb_degraded_floor "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES" "$PROJECT_MD")
 fi
 
 # --- Quality gate (D157) ---
@@ -377,11 +376,13 @@ DELTA_JSON=$(sb_gate_extraction_delta "$DELTA_JSON")
 
 # --- Merge delta into PROJECT.md ---
 MERGE_ERR=$(mktemp)
+MERGE_FAILED=0
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
       --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" --session "$SESSION_ID" >/dev/null 2>"$MERGE_ERR"; then
   ERR_TAIL=$(tr '\n' ' ' < "$MERGE_ERR" | head -c 400)
   sb_log_error "pre-compact.sh" "merge-failed err=$ERR_TAIL" 0
+  MERGE_FAILED=1
 fi
 rm -f "$MERGE_ERR"; MERGE_ERR=""
 
@@ -412,25 +413,26 @@ DG_GOAL=$(echo "$DELTA_JSON" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '
 DG_OUT=$(echo "$DELTA_JSON" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
 sb_append_session_digest "$SLUG" "$SESSION_ID" "$DG_GOAL" "$DG_OUT" || true
 
-# --- Archive preprocessed transcript for dream mining ---
-# Archive the FULL delta (not the LLM-capped window) so dream-mining never
-# loses the middle of a >1000-line delta (deep-review).
-sb_archive_transcript "$TRANSCRIPT" "$SLUG" "$SESSION_ID" "$START_LINE" "$TOTAL_LINES" "$TOOL_COUNT" 2>/dev/null || true
+# (The FULL raw window, not the LLM-capped one, was archived above: archive-first.)
 
 # --- Incremental episodic index update ---
-# D179: redirect BOTH stdout and stderr of the backgrounded node process to a log
-# file, never inherit the hook's own stdout (a reader of a pipe only sees EOF once
-# every holder closes it). Failures are fail-loud via sb_log_error.
+# D179: the backgrounded index build must not inherit the hook's stdout (a reader of a pipe only
+# sees EOF once every holder closes it). 0.56.0: the SUBSHELL's fds are redirected too, not only
+# node's: the waiting subshell held the pipe open just the same. Failures are fail-loud via
+# sb_log_error (it writes files, not stdout).
 PLUGIN_DIST="$(dirname "$0")/../mcp/dist/tools"
 if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bundle.js" ]; then
   EIDX_LOG="$BRAIN_DIR/episodic-index.log"
   ( BRAIN_DIR="$BRAIN_DIR" node "$PLUGIN_DIST/episodic-index-cli.bundle.js" >>"$EIDX_LOG" 2>&1
     _eidx_ec=$?
     [ "$_eidx_ec" -ne 0 ] && sb_log_error "pre-compact.sh" "episodic-index-cli exited $_eidx_ec (see $EIDX_LOG)" "$_eidx_ec"
-  ) &
+  ) </dev/null >/dev/null 2>&1 &
 fi
 
 # --- Update extraction marker ---
-sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
+# D177 (as stop-extract.sh): a failed merge means this window's decisions never reached PROJECT.md,
+# so the marker stays where it is and the next PreCompact or Stop retries the window (the archive
+# has its own cursor, so the retry does not re-archive it).
+[ "$MERGE_FAILED" = "1" ] || sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
 
 exit 0

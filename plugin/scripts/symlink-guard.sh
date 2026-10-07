@@ -18,11 +18,11 @@
 #   - Bash — uses flow-guard for credential-shaped egress.
 #   - Read — read-only; not a write-escape risk.
 #
-# Credential-dir prefixes (after realpath, case-insensitive):
-#   $HOME/.ssh, $HOME/.gnupg, $HOME/.aws, $HOME/.config/claude,
-#   $HOME/.config/gh, $HOME/.netrc (file), /etc, $HOME/.password-store,
-#   $HOME/.claude/.credentials.json (file — the OAuth token; the ~/.claude
-#   TREE is deliberately not a prefix, it holds legitimate write targets).
+# Credential stores (after realpath, case-insensitive; _SG_CRED_H / _SG_CRED_A below): under $HOME
+#   and $USERPROFILE: .ssh, .gnupg, .aws, .config/claude, .config/gh, .config/gcloud, .azure,
+#   .password-store, and the files .netrc, .claude/.credentials.json (the OAuth token; the ~/.claude
+#   TREE is deliberately not a prefix, it holds legitimate write targets), .git-credentials, .npmrc,
+#   .docker/config.json, .kube/config, .pypirc; under %APPDATA%: GitHub CLI/hosts.yml, gcloud; /etc.
 #
 # Verdict: deny. Reason carries which credential dir matched (no content
 # leaked).
@@ -71,6 +71,17 @@ _fp_ob=0
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
+# _FP_DL: the epoch ms from which this guard's verdict counts as late (G2; GS6/GC5/GX5, R3B): Claude
+# Code had likely cancelled the hook and run the call. hook-timer's SB_HOOK_LATE_MS when this guard is
+# its direct child (SB_HOOK_LATE_PID is $PPID; GT11: one inherited through a process the wrapped hook
+# spawned is not this guard's); otherwise — the guards hooks.json does not wrap — this guard's own
+# start plus the 5 s hook timeout less the same 2000 ms head start. Taken here, before the payload is
+# read. bash 5 only (EPOCHREALTIME): before it there is no clock without a process, and no stamp.
+_FP_DL=""
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _FP_DL=${EPOCHREALTIME//[!0-9]/}; _FP_DL=$(( 10#$_FP_DL / 1000 + 3000 ))
+  case "${SB_HOOK_LATE_MS:-}" in ''|*[!0-9]*) ;; *) [ "${SB_HOOK_LATE_PID:-}" = "$PPID" ] && _FP_DL="$SB_HOOK_LATE_MS" ;; esac
+fi
 _FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
 _FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
@@ -364,11 +375,18 @@ _fp_path() {
       _fp_joinsl _fq_p
       _fq_p="$_fq_p$_fq_t" ;;
   esac
-  case "$_fq_p" in "//?/"*) _fq_p=${_fq_p:4} ;; esac
-  case "$_fq_p" in "//./"*) _fq_p=${_fq_p:4} ;; esac
+  # \\?\ and \\.\ (Win32 device paths) are cut before a drive only, and \\?\UNC\host\… is the UNC
+  # path \\host\…. Any other device path (\\?\Volume{…}\, \\?\GLOBALROOT\…) keeps its //?/ prefix: it
+  # names no drive path, so no scope root or credential prefix matches it (GS2/GX2b, R3B: the old
+  # unconditional cut left Volume{…}/… and UNC/… relative — joined to the cwd, in scope).
   case "$_fq_p" in
-    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
+    //[?.]/[A-Za-z]:*) _fq_p=${_fq_p:4} ;;
+    //[?.]/[Uu][Nn][Cc]/*) _fq_p="//${_fq_p:8}" ;;
+  esac
+  # The loopback admin share is the drive itself, in any case (Windows host names are).
+  case "$_fq_p" in
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$|//[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$|//127.0.0.1/[A-Za-z]\$/*)
+      _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:/${_fq_p:15}" ;;
   esac
   if [ "${3:-}" = lex ]; then
     case "$_fq_p" in
@@ -402,10 +420,27 @@ _fp_emit() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source), appended by one printf >> (D120).
+# _fp_late: _FP_LATE=1 once this guard's deadline (_FP_DL, above) has passed: a verdict written then
+# was likely cancelled with the hook, and the call ran.
+_FP_LATE=0
+_fp_late() {
+  local _fy_n="${EPOCHREALTIME:-}"
+  _FP_LATE=0
+  [ -n "$_FP_DL" ] && [ -n "$_fy_n" ] || return 0
+  _fy_n="${_fy_n//[!0-9]/}"
+  [ $(( 10#$_fy_n / 1000 )) -ge "$_FP_DL" ] && _FP_LATE=1
+  return 0
+}
+
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
-  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s
+  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -413,10 +448,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
-  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{"fastpath":true}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" >> "$_fa_bd/audit-log.jsonl"
+  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -477,8 +514,11 @@ _sg_norm() {
 # ~/.ssh write was ALLOWED), plus HOME's PHYSICAL spelling (junction, 8.3 short name, symlinked
 # profile): the resolved target comes out of `pwd -P`/realpath in that spelling. Builtin cd -P,
 # cwd restored: no subshell.
+# GX6 (R3B): USERPROFILE joins HOME (with HOME pointed elsewhere the native tools keep their stores
+# under the Windows profile still) and _SG_HA spells APPDATA, both lexically and physically only —
+# native Windows paths under no MSYS mount, so no cygpath spawn.
 _sg_homes() {
-  local _sh_h _sh_p="" _sh_o="$PWD"
+  local _sh_h _sh_p="" _sh_o="$PWD" _sh_v _sh_s _sh_z _sh_q
   if [ "$1" = lex ]; then _fp_path _sh_h "$HOME" lex; else _sg_norm _sh_h "$HOME"; fi
   _sh_h="${_sh_h%/}"
   if [ -n "${HOME:-}" ] && CDPATH= cd -P -- "$HOME" 2>/dev/null; then
@@ -486,7 +526,7 @@ _sg_homes() {
     if [ "$1" = lex ]; then _fp_path _sh_p "$_sh_p" lex; else _sg_norm _sh_p "$_sh_p"; fi
     _sh_p="${_sh_p%/}"
   fi
-  _SG_H=()
+  _SG_H=() _SG_HA=()
   [ -n "$_sh_h" ] && _SG_H+=("$_sh_h")
   [ -n "$_sh_p" ] && [ "$_sh_p" != "$_sh_h" ] && _SG_H+=("$_sh_p")
   # F-E: a HOME spelled in a drive form that lies UNDER an MSYS mount (e.g. /c/…/AppData/Local/Temp =
@@ -507,6 +547,18 @@ _sg_homes() {
       [ "$_sh_dup" = 0 ] && _SG_H+=("$_sh_u")
     done
   fi
+  for _sh_v in USERPROFILE APPDATA; do
+    _sh_s="${!_sh_v:-}"
+    [ -n "$_sh_s" ] || continue
+    _sh_q=""
+    if CDPATH= cd -P -- "$_sh_s" 2>/dev/null; then _sh_q="$PWD"; cd -- "$_sh_o" 2>/dev/null; fi
+    for _sh_z in "$_sh_s" "$_sh_q"; do
+      [ -n "$_sh_z" ] || continue
+      _fp_path _sh_z "$_sh_z" lex; _sh_z="${_sh_z%/}"
+      [ -n "$_sh_z" ] || continue
+      if [ "$_sh_v" = APPDATA ]; then _SG_HA+=("$_sh_z"); else _SG_H+=("$_sh_z"); fi
+    done
+  done
   return 0
 }
 
@@ -517,6 +569,13 @@ _sg_homes() {
 # false deny is fail-safe, a missed credential write is not. (It replaced a `printf | tr` per
 # prefix per candidate: ~36 processes, ~1 s of this guard's 1.5 s on MSYS.) The directory node
 # itself matches as well as anything under it: a Write to exactly ~/.ssh must not slip past.
+# The stores (GX6, R3B: the list grew; persona-tool-guard's credential Read check holds the same two,
+# tests/test-persona-tool-guard.sh locks them together): label:path under every _SG_H spelling (HOME,
+# USERPROFILE), then under every _SG_HA one (APPDATA). Each entry is the path or anything inside it —
+# a file has nothing inside, and ~/.claude is no entry: plans/, projects/ (memory) and settings.json
+# live there and are legitimate write targets.
+_SG_CRED_H=(ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store gcloud:.config/gcloud azure:.azure netrc:.netrc claude-oauth:.claude/.credentials.json git-credentials:.git-credentials npmrc:.npmrc docker-config:.docker/config.json kube-config:.kube/config pypirc:.pypirc)
+_SG_CRED_A=('gh-hosts:GitHub CLI/hosts.yml' gcloud:gcloud)
 _SG_LABEL=""
 _sg_cred_match() {
   local _sc_c _sc_h _sc_e _sc_p
@@ -525,20 +584,18 @@ _sg_cred_match() {
   for _sc_c in "$@"; do
     [ -n "$_sc_c" ] || continue
     for _sc_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
-      for _sc_e in ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store; do
+      for _sc_e in "${_SG_CRED_H[@]}"; do
+        _sc_p="$_sc_h/${_sc_e#*:}"
+        case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _SG_LABEL="${_sc_e%%:*}"; break 3 ;; esac
+      done
+    done
+    for _sc_h in ${_SG_HA[@]+"${_SG_HA[@]}"}; do
+      for _sc_e in "${_SG_CRED_A[@]}"; do
         _sc_p="$_sc_h/${_sc_e#*:}"
         case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _SG_LABEL="${_sc_e%%:*}"; break 3 ;; esac
       done
     done
     case "$_sc_c" in /etc|/etc/*) _SG_LABEL=etc; break ;; esac
-    # Single credential FILES, not prefix trees: ~/.claude must NOT be a prefix — plans/,
-    # projects/ (memory), settings.json live there and are legitimate write targets.
-    for _sc_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
-      case "$_sc_c" in
-        "$_sc_h/.netrc") _SG_LABEL=netrc; break 2 ;;
-        "$_sc_h/.claude/.credentials.json") _SG_LABEL=claude-oauth; break 2 ;;
-      esac
-    done
   done
   shopt -u nocasematch
   [ -n "$_SG_LABEL" ]
@@ -642,7 +699,7 @@ _sg_deny() {  # _sg_deny TOOL FILE_PATH RESOLVED LABEL SESSION
   local _sd_p _sd_x _sd_r
   _sg_short _sd_p "$2"; _sg_short _sd_x "$3"
   _sd_r="Write to '$_sd_p' resolves to '$_sd_x' which is inside the credential directory '$4'. Symlink-guard denies to prevent credential overwrite or exfil. Suppress: SB_SYMLINK_GUARD=off."
-  _fp_audit "symlink-guard.sh" "deny" "credential-dir:$4" "$1($_sd_p)" "$_sd_r" "$5"
+  _fp_audit "symlink-guard.sh" "deny" "credential-dir:$4" "$1($_sd_p)" "$_sd_r" "$5" "$_SG_FULL"
   _fp_emit deny "$_sd_r"
 }
 
@@ -674,7 +731,7 @@ _sg_alias() {
   case "$_sa_p" in [A-Za-z]:*) _sa_t=${_sa_p:2} ;; *) _sa_t=$_sa_p ;; esac
   case "$_sa_t" in
     *:*) _sa_m="Write to '$_sa_d' uses NTFS stream syntax (a ':' after the drive), which can name another file or a directory itself (.ssh::\$INDEX_ALLOCATION is ~/.ssh). Symlink-guard denies it. Suppress: SB_SYMLINK_GUARD=off."
-         _fp_audit "symlink-guard.sh" "deny" "windows-alias:stream" "$1($_sa_d)" "$_sa_m" "$3"
+         _fp_audit "symlink-guard.sh" "deny" "windows-alias:stream" "$1($_sa_d)" "$_sa_m" "$3" "$_SG_FULL"
          _fp_emit deny "$_sa_m"
          return 0 ;;
   esac
@@ -687,7 +744,7 @@ _sg_alias() {
     [A-Za-z]\$/*) _SG_MAPPED="${_sa_s%%\$*}:${_sa_s#?\$}"; return 2 ;;
   esac
   _sa_m="Write to '$_sa_d' is a UNC network path: symlink-guard cannot tell whether that share leads to a credential directory on this machine. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
-  _fp_audit "symlink-guard.sh" "ask" "windows-alias:unc" "$1($_sa_d)" "$_sa_m" "$3"
+  _fp_audit "symlink-guard.sh" "ask" "windows-alias:unc" "$1($_sa_d)" "$_sa_m" "$3" "$_SG_FULL"
   _fp_emit ask "$_sa_m"
   return 0
 }
@@ -728,20 +785,27 @@ _sg_phys() {
 # credential dir, a file directly in one, or /etc and its direct entries — the classic escape
 # (a repo file symlinked to ~/.ssh/authorized_keys) decided with no readlink.
 _sg_inode() {
-  local _si_h _si_e _si_d _si_f
+  local _si_h _si_e
   _SG_LABEL=""
   for _si_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
-    for _si_e in ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store; do
-      _si_d="$_si_h/${_si_e#*:}"
-      [ -d "$_si_d" ] || continue
-      for _si_f in "$_si_d" "$_si_d"/* "$_si_d"/.[!.]*; do
-        [ -e "$_si_f" ] && [ "$1" -ef "$_si_f" ] && { _SG_LABEL="${_si_e%%:*}"; return 0; }
-      done
-    done
-    [ "$1" -ef "$_si_h/.netrc" ] && { _SG_LABEL=netrc; return 0; }
-    [ "$1" -ef "$_si_h/.claude/.credentials.json" ] && { _SG_LABEL=claude-oauth; return 0; }
+    for _si_e in "${_SG_CRED_H[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:}" "${_si_e%%:*}" && return 0; done
   done
-  for _si_f in /etc /etc/*; do [ -e "$_si_f" ] && [ "$1" -ef "$_si_f" ] && { _SG_LABEL=etc; return 0; }; done
+  for _si_h in ${_SG_HA[@]+"${_SG_HA[@]}"}; do
+    for _si_e in "${_SG_CRED_A[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:}" "${_si_e%%:*}" && return 0; done
+  done
+  _sg_inode1 "$1" /etc etc
+}
+# _sg_inode1 LINK STORE LABEL: LINK is STORE, or (STORE a directory) one of its direct entries.
+_sg_inode1() {
+  local _s1_f
+  [ -e "$2" ] || return 1
+  if [ -d "$2" ]; then
+    for _s1_f in "$2" "$2"/* "$2"/.[!.]*; do
+      [ -e "$_s1_f" ] && [ "$1" -ef "$_s1_f" ] && { _SG_LABEL="$3"; return 0; }
+    done
+  elif [ "$1" -ef "$2" ]; then
+    _SG_LABEL="$3"; return 0
+  fi
   return 1
 }
 _sg_fast() {
@@ -771,7 +835,10 @@ _sg_fast() {
   fi
   return 1
 }
+_SG_FULL=""
 _sg_fast && exit 0
+# Every row from here on is the full logic's (_sg_deny and _sg_alias are shared with the fast path).
+_SG_FULL=full
 
 # --- Full logic (the fast path could not decide) -----------------------------------------------
 _fp_raw_all
@@ -798,7 +865,7 @@ if ! _sg_fields; then
     IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; IFS= read -r -d '' SESSION_ID
   } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (if ([.tool_name, .tool_input.file_path, .session_id] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' 2>/dev/null)
   if [ "$_FP_JST" = nul ]; then
-    _fp_audit "symlink-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_audit "symlink-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain symlink-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
     exit 0
   fi
@@ -906,7 +973,7 @@ if [ "$SG_LEN" -gt 4096 ] || [ "$SG_SEGS" -gt 256 ]; then
   _sg_short _sg_sp "$FILE_PATH"
   if [ "$SG_LEN" -gt 4096 ]; then _sg_why="$SG_LEN characters"; else _sg_why="$SG_SEGS components"; fi
   _sg_lr="Write to '$_sg_sp' is too long to resolve through its symlinks inside the hook's time budget ($_sg_why; the limits are 4096 characters and 256 components), so symlink-guard cannot tell whether it leads into a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
-  _fp_audit "symlink-guard.sh" "ask" "path-too-long" "$TOOL($_sg_sp)" "$_sg_lr" "$SESSION_ID"
+  _fp_audit "symlink-guard.sh" "ask" "path-too-long" "$TOOL($_sg_sp)" "$_sg_lr" "$SESSION_ID" full
   _fp_emit ask "$_sg_lr"
   exit 0
 fi
@@ -971,7 +1038,7 @@ if [ "$_sn_windows_host" -eq 1 ] && _sg_has_83 "$FILE_PATH" "$RESOLVED"; then
     RESOLVED="$EXPANDED"
   else
     SHORTNAME_REASON="Write to '$FILE_PATH' (resolved '$RESOLVED') contains an NTFS 8.3 short-name path component (e.g. 'NAME~1') that could not be expanded back to its long form (no cygpath, or nothing on the path exists to query). Symlink-guard denies rather than risk a credential-dir alias slipping past the prefix check. Suppress: SB_SYMLINK_GUARD=off."
-    _fp_audit "symlink-guard.sh" "deny" "ntfs-8.3-shortname" "${TOOL}(${FILE_PATH})" "$SHORTNAME_REASON" "$SESSION_ID"
+    _fp_audit "symlink-guard.sh" "deny" "ntfs-8.3-shortname" "${TOOL}(${FILE_PATH})" "$SHORTNAME_REASON" "$SESSION_ID" full
     _fp_emit deny "$SHORTNAME_REASON"
     exit 0
   fi

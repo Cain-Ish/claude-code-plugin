@@ -204,6 +204,17 @@ function isEmptySignature(sig) {
 }
 
 // src/tools/raw-inbox.ts
+function rawCaptureCliCommand(scriptPath) {
+  const p = (scriptPath ?? "").replace(/\\/g, "/");
+  const cut = p.lastIndexOf("/");
+  if (cut < 0) return 'node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"';
+  const cli = `${p.slice(0, cut)}/raw-capture-cli.bundle.js`;
+  return `node "${cli.replace(/(["$`])/g, "\\$1")}"`;
+}
+function shellWord(s) {
+  if (/^[A-Za-z0-9._/:@+=-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
 function rawDir(brainDir, slug) {
   return join(brainDir, "projects", slug, "raw");
 }
@@ -703,6 +714,7 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
 }
 
 // src/tools/raw-capture-cli.ts
+var RAW_CAPTURE_CLI = rawCaptureCliCommand(process.argv[1]);
 function resolveSlug(brainDir, flagSlug) {
   return flagSlug || process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
 }
@@ -739,7 +751,7 @@ async function main() {
       for (const i of items) {
         console.log(`  - ${i.id} [${i.malformed ? "malformed" : i.status}] ${i.gist || i.source}`);
       }
-      if (items.length === 0) console.log("  (empty \u2014 capture something, e.g. /second-brain:capture ./notes.md)");
+      if (items.length === 0) console.log(`  (empty \u2014 capture something, e.g. ${RAW_CAPTURE_CLI} capture ./notes.md)`);
     } else if (action === "discard") {
       const id = rest[0];
       if (!id) {
@@ -758,7 +770,7 @@ async function main() {
         console.log([i.id, path, i.captured_by, cell(i.target_node ?? ""), cell(i.gist)].join("	"));
       }
       if (foreign.length) {
-        console.error(`pending: held back ${foreign.length} foreign-origin item(s) (origin\u2260${slug}): ${foreign.map((i) => i.id).join(", ")} \u2014 re-capture in the right project or /second-brain:capture --discard <id>`);
+        console.error(`pending: held back ${foreign.length} foreign-origin item(s) (origin\u2260${slug}): ${foreign.map((i) => i.id).join(", ")} \u2014 re-capture in the right project or ${RAW_CAPTURE_CLI} --slug ${shellWord(slug)} discard <id>`);
       }
     } else if (action === "process") {
       const id = rest[0];

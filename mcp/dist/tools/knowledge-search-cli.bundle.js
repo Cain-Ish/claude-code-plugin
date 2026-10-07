@@ -20,7 +20,7 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join6 } from "path";
+import { join as join6, posix as posix3, win32 as win323 } from "path";
 
 // src/brain-paths.ts
 import { join, isAbsolute as isAbsolute2 } from "path";
@@ -242,23 +242,27 @@ async function loadCache(wikiRoot) {
 async function saveCache(wikiRoot, cache) {
   await atomicWriteJson(join2(wikiRoot, CACHE_FILE), cache);
 }
+function isFiniteVector(v) {
+  return Array.isArray(v) && v.every(Number.isFinite);
+}
 async function embedTexts(texts, wikiRoot, paths) {
   const pipe = await getPipeline();
   if (!pipe) return null;
-  const cache = await loadCache(wikiRoot);
+  const cache = paths.some((p) => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results = [];
   let cacheUpdated = false;
   for (let i = 0; i < texts.length; i++) {
     const hash = simpleHash(texts[i]);
     const key = paths[i] || `query-${i}`;
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
+    const hit = cache.entries[key];
+    if (hit?.hash === hash && isFiniteVector(hit.vector)) {
+      results.push(hit.vector);
       continue;
     }
     const output = await pipe(texts[i], { pooling: "mean", normalize: true });
     const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
     results.push(vec);
-    if (paths[i]) {
+    if (paths[i] && isFiniteVector(vec)) {
       cache.entries[key] = { hash, vector: vec };
       cacheUpdated = true;
     }
@@ -280,8 +284,8 @@ function estimateTokens(text) {
 }
 
 // src/tools/doc-sources.ts
-import { promises as fs3 } from "fs";
-import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3 } from "path";
+import { promises as fs3, realpathSync as realpathSync3 } from "fs";
+import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3, posix as posix2, win32 as win322 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6488,9 +6492,9 @@ function extractYamlList(yaml, key) {
     return inline[1].split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
   }
   const items = [];
-  const lines = yaml.split("\n");
+  const lines2 = yaml.split("\n");
   let collecting = false;
-  for (const line of lines) {
+  for (const line of lines2) {
     if (line.match(new RegExp(`^${key}:`))) {
       collecting = true;
       continue;
@@ -6568,6 +6572,92 @@ async function loadRegistry(brainDir2, slug) {
   } catch {
     return null;
   }
+}
+function isDocEntry(e) {
+  if (!e || typeof e !== "object") return false;
+  const o = e;
+  return typeof o.path === "string" && typeof o.gist === "string" && typeof o.mtime === "string" && typeof o.size === "number" && Array.isArray(o.headings) && o.headings.every((h) => typeof h === "string");
+}
+function canonicalReal(p) {
+  const r = realpathSync3.native(p);
+  return process.platform === "win32" ? r.toLowerCase() : r;
+}
+function servableEntries(entries, projectRoot) {
+  const r = { kept: [], outside: 0, relative: 0, missing: 0, malformed: 0, rootUsable: false };
+  let root = "";
+  try {
+    if (projectRoot) {
+      root = canonicalReal(cleanEnvPath(projectRoot));
+      r.rootUsable = true;
+    }
+  } catch {
+  }
+  const prefix = root.endsWith(sep3) ? root : root + sep3;
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!isDocEntry(e)) {
+      r.malformed++;
+      continue;
+    }
+    if (!(posix2.isAbsolute(e.path) || win322.isAbsolute(e.path))) {
+      r.relative++;
+      continue;
+    }
+    let real;
+    try {
+      real = canonicalReal(e.path);
+    } catch {
+      r.missing++;
+      continue;
+    }
+    if (!r.rootUsable || !real.startsWith(prefix)) {
+      r.outside++;
+      continue;
+    }
+    r.kept.push(e);
+  }
+  return r;
+}
+
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join4 } from "path";
+function loadRegistry2(brainDir2) {
+  let text;
+  try {
+    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function projectFamily(brainDir2, slug) {
+  const recs = loadRegistry2(brainDir2);
+  const self = recs.find((r) => r.slug === slug);
+  const root = self?.parent ?? slug;
+  const fam = /* @__PURE__ */ new Set([slug, root]);
+  for (const r of recs) if ((r.parent ?? r.slug) === root) fam.add(r.slug);
+  return fam;
+}
+
+// src/tools/project-dir.ts
+function activeProjectDir(env = process.env, cwd = process.cwd) {
+  return cleanEnvPath(env.CLAUDE_PROJECT_DIR) || cwd();
+}
+
+// src/tools/sanitize.ts
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
 }
 
 // src/tools/graph-store.ts
@@ -6649,37 +6739,6 @@ function validAt(e, t) {
   return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 
-// src/tools/project-registry.ts
-import { readFileSync } from "fs";
-import { join as join4 } from "path";
-function loadRegistry2(brainDir2) {
-  let text;
-  try {
-    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const line of text.split("\n")) {
-    const s = line.trim();
-    if (!s) continue;
-    try {
-      const r = JSON.parse(s);
-      if (r && typeof r.slug === "string" && r.slug) out.push(r);
-    } catch {
-    }
-  }
-  return out;
-}
-function projectFamily(brainDir2, slug) {
-  const recs = loadRegistry2(brainDir2);
-  const self = recs.find((r) => r.slug === slug);
-  const root = self?.parent ?? slug;
-  const fam = /* @__PURE__ */ new Set([slug, root]);
-  for (const r of recs) if ((r.parent ?? r.slug) === root) fam.add(r.slug);
-  return fam;
-}
-
 // src/tools/walk-wiki.ts
 import { promises as fs5 } from "fs";
 import { join as join5 } from "path";
@@ -6702,6 +6761,47 @@ async function walkWiki(dir, opts = {}, acc = []) {
   }
   return acc;
 }
+
+// src/tools/episodic-search.ts
+var PEER_PREFIX = "Another Claude session sent a message:";
+var MACHINE_TAG_PREFIXES = [
+  "<task-notification>",
+  "<system-reminder>",
+  "<agent-message",
+  "<cross-session-message",
+  "<command-",
+  // command-name, command-message, command-args
+  "<local-command-",
+  // local-command-stdout, local-command-caveat, …
+  "<bash-"
+  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+var MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
+  PEER_PREFIX,
+  "Stop hook feedback:",
+  "This session is being continued from a previous conversation",
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  "Base directory for this skill:",
+  "Caveat: The messages below were generated"
+];
+var cps = (...xs) => String.fromCodePoint(...xs);
+var FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
+var FOLD_OPEN_RE = new RegExp(`[\\p{Ps}${cps(9121)}-${cps(9123)}]`, "gu");
+var FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}${cps(9124)}-${cps(9126)}]`, "gu");
+var L_E = `[eE${cps(1077, 1045)}]`;
+var L_C = `[cC${cps(1089, 1057)}]`;
+var L_S = `[sS${cps(1109, 1029)}]`;
+var L_D = `[dD${cps(1281)}]`;
+var FRAME_PHRASE_RE = new RegExp(
+  `[uU][nN][tT][rR][uU]${L_S}[tT]${L_E}${L_D}\\s+[rR]${L_E}[fF]${L_E}[rR]${L_E}[nN]${L_C}${L_E}`,
+  "gu"
+);
+function foldServedSnippet(text) {
+  return text.replace(FOLD_SPACE_RE, " ").replace(FOLD_OPEN_RE, (m) => m === "(" || m === "{" ? m : "(").replace(FOLD_CLOSE_RE, (m) => m === ")" || m === "}" ? m : ")").replace(FRAME_PHRASE_RE, "untrusted-reference");
+}
+var SCRUB_MARK = ".archive-scrub-v1";
+var SCRUB_TODO = `${SCRUB_MARK}.todo`;
 
 // src/tools/knowledge-search.ts
 function aiBlockText(doc) {
@@ -6958,7 +7058,16 @@ async function knowledgeSearch(args) {
   }
   if (args.brainDir && args.projectSlug) {
     const reg = await loadRegistry(args.brainDir, args.projectSlug);
-    for (const e of reg?.entries ?? []) {
+    const s = servableEntries(reg?.entries, args.projectRoot ?? activeProjectDir());
+    const dropped = s.outside + s.relative + s.missing + s.malformed;
+    if (dropped > 0) {
+      await appendGateTrace(
+        args.brainDir,
+        "knowledge-search",
+        `gate=local-doc-drop slug=${args.projectSlug} kept=${s.kept.length} dropped=${dropped} outside=${s.outside} relative=${s.relative} missing=${s.missing} malformed=${s.malformed}${s.rootUsable ? "" : " root=unusable"}`
+      );
+    }
+    for (const e of s.kept) {
       const doc = {
         title: "",
         description: e.gist,
@@ -7232,6 +7341,54 @@ function injectableWiki(candidates, o) {
   if (!INJECT_PRECISION) return legacyWikiFilter(candidates, o);
   return candidates.filter((c) => !c.stub && c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
 }
+function injectedHitLine(c) {
+  if (injectDropReason(c)) return "";
+  const desc = capCodePoints(foldServedSnippet(stripInvisible(c.description ?? "")).trim(), INJECT_TEXT_MAX_CP);
+  const tail = desc ? ` \u2014 ${desc}` : "";
+  if (c.source === "local-doc") return `Read ${c.path}${tail}`;
+  const slug = foldServedSnippet(stripInvisible(c.path.replace(/^.*[\\/]/, "").replace(/\.md$/, "")));
+  return `### [[${slug}]]${tail}`;
+}
+var INJECT_TEXT_MAX_CP = 200;
+var LOCAL_DOC_PATH_MAX_CP = 260;
+var LOCAL_DOC_PATH_RE = /^[\p{L}\p{M}\p{N} ._\-/\\:~+@,()'&#]+$/u;
+function capCodePoints(s, max) {
+  const cps2 = [...s];
+  return cps2.length <= max ? s : `${cps2.slice(0, max - 1).join("").trimEnd()}\u2026`;
+}
+function injectDropReason(c) {
+  if (c.source !== "local-doc") return "";
+  const p = c.path;
+  if (!(posix3.isAbsolute(p) || win323.isAbsolute(p))) return "path-relative";
+  if (p.includes(" \u2014 ")) return "path-separator";
+  if ([...p].length > LOCAL_DOC_PATH_MAX_CP) return "path-length";
+  if (!LOCAL_DOC_PATH_RE.test(p)) return "path-chars";
+  if (foldServedSnippet(p) !== p) return "path-frame-text";
+  return "";
+}
+function injectedHitLines(candidates, max) {
+  const lines2 = [];
+  const drops2 = [];
+  for (const c of candidates) {
+    if (lines2.length >= max) break;
+    const reason = injectDropReason(c);
+    if (reason) {
+      drops2.push({ path: c.path, source: c.source, reason });
+      continue;
+    }
+    lines2.push(injectedHitLine(c));
+  }
+  return { lines: lines2, drops: drops2 };
+}
+async function reportInjectDrops(brainDir2, script, drops2) {
+  for (const d of drops2) {
+    await appendGateTrace(
+      brainDir2,
+      script,
+      `gate=inject-drop reason=${d.reason} source=${d.source} path=${JSON.stringify(capCodePoints(d.path, 300))}`
+    );
+  }
+}
 function toCounts(s) {
   const toks = tokenize(s);
   const counts = /* @__PURE__ */ new Map();
@@ -7329,11 +7486,10 @@ var injectGate = parseInjectGate(
   }
 );
 var gateOpts = { minScore, minRelevance, minGrounded };
-var top = (injectGate ? injectableWiki(result.candidates, gateOpts) : legacyWikiFilter(result.candidates, gateOpts)).slice(0, 2);
-if (top.length === 0) {
+var gated = injectGate ? injectableWiki(result.candidates, gateOpts) : legacyWikiFilter(result.candidates, gateOpts);
+var { lines, drops } = injectedHitLines(gated, 2);
+await reportInjectDrops(brainDir, "knowledge-search-cli", drops);
+if (lines.length === 0) {
   process.exit(0);
 }
-for (const c of top) {
-  const slug = c.path.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
-  console.log(`### [[${slug}]]${c.description ? " \u2014 " + c.description : ""}`);
-}
+for (const l of lines) console.log(l);

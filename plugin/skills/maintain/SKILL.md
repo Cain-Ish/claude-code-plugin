@@ -12,7 +12,7 @@ An **explicit** full maintenance pass over the knowledge base, in three stages. 
 auto-dispatched run (which the plugin triggers after extraction or a reindex and which performs
 only the consolidation phases), this also performs the two **bulk-authoring** phases that
 auto-runs deliberately skip: **Phase 4b** (author/backfill the machine-first `ai-block`) and the
-**raw-inbox drain** (turn `/second-brain:capture` + setup-deep-scan material into wiki nodes,
+**raw-inbox drain** (turn setup-deep-scan + `raw-capture-cli` material into wiki nodes,
 conservative create/update, never auto-discard, with provenance).
 
 ## Stage 1 — consolidation (one dispatch)
@@ -80,9 +80,9 @@ Loop, up to a hard cap of **30 iterations**:
    drain-but-no-shrink shape, where batches keep claiming progress while the inbox never gets
    smaller.)
 4. If you reach the 30-iteration cap with `<m>` still > 0, **stop and report a possible stall**
-   (fail loud) — name the remaining count so the user can inspect with
-   `/second-brain:capture --list`. (A healthy drain terminates on `DRAINED: 0` long before the
-   cap.)
+   (fail loud) — name the remaining count so the user can inspect the inbox with
+   `node "${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-capture-cli.bundle.js" list`. (A healthy drain
+   terminates on `DRAINED: 0` long before the cap.)
 
 If a worker dispatch returns no parseable `DRAINED:`/`REMAINING:` line (e.g. it died), treat it
 as progress-unknown: dispatch once more; if the second consecutive dispatch also returns no line,
@@ -96,9 +96,10 @@ unprocessed. If any batch failed or was aborted, record the blame class in this 
 session extraction mines it: `BLAME: caller-under-supplied` (the delegation packet was
 defective) or `BLAME: child-under-delivered` (the drainer misbehaved — e.g. postflight hit,
 missing report line). Items remain only because a worker judged them obvious low-value (boilerplate / stubs)
-on a full scan — tell the user to **inspect them with `/second-brain:capture --list` before
-discarding**, and prune only confirmed noise with `/second-brain:capture --discard <id>` (pruning is
-always the user's call, never automatic).
+on a full scan — tell the user to **inspect them with
+`node "${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-capture-cli.bundle.js" list` before discarding**,
+and prune only confirmed noise with `... raw-capture-cli.bundle.js discard <id>` (pruning is always
+the user's call, never automatic; the capture skill only documents this CLI, nothing invokes it).
 
 ## Stage 3 — final reindex
 
@@ -115,4 +116,5 @@ call the `knowledge_reindex` MCP tool. Relay the result.
 - **Transient inbox (opt-in):** processed raw `.md` files are kept in `raw/` as an audit trail by
   default (never searched — search is scoped to `~/knowledge/wiki/`). Set `SB_RAW_PRUNE_AFTER_DRAIN=1`
   to have each drain batch delete processed/discarded items after reconcile, or run
-  `/second-brain:capture --prune-processed` for a one-off cleanup. Unprocessed/malformed are kept.
+  `node "${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-capture-cli.bundle.js" prune-processed` for a
+  one-off cleanup. Unprocessed/malformed are kept.

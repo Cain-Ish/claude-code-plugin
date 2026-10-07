@@ -63,6 +63,17 @@ _fp_ob=0
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
+# _FP_DL: the epoch ms from which this guard's verdict counts as late (G2; GS6/GC5/GX5, R3B): Claude
+# Code had likely cancelled the hook and run the call. hook-timer's SB_HOOK_LATE_MS when this guard is
+# its direct child (SB_HOOK_LATE_PID is $PPID; GT11: one inherited through a process the wrapped hook
+# spawned is not this guard's); otherwise — the guards hooks.json does not wrap — this guard's own
+# start plus the 5 s hook timeout less the same 2000 ms head start. Taken here, before the payload is
+# read. bash 5 only (EPOCHREALTIME): before it there is no clock without a process, and no stamp.
+_FP_DL=""
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _FP_DL=${EPOCHREALTIME//[!0-9]/}; _FP_DL=$(( 10#$_FP_DL / 1000 + 3000 ))
+  case "${SB_HOOK_LATE_MS:-}" in ''|*[!0-9]*) ;; *) [ "${SB_HOOK_LATE_PID:-}" = "$PPID" ] && _FP_DL="$SB_HOOK_LATE_MS" ;; esac
+fi
 _FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
 _FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
@@ -356,11 +367,18 @@ _fp_path() {
       _fp_joinsl _fq_p
       _fq_p="$_fq_p$_fq_t" ;;
   esac
-  case "$_fq_p" in "//?/"*) _fq_p=${_fq_p:4} ;; esac
-  case "$_fq_p" in "//./"*) _fq_p=${_fq_p:4} ;; esac
+  # \\?\ and \\.\ (Win32 device paths) are cut before a drive only, and \\?\UNC\host\… is the UNC
+  # path \\host\…. Any other device path (\\?\Volume{…}\, \\?\GLOBALROOT\…) keeps its //?/ prefix: it
+  # names no drive path, so no scope root or credential prefix matches it (GS2/GX2b, R3B: the old
+  # unconditional cut left Volume{…}/… and UNC/… relative — joined to the cwd, in scope).
   case "$_fq_p" in
-    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
+    //[?.]/[A-Za-z]:*) _fq_p=${_fq_p:4} ;;
+    //[?.]/[Uu][Nn][Cc]/*) _fq_p="//${_fq_p:8}" ;;
+  esac
+  # The loopback admin share is the drive itself, in any case (Windows host names are).
+  case "$_fq_p" in
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$|//[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$|//127.0.0.1/[A-Za-z]\$/*)
+      _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:/${_fq_p:15}" ;;
   esac
   if [ "${3:-}" = lex ]; then
     case "$_fq_p" in
@@ -394,10 +412,27 @@ _fp_emit() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source), appended by one printf >> (D120).
+# _fp_late: _FP_LATE=1 once this guard's deadline (_FP_DL, above) has passed: a verdict written then
+# was likely cancelled with the hook, and the call ran.
+_FP_LATE=0
+_fp_late() {
+  local _fy_n="${EPOCHREALTIME:-}"
+  _FP_LATE=0
+  [ -n "$_FP_DL" ] && [ -n "$_fy_n" ] || return 0
+  _fy_n="${_fy_n//[!0-9]/}"
+  [ $(( 10#$_fy_n / 1000 )) -ge "$_FP_DL" ] && _FP_LATE=1
+  return 0
+}
+
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
-  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s
+  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -405,10 +440,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
-  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{"fastpath":true}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" >> "$_fa_bd/audit-log.jsonl"
+  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -465,8 +502,26 @@ FG_RES=(
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '@[^[:space:]]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
+  '@[^[:space:]@]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
 )
+# The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
+# be followed by something else is retried from every start inside a long run of its own characters,
+# O(n^2) where grep and the fast path's ERE stay linear (GS1/GC1/GX1, R3B: 20K '@' 10.7 s, 100 KB of
+# 'ey' 9-11 s, BEGIN + 80K spaces 17 s — past the 5 s timeout, so the call ran). Each copy matches
+# the same lines as its FG_RES twin, in linear time; tests/test-flow-guard.sh holds the two paths to
+# one verdict over a corpus and times the adversarial shapes.
+# - credential-file-upload: its run excludes '@' in FG_RES itself (both paths): a match from an
+#   earlier '@' still matches from the last '@' of its run, so no line changes verdict.
+# - jwt: the first segment's run must end where its '.' is — the end of its run of token
+#   characters — so whether some 'ey' in a run starts a match is decided by the first 'ey' of that
+#   run with 10 characters after it. The copy starts only at a run's start (lookbehind), takes that
+#   'ey' and the whole run atomically, and never retries later ones. Its last segment needs 10
+#   characters, as {10,} with nothing after it does.
+# - pem-private: BEGIN s+ X? s* is BEGIN s+ (X s*)?; every whitespace run is taken atomically (none
+#   can hold the letters after it). The line bound ([^\S\n]) is FG_JQ's rewrite of [[:space:]].
+FG_JQRES=("${FG_RES[@]}")
+FG_JQRES[0]='(?<![A-Za-z0-9_-])(?>[A-Za-z0-9_-]*?ey[A-Za-z0-9_-]{10,})\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10}'
+FG_JQRES[6]='BEGIN(?>[[:space:]]+)(?:(?:RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)(?>[[:space:]]*))?PRIVATE(?>[[:space:]]+)KEY'
 _fg_reason() {  # _fg_reason TOOL LABELS -> FG_REASON (the one reason text, fast path and full logic)
   FG_REASON="Outbound info-flow guard: tool '$1' invocation appears to carry credential-shaped content ($2). HarnessAudit treats credentialed egress as the sar_flow boundary-violation channel. Confirm intent — the agent should not be sending real secrets over the wire. Kill switch: SB_FLOW_GUARD=off."
 }
@@ -503,137 +558,140 @@ _fg_fast && exit 0
 _fp_raw_all
 [ -z "$RAW" ] && exit 0
 
-# Tool, session and the tool-specific haystack: builtin decode when every field is decidable,
-# else ONE jq, NUL-framed (the old form spent one jq for tool+session and one for the haystack,
-# and sourced lib.sh up front — it is sourced only on the ask path now). If RAW is not a JSON
-# object jq errors → TOOL empty → exit 0 (fail-soft). CRs dropped except in the WebFetch
-# haystack, and trailing newlines trimmed, as the old captures did.
-TOOL="" SESSION_ID="" HAYSTACK=""
-_fg_fields() {
-  local rc u="" pr=""
-  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && return 1; TOOL="$_FP"
-  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && return 1; SESSION_ID="$_FP"
-  case "$TOOL" in
-    Bash)      _fp_str command; rc=$?; [ "$rc" = 2 ] && return 1; HAYSTACK="$_FP" ;;
-    WebFetch)  _fp_str url; rc=$?; [ "$rc" = 2 ] && return 1; u="$_FP"
-               _fp_str prompt; rc=$?; [ "$rc" = 2 ] && return 1; pr="$_FP"
-               HAYSTACK="$u $pr" ;;
-    WebSearch) _fp_str query; rc=$?; [ "$rc" = 2 ] && return 1; HAYSTACK="$_FP" ;;
-  esac
-  return 0
+# #110 (R3, 2026-10-07): ONE jq reads the call and decides it. The old form piped the whole
+# haystack to grep 3+N times (the egress gate, the combined pattern, one grep per label), each
+# through _fp_feed (a second fork past 8 KB), then sourced lib.sh and wrote the audit and buddy
+# rows before printing the verdict: a 512 KB credentialed heredoc took 3.7 s median (15 s max) on
+# a loaded MSYS box, 50,000 interior newlines 6.7-7.3 s — past the 5 s timeout, so the call ran.
+# Now jq builds the haystack the fast path reads (a Bash command, a WebSearch query, a WebFetch's
+# url and prompt joined by a space; CRs dropped except in WebFetch's), applies FG_NET to a Bash
+# command (the egress gate, D103: a local `echo $TOKEN > file` is no egress) and FG_JQRES (FG_RES's
+# linear-time copy) to the haystack, and returns the indices of the patterns that matched. The verdict is printed before
+# lib.sh is sourced; its rows follow from a detached job (_fg_log).
+# Line semantics: grep and the fast path's _fp_lines match line by line; a jq regex sees the whole
+# string, where [[:space:]] also matches a newline. So the quantified [[:space:]] runs (pem,
+# bearer) are bounded to one line ([^\S\n]); every other pattern either cannot span a newline or
+# ends in a boundary class a newline satisfies, as a line end does. tests/test-flow-guard.sh holds
+# this form to the fast path's over one corpus. NUL-framed out: status, tool, session, indices, and
+# a closing "end" (a jq cut short reads as a failed jq, never as "no match").
+FG_JQ='
+def str: if type == "string" then . elif . == null then "" else tojson end;
+($ARGS.positional | map(gsub("\\[\\[:space:\\]\\](?<q>[+*])"; "[^\\S\\n]\(.q)"))) as $res
+| (.tool_name | str) as $t
+| (if $t == "Bash" then (.tool_input.command | str)
+   elif $t == "WebFetch" then ([(.tool_input.url | str), (.tool_input.prompt | str)] | join(" "))
+   elif $t == "WebSearch" then (.tool_input.query | str)
+   else "" end
+   | if $t == "WebFetch" then . else (split("\r") | join("")) end) as $h
+| (if ([.tool_name, .session_id, .tool_input.command, .tool_input.url, .tool_input.prompt, .tool_input.query] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end),
+  "\u0000", $t, "\u0000", (.session_id | str), "\u0000",
+  (if $h == "" or ($t == "Bash" and ($h | test($net) | not)) then ""
+   else [range(0; $res | length) as $i | select($h | test($res[$i])) | $i | tostring] | join(",") end),
+  "\u0000", "end", "\u0000"
+'
+TOOL="" SESSION_ID="" FG_HITS="" _FP_JST="" _FG_END=""
+{
+  IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID
+  IFS= read -r -d '' FG_HITS; IFS= read -r -d '' _FG_END
+} < <(_fp_feed "$RAW" jq -j --arg net "$FG_NET" "$FG_JQ" --args "${FG_JQRES[@]}" 2>/dev/null)
+if [ "$_FP_JST" = nul ]; then
+  _fp_audit "flow-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
+  _fp_emit ask "second-brain flow-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
+  exit 0
+fi
+# _fg_nojq: the full logic without jq (GS4/GX4, R3B) — e78111c's: the builtin decode, then the egress
+# gate and FG_RES by grep, line by line. TOOL, SESSION_ID and MATCHED_LABELS for the verdict below;
+# 1 = no verdict. A payload the builtins cannot decode is logged and passes (_fp_jqfail's rule for a
+# missing jq; SessionStart's banner reports it), as it did there.
+_fg_nojq_undecided() {
+  case "$RAW" in *'"tool_name"'*) _fp_jqfail "flow-guard.sh" "${#RAW}" ;; esac
+  return 1
 }
-if ! _fg_fields; then
-  TOOL="" SESSION_ID="" HAYSTACK="" _FP_JST=""
-  # The haystack comes last and unframed, read whole by _fp_rest: byte by byte, a 450 KB one from
-  # jq cost ~0.85 s on MSYS (F8 item 20).
-  {
-    IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID; _fp_rest HAYSTACK
-  } < <(_fp_feed "$RAW" jq -j '(if ([.tool_name, .session_id, .tool_input.command, .tool_input.url, .tool_input.prompt, .tool_input.query] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.session_id // ""), "\u0000",
-               (if .tool_name == "Bash" then (.tool_input.command // "")
-                elif .tool_name == "WebFetch" then ([.tool_input.url // "", .tool_input.prompt // ""] | join(" "))
-                elif .tool_name == "WebSearch" then (.tool_input.query // "")
-                else "" end)' 2>/dev/null)
-  _FP_RRC=$?
-  [ "$_FP_RRC" -gt 1 ] && _FP_JST=nul   # a failed read of the last field: undecidable, like a NUL
-  if [ "$_FP_JST" = nul ]; then
-    _fp_audit "flow-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
-    _fp_emit ask "second-brain flow-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
-    exit 0
-  fi
-  if [ -z "$TOOL" ]; then
+_fg_nojq() {
+  local rc u="" pr="" hay="" p i scan
+  local -a args=()
+  MATCHED_LABELS=""
+  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; TOOL="$_FP"
+  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; SESSION_ID="$_FP"
+  case "$TOOL" in
+    Bash)      _fp_str command; rc=$? ;;
+    WebSearch) _fp_str query; rc=$? ;;
+    WebFetch)  _fp_str url; rc=$?; u="$_FP"
+               if [ "$rc" != 2 ]; then _fp_str prompt; rc=$?; pr="$_FP"; _FP="$u $pr"; fi ;;
+    *) return 1 ;;
+  esac
+  [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }
+  hay="$_FP"
+  RAW="" _FP_RAW=""
+  _fp_clean TOOL SESSION_ID
+  [ "$TOOL" = WebFetch ] || _fp_nocr hay "$hay"
+  _fp_trimnl hay "$hay"
+  _FP_A=()
+  [ -n "$hay" ] || return 1
+  if [ "$TOOL" = Bash ]; then _fp_feed "$hay" grep -qE "$FG_NET" || return 1; fi
+  # One grep with every pattern says whether any can match; only then one grep per label, over the
+  # lines that one matched (an error, exit 2, counts as a hit: the per-label greps then decide).
+  for p in "${FG_RES[@]}"; do args+=(-e "$p"); done
+  scan=$(_fp_feed "$hay" grep -E ${args[@]+"${args[@]}"}); rc=$?
+  [ "$rc" = 1 ] && return 1
+  [ "$rc" = 0 ] || scan="$hay"
+  for ((i = 0; i < ${#FG_RES[@]}; i++)); do
+    _fp_feed "$scan" grep -qE "${FG_RES[$i]}" && MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$i]}"
+  done
+  [ -n "$MATCHED_LABELS" ]
+}
+if [ "$_FG_END" != end ]; then
+  # No jq on PATH: e78111c's scan decides. jq failed, or stopped short: no verdict was read — a
+  # payload that names a tool asks (_fp_jqfail); garbage stdin (no tool name at all) exits 0.
+  if command -v jq >/dev/null 2>&1; then
     case "$RAW" in *'"tool_name"'*)
       _fp_jqfail "flow-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain flow-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
     esac
+    exit 0
   fi
-fi
-# The payload is not read again: freeing it keeps every later fork cheap (MSYS copies the heap).
-RAW="" _FP_RAW=""
-_fp_clean TOOL SESSION_ID
-[ -z "${TOOL:-}" ] && exit 0
-
-# Only outbound channels concern us.
-case "$TOOL" in
-  Bash|WebFetch|WebSearch) ;;
-  *) exit 0 ;;
-esac
-[ "$TOOL" = WebFetch ] || _fp_nocr HAYSTACK "$HAYSTACK"
-_fp_trimnl HAYSTACK "$HAYSTACK"
-_FP_A=()   # _fp_nocr's split of a big haystack: freed for the forks below, as RAW above
-[ -z "$HAYSTACK" ] && exit 0
-
-# Bash gate: require a network tool keyword in addition to the credential
-# pattern. Without this, a local `echo $TOKEN > file` would be flagged —
-# noise without exfil risk.
-# Note: `http` is intentionally NOT in the keyword list — it appears as
-# a URL substring in many local commands (grep over access.log, paths
-# containing http-* names) and would trip the egress gate on grep/awk/sed
-# operations that never touch the network. httpie has the binary name
-# `http` but the keyword match is bounded — keeping only `httpie` is the
-# conservative choice (the few power-users running httpie can disable the
-# guard or use curl).
-# D103: git/gh/python/node/aws/openssl added — the two most realistic egress
-# shapes this guard missed were `git push` with an embedded token (github-pat
-# pattern already matches; only the gate keyword was missing) and a script
-# runtime (python/node) POSTing a secret. A plain `git status`/`python -m x`
-# never trips the guard — the credential-pattern scan below still has to match.
-if [ "$TOOL" = "Bash" ]; then
-  _fp_feed "$HAYSTACK" grep -qE "$FG_NET" || exit 0
-fi
-
-# Pattern set: FG_LABELS[i] ↔ FG_RES[i] (defined with the fast path above — one list for both
-# paths). We collect all matches and report the labels. Keep each pattern narrow so we don't
-# accidentally match readable English text.
-# OpenAI: matches both legacy keys (`sk-` + 40+ base62) and the current
-# project-scoped format (`sk-proj-` + body). Hyphens allowed inside the
-# body to accommodate `sk-proj-...`. Anthropic and Slack tokens are
-# matched by their dedicated patterns too — duplicate matches just
-# add labels, they don't break anything.
-# D103: credential-shaped FILE upload via curl/httpie's `@path` syntax (-d @file,
-# -F field=@file). No secret VALUE appears in the command text here — only a
-# path naming a known credential file — so this needs its own pattern rather
-# than reusing the literal-secret scans.
-# ONE grep with every pattern (-e each) says whether ANY can match; only then the per-pattern
-# scan that names them (the old form ran all nine greps on every egress-shaped call). An error
-# (exit 2) counts as a hit, so the per-pattern scan then decides exactly as before.
-# A big haystack keeps only the lines that ONE pattern matched (grep is line-based: a line one
-# pattern matches is among them), so the per-pattern greps read those, not the whole text again.
-FG_ARGS=()
-for _p in "${FG_RES[@]}"; do FG_ARGS+=(-e "$_p"); done
-FG_SCAN="$HAYSTACK"
-if [ "${#HAYSTACK}" -le 8192 ]; then
-  _fp_feed "$HAYSTACK" grep -qE ${FG_ARGS[@]+"${FG_ARGS[@]}"}; [ $? -eq 1 ] && exit 0
+  _fg_nojq || exit 0
 else
-  FG_SCAN=$(_fp_feed "$HAYSTACK" grep -E ${FG_ARGS[@]+"${FG_ARGS[@]}"}); _rc=$?
-  [ "$_rc" -eq 1 ] && exit 0
-  [ "$_rc" -eq 0 ] || FG_SCAN="$HAYSTACK"
-fi
-MATCHED_LABELS=""
-for ((_i = 0; _i < ${#FG_RES[@]}; _i++)); do
-  _fp_feed "$FG_SCAN" grep -qE "${FG_RES[$_i]}" && MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$_i]}"
-done
-
-[ -z "$MATCHED_LABELS" ] && exit 0
-
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-
-# Fail-soft on lib.sh source so the guard still emits its decision JSON
-# even if audit logging is unavailable.
-if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
-  sb_log_audit() { :; }
+  # The payload is not read again: freeing it keeps every later fork cheap (MSYS copies the heap).
+  RAW="" _FP_RAW=""
+  _fp_clean TOOL SESSION_ID
+  # Only outbound channels concern us; no pattern matched (or the egress gate did not), no verdict.
+  case "$TOOL" in Bash|WebFetch|WebSearch) ;; *) exit 0 ;; esac
+  [ -n "$FG_HITS" ] || exit 0
+  MATCHED_LABELS=""
+  _fp_split , "$FG_HITS"
+  for _i in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$_i]}"
+  done
 fi
 
-# Decision: ask. The audit-log TARGET intentionally carries only the
-# matched labels — NOT the haystack content — because the haystack
-# contains the secret value we just detected. Never log raw haystack
-# slices: even a short prefix carries enough of e.g. a JWT into the
-# log to be re-recognized by downstream consumers. Labels alone give
-# /second-brain:audit and the SAR summary everything they need.
+# Decision: ask. The audit-log TARGET intentionally carries only the matched labels — NOT the
+# haystack content — because the haystack contains the secret value we just detected. Never log
+# raw haystack slices: even a short prefix carries enough of e.g. a JWT into the log to be
+# re-recognized by downstream consumers. Labels alone give /second-brain:audit and the SAR summary
+# everything they need.
 TARGET="${TOOL}:(${MATCHED_LABELS})"
 _fg_reason "$TOOL" "$MATCHED_LABELS"
-
-sb_log_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$FG_REASON" "$SESSION_ID"
-command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SESSION_ID" guard alert "Held for your OK: credential-shaped data heading out (${MATCHED_LABELS:0:60})." flow-guard 300
-
 _fp_emit ask "$FG_REASON"
+# The verdict is out; its audit row follows at once, written by this process (_fp_audit: builtins,
+# no fork — GS5, R3B), so it is on disk when the hook exits and carries the verdict's late flag.
+_fp_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$FG_REASON" "$SESSION_ID" full
+
+# The buddy line needs lib.sh and jq: it follows from a detached job, every fd redirected so the
+# hook's stdout closes at once (1d82fc1's shape). SB_GUARD_LOG_SYNC=on writes it before exiting
+# (tests). lib.sh unsourceable: the verdict and its row stand, the buddy line is lost — logged.
+_fg_buddy() {
+  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+  if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
+    _fp_err "flow-guard.sh" "lib.sh could not be sourced from $PLUGIN_ROOT/scripts: the buddy line for this ask (${MATCHED_LABELS:0:60}) is lost"
+    return 0
+  fi
+  command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SESSION_ID" guard alert "Held for your OK: credential-shaped data heading out (${MATCHED_LABELS:0:60})." flow-guard 300
+  return 0
+}
+if [ "${SB_GUARD_LOG_SYNC:-off}" = on ]; then
+  _fg_buddy
+else
+  ( _fg_buddy ) </dev/null >/dev/null 2>&1 &
+fi
 
 exit 0

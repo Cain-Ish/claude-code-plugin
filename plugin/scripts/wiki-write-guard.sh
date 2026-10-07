@@ -46,6 +46,17 @@ _fp_ob=0
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
+# _FP_DL: the epoch ms from which this guard's verdict counts as late (G2; GS6/GC5/GX5, R3B): Claude
+# Code had likely cancelled the hook and run the call. hook-timer's SB_HOOK_LATE_MS when this guard is
+# its direct child (SB_HOOK_LATE_PID is $PPID; GT11: one inherited through a process the wrapped hook
+# spawned is not this guard's); otherwise — the guards hooks.json does not wrap — this guard's own
+# start plus the 5 s hook timeout less the same 2000 ms head start. Taken here, before the payload is
+# read. bash 5 only (EPOCHREALTIME): before it there is no clock without a process, and no stamp.
+_FP_DL=""
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _FP_DL=${EPOCHREALTIME//[!0-9]/}; _FP_DL=$(( 10#$_FP_DL / 1000 + 3000 ))
+  case "${SB_HOOK_LATE_MS:-}" in ''|*[!0-9]*) ;; *) [ "${SB_HOOK_LATE_PID:-}" = "$PPID" ] && _FP_DL="$SB_HOOK_LATE_MS" ;; esac
+fi
 _FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
 _FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
@@ -339,11 +350,18 @@ _fp_path() {
       _fp_joinsl _fq_p
       _fq_p="$_fq_p$_fq_t" ;;
   esac
-  case "$_fq_p" in "//?/"*) _fq_p=${_fq_p:4} ;; esac
-  case "$_fq_p" in "//./"*) _fq_p=${_fq_p:4} ;; esac
+  # \\?\ and \\.\ (Win32 device paths) are cut before a drive only, and \\?\UNC\host\… is the UNC
+  # path \\host\…. Any other device path (\\?\Volume{…}\, \\?\GLOBALROOT\…) keeps its //?/ prefix: it
+  # names no drive path, so no scope root or credential prefix matches it (GS2/GX2b, R3B: the old
+  # unconditional cut left Volume{…}/… and UNC/… relative — joined to the cwd, in scope).
   case "$_fq_p" in
-    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
+    //[?.]/[A-Za-z]:*) _fq_p=${_fq_p:4} ;;
+    //[?.]/[Uu][Nn][Cc]/*) _fq_p="//${_fq_p:8}" ;;
+  esac
+  # The loopback admin share is the drive itself, in any case (Windows host names are).
+  case "$_fq_p" in
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$|//[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$|//127.0.0.1/[A-Za-z]\$/*)
+      _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:/${_fq_p:15}" ;;
   esac
   if [ "${3:-}" = lex ]; then
     case "$_fq_p" in
@@ -377,10 +395,27 @@ _fp_emit() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
 }
 
-# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION: one audit-log.jsonl row in lib.sh
-# sb_log_audit's shape (extra.fastpath marks the source), appended by one printf >> (D120).
+# _fp_late: _FP_LATE=1 once this guard's deadline (_FP_DL, above) has passed: a verdict written then
+# was likely cancelled with the hook, and the call ran.
+_FP_LATE=0
+_fp_late() {
+  local _fy_n="${EPOCHREALTIME:-}"
+  _FP_LATE=0
+  [ -n "$_FP_DL" ] && [ -n "$_fy_n" ] || return 0
+  _fy_n="${_fy_n//[!0-9]/}"
+  [ $(( 10#$_fy_n / 1000 )) -ge "$_FP_DL" ] && _FP_LATE=1
+  return 0
+}
+
+# _fp_audit HOOK VERDICT RULE TARGET REASON SESSION [full]: one audit-log.jsonl row in lib.sh
+# sb_log_audit's shape (extra.fastpath marks a fast-path verdict, extra.late a verdict past the
+# deadline: _fp_late), appended by one printf >> (D120). "full": the full logic's row, unmarked —
+# the guards write their full-logic rows here too, before they exit (GS5/GS7, R3B): no lib.sh and
+# no fork, where a detached sb_log_audit (~7 process creations) was lost with a killed hook. A row
+# that cannot be appended is logged (_fp_err).
 _fp_audit() {
-  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s
+  local _fa_bd="${BRAIN_DIR:-$HOME/.second-brain}" _fa_ts _fa_h _fa_v _fa_r _fa_t _fa_e _fa_s _fa_x='"fastpath":true'
+  [ "${7:-}" = full ] && _fa_x=""
   _fa_bd=${_fa_bd//"$_fp_bs"/"/"}
   [ -d "$_fa_bd" ] || mkdir -p "$_fa_bd" || return 0
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
@@ -388,10 +423,12 @@ _fp_audit() {
   else
     _fa_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
+  _fp_late; [ "$_FP_LATE" = 1 ] && _fa_x="${_fa_x:+$_fa_x,}"'"late":true'
   _fp_cap _fa_t "$4" 256; _fp_cap _fa_e "$5" 1024
   _fp_esc _fa_h "$1"; _fp_esc _fa_v "$2"; _fp_esc _fa_r "$3"; _fp_esc _fa_t "$_fa_t"; _fp_esc _fa_e "$_fa_e"; _fp_esc _fa_s "$6"
-  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{"fastpath":true}}\n' \
-    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" >> "$_fa_bd/audit-log.jsonl"
+  printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
+    "$_fa_ts" "$_fa_h" "$_fa_v" "$_fa_r" "$_fa_t" "$_fa_e" "$_fa_s" "$_fa_x" >> "$_fa_bd/audit-log.jsonl" 2>/dev/null \
+    || _fp_err "$1" "the $2 verdict's audit row (rule $3) could not be appended to $_fa_bd/audit-log.jsonl"
 }
 # _fp_cap VAR TEXT N: VAR = TEXT cut to N characters, with a visible "…(+M chars)" when cut. Every
 # reason and audit target passes through it: _fp_esc's passes over a payload-sized path cost
@@ -475,6 +512,32 @@ _wwg_first() {  # _wwg_first KEY -> _W1 = first char of the "KEY" string value (
   _W1="${_wf_f:0:1}"
   return 0
 }
+# _wwg_kdpage PATH: true when PATH is a page under KNOWLEDGE_DIR's wiki/<category>/ (G18, R3) — the
+# wiki of a custom KNOWLEDGE_DIR (CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR, else KNOWLEDGE_DIR, else
+# ~/knowledge, leading ~ expanded: lib.sh sb_knowledge_dir's order) that has no "knowledge" path
+# segment, which the */knowledge/wiki/* arms never matched. Builtins only: both sides spelled
+# lexically (_fp_path … lex) and lowered, as the arms compare. Like them it needs a category
+# directory, so wiki/index.md stays out. Only a path with a /wiki/ segment pays for it (_fp_path
+# asks `command -v cygpath` for a drive path).
+_wwg_kdpage() {
+  local _wk_d _wk_p
+  case "$2" in */wiki/*.md) ;; *) return 1 ;; esac
+  _wk_d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
+  _wk_d=${_wk_d/#\~/"$HOME"}   # quoted (GC6): an unquoted '&' in HOME would be the matched '~' on bash 5.2
+  # A relative one ("kb", "./kb") is HOME's, where the default ~/knowledge lives (GS8, R3B): compared
+  # as is, no absolute page path matched it and its wiki went unchecked.
+  case "$_wk_d" in
+    /*|"$_fp_bs"*|[A-Za-z]:/*|[A-Za-z]:"$_fp_bs"*|'') ;;
+    ./*) _wk_d="$HOME/${_wk_d#./}" ;;
+    *) _wk_d="$HOME/$_wk_d" ;;
+  esac
+  _fp_path _wk_d "$_wk_d" lex; _fp_collapse _wk_d "$_wk_d"; _wk_d="${_wk_d%/}"
+  [ -n "$_wk_d" ] || return 1
+  _fp_lower _wk_d "$_wk_d"
+  _fp_path _wk_p "$1" lex; _fp_lower _wk_p "$_wk_p"
+  case "$_wk_p" in "$_wk_d"/wiki/*/*.md) return 0 ;; esac
+  return 1
+}
 _wwg_fast() {
   local tool fp lc slug bd f top="" legacy=0
   _fp_str tool_name || return 1
@@ -485,7 +548,7 @@ _wwg_fast() {
   [ -n "$fp" ] || return 1
   fp=${fp//"$_fp_bs"/"/"}
   _fp_lower lc "$fp"
-  case "$lc" in */.second-brain/wiki/*.md) legacy=1 ;; */knowledge/wiki/*/*.md) ;; *) return 1 ;; esac
+  case "$lc" in */.second-brain/wiki/*.md) legacy=1 ;; */knowledge/wiki/*/*.md) ;; *) _wwg_kdpage "$fp" "$lc" || return 1 ;; esac
   case "$lc" in */knowledge/wiki/index.md) return 1 ;; esac
   if [ "$legacy" = 1 ]; then _wwg_legacy_msg "$lc"; _fp_emit deny "$WWG_MSG"; return 0; fi
   case "$tool" in
@@ -532,7 +595,7 @@ if ! _wwg_fields; then
   { IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; } \
     < <(_fp_feed "$RAW" jq -j '(if ([.tool_name, .tool_input.file_path] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000"' 2>/dev/null)
   if [ "$_FP_JST" = nul ]; then
-    _fp_audit "wiki-write-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+    _fp_audit "wiki-write-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain wiki-write-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
     exit 0
   fi
@@ -579,7 +642,7 @@ LEGACY_WIKI=0
 case "$FP_LC" in
   */.second-brain/wiki/*.md) LEGACY_WIKI=1 ;;
   */knowledge/wiki/*/*.md) ;;
-  *) exit 0 ;;
+  *) _wwg_kdpage "$FILE_PATH" "$FP_LC" || exit 0 ;;
 esac
 
 # Skip the index — it's regenerated by knowledge_reindex and has its own format.
@@ -655,7 +718,20 @@ fi
 
 case "$TOOL" in
   Write)
-    CONTENT=$(printf '%s' "$RAW" | jq -r '.tool_input.content // empty' 2>/dev/null | tr -d '\r')
+    # G18 (R3): jq's own status, not the empty capture, says whether the content was read — an empty
+    # CONTENT from a jq that failed let a bare page through (Edit/MultiEdit fail closed already). A
+    # jq that ran and failed asks; a missing jq passes and is logged (_fp_jqfail's split: SessionStart
+    # reports a missing jq).
+    CONTENT=$(printf '%s' "$RAW" | jq -r '.tool_input.content // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}")
+    _wwg_rc=$?
+    if [ "$_wwg_rc" -ne 0 ]; then
+      if command -v jq >/dev/null 2>&1; then
+        _fp_err "wiki-write-guard.sh" "jq exited $_wwg_rc reading the content of a ${#RAW}-char Write to $FILE_PATH; asked instead of passing it unchecked"
+        _fp_emit ask "second-brain wiki-write-guard.sh could not read this wiki Write's content (jq failed; details in error-log.jsonl), so it cannot check its frontmatter. Confirm the call."
+        exit 0
+      fi
+      _fp_err "wiki-write-guard.sh" "jq is not on PATH: the content of a Write to $FILE_PATH could not be read and the call passed unchecked"
+    fi
     [ -z "$CONTENT" ] && exit 0
     if ! starts_with_frontmatter "$CONTENT"; then
       deny "$DENY_MSG"
