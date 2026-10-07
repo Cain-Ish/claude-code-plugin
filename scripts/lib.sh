@@ -236,6 +236,23 @@ sb_filter_scratch_paths() {
   printf '%s' "$out"
 }
 
+# sb_window_tool_count <transcript> <start_line> <end_line>: the tool_use calls in raw transcript
+# lines start..end, the buddy's end-of-turn buddy_react excluded (chat, not work). The substantive
+# gate of stop-extract.sh and pre-compact.sh and a new archive's header count. Each line is parsed on
+# its own (`jq -R` + fromjson?): a record cut mid-write is skipped, never the rest of the window. A
+# plain `jq` stops at the first record that does not parse, so one half-flushed line in front of
+# the window's tool calls made it read as tool-count-zero and its marker advanced past it.
+# Prints the count; 0 when jq is missing or fails (one spawn, no per-line loop).
+sb_window_tool_count() {
+  local n
+  n=$(sed -n "${2},${3}p" "$1" 2>/dev/null | jq -R -r 'fromjson?
+      | select(type == "object" and .type == "assistant") | .message.content[]?
+      | select(type == "object" and .type == "tool_use") | (.name // "" | tostring)
+      | select(endswith("buddy_react") | not)
+    ' 2>/dev/null | wc -l | tr -d ' ')
+  printf '%s' "${n:-0}"
+}
+
 # Deterministic, no-LLM extraction floor (P1 Task 1). Given a transcript and a line window,
 # emit a VALID delta JSON the merge pipeline accepts — derived purely from the structured
 # transcript, never an LLM. It captures the files this window changed (Edit/Write/MultiEdit,
@@ -243,19 +260,22 @@ sb_filter_scratch_paths() {
 # Deliberately NOT a per-message dump: a decision is emitted only when real files changed, so
 # the floor stays signal, not trash (Constitution: "must guide a future decision"). Exits 0.
 #   sb_extract_deterministic <transcript> <start_line> <total_line>
+# Each raw line is parsed on its own (`jq -nR` + fromjson?), like sb_preprocess_transcript: a record
+# cut mid-write (a half-flushed last line, a torn append) or a non-object line is skipped, never the
+# rest of the window. The `jq -s` slurp this replaces failed whole on one such line, and its
+# `|| echo '[]'` fallback emptied the floor in silence.
 sb_extract_deterministic() {
   local transcript="$1" start="$2" total="$3"
   local files_json
-  files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -rcs '
-    [ .[]
-      | select(.type == "assistant")
+  files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -nRc '
+    [ inputs | fromjson?
+      | select(type == "object" and .type == "assistant")
       | .message.content[]?
-      | select(.type == "tool_use")
+      | select(type == "object" and .type == "tool_use")
       | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
-      | .input.file_path ]
-    | unique
-    | map(select(. != null and . != ""))
+      | .input.file_path? | select(type == "string" and . != "") ]
     | map(gsub("\\\\"; "/"))
+    | unique
   ' 2>/dev/null || echo '[]')
   files_json=$(sb_safe_json_array "$files_json")
   files_json=$(sb_filter_scratch_paths "$files_json")
@@ -269,6 +289,32 @@ sb_extract_deterministic() {
   fi
   jq -cn --argjson d "$decisions" --argjson f "$files_json" \
     '{recent_decisions:$d, open_blockers:[], cross_refs:[], files_touched:$f, relations:[]}'
+}
+
+# sb_degraded_floor <transcript> <start_line> <end_line> <project_md>: the LLM-unavailable path of
+# BOTH in-session extractors (stop-extract.sh, pre-compact.sh; PreCompact used to merge an empty
+# delta here, so a compaction under a dead LLM captured nothing). Prints the deterministic delta
+# (sb_extract_deterministic) and records ONE [degraded] breadcrumb per day in the project's
+# pending-extraction.log SIDECAR, never PROJECT.md's Recent decisions (SP-E), bounded to 50 lines.
+sb_degraded_floor() {
+  local delta today dir log files note
+  delta=$(sb_extract_deterministic "$1" "$2" "$3")
+  today=$(date -u +%Y-%m-%d)
+  dir=$(dirname "$4"); log="$dir/pending-extraction.log"
+  if ! grep -qF "[$today] [degraded]" "$log" 2>/dev/null; then
+    files=$(printf '%s' "$delta" | jq -r '.files_touched // [] | join(", ")' 2>/dev/null | tr -d '\r')
+    if [ -n "$files" ]; then
+      note="[degraded] LLM extraction unavailable; session touched: $files"
+    else
+      note="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
+    fi
+    mkdir -p "$dir" 2>/dev/null || true
+    printf '[%s] %s\n' "$today" "$note" >> "$log" 2>/dev/null || true
+    if [ -f "$log" ]; then
+      tail -n 50 "$log" > "$log.tmp" 2>/dev/null && mv "$log.tmp" "$log" 2>/dev/null || rm -f "$log.tmp" 2>/dev/null
+    fi
+  fi
+  printf '%s' "$delta"
 }
 
 # Text-format twin of sb_extract_deterministic for the OUT-OF-BAND drainer (P1). The ARCHIVED
@@ -2114,10 +2160,7 @@ sb_archive_transcript() {
   # A new file's header tool count is computed before the lock (it reads the raw transcript only;
   # a record that does not parse is skipped, as in the render).
   if [ ! -f "$archive_file" ] && [ -z "$tool_count" ]; then
-    tool_count=$(sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | jq -R -r 'fromjson? |
-      select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | .name
-      | select((. // "") | endswith("buddy_react") | not)
-    ' 2>/dev/null | wc -l | tr -d ' ')
+    tool_count=$(sb_window_tool_count "$transcript" "$start_line" "$end_line")
   fi
 
   # The header write, the torn-tail terminator and the append run under the per-archive lock that
