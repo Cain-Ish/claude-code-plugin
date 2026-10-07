@@ -214,6 +214,12 @@ if [ -z "$SNAPSHOT_FAIL_REASON" ]; then
   fi
 fi
 if [ -n "$SNAPSHOT_FAIL_REASON" ]; then
+  # K11: transcripts/ was made above, before the copy, and no transcript was selected. Left behind
+  # empty, it is a "create-time" anchor dream-autostage.sh takes for the new-transcripts watermark,
+  # stamped at the failure: every transcript older than this failed dream would stop counting.
+  if [ -d "$DREAM_DIR/transcripts" ] && ! rmdir "$DREAM_DIR/transcripts"; then
+    sb_log_error "dream-snapshot.sh" "could not remove the empty transcripts/ of failed dream $DREAM_ID; dream-autostage will anchor its watermark on it" 1
+  fi
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq -nc --arg id "$DREAM_ID" --arg now "$NOW" --arg e "$SNAPSHOT_FAIL_REASON" \
     '{id:$id, status:"failed", created_at:$now, started_at:null, ended_at:$now, archived_at:null,

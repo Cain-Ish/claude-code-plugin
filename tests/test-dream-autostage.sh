@@ -262,6 +262,32 @@ OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_eq "fresh pending stays pending" "$(jq -r '.status' "$BRAIN_DIR/dreams/drm_pfresh/status.json")" "pending"
 assert_contains "fresh pending gets resume banner" "$OUT" "resume"
 
+# (l) K11: a dream whose SNAPSHOT failed selected no transcript, but dream-snapshot.sh made its
+# transcripts/ dir before the copy and left it behind, empty. Its mtime (the failure time) became
+# the watermark, so every transcript older than the failure stopped counting (NEW=0, no banner).
+# mk_dream fixtures cannot catch this: they make the dir, so the real snapshot must fail here. The
+# cp shim fails only the wiki copy, with a non-ENOENT error (fails at once, no retry).
+reset_brain; mk_transcripts 12
+for f in "$BRAIN_DIR"/transcripts/*.txt; do backdate "$f" 600; done
+REAL_CP=$(command -v cp)
+K11BIN="$SANDBOX/k11bin"; mkdir -p "$K11BIN" "$SANDBOX/home"
+cat > "$K11BIN/cp" <<EOF
+#!/bin/bash
+case " \$* " in *"/wiki/. "*) echo "cp: error reading 'x': Input/output error" >&2; exit 1 ;; esac
+exec "$REAL_CP" "\$@"
+EOF
+chmod +x "$K11BIN/cp"
+K11RC=0
+PATH="$K11BIN:$PATH" HOME="$SANDBOX/home" CLAUDE_PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")" \
+  bash "$SCRIPT_DIR/dream-snapshot.sh" >/dev/null 2>&1 || K11RC=$?
+K11D=$(find "$BRAIN_DIR/dreams" -maxdepth 1 -type d -name 'drm_*' | head -1)
+K11ST=$(jq -r '.status // ""' "$K11D/status.json" 2>/dev/null | tr -d '\r' || true)
+assert_eq "K11: the injected cp fault fails the snapshot (rc=$K11RC)" "$K11ST" "failed"
+assert_eq "K11: a failed snapshot leaves no empty transcripts/ dir behind" \
+  "$([ -d "$K11D/transcripts" ] && echo present || echo absent)" "absent"
+OUT=$(SB_DREAM_NEW_THRESHOLD=10 bash "$AUTOSTAGE" 2>/dev/null || true)
+assert_contains "K11: transcripts older than a failed snapshot still count toward the threshold" "$OUT" "dream consolidation ready"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
