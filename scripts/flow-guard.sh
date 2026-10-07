@@ -578,25 +578,70 @@ if [ "$_FP_JST" = nul ]; then
   _fp_emit ask "second-brain flow-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
   exit 0
 fi
-if [ "$_FG_END" != end ]; then
-  # jq failed, or stopped short: no verdict was read. A payload that names a tool asks (_fp_jqfail);
-  # garbage stdin (no tool name at all) exits 0 as before.
-  case "$RAW" in *'"tool_name"'*)
-    _fp_jqfail "flow-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain flow-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
+# _fg_nojq: the full logic without jq (GS4/GX4, R3B) — e78111c's: the builtin decode, then the egress
+# gate and FG_RES by grep, line by line. TOOL, SESSION_ID and MATCHED_LABELS for the verdict below;
+# 1 = no verdict. A payload the builtins cannot decode is logged and passes (_fp_jqfail's rule for a
+# missing jq; SessionStart's banner reports it), as it did there.
+_fg_nojq_undecided() {
+  case "$RAW" in *'"tool_name"'*) _fp_jqfail "flow-guard.sh" "${#RAW}" ;; esac
+  return 1
+}
+_fg_nojq() {
+  local rc u="" pr="" hay="" p i scan
+  local -a args=()
+  MATCHED_LABELS=""
+  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; TOOL="$_FP"
+  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; SESSION_ID="$_FP"
+  case "$TOOL" in
+    Bash)      _fp_str command; rc=$? ;;
+    WebSearch) _fp_str query; rc=$? ;;
+    WebFetch)  _fp_str url; rc=$?; u="$_FP"
+               if [ "$rc" != 2 ]; then _fp_str prompt; rc=$?; pr="$_FP"; _FP="$u $pr"; fi ;;
+    *) return 1 ;;
   esac
-  exit 0
+  [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }
+  hay="$_FP"
+  RAW="" _FP_RAW=""
+  _fp_clean TOOL SESSION_ID
+  [ "$TOOL" = WebFetch ] || _fp_nocr hay "$hay"
+  _fp_trimnl hay "$hay"
+  _FP_A=()
+  [ -n "$hay" ] || return 1
+  if [ "$TOOL" = Bash ]; then _fp_feed "$hay" grep -qE "$FG_NET" || return 1; fi
+  # One grep with every pattern says whether any can match; only then one grep per label, over the
+  # lines that one matched (an error, exit 2, counts as a hit: the per-label greps then decide).
+  for p in "${FG_RES[@]}"; do args+=(-e "$p"); done
+  scan=$(_fp_feed "$hay" grep -E ${args[@]+"${args[@]}"}); rc=$?
+  [ "$rc" = 1 ] && return 1
+  [ "$rc" = 0 ] || scan="$hay"
+  for ((i = 0; i < ${#FG_RES[@]}; i++)); do
+    _fp_feed "$scan" grep -qE "${FG_RES[$i]}" && MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$i]}"
+  done
+  [ -n "$MATCHED_LABELS" ]
+}
+if [ "$_FG_END" != end ]; then
+  # No jq on PATH: e78111c's scan decides. jq failed, or stopped short: no verdict was read — a
+  # payload that names a tool asks (_fp_jqfail); garbage stdin (no tool name at all) exits 0.
+  if command -v jq >/dev/null 2>&1; then
+    case "$RAW" in *'"tool_name"'*)
+      _fp_jqfail "flow-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain flow-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
+    esac
+    exit 0
+  fi
+  _fg_nojq || exit 0
+else
+  # The payload is not read again: freeing it keeps every later fork cheap (MSYS copies the heap).
+  RAW="" _FP_RAW=""
+  _fp_clean TOOL SESSION_ID
+  # Only outbound channels concern us; no pattern matched (or the egress gate did not), no verdict.
+  case "$TOOL" in Bash|WebFetch|WebSearch) ;; *) exit 0 ;; esac
+  [ -n "$FG_HITS" ] || exit 0
+  MATCHED_LABELS=""
+  _fp_split , "$FG_HITS"
+  for _i in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$_i]}"
+  done
 fi
-# The payload is not read again: freeing it keeps every later fork cheap (MSYS copies the heap).
-RAW="" _FP_RAW=""
-_fp_clean TOOL SESSION_ID
-# Only outbound channels concern us; no pattern matched (or the egress gate did not), no verdict.
-case "$TOOL" in Bash|WebFetch|WebSearch) ;; *) exit 0 ;; esac
-[ -n "$FG_HITS" ] || exit 0
-MATCHED_LABELS=""
-_fp_split , "$FG_HITS"
-for _i in ${_FP_A[@]+"${_FP_A[@]}"}; do
-  MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$_i]}"
-done
 
 # Decision: ask. The audit-log TARGET intentionally carries only the matched labels — NOT the
 # haystack content — because the haystack contains the secret value we just detected. Never log
