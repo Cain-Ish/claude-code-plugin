@@ -1037,16 +1037,23 @@ rm -rf "$B7"
 # G1 structural lock: the credential stores a Read asks about are symlink-guard's (the guard that
 # denies writes into them) — the same directories and files, under the same labels, so the two
 # lists cannot drift apart. symlink-guard's /etc arm is deliberately not mirrored (see _ptg_cred).
+# GX6/GT10 (R3B): one HOME-relative and one APPDATA-relative list per guard (arrays: "GitHub CLI"
+# holds a space), and symlink-guard's every credential test — the spelling match and the inode
+# match — reads its lists: no inline copy of an entry is left to drift.
 SG="$(dirname "$SCRIPT")/symlink-guard.sh"
-sg_dirs=$(grep -E 'for _sc_e in .*; do' "$SG" | head -1 | sed -E 's/.*for _sc_e in (.*); do.*/\1/' | tr ' ' '\n' | sort)
-ptg_dirs=$(eval "$(grep -E '^_PTG_CRED_DIRS=' "$SCRIPT")"; printf '%s\n' $_PTG_CRED_DIRS | sort)
-[ -n "$sg_dirs" ] && [ "$sg_dirs" = "$ptg_dirs" ] \
-  || fail "G1: _PTG_CRED_DIRS != symlink-guard's credential dirs. want: $(echo $sg_dirs) | have: $(echo $ptg_dirs)"
-ptg_files=$(eval "$(grep -E '^_PTG_CRED_FILES=' "$SCRIPT")"; printf '%s\n' $_PTG_CRED_FILES | sort)
-sg_files=$(grep -oE '"\$_sc_h/[^"]+"\) _SG_LABEL=[a-z-]+' "$SG" | sed -E 's|"\$_sc_h/([^"]+)"\) _SG_LABEL=(.*)|\2:\1|' | sort)
-[ -n "$sg_files" ] && [ "$sg_files" = "$ptg_files" ] \
-  || fail "G1: _PTG_CRED_FILES != symlink-guard's credential files. want: $(echo $sg_files) | have: $(echo $ptg_files)"
-pass "G1: the Read credential list mirrors symlink-guard's (dirs and files)"
+for g1_l in H A; do
+  g1_p=$(eval "$(grep -E "^_PTG_CRED_$g1_l=" "$SCRIPT")"; eval "printf '%s\n' \"\${_PTG_CRED_$g1_l[@]}\"" | sort)
+  g1_s=$(eval "$(grep -E "^_SG_CRED_$g1_l=" "$SG")"; eval "printf '%s\n' \"\${_SG_CRED_$g1_l[@]}\"" | sort)
+  [ -n "$g1_s" ] && [ "$g1_s" = "$g1_p" ] \
+    || fail "G1: _PTG_CRED_$g1_l != symlink-guard's _SG_CRED_$g1_l. want: $(echo $g1_s) | have: $(echo $g1_p)"
+done
+for g1_f in _sg_cred_match _sg_inode; do
+  sed -n "/^$g1_f()/,/^}/p" "$SG" | grep -q '_SG_CRED_H\[@\]' || fail "GT10: symlink-guard's $g1_f must read _SG_CRED_H"
+  sed -n "/^$g1_f()/,/^}/p" "$SG" | grep -q '_SG_CRED_A\[@\]' || fail "GT10: symlink-guard's $g1_f must read _SG_CRED_A"
+done
+[ "$(grep -c 'ssh:\.ssh' "$SG")" = 1 ] || fail "GT10: symlink-guard spells an entry outside _SG_CRED_H (a copy that can drift)"
+[ "$(grep -c 'ssh:\.ssh' "$SCRIPT")" = 1 ] || fail "GT10: persona-tool-guard spells an entry outside _PTG_CRED_H"
+pass "G1: the Read credential lists mirror symlink-guard's, which every one of its credential tests reads"
 
 # GX3 (R3B): credential-read is a floor below the rules, as path-too-long is. Before, its ask exited
 # ahead of the rule loop, so a user or repo rule that DENIES a Read of a credential store was
@@ -1084,12 +1091,14 @@ pass "GX3: credential-read is a floor below the rules — a deny rule stays deny
 A2=$(mktemp -d); mkdir -p "$A2/fast" "$A2/full"
 cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$A2/full/persona-rules.json"
 w() { printf '%s' "$1" | tr '|' '\134'; }
-a2() {  # a2 <rule|-> <file_path> <cwd> <HOME>: both paths reach <rule> (- = no verdict)
-  local b p
-  p=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$2" --arg c "$3" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}')
+a2() {  # a2 <rule|-> <file_path> <cwd> <HOME> [VAR=val…]: both paths reach <rule> (- = no verdict)
+  local b p r="$1" f="$2" c="$3" h="$4"
+  shift 4
+  p=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$f" --arg c "$c" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}')
+  set -- "$r" "$f" "$c" "$h" "$@"
   for b in fast full; do
     : > "$A2/$b/audit-log.jsonl"
-    out=$(printf '%s' "$p" | SB_RESOURCE_SCOPE=off HOME="$4" BRAIN_DIR="$A2/$b" bash "$SCRIPT" 2>"$A2/err"); a2_rc=$?
+    out=$(printf '%s' "$p" | env SB_RESOURCE_SCOPE=off HOME="$4" BRAIN_DIR="$A2/$b" "${@:5}" bash "$SCRIPT" 2>"$A2/err"); a2_rc=$?
     if [ "$1" = - ]; then
       [ -z "$out" ] && [ "$a2_rc" = 0 ] && [ ! -s "$A2/err" ] \
         || fail "GS2 $b: a Read of '$2' must not ask (rc=$a2_rc, out: $out, stderr: $(head -c 300 "$A2/err"))"
@@ -1101,6 +1110,16 @@ a2() {  # a2 <rule|-> <file_path> <cwd> <HOME>: both paths reach <rule> (- = no 
 }
 a2 credential-read '~/.ssh/id_rsa' /w/proj /home/a2u
 a2 credential-read '~/.claude/.credentials.json' /w/proj /home/a2u
+# GX6: the stores beyond the first eight, under HOME, under USERPROFILE when HOME points elsewhere,
+# and under APPDATA (Windows: gh's hosts.yml, gcloud's directory).
+for a2_f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json; do
+  a2 credential-read "/home/a2u/$a2_f" /w/proj /home/a2u
+done
+a2 - /home/a2u/.docker/daemon.json /w/proj /home/a2u
+a2 credential-read /home/a2p/.claude/.credentials.json /w/proj /home/a2u USERPROFILE=/home/a2p
+a2 credential-read "/home/a2u/AppData/Roaming/GitHub CLI/hosts.yml" /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
+a2 credential-read /home/a2u/AppData/Roaming/gcloud/credentials.db /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
+a2 - /home/a2u/AppData/Roaming/Code/settings.json /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
 # GT10: HOME's physical spelling counts as well (a junctioned or symlinked profile reaches the full
 # logic resolved — cygpath, realpath — while HOME keeps its own spelling): builtin cd -P, as
 # symlink-guard's _sg_homes. A HOME spelled through '..', and a symlinked one where ln -s makes links.

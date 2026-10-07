@@ -18,11 +18,11 @@
 #   - Bash — uses flow-guard for credential-shaped egress.
 #   - Read — read-only; not a write-escape risk.
 #
-# Credential-dir prefixes (after realpath, case-insensitive):
-#   $HOME/.ssh, $HOME/.gnupg, $HOME/.aws, $HOME/.config/claude,
-#   $HOME/.config/gh, $HOME/.netrc (file), /etc, $HOME/.password-store,
-#   $HOME/.claude/.credentials.json (file — the OAuth token; the ~/.claude
-#   TREE is deliberately not a prefix, it holds legitimate write targets).
+# Credential stores (after realpath, case-insensitive; _SG_CRED_H / _SG_CRED_A below): under $HOME
+#   and $USERPROFILE: .ssh, .gnupg, .aws, .config/claude, .config/gh, .config/gcloud, .azure,
+#   .password-store, and the files .netrc, .claude/.credentials.json (the OAuth token; the ~/.claude
+#   TREE is deliberately not a prefix, it holds legitimate write targets), .git-credentials, .npmrc,
+#   .docker/config.json, .kube/config, .pypirc; under %APPDATA%: GitHub CLI/hosts.yml, gcloud; /etc.
 #
 # Verdict: deny. Reason carries which credential dir matched (no content
 # leaked).
@@ -505,8 +505,11 @@ _sg_norm() {
 # ~/.ssh write was ALLOWED), plus HOME's PHYSICAL spelling (junction, 8.3 short name, symlinked
 # profile): the resolved target comes out of `pwd -P`/realpath in that spelling. Builtin cd -P,
 # cwd restored: no subshell.
+# GX6 (R3B): USERPROFILE joins HOME (with HOME pointed elsewhere the native tools keep their stores
+# under the Windows profile still) and _SG_HA spells APPDATA, both lexically and physically only —
+# native Windows paths under no MSYS mount, so no cygpath spawn.
 _sg_homes() {
-  local _sh_h _sh_p="" _sh_o="$PWD"
+  local _sh_h _sh_p="" _sh_o="$PWD" _sh_v _sh_s _sh_z _sh_q
   if [ "$1" = lex ]; then _fp_path _sh_h "$HOME" lex; else _sg_norm _sh_h "$HOME"; fi
   _sh_h="${_sh_h%/}"
   if [ -n "${HOME:-}" ] && CDPATH= cd -P -- "$HOME" 2>/dev/null; then
@@ -514,7 +517,7 @@ _sg_homes() {
     if [ "$1" = lex ]; then _fp_path _sh_p "$_sh_p" lex; else _sg_norm _sh_p "$_sh_p"; fi
     _sh_p="${_sh_p%/}"
   fi
-  _SG_H=()
+  _SG_H=() _SG_HA=()
   [ -n "$_sh_h" ] && _SG_H+=("$_sh_h")
   [ -n "$_sh_p" ] && [ "$_sh_p" != "$_sh_h" ] && _SG_H+=("$_sh_p")
   # F-E: a HOME spelled in a drive form that lies UNDER an MSYS mount (e.g. /c/…/AppData/Local/Temp =
@@ -535,6 +538,18 @@ _sg_homes() {
       [ "$_sh_dup" = 0 ] && _SG_H+=("$_sh_u")
     done
   fi
+  for _sh_v in USERPROFILE APPDATA; do
+    _sh_s="${!_sh_v:-}"
+    [ -n "$_sh_s" ] || continue
+    _sh_q=""
+    if CDPATH= cd -P -- "$_sh_s" 2>/dev/null; then _sh_q="$PWD"; cd -- "$_sh_o" 2>/dev/null; fi
+    for _sh_z in "$_sh_s" "$_sh_q"; do
+      [ -n "$_sh_z" ] || continue
+      _fp_path _sh_z "$_sh_z" lex; _sh_z="${_sh_z%/}"
+      [ -n "$_sh_z" ] || continue
+      if [ "$_sh_v" = APPDATA ]; then _SG_HA+=("$_sh_z"); else _SG_H+=("$_sh_z"); fi
+    done
+  done
   return 0
 }
 
@@ -545,6 +560,13 @@ _sg_homes() {
 # false deny is fail-safe, a missed credential write is not. (It replaced a `printf | tr` per
 # prefix per candidate: ~36 processes, ~1 s of this guard's 1.5 s on MSYS.) The directory node
 # itself matches as well as anything under it: a Write to exactly ~/.ssh must not slip past.
+# The stores (GX6, R3B: the list grew; persona-tool-guard's credential Read check holds the same two,
+# tests/test-persona-tool-guard.sh locks them together): label:path under every _SG_H spelling (HOME,
+# USERPROFILE), then under every _SG_HA one (APPDATA). Each entry is the path or anything inside it —
+# a file has nothing inside, and ~/.claude is no entry: plans/, projects/ (memory) and settings.json
+# live there and are legitimate write targets.
+_SG_CRED_H=(ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store gcloud:.config/gcloud azure:.azure netrc:.netrc claude-oauth:.claude/.credentials.json git-credentials:.git-credentials npmrc:.npmrc docker-config:.docker/config.json kube-config:.kube/config pypirc:.pypirc)
+_SG_CRED_A=('gh-hosts:GitHub CLI/hosts.yml' gcloud:gcloud)
 _SG_LABEL=""
 _sg_cred_match() {
   local _sc_c _sc_h _sc_e _sc_p
@@ -553,20 +575,18 @@ _sg_cred_match() {
   for _sc_c in "$@"; do
     [ -n "$_sc_c" ] || continue
     for _sc_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
-      for _sc_e in ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store; do
+      for _sc_e in "${_SG_CRED_H[@]}"; do
+        _sc_p="$_sc_h/${_sc_e#*:}"
+        case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _SG_LABEL="${_sc_e%%:*}"; break 3 ;; esac
+      done
+    done
+    for _sc_h in ${_SG_HA[@]+"${_SG_HA[@]}"}; do
+      for _sc_e in "${_SG_CRED_A[@]}"; do
         _sc_p="$_sc_h/${_sc_e#*:}"
         case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _SG_LABEL="${_sc_e%%:*}"; break 3 ;; esac
       done
     done
     case "$_sc_c" in /etc|/etc/*) _SG_LABEL=etc; break ;; esac
-    # Single credential FILES, not prefix trees: ~/.claude must NOT be a prefix — plans/,
-    # projects/ (memory), settings.json live there and are legitimate write targets.
-    for _sc_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
-      case "$_sc_c" in
-        "$_sc_h/.netrc") _SG_LABEL=netrc; break 2 ;;
-        "$_sc_h/.claude/.credentials.json") _SG_LABEL=claude-oauth; break 2 ;;
-      esac
-    done
   done
   shopt -u nocasematch
   [ -n "$_SG_LABEL" ]
@@ -756,20 +776,27 @@ _sg_phys() {
 # credential dir, a file directly in one, or /etc and its direct entries — the classic escape
 # (a repo file symlinked to ~/.ssh/authorized_keys) decided with no readlink.
 _sg_inode() {
-  local _si_h _si_e _si_d _si_f
+  local _si_h _si_e
   _SG_LABEL=""
   for _si_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
-    for _si_e in ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store; do
-      _si_d="$_si_h/${_si_e#*:}"
-      [ -d "$_si_d" ] || continue
-      for _si_f in "$_si_d" "$_si_d"/* "$_si_d"/.[!.]*; do
-        [ -e "$_si_f" ] && [ "$1" -ef "$_si_f" ] && { _SG_LABEL="${_si_e%%:*}"; return 0; }
-      done
-    done
-    [ "$1" -ef "$_si_h/.netrc" ] && { _SG_LABEL=netrc; return 0; }
-    [ "$1" -ef "$_si_h/.claude/.credentials.json" ] && { _SG_LABEL=claude-oauth; return 0; }
+    for _si_e in "${_SG_CRED_H[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:}" "${_si_e%%:*}" && return 0; done
   done
-  for _si_f in /etc /etc/*; do [ -e "$_si_f" ] && [ "$1" -ef "$_si_f" ] && { _SG_LABEL=etc; return 0; }; done
+  for _si_h in ${_SG_HA[@]+"${_SG_HA[@]}"}; do
+    for _si_e in "${_SG_CRED_A[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:}" "${_si_e%%:*}" && return 0; done
+  done
+  _sg_inode1 "$1" /etc etc
+}
+# _sg_inode1 LINK STORE LABEL: LINK is STORE, or (STORE a directory) one of its direct entries.
+_sg_inode1() {
+  local _s1_f
+  [ -e "$2" ] || return 1
+  if [ -d "$2" ]; then
+    for _s1_f in "$2" "$2"/* "$2"/.[!.]*; do
+      [ -e "$_s1_f" ] && [ "$1" -ef "$_s1_f" ] && { _SG_LABEL="$3"; return 0; }
+    done
+  elif [ "$1" -ef "$2" ]; then
+    _SG_LABEL="$3"; return 0
+  fi
   return 1
 }
 _sg_fast() {

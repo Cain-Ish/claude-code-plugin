@@ -623,39 +623,51 @@ _ptg_proj() {
 # Credential stores (G1, R3): a Read of one asks, on the fast path and in the full logic alike,
 # whatever the resource scope says — a session started in HOME has ~/.ssh in scope, and
 # SB_RESOURCE_SCOPE=off drops the scope ask altogether. The list is symlink-guard's (the guard
-# that denies writes into these; tests/test-persona-tool-guard.sh locks the two lists together):
-# directories label:path under HOME, then single files. symlink-guard's /etc arm is not mirrored:
+# that denies writes into these; tests/test-persona-tool-guard.sh locks the lists together): label:path
+# entries under HOME (and USERPROFILE: _ptg_homes), then under APPDATA (Windows: gh keeps its tokens in
+# %APPDATA%\GitHub CLI\hosts.yml, gcloud its in %APPDATA%\gcloud). Each entry is the path itself or
+# anything inside it — a file has nothing inside, and ~/.claude is no entry (plans/, projects/ and
+# settings.json live there). GX6 (R3B) added gcloud, azure, .git-credentials, .npmrc,
+# .docker/config.json, .kube/config, .pypirc and the APPDATA list. symlink-guard's /etc arm is not mirrored:
 # /etc is outside every default scope root already (an out-of-scope ask), and reading /etc/hosts or
 # /etc/os-release is routine — a project kept under /etc would ask on every Read. Case-insensitive
 # (nocasematch), as there: NTFS and default APFS are, and on Linux it only widens toward an ask.
-_PTG_CRED_DIRS='ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store'
-_PTG_CRED_FILES='netrc:.netrc claude-oauth:.claude/.credentials.json'
-# _ptg_homes: _PTG_H = the directories the credential stores are spelled under, each as _ptg_fpath
-# spells a target (lexically, a drive form as /x/…: the full logic's cygpath spelling of a drive path
-# that sits under no MSYS mount — see _ptg_mnt): HOME, then HOME's physical spelling (a junction or a
+_PTG_CRED_H=(ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store gcloud:.config/gcloud azure:.azure netrc:.netrc claude-oauth:.claude/.credentials.json git-credentials:.git-credentials npmrc:.npmrc docker-config:.docker/config.json kube-config:.kube/config pypirc:.pypirc)
+_PTG_CRED_A=('gh-hosts:GitHub CLI/hosts.yml' gcloud:gcloud)
+# _ptg_homes: _PTG_H = the directories _PTG_CRED_H is spelled under, _PTG_HA those _PTG_CRED_A is,
+# each as _ptg_fpath spells a target (lexically, a drive form as /x/…: the full logic's cygpath spelling
+# of a drive path that sits under no MSYS mount — see _ptg_mnt), without repeats: HOME, then USERPROFILE
+# (GX6, R3B: with HOME pointed elsewhere, the native tools keep ~/.ssh and ~/.claude/.credentials.json
+# under the Windows profile still), and APPDATA; each also in its physical spelling (a junction or a
 # symlinked profile; GT10, R3B — builtin cd -P, cwd restored, no subshell: symlink-guard's
-# _sg_homes), without repeats. Once per run.
-_PTG_H=() _PTG_H_RD=0
+# _sg_homes). Once per run.
+_PTG_H=() _PTG_HA=() _PTG_H_RD=0
 _ptg_homes() {
-  local _ph_s _ph_o="$PWD"
+  local _ph_v _ph_s _ph_o="$PWD"
   [ "$_PTG_H_RD" = 1 ] && return 0
-  _PTG_H_RD=1 _PTG_H=()
-  for _ph_s in "${HOME:-}"; do
+  _PTG_H_RD=1 _PTG_H=() _PTG_HA=()
+  for _ph_v in HOME USERPROFILE APPDATA; do
+    _ph_s="${!_ph_v:-}"
     [ -n "$_ph_s" ] || continue
-    _ptg_hadd "$_ph_s"
-    if CDPATH= cd -P -- "$_ph_s" 2>/dev/null; then _ptg_hadd "$PWD"; cd -- "$_ph_o" 2>/dev/null; fi
+    _ptg_hadd "$_ph_v" "$_ph_s"
+    if CDPATH= cd -P -- "$_ph_s" 2>/dev/null; then _ptg_hadd "$_ph_v" "$PWD"; cd -- "$_ph_o" 2>/dev/null; fi
   done
   return 0
 }
-_ptg_hadd() {  # _ptg_hadd DIR: DIR spelled as a target, appended to _PTG_H unless it is there
+_ptg_hadd() {  # _ptg_hadd VAR DIR: DIR spelled as a target, appended to _PTG_H (_PTG_HA for APPDATA) unless there
   local _pa_h _pa_x
-  _ptg_fpath _pa_h "$1"; _pa_h="${_pa_h%/}"
+  _ptg_fpath _pa_h "$2"; _pa_h="${_pa_h%/}"
   [ -n "$_pa_h" ] || return 0
-  for _pa_x in ${_PTG_H[@]+"${_PTG_H[@]}"}; do [ "$_pa_x" = "$_pa_h" ] && return 0; done
-  _PTG_H[${#_PTG_H[@]}]="$_pa_h"
+  if [ "$1" = APPDATA ]; then
+    for _pa_x in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do [ "$_pa_x" = "$_pa_h" ] && return 0; done
+    _PTG_HA[${#_PTG_HA[@]}]="$_pa_h"
+  else
+    for _pa_x in ${_PTG_H[@]+"${_PTG_H[@]}"}; do [ "$_pa_x" = "$_pa_h" ] && return 0; done
+    _PTG_H[${#_PTG_H[@]}]="$_pa_h"
+  fi
 }
-# _ptg_cred ABS: _PTG_CL = the credential store ABS is (or is inside), under any _PTG_H spelling;
-# false when none.
+# _ptg_cred ABS: _PTG_CL = the credential store ABS is (or is inside), under any _PTG_H / _PTG_HA
+# spelling; false when none.
 _PTG_CL=""
 _ptg_cred() {
   local _pc_h _pc_e _pc_p _pc_o=0
@@ -664,14 +676,19 @@ _ptg_cred() {
   shopt -q nocasematch && _pc_o=1
   shopt -s nocasematch
   for _pc_h in ${_PTG_H[@]+"${_PTG_H[@]}"}; do
-    for _pc_e in $_PTG_CRED_DIRS; do
+    for _pc_e in "${_PTG_CRED_H[@]}"; do
       _pc_p="$_pc_h/${_pc_e#*:}"
       case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break 2 ;; esac
     done
-    for _pc_e in $_PTG_CRED_FILES; do
-      case "$1" in "$_pc_h/${_pc_e#*:}") _PTG_CL="${_pc_e%%:*}"; break 2 ;; esac
-    done
   done
+  if [ -z "$_PTG_CL" ]; then
+    for _pc_h in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do
+      for _pc_e in "${_PTG_CRED_A[@]}"; do
+        _pc_p="$_pc_h/${_pc_e#*:}"
+        case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break 2 ;; esac
+      done
+    done
+  fi
   [ "$_pc_o" = 1 ] || shopt -u nocasematch
   [ -n "$_PTG_CL" ]
 }
@@ -746,7 +763,12 @@ _ptg_inode() {
   while [ "$_pi_n" -lt 128 ]; do
     if [ -e "$_pi_p" ]; then
       for _pi_h in ${_PTG_H[@]+"${_PTG_H[@]}"}; do
-        for _pi_e in $_PTG_CRED_DIRS $_PTG_CRED_FILES; do
+        for _pi_e in "${_PTG_CRED_H[@]}"; do
+          [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:}" ] && { _PTG_CL="${_pi_e%%:*}"; return 0; }
+        done
+      done
+      for _pi_h in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do
+        for _pi_e in "${_PTG_CRED_A[@]}"; do
           [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:}" ] && { _PTG_CL="${_pi_e%%:*}"; return 0; }
         done
       done
