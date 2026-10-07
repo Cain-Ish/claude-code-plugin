@@ -247,6 +247,53 @@ out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
 [ -z "$out" ] || fail "case-varied non-wiki write should stay silent (got: $out)"
 pass "case-varied non-wiki write silent (no over-blocking)"
 
+# --- G18 (R3, 2026-10-07): the wiki of a custom KNOWLEDGE_DIR --------------------------------
+# The wiki lives at KNOWLEDGE_DIR (plugin option > KNOWLEDGE_DIR env > ~/knowledge, as lib.sh's
+# sb_knowledge_dir). A page under a custom one with no "knowledge" segment matched none of the
+# */knowledge/wiki/* arms: frontmatter enforcement was off for it. Both resolver inputs, a
+# case-varied spelling, a '-' first character (the fast path stands down: the full logic's arm),
+# and the index, which stays excluded there too.
+# The directory is spelled as the CLI spells it: a Windows form where there is one (MSYS hands jq.exe
+# the payload's /tmp/… path as C:/…/Temp/…; a /tmp spelling of the variable would be a mount alias
+# of it, which the lexical match does not resolve).
+KD="$TMP/Notes Vault"; mkdir -p "$KD/wiki/concepts"
+KDV="$KD"; command -v cygpath >/dev/null 2>&1 && KDV=$(cygpath -m "$KD")
+g18() {  # g18 <file_path> <content> [VAR=val…] -> out
+  local p="$1" c="$2"; shift 2
+  out=$(jq -nc --arg p "$p" --arg c "$c" '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}' \
+    | env CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR= KNOWLEDGE_DIR= "$@" bash "$SCRIPT")
+}
+g18 "$KD/wiki/concepts/custom.md" "no frontmatter" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDV"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "G18: a bare page under a custom CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR wiki must be denied (got: $out)"
+g18 "$KD/Wiki/Concepts/Custom.md" "no frontmatter" KNOWLEDGE_DIR="$KDV"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "G18: a case-varied bare page under a custom KNOWLEDGE_DIR wiki must be denied (got: $out)"
+g18 "$KD/wiki/concepts/dash.md" "-not a fence" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDV"
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "G18: the full logic must deny a bare page under a custom KNOWLEDGE_DIR wiki too (got: $out)"
+g18 "$KD/wiki/index.md" "# index" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDV"
+[ -z "$out" ] || fail "G18: the custom wiki's index.md stays excluded (got: $out)"
+g18 "$KD/notes/plain.md" "no frontmatter" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDV"
+[ -z "$out" ] || fail "G18: a non-wiki file under the custom KNOWLEDGE_DIR stays silent (got: $out)"
+pass "G18: a custom KNOWLEDGE_DIR's wiki gets frontmatter enforcement (fast path and full logic)"
+
+# G18: the full logic read a Write's content with one jq and exited 0 when it read nothing — a jq
+# that failed (killed, out of memory) let a bare page through unchecked (Edit/MultiEdit already
+# failed closed). A failing jq now asks, and says so in error-log.jsonl. The stand-in fails only
+# the content read; a '-' first character keeps the fast path out of it.
+G18B="$TMP/g18b"; mkdir -p "$G18B"
+G18_JQ=$(command -v jq)
+printf '#!/bin/sh\nfor a in "$@"; do case "$a" in *tool_input.content*) exit 5 ;; esac; done\nexec "%s" "$@"\n' "$G18_JQ" > "$G18B/jq"; chmod +x "$G18B/jq"
+: > "$TMP/brain/error-log.jsonl"
+out=$(jq -nc --arg p "$TMP/knowledge/wiki/state/g18-jqfail.md" --arg c "-x" '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}' \
+  | PATH="$G18B:$PATH" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "G18: a jq that fails reading a wiki Write's content must ask, not pass it (got: '$out')"
+grep -q 'wiki-write-guard.sh' "$TMP/brain/error-log.jsonl" \
+  || fail "G18: the failed content read must be logged (error-log: $(cat "$TMP/brain/error-log.jsonl"))"
+pass "G18: a failed jq content read asks and logs (fail closed, like Edit/MultiEdit)"
+
 # --- B7: decided before any dependency (a late PreToolUse answer is cancelled and the Write runs) ---
 # Fixture: a plugin root whose lib.sh sleeps, plus PATH stand-ins that sleep for each external the
 # full logic uses. The deny must still arrive within B7_BOUND seconds (whole-second SECONDS; no
@@ -290,6 +337,12 @@ b7_deny "legacy tree (case-varied)" 'knowledge/wiki/learnings/misrouted.md' "$B7
 b7_deny "new page without frontmatter" 'frontmatter' "$B7/p2.json"
 b7_deny "Edit keeps a bare page bare" 'frontmatter' "$B7/p3.json"
 b7_deny "Windows-form legacy MultiEdit" 'knowledge/wiki/state/x.md' "$B7/p4.json"
+# G18: a custom KNOWLEDGE_DIR's wiki is decided on the fast path too.
+mkdir -p "$TMP/Notes Vault B7/wiki/concepts"
+jq -nc --arg p "$TMP/Notes Vault B7/wiki/concepts/b7-kd.md" --arg c 'no frontmatter' \
+  '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}' > "$B7/p5.json"
+KDV7="$TMP/Notes Vault B7"; command -v cygpath >/dev/null 2>&1 && KDV7=$(cygpath -m "$KDV7")
+CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDV7" b7_deny "custom KNOWLEDGE_DIR wiki page" 'frontmatter' "$B7/p5.json"
 
 # No false positives: content that merely NAMES a legacy wiki path stays silent on a non-wiki Write.
 PAYLOAD=$(jq -nc --arg p "$NON_WIKI_FILE" --arg c 'see "file_path":"/x/.second-brain/wiki/y.md"' '{tool_name:"Write", tool_input:{file_path:$p, content:$c}}')
