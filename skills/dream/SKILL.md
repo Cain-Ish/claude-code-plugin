@@ -39,6 +39,14 @@ On invocation, check current state via `dream_list` and act accordingly:
 4. If BACKGROUND=true → spawn dream-runner agent with `run_in_background: true`, passing the dream_id. Report that dream is running in background and user will be notified on completion. Stop here.
 5. If inline → proceed to Execution phase
 
+> **Confinement covers the background runner only.** The protocol-guard hook confines writes by
+> `agent_type` (`dream-runner`): a `--background` dream's Write/Edit outside
+> `$BRAIN_DIR/dreams/{dream_id}/` is denied. The default INLINE mode runs these phases in the
+> main thread, which carries no `agent_type`, so nothing confines it — keep every write inside
+> the dream directory yourself, and prefer `--background` when the transcripts are untrusted.
+> Even in the background the hook is off under `SB_PROTOCOL_GUARD=off` or
+> `SB_HOOK_PROFILE=minimal`, and the runner's Bash (`mv`/`rm`) is not path-confined.
+
 ## Phase: Execution
 
 Resolve the runtime-state root ONCE, honoring the same `SB_BRAIN_DIR`/`BRAIN_DIR` override the

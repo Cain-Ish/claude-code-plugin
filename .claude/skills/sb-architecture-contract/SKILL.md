@@ -205,10 +205,14 @@ idempotent via `scripts/kb-drain-reconcile.sh` and the required back-ref
 - **Runner** (`agents/dream-runner.md`, writes confined to its dream directory — staging wiki,
   status.json heartbeat, forget-manifest.tsv; a Write/Edit/MultiEdit elsewhere is DENIED by
   `protocol-guard.sh` pre mode `pg_dream_confine`, keyed on `agent_type` `dream-runner` /
-  `<plugin>:dream-runner`; max 50 changes/run). ACCEPTED RESIDUAL: its `Bash(rm|mv|cp *)` grant
-  stays (the heartbeat and on-failure snippets need `mv`) and Bash is not path-confined; the deny
-  is lexical (a symlink inside the dream dir is symlink-guard.sh's case) and fails open if the
-  hook is killed at its 5 s budget or `SB_PROTOCOL_GUARD=off`. Phase 1 AUDIT →
+  `<plugin>:dream-runner`, ASKED when agent_id is set but agent_type missing; fails SAFE: a
+  static verdict, and a payload jq cannot read is matched by regex; max 50 changes/run). Bash
+  grants = what its steps run (read-only tools, jq/mktemp/date, `mv`/`rm`, the four pinned
+  scripts; no find/sed/awk/cp, no wildcard script grant — test-agent-allowed-tools.sh).
+  ACCEPTED RESIDUAL: `mv`/`rm`/a shell redirect are not path-confined; the hook answers nothing
+  if killed at its 5 s budget and is off under `SB_PROTOCOL_GUARD=off` or
+  `SB_HOOK_PROFILE=minimal`; the default INLINE `/dream` runs in the main thread (no agent_type),
+  so confinement covers the `--background` runner only. Phase 1 AUDIT →
   2 DEDUPLICATE (deterministic MinHash via `scripts/wiki-redundancy.sh`; candidates only — "the
   signal proposes, you decide") → 3 RELATE (edges NOT curated here; `graph/edges.jsonl` is
   deliberately NOT snapshotted — append-only logs are unmergeable after concurrent live appends) →
@@ -264,9 +268,11 @@ unreviewed dream pending; 7-day throttle. Stage A and Stage B share ONE stalenes
 a `version`-class quarantine clears itself (the next drain cycle after the CLI passes the
 preflight); every other class stays until `.llm-maintain-quarantine` AND `.llm-maintain-fails`
 are deleted (the strike count alone re-quarantines on the next failure). Another dream in the
-way (completed and unreviewed, or pending/running and not stale) is not a failure: the lane
-logs the blocking dream id and defers to the ~24 h retry horizon without a strike; a stale
-pending/running dream is left for dream-snapshot.sh to reclaim. What reaches live is decided by `auto_accept` + the
+way (completed and unreviewed, pending/running and not stale, or one that made the snapshot
+refuse "already pending|running" after the pre-check) is not a failure: the lane writes a
+`gate=lane-defer` audit row naming it and defers to the ~24 h retry horizon without a strike; a
+stale pending/running dream is left for dream-snapshot.sh to reclaim; an unreadable status.json
+is an exit_code-1 row plus the same deferral. A refused auto-accept logs dream-accept's error line. What reaches live is decided by `auto_accept` + the
 held-untrusted gate (§3.6a).
 
 ### 3.8 The brain-os engine seam — `scripts/brain-os-run.sh`
