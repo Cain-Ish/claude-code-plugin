@@ -540,31 +540,155 @@ _ptg_spine() {
   return 0
 }
 
-# _ptg_scope PATH CWD ALLOW: the resource-scope test, shared by the fast path and the full logic.
-# _PTG_ABS = PATH made absolute (against CWD; ~/ from HOME) with '.'/'..' folded lexically (D155:
-# "$CWD/../../etc/shadow" must not prefix-match $CWD); true when it lies inside an ALLOW prefix
-# (newline-separated, $HOME then $CWD substituted — HOME first, so a literal "$CWD" inside HOME is
-# not expanded twice) or an SB_RESOURCE_SCOPE_EXTRA one (colon-separated, like PATH).
+# _ptg_abs PATH CWD: _PTG_ABS = PATH made absolute (against CWD; ~/ from HOME) with '.'/'..'
+# folded lexically (D155: "$CWD/../../etc/shadow" must not prefix-match $CWD).
 _PTG_ABS=""
-_ptg_scope() {
-  local _ps_x _ps_pre
+_ptg_abs() {
   case "$1" in
     /*)  _PTG_ABS="$1" ;;
     ~/*) _PTG_ABS="$HOME/${1#~/}" ;;
     *)   _PTG_ABS="$2/$1" ;;
   esac
   _fp_collapse _PTG_ABS "$_PTG_ABS"
+}
+# _ptg_scope PATH CWD ALLOW PROJECT: the resource-scope test, shared by the fast path and the full
+# logic. _PTG_ABS as _ptg_abs; true when it lies inside an ALLOW prefix (newline-separated; $HOME,
+# then $CWD, then $PROJECT substituted — HOME first, so a literal "$CWD" inside HOME is not
+# expanded twice) or an SB_RESOURCE_SCOPE_EXTRA one (colon-separated, like PATH). PROJECT is the
+# session's project root (CLAUDE_PROJECT_DIR, normalized like CWD): the payload's cwd follows the
+# session's shell `cd`, so $CWD alone left the project's own worktrees out of scope once a session
+# had cd'd into one of them (GW, R3). A prefix that comes out empty (no project root) is skipped:
+# an empty prefix would put every absolute path in scope.
+_ptg_scope() {
+  local _ps_x _ps_pre
+  _ptg_abs "$1" "$2"
   _ps_x="${SB_RESOURCE_SCOPE_EXTRA:-}"; _ps_x=${_ps_x//:/"$_fp_nl"}
   _fp_split "$_fp_nl" "$3$_fp_nl$_ps_x"
   for _ps_pre in ${_FP_A[@]+"${_FP_A[@]}"}; do
     _ps_pre="${_ps_pre//\$HOME/$HOME}"
     _ps_pre="${_ps_pre//\$CWD/$2}"
+    _ps_pre="${_ps_pre//\$PROJECT/${4:-}}"
+    [ -n "$_ps_pre" ] || continue
     case "$_PTG_ABS" in "$_ps_pre"|"$_ps_pre"/*) return 0 ;; esac
   done
   return 1
 }
 _ptg_scope_reason() {  # _ptg_scope_reason ABS -> _PTG_SR, the out-of-scope ask's one reason text
   _PTG_SR="Path '$1' is outside the project resource scope. HarnessAudit shows agents most often violate boundaries by applying reasonable tools to unauthorized resources. Confirm intent or extend scope via SB_RESOURCE_SCOPE_EXTRA."
+}
+# _ptg_proj VAR: VAR = CLAUDE_PROJECT_DIR as a scope prefix — CRs dropped, one trailing '/' cut
+# (a root of '/' stays '/'); the caller normalizes it as it does CWD.
+_ptg_proj() {
+  local _pp_p
+  _fp_nocr _pp_p "${CLAUDE_PROJECT_DIR:-}"
+  case "$_pp_p" in ?*/) _pp_p="${_pp_p%/}" ;; esac
+  printf -v "$1" '%s' "$_pp_p"
+}
+
+# Credential stores (G1, R3): a Read of one asks, on the fast path and in the full logic alike,
+# whatever the resource scope says — a session started in HOME has ~/.ssh in scope, and
+# SB_RESOURCE_SCOPE=off drops the scope ask altogether. The list is symlink-guard's (the guard
+# that denies writes into these; tests/test-persona-tool-guard.sh locks the two lists together):
+# directories label:path under HOME, then single files. symlink-guard's /etc arm is not mirrored:
+# /etc is outside every default scope root already (an out-of-scope ask), and reading /etc/hosts or
+# /etc/os-release is routine — a project kept under /etc would ask on every Read. Case-insensitive
+# (nocasematch), as there: NTFS and default APFS are, and on Linux it only widens toward an ask.
+_PTG_CRED_DIRS='ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store'
+_PTG_CRED_FILES='netrc:.netrc claude-oauth:.claude/.credentials.json'
+# _ptg_cred ABS: _PTG_CL = the credential store ABS is (or is inside); false when none. HOME is
+# spelled as the target is: lexically, a drive form as /x/… (the full logic's cygpath spelling of a
+# drive path that sits under no MSYS mount — see _ptg_mnt).
+_PTG_CL=""
+_ptg_cred() {
+  local _pc_h _pc_e _pc_p _pc_o=0
+  _PTG_CL=""
+  [ -n "${HOME:-}" ] || return 1
+  _ptg_fpath _pc_h "$HOME"; _pc_h="${_pc_h%/}"
+  [ -n "$_pc_h" ] || return 1
+  shopt -q nocasematch && _pc_o=1
+  shopt -s nocasematch
+  for _pc_e in $_PTG_CRED_DIRS; do
+    _pc_p="$_pc_h/${_pc_e#*:}"
+    case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break ;; esac
+  done
+  if [ -z "$_PTG_CL" ]; then
+    for _pc_e in $_PTG_CRED_FILES; do
+      case "$1" in "$_pc_h/${_pc_e#*:}") _PTG_CL="${_pc_e%%:*}"; break ;; esac
+    done
+  fi
+  [ "$_pc_o" = 1 ] || shopt -u nocasematch
+  [ -n "$_PTG_CL" ]
+}
+_ptg_cred_reason() {  # _ptg_cred_reason ABS LABEL -> _PTG_SR, the credential Read ask's reason text
+  _PTG_SR="Read of '$1' opens a credential store ($2). Reading a secret is the first step of credential exfiltration, the classic goal of a prompt injection. Confirm intent."
+}
+
+# _ptg_mnt PATH: true when the drive path PATH (X:/…, '/'-separated) may not be spelled /x/… by
+# cygpath -u — it lies under an MSYS/Cygwin mount other than its drive's own /x one (Git-Bash
+# mounts %TEMP% at /tmp and its install dir at /), or the mount table cannot be read. The full logic
+# spells such a path by the mount's name (C:/Users/me/AppData/Local/Temp/x is /tmp/x, in scope), the
+# fast path only lexically, so it must not decide one. Builtins only: /proc/mounts is read once
+# per call (MSYS emulates it in-process, no fork). Its lines are "SOURCE MOUNTPOINT TYPE OPTS N N"
+# with spaces kept raw in SOURCE ("C:/Program Files/Git /"), so the line is cut from the right; a
+# \040-escaped space is unescaped as well. Matched case-insensitively (a posix=0 mount is): wider
+# only toward "undecidable".
+_PTG_MNT="" _PTG_MNT_RD=0
+_ptg_mnt() {
+  local _pm_l _pm_r _pm_s _pm_m _pm_d _pm_o=0 _pm_hit=1
+  if [ "$_PTG_MNT_RD" = 0 ]; then
+    _PTG_MNT_RD=1
+    [ -r /proc/mounts ] && IFS= read -r -d '' _PTG_MNT < /proc/mounts
+  fi
+  [ -n "$_PTG_MNT" ] || return 0
+  _fp_split "$_fp_nl" "$_PTG_MNT"
+  shopt -q nocasematch && _pm_o=1
+  shopt -s nocasematch
+  for _pm_l in ${_FP_A[@]+"${_FP_A[@]}"}; do
+    _pm_r="${_pm_l% * * * *}"
+    [ "$_pm_r" != "$_pm_l" ] || continue
+    _pm_m="${_pm_r##* }" _pm_s="${_pm_r% *}"
+    _pm_s=${_pm_s//\\040/ }
+    case "$_pm_s" in
+      [A-Za-z]:) _fp_lower _pm_d "${_pm_s:0:1}"; [ "$_pm_m" = "/$_pm_d" ] && continue ;;
+      [A-Za-z]:/*) ;;
+      *) continue ;;
+    esac
+    _pm_s="${_pm_s%/}"
+    case "$1" in "$_pm_s"|"$_pm_s"/*) _pm_hit=0; break ;; esac
+  done
+  [ "$_pm_o" = 1 ] || shopt -u nocasematch
+  return "$_pm_hit"
+}
+# _ptg_fpath VAR PATH: VAR = PATH as `_fp_path … lex` spells it (the lexical steps, then a drive path
+# X:/… as /x/… on a Windows host), in one pass. 1 when cygpath -u may spell that drive path
+# otherwise (_ptg_mnt), so the full logic's spelling of it is unknown here. A path past 4096
+# characters is not looked up: the full logic keeps its lexical spelling too (_ptg_norm, G3).
+# The Windows-host test is _fp_path's, asked once per run and OSTYPE first: `command -v` searches
+# PATH on every call, ~30 ms each over a long Windows PATH on a loaded MSYS box.
+_PTG_WIN=""
+_ptg_fpath() {
+  local _pf_p _pf_d _pf_r=0
+  _fp_path _pf_p "$2"
+  case "$_pf_p" in
+    [A-Za-z]:/*)
+      if [ -z "$_PTG_WIN" ]; then
+        _PTG_WIN=0
+        if [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1; then _PTG_WIN=1; fi
+      fi
+      if [ "$_PTG_WIN" = 1 ]; then
+        # The bound is _ptg_norm's: the length before the lexical steps.
+        [ "${#2}" -le 4096 ] && _ptg_mnt "$_pf_p" && _pf_r=1
+        _fp_lower _pf_d "${_pf_p:0:1}"; _pf_p="/$_pf_d${_pf_p:2}"
+      fi ;;
+  esac
+  printf -v "$1" '%s' "$_pf_p"
+  return "$_pf_r"
+}
+# _ptg_long_reason TOOL PATH -> _PTG_SR: the path-too-long ask's reason (G3, shared by both paths).
+_ptg_long_reason() {
+  local _pl_p
+  _fp_cap _pl_p "$2" 256
+  _PTG_SR="$1 target '$_pl_p' is ${#2} characters long. Past 4096, persona-tool-guard matches it in its lexical spelling only (a longer path cannot be safely normalized inside the hook's time budget — on Windows cygpath truncates it), so it asks rather than pass it unchecked. Confirm the target."
 }
 
 # --- B7 fast path: the plugin's LOCKED rules, decided before lib.sh / jq ----------------------
@@ -585,8 +709,8 @@ _PTG_RE_PRULES='persona-rules(\.default)?\.json$'
 _PTG_RE_RRULES='/projects/[^/]+/rules(\.pending)?\.json$'
 _PTG_RE_CACHE='/\.rules-effective\.json$'
 _PTG_RE_INJ='/\.second-brain/\.injected/'
-# The default's resource_scope (enabled; Write/Edit/MultiEdit among its tools), pinned by the test.
-_PTG_RS_ALLOW=$'$CWD\n$HOME/.second-brain\n$HOME/knowledge\n/tmp\n/var/tmp'
+# The default's resource_scope (enabled; Write/Edit/MultiEdit/Read among its tools), pinned by the test.
+_PTG_RS_ALLOW=$'$CWD\n$PROJECT\n$HOME/.second-brain\n$HOME/knowledge\n/tmp\n/var/tmp'
 _PTG_RULE="" _PTG_REASON="" _PTG_SFX=""
 _ptg_set() { [ -n "$_PTG_RULE" ] || { _PTG_RULE="$1$_PTG_SFX"; _PTG_REASON="$2"; }; }
 # _ptg_cache_ok CACHE: false when an effective-rules cache was written after its signature (or has
@@ -617,10 +741,12 @@ _ptg_layer_ok() {
   return 1
 }
 _ptg_fast() {
-  local tool sid="" cmd="" path="" lc root me pf a="" b="" bd f slug="" rc cwd tgt
+  local tool sid="" cmd="" path="" lc root me pf a="" b="" bd f slug="" rc cwd tgt proj amb=0 plen=0
   _fp_str tool_name || return 1
   tool="$_FP"
-  case "$tool" in Bash|Write|Edit|MultiEdit) ;; *) return 1 ;; esac
+  # Read (G1): no rule in the default names it, but resource_scope covers it and a credential store
+  # asks — both decided below, without the locked-rule table.
+  case "$tool" in Bash|Write|Edit|MultiEdit|Read) ;; *) return 1 ;; esac
   # P must be the default this table mirrors — the one beside this script: CLAUDE_PLUGIN_ROOT's copy
   # is that same file, or byte-identical to it. A different P (another plugin version, an edited
   # default) goes to the full logic, which reads whatever P actually says.
@@ -665,37 +791,71 @@ _ptg_fast() {
     [ "$rc" = 0 ] && _ptg_set warn-rm-rf "rm -rf is destructive and irreversible. Confirm target before proceeding."
   else
     _fp_str file_path || return 1
-    _fp_nocr path "$_FP"; _fp_path path "$path" lex
+    _fp_nocr path "$_FP"
     case "$path" in ''|*"$_fp_nl"*) return 1 ;; esac
-    _fp_lower lc "$path"
-    case "$tool" in Edit) _PTG_SFX=-edit ;; MultiEdit) _PTG_SFX=-multiedit ;; esac
-    if [ "$tool" = Write ] && [[ $lc =~ $_PTG_RE_HOT ]]; then
-      _ptg_set warn-direct-write-hot-tier "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools."
+    plen=${#path}
+    _ptg_fpath path "$path" || amb=1
+    if [ "$tool" != Read ]; then
+      _fp_lower lc "$path"
+      case "$tool" in Edit) _PTG_SFX=-edit ;; MultiEdit) _PTG_SFX=-multiedit ;; esac
+      if [ "$tool" = Write ] && [[ $lc =~ $_PTG_RE_HOT ]]; then
+        _ptg_set warn-direct-write-hot-tier "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools."
+      fi
+      [[ $lc =~ $_PTG_RE_SCRIPTS ]] && _ptg_set warn-self-edit-plugin-scripts "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
+      [[ $lc =~ $_PTG_RE_PRULES ]] && _ptg_set warn-self-edit-persona-rules "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
+      [[ $lc =~ $_PTG_RE_RRULES ]] && _ptg_set warn-self-edit-repo-rules "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote"
+      [[ $lc =~ $_PTG_RE_CACHE ]] && _ptg_set warn-self-edit-rules-cache "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache."
+      [[ $lc =~ $_PTG_RE_INJ ]] && _ptg_set warn-self-edit-injected "~/.second-brain/.injected/ holds the per-session caches the hooks inject into every session and subagent (role cards, slug memos). A direct write there is hook-authority injection — confirm intent."
     fi
-    [[ $lc =~ $_PTG_RE_SCRIPTS ]] && _ptg_set warn-self-edit-plugin-scripts "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
-    [[ $lc =~ $_PTG_RE_PRULES ]] && _ptg_set warn-self-edit-persona-rules "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
-    [[ $lc =~ $_PTG_RE_RRULES ]] && _ptg_set warn-self-edit-repo-rules "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote"
-    [[ $lc =~ $_PTG_RE_CACHE ]] && _ptg_set warn-self-edit-rules-cache "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache."
-    [[ $lc =~ $_PTG_RE_INJ ]] && _ptg_set warn-self-edit-injected "~/.second-brain/.injected/ holds the per-session caches the hooks inject into every session and subagent (role cards, slug memos). A direct write there is hook-authority injection — confirm intent."
+  fi
+  tgt="${path:-${cmd:0:200}}"
+  # File tools, in the full logic's order (G1): with no rule hit, the asks below are this call's only
+  # possible verdicts under the default rules, so they are decided here too — before, a Read and any
+  # file call no locked rule matched went to the full logic (3.7 s median for a Read of another
+  # user's ~/.ssh on a loaded MSYS box, cancelled at 5 s and the file read). What neither path asks
+  # about (in scope, no rule) still goes to the full logic: this path never allows.
+  # - Past 4096 characters (G3): no scope test or credential test — the rule's ask, else
+  #   path-too-long's.
+  # - A Read of a credential store asks (_ptg_cred), whatever the scope says.
+  # - L3: an out-of-scope target asks before any rule does (resource_scope), with the full logic's
+  #   test. Targets are spelled as the full logic spells them — except a drive path cygpath would
+  #   respell under an MSYS mount (amb, _ptg_mnt): with a rule hit the call asks all the same (the
+  #   reason may name the scope where the full logic names the rule); without one this path stands
+  #   down rather than risk a false ask.
+  if [ "$tool" != Bash ]; then
+    # The full logic's _PTG_LONG: the length before the lexical steps (a \\?\ prefix counts).
+    if [ "$plen" -gt 4096 ]; then
+      if [ -z "$_PTG_RULE" ]; then
+        _ptg_long_reason "$tool" "$path"
+        _PTG_RULE=path-too-long _PTG_REASON="$_PTG_SR"
+      fi
+    else
+      _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
+      _fp_nocr cwd "$_FP"
+      _fp_trimnl cwd "$cwd"
+      case "$cwd" in *"$_fp_nl"*) return 1 ;; esac
+      [ -n "$cwd" ] || cwd="$PWD"
+      _ptg_fpath cwd "$cwd" || amb=1
+      _ptg_proj proj
+      case "$proj" in *"$_fp_nl"*) return 1 ;; esac
+      [ -z "$proj" ] || _ptg_fpath proj "$proj" || amb=1
+      if [ "$tool" = Read ]; then
+        [ "$amb" = 0 ] || return 1
+        _ptg_abs "$path" "$cwd"
+        if _ptg_cred "$_PTG_ABS"; then
+          _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"
+          _PTG_RULE=credential-read _PTG_REASON="$_PTG_SR" tgt="$_PTG_ABS"
+        fi
+      fi
+      if [ "$_PTG_RULE" != credential-read ] && [ "${SB_RESOURCE_SCOPE:-on}" != off ] \
+         && ! _ptg_scope "$path" "$cwd" "$_PTG_RS_ALLOW" "$proj"; then
+        [ "$amb" = 0 ] || [ -n "$_PTG_RULE" ] || return 1
+        _ptg_scope_reason "$_PTG_ABS"
+        _PTG_RULE=resource-scope-out-of-scope _PTG_REASON="$_PTG_SR" tgt="$_PTG_ABS"
+      fi
+    fi
   fi
   [ -n "$_PTG_RULE" ] || return 1
-  tgt="${path:-${cmd:0:200}}"
-  # L3: the full logic asks for an out-of-scope file target before any rule does (resource_scope);
-  # so does this path, with the same test. The target is spelled as the full logic spells it,
-  # except a drive path, which it spells /x/… without cygpath: a target under an MSYS mount
-  # (%TEMP% is /tmp there) may get the scope reason where the full logic gives the rule's (both ask).
-  if [ "$tool" != Bash ] && [ "${SB_RESOURCE_SCOPE:-on}" != off ]; then
-    _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
-    _fp_nocr cwd "$_FP"
-    _fp_trimnl cwd "$cwd"
-    case "$cwd" in *"$_fp_nl"*) return 1 ;; esac
-    [ -n "$cwd" ] || cwd="$PWD"
-    _fp_path cwd "$cwd" lex
-    if ! _ptg_scope "$path" "$cwd" "$_PTG_RS_ALLOW"; then
-      _ptg_scope_reason "$_PTG_ABS"
-      _PTG_RULE=resource-scope-out-of-scope _PTG_REASON="$_PTG_SR" tgt="$_PTG_ABS"
-    fi
-  fi
   local TOOL="$tool" CMD="$cmd" SESSION_ID="$sid" BRAIN_DIR="$bd"
   _ptg_spine
   _fp_emit ask "$_PTG_REASON"
@@ -1009,8 +1169,12 @@ RULE_STREAM="$_RDR"
 # Normalize the target to the /c/… POSIX form first, and the working dir with it in the same
 # cygpath call when there is a target (only the resource-scope check reads CWD, and only for one).
 # _PTG_LONG: the target is past _ptg_norm's 4096-character bound (G3) — the floor below the rules.
+# _PTG_PROJ: the session's project root, the scope's $PROJECT root (GW), normalized in the same call.
 _PTG_LONG=0; [ "${#PATH_INPUT}" -gt 4096 ] && _PTG_LONG=1
-[ -n "$PATH_INPUT" ] && _ptg_norm PATH_INPUT CWD
+_ptg_proj _PTG_PROJ
+if [ -n "$PATH_INPUT" ]; then
+  if [ -n "$_PTG_PROJ" ]; then _ptg_norm PATH_INPUT CWD _PTG_PROJ; else _ptg_norm PATH_INPUT CWD; fi
+fi
 
 _ptg_spine
 
@@ -1039,6 +1203,21 @@ if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
   fi
 fi
 
+# --- Credential-store Read (G1, R3) -----------------------------------------
+# A Read of ~/.ssh, ~/.aws, ~/.claude/.credentials.json, … asks, whatever the resource scope says
+# (in scope when the session runs in HOME; no scope ask at all under SB_RESOURCE_SCOPE=off). The
+# fast path asks the same; _ptg_cred holds the list (symlink-guard's) and why /etc is not on it.
+# Not past 4096 characters: the path-too-long floor below asks for such a target anyway.
+if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
+  _ptg_abs "$PATH_INPUT" "$CWD"
+  if _ptg_cred "$_PTG_ABS"; then
+    _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"
+    sb_log_audit "persona-tool-guard.sh" "ask" "credential-read" "$_PTG_ABS" "$_PTG_SR" "$SESSION_ID"
+    _fp_emit ask "$_PTG_SR"
+    exit 0
+  fi
+fi
+
 # --- Resource-scope guard -------------------------------------------------
 # Ask before file-touching tools target a path outside the configured
 # allowlist. Per the paper: 50%+ of agents apply reasonable tools to
@@ -1056,7 +1235,7 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_L
       # Relative targets resolve against $CWD; '.'/'..' fold lexically before the prefix match
       # (D155 — no filesystem access: this guard does not realpath its targets). _ptg_scope is the
       # fast path's test too.
-      if ! _ptg_scope "$PATH_INPUT" "$CWD" "$RS_ALLOW"; then
+      if ! _ptg_scope "$PATH_INPUT" "$CWD" "$RS_ALLOW" "$_PTG_PROJ"; then
         abs_path="$_PTG_ABS"
         _ptg_scope_reason "$abs_path"; SCOPE_REASON="$_PTG_SR"
         sb_log_audit "persona-tool-guard.sh" "ask" "resource-scope-out-of-scope" "$abs_path" "$SCOPE_REASON" "$SESSION_ID"
@@ -1160,9 +1339,8 @@ _fp_feed "$RULE_STREAM" _ptg_match
 # saw all of it, but not cygpath's spelling (an MSYS mount name such as /tmp). A call no rule asked
 # about or denied is asked about; a verdict a rule gave stands, under that rule's name.
 if [ "$_PTG_LONG" = 1 ] && [ "$V_RANK" -lt 3 ]; then
-  _fp_cap _ptg_lp "$PATH_INPUT" 256
-  V_RANK=3 V_ACTION=ask V_RULE=path-too-long V_TARGET="$PATH_INPUT"
-  V_REASON="$TOOL target '$_ptg_lp' is ${#PATH_INPUT} characters long. Past 4096, persona-tool-guard matches it in its lexical spelling only (a longer path cannot be safely normalized inside the hook's time budget — on Windows cygpath truncates it), so it asks rather than pass it unchecked. Confirm the target."
+  _ptg_long_reason "$TOOL" "$PATH_INPUT"
+  V_RANK=3 V_ACTION=ask V_RULE=path-too-long V_TARGET="$PATH_INPUT" V_REASON="$_PTG_SR"
 fi
 
 case "$V_ACTION" in

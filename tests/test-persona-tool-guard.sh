@@ -743,24 +743,45 @@ cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$B7/root/scripts/"
 for t in jq cat tr grep sed awk head tail cut wc realpath greadlink readlink cygpath dirname basename mkdir mv uname git; do
   printf '#!/bin/sh\nsleep %s\nexit 127\n' "$B7_SLEEP" > "$B7/shims/$t"; chmod +x "$B7/shims/$t"
 done
-b7() {  # b7 <payload-json> [wrapper…] -> B7_OUT, B7_EL (whole seconds)
-  local p="$1" s; shift
+b7() {  # b7 <payload-json> [wrapper…] -> B7_OUT, B7_EL (whole seconds), B7_MS (ms: EPOCHREALTIME, else B7_EL x 1000)
+  local p="$1" s t0="${EPOCHREALTIME:-}" t1; shift
   s=$SECONDS
   B7_OUT=$(printf '%s' "$p" | SB_RESOURCE_SCOPE="$B7_SCOPE" CLAUDE_PLUGIN_ROOT="$B7/root" BRAIN_DIR="$B7/brain" PATH="$B7/shims:$PATH" bash "$@" "$SCRIPT")
-  B7_EL=$(( SECONDS - s ))
+  B7_EL=$(( SECONDS - s )) t1="${EPOCHREALTIME:-}"
+  if [ -n "$t0" ] && [ -n "$t1" ]; then B7_MS=$(( (10#${t1//[!0-9]/} - 10#${t0//[!0-9]/}) / 1000 )); else B7_MS=$(( B7_EL * 1000 )); fi
 }
-b7_ask() {  # b7_ask <label> <rule> <payload-json> [wrapper…]
+b7_base() {  # b7_base -> B7_BASE_MS: a bash no-op's run time in the same setting, right now
+  local t0="${EPOCHREALTIME:-}" t1
+  printf '%s' x | PATH="$B7/shims:$PATH" bash -c ':'
+  t1="${EPOCHREALTIME:-}"
+  if [ -n "$t0" ] && [ -n "$t1" ]; then B7_BASE_MS=$(( (10#${t1//[!0-9]/} - 10#${t0//[!0-9]/}) / 1000 )); else B7_BASE_MS=0; fi
+}
+# b7_ask <label> <rule> <payload-json> [wrapper…]. Bound: B7_BOUND seconds; a bound of 1-2 s is
+# measured above a bash no-op timed just before and just after the run (the slower one): on a
+# loaded MSYS box bash alone starts in 0.1-1.6 s (R3, 2026-10-07), so an absolute 1 s would time
+# the machine, not the guard. Such a bound gets one retry: a single load spike (a 3.7 s run beside a
+# 0.9 s no-op, the fast path itself forking nothing) is not a slow guard; two in a row are failed.
+b7_ask() {
   if [ "$FP_OFF" = 1 ]; then echo "SKIP: B7 $1 — the fast path is off on bash < 4.3 (item 17: jq decides, as on main)"; return 0; fi
-  local label="$1" rule="$2" p="$3"; shift 3
-  rm -f "$B7/brain/audit-log.jsonl"
-  b7 "$p" "$@"
-  [ "$B7_EL" -le "$B7_BOUND" ] \
-    || fail "B7 $label: took ${B7_EL}s under a sleeping lib.sh/jq (bound ${B7_BOUND}s) — a loaded machine cancels this hook and the call RUNS"
+  local label="$1" rule="$2" p="$3" base=0 lim n=0; shift 3
+  while :; do
+    rm -f "$B7/brain/audit-log.jsonl"
+    base=0
+    [ "$B7_BOUND" -le 2 ] && { b7_base; base=$B7_BASE_MS; }
+    b7 "$p" "$@"
+    [ "$B7_BOUND" -le 2 ] && { b7_base; [ "$B7_BASE_MS" -le "$base" ] || base=$B7_BASE_MS; }
+    lim=$(( base + B7_BOUND * 1000 ))
+    [ "$B7_MS" -le "$lim" ] && break
+    n=$((n + 1))
+    [ "$B7_BOUND" -le 2 ] && [ "$n" -lt 2 ] && { echo "NOTE: B7 $label: ${B7_MS} ms over a ${base} ms no-op — retrying once"; continue; }
+    fail "B7 $label: took ${B7_MS} ms under a sleeping lib.sh/jq (bound ${B7_BOUND}s over a ${base} ms bash no-op) — a loaded machine cancels this hook and the call RUNS"
+    break
+  done
   [ -n "$B7_OUT" ] && printf '%s' "$B7_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
     || fail "B7 $label: expected ask with every dependency stalled, got: '$B7_OUT'"
   grep -q "\"rule\":\"$rule\".*\"fastpath\":true" "$B7/brain/audit-log.jsonl" 2>/dev/null \
     || fail "B7 $label: the fast-path verdict must be audit-logged as rule $rule (audit: $(cat "$B7/brain/audit-log.jsonl" 2>/dev/null))"
-  pass "B7 $label: ask via $rule in ${B7_EL}s with lib.sh and every spawn stalled"
+  pass "B7 $label: ask via $rule in ${B7_MS} ms with lib.sh and every spawn stalled"
 }
 b7_ask "rm -rf" warn-rm-rf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"session_id":"b7a"}'
 b7_ask "force-push (upper case, 2nd line)" warn-force-push-main '{"tool_name":"Bash","tool_input":{"command":"cd repo\nGIT PUSH --FORCE origin MAIN"},"session_id":"b7b"}'
@@ -781,7 +802,31 @@ b7_ask "Write into .second-brain/.injected" warn-self-edit-injected '{"tool_name
 B7_SCOPE=on
 b7_ask "out-of-scope Edit of a plugin script (scope on)" resource-scope-out-of-scope '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh","old_string":"a","new_string":"b"},"cwd":"/home/u/proj","session_id":"b7k"}'
 b7_ask "in-scope Edit of a plugin script (scope on)" warn-self-edit-plugin-scripts-edit '{"tool_name":"Edit","tool_input":{"file_path":"/home/u/proj/claude-code-plugin/scripts/lib.sh","old_string":"a","new_string":"b"},"cwd":"/home/u/proj","session_id":"b7l"}'
+# G1 (R3, 2026-10-07): every Read, and a file-tool call no locked rule matched, went to the full
+# logic whatever its target — a Read of C:\Users\nobody\.ssh\id_rsa took 3.7 s median through
+# hook-timer on a loaded MSYS box (4 of 9 runs past 5 s), and live, 9 Reads cancelled at 5 s still
+# returned the file. The out-of-scope ask and a credential-store Read are decided on the fast path,
+# within 1 s of a bash no-op with every dependency stalled. Credential Reads: in scope (cwd = HOME) and with the
+# resource scope off — the two ways one is not already an out-of-scope ask.
+B7_SCOPE=on B7_BOUND=1
+b7_ask "out-of-scope Read" resource-scope-out-of-scope '{"tool_name":"Read","tool_input":{"file_path":"/etc/hosts"},"cwd":"/home/u/proj","session_id":"b7o"}'
+b7_ask "out-of-scope Write, no locked rule" resource-scope-out-of-scope '{"tool_name":"Write","tool_input":{"file_path":"/home/x/notes.txt","content":"hi"},"cwd":"/home/u/proj","session_id":"b7p"}'
+HOME=/home/b7u b7_ask "credential Read inside the scope (cwd = HOME)" credential-read '{"tool_name":"Read","tool_input":{"file_path":"/home/b7u/.ssh/id_rsa"},"cwd":"/home/b7u","session_id":"b7q"}'
+# NTFS/APFS: ~/.AWS is ~/.aws there (the 0.45.2 case-insensitivity class).
+HOME=/home/b7u b7_ask "case-varied credential Read" credential-read '{"tool_name":"Read","tool_input":{"file_path":"/home/b7u/.AWS/Credentials"},"cwd":"/home/b7u","session_id":"b7t"}'
 B7_SCOPE=off
+HOME=/home/b7u b7_ask "credential Read, resource scope off" credential-read '{"tool_name":"Read","tool_input":{"file_path":"/home/b7u/.claude/.credentials.json"},"cwd":"/home/u/proj","session_id":"b7s"}'
+B7_SCOPE=on
+# The Windows form the verifier measured, on a host with an MSYS mount table (the fast path reads
+# it to tell a drive path that cygpath would respell under a mount — %TEMP% is /tmp — from one it
+# spells /x/… as the full logic does). Elsewhere a drive path is undecidable there: skipped, loudly.
+if [ -r /proc/mounts ] && command -v cygpath >/dev/null 2>&1; then
+  HOME=/c/Users/b7u b7_ask "Windows-form credential Read" credential-read '{"tool_name":"Read","tool_input":{"file_path":"C:\\Users\\b7u\\.ssh\\id_rsa"},"cwd":"C:\\Users\\b7u","session_id":"b7w"}'
+  b7_ask "Windows-form out-of-scope Read" resource-scope-out-of-scope '{"tool_name":"Read","tool_input":{"file_path":"C:\\Users\\nobody\\.ssh\\id_rsa"},"cwd":"C:\\Workplace\\proj","session_id":"b7x"}'
+else
+  echo "SKIP: B7 Windows-form Reads — no MSYS mount table (/proc/mounts + cygpath) on this host"
+fi
+B7_SCOPE=off B7_BOUND=10
 # SEC-M3: a layer that cannot move the verdict (the auto-armed learned-only kind) keeps the fast
 # path armed — before, ANY layer file sent every call down the slow path.
 mkdir -p "$B7/brain/.injected" "$B7/brain/projects/armed"
@@ -944,6 +989,21 @@ par Edit file_path /home/u/proj/sub/../claude-code-plugin/scripts/a.sh /home/u/p
 par MultiEdit file_path /var/tmp/../etc/persona-rules.json /home/u/proj
 par Write file_path /tmp/x/plugin.json /home/u/proj
 par Write file_path /home/u/proj/README.md /home/u/proj
+# G1: Read and the no-rule file-tool calls — the scope ask, the credential ask (before the scope
+# ask, and with the scope off), and what neither path asks about.
+par Read file_path /etc/hosts /home/u/proj
+par Read file_path /home/u/proj/../.aws/credentials /home/u/proj
+par Read file_path "$HOME/.ssh/id_rsa" "$HOME"
+par Read file_path "$HOME/.SSH/known_hosts" /home/u/proj
+par Read file_path "$HOME/.claude/.credentials.json" "$HOME"
+par Read file_path "$HOME/.claude/settings.json" "$HOME"
+par Read file_path /home/u/proj/src/a.ts /home/u/proj
+par Edit file_path /srv/x/notes.md /home/u/proj
+par MultiEdit file_path /home/u/proj/src/a.ts /home/u/proj
+par Read file_path "$HOME/.gnupg/pubring.kbx"
+# GW: the session's project root ($PROJECT = CLAUDE_PROJECT_DIR) is a scope root beside $CWD.
+CLAUDE_PROJECT_DIR=/w/repo par Read file_path /w/repo/.claude/worktrees/r3-ro/scripts/lib.sh /w/repo/.claude/worktrees/r3-mt
+CLAUDE_PROJECT_DIR= par Read file_path /w/repo/.claude/worktrees/r3-ro/scripts/lib.sh /w/repo/.claude/worktrees/r3-mt
 # On bash < 4.3 (item 17) no verdict comes from the fast path: parity still holds, the count is 0.
 [ "$FP_OFF" = 1 ] || [ "$PAR_FAST" -ge 30 ] || fail "B7 parity: only $PAR_FAST of $PAR_N payloads were decided on the fast path"
 pass "B7 parity: fast path == full rule engine (verdict, reason, rule) over $PAR_N payloads, $PAR_FAST decided on the fast path"
@@ -959,17 +1019,67 @@ have=$(grep -oE '_ptg_set[[:space:]]+[a-z-]+' "$SCRIPT" | awk '{print $2}' | sor
 pass "B7: fast-path rule table matches the default's locked rules"
 
 # L3 structural lock: the fast path's scope test assumes the default's scope config — tool_scope
-# off, resource_scope on for Write/Edit/MultiEdit, and _PTG_RS_ALLOW == its allowlist.
+# off, resource_scope on for Write/Edit/MultiEdit/Read (G1: Read is decided there too), no rule
+# for Read, and _PTG_RS_ALLOW == its allowlist.
 DEF="$(dirname "$SCRIPT")/persona-rules.default.json"
 jq -e '(.tool_scope.enabled // false) == false and .resource_scope.enabled == true
-       and ((.resource_scope.tools // []) | index("Write") != null and index("Edit") != null and index("MultiEdit") != null)' "$DEF" >/dev/null \
-  || fail "L3: the default's scope config changed (tool_scope off, resource_scope on for Write/Edit/MultiEdit) — update _ptg_fast's scope test"
+       and ((.resource_scope.tools // []) | index("Write") != null and index("Edit") != null and index("MultiEdit") != null and index("Read") != null)
+       and ([.rules[] | select(.tool == "Read")] | length) == 0' "$DEF" >/dev/null \
+  || fail "L3: the default's scope config changed (tool_scope off, resource_scope on for Write/Edit/MultiEdit/Read, no Read rule) — update _ptg_fast's scope test"
 want_allow=$(jq -r '.resource_scope.allowlist[]' "$DEF" | tr -d '\r')
 have_allow=$(eval "$(grep -E '^_PTG_RS_ALLOW=' "$SCRIPT")"; printf '%s' "$_PTG_RS_ALLOW")
 [ -n "$have_allow" ] && [ "$want_allow" = "$have_allow" ] \
   || fail "L3: _PTG_RS_ALLOW != the default's resource_scope.allowlist. want: $(echo $want_allow) | have: $(echo $have_allow)"
 pass "L3: the fast path's scope test mirrors the default's resource_scope"
 rm -rf "$B7"
+
+# G1 structural lock: the credential stores a Read asks about are symlink-guard's (the guard that
+# denies writes into them) — the same directories and files, under the same labels, so the two
+# lists cannot drift apart. symlink-guard's /etc arm is deliberately not mirrored (see _ptg_cred).
+SG="$(dirname "$SCRIPT")/symlink-guard.sh"
+sg_dirs=$(grep -E 'for _sc_e in .*; do' "$SG" | head -1 | sed -E 's/.*for _sc_e in (.*); do.*/\1/' | tr ' ' '\n' | sort)
+ptg_dirs=$(eval "$(grep -E '^_PTG_CRED_DIRS=' "$SCRIPT")"; printf '%s\n' $_PTG_CRED_DIRS | sort)
+[ -n "$sg_dirs" ] && [ "$sg_dirs" = "$ptg_dirs" ] \
+  || fail "G1: _PTG_CRED_DIRS != symlink-guard's credential dirs. want: $(echo $sg_dirs) | have: $(echo $ptg_dirs)"
+ptg_files=$(eval "$(grep -E '^_PTG_CRED_FILES=' "$SCRIPT")"; printf '%s\n' $_PTG_CRED_FILES | sort)
+sg_files=$(grep -oE '"\$_sc_h/[^"]+"\) _SG_LABEL=[a-z-]+' "$SG" | sed -E 's|"\$_sc_h/([^"]+)"\) _SG_LABEL=(.*)|\2:\1|' | sort)
+[ -n "$sg_files" ] && [ "$sg_files" = "$ptg_files" ] \
+  || fail "G1: _PTG_CRED_FILES != symlink-guard's credential files. want: $(echo $sg_files) | have: $(echo $ptg_files)"
+pass "G1: the Read credential list mirrors symlink-guard's (dirs and files)"
+
+# GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
+# r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
+# <repo>/.claude/worktrees/r3-ro/… got the out-of-scope ask. $PROJECT (CLAUDE_PROJECT_DIR, the
+# directory the session was started in) is a scope root beside $CWD; an empty one adds nothing.
+GW=$(mktemp -d)
+gw() {  # gw <CLAUDE_PROJECT_DIR> -> out
+  out=$(printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/w/repo/.claude/worktrees/r3-ro/scripts/lib.sh"},"cwd":"/w/repo/.claude/worktrees/r3-mt","session_id":"gw"}' \
+    | CLAUDE_PROJECT_DIR="$1" BRAIN_DIR="$GW" bash "$SCRIPT")
+}
+gw /w/repo
+[ -z "$out" ] || fail "GW: a Read under the session's project root (cwd in a sibling worktree) must be in scope (got: $out)"
+gw '/w/repo/'
+[ -z "$out" ] || fail "GW: a project root with a trailing '/' must still be a scope root (got: $out)"
+gw ''
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  || fail "GW: with CLAUDE_PROJECT_DIR empty the sibling worktree is out of scope again — an empty \$PROJECT must not match every path (got: $out)"
+pass "GW: the session's project root (CLAUDE_PROJECT_DIR) is in scope, worktrees included; an empty one adds nothing"
+rm -rf "$GW"
+
+# G1 MSYS mounts: cygpath spells a drive path under a mount by the mount's name (%TEMP% is /tmp),
+# and the full logic finds it in scope there. The fast path, which spells drive paths /x/…, must
+# stand down for such a path rather than ask (a false ask on every Read of the temp dir).
+if [ -r /proc/mounts ] && command -v cygpath >/dev/null 2>&1 && W2_TMP=$(cygpath -m /tmp 2>/dev/null) \
+   && case "$W2_TMP" in [A-Za-z]:/*) true ;; *) false ;; esac; then
+  W2=$(mktemp -d)
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$W2_TMP/g1-w2.txt" '{tool_name:"Read",tool_input:{file_path:$f},cwd:"C:\\Workplace\\proj",session_id:"w2"}' \
+    | BRAIN_DIR="$W2" bash "$SCRIPT")
+  [ -z "$out" ] || fail "G1 mounts: a Read of $W2_TMP/g1-w2.txt (= /tmp/g1-w2.txt, in scope) must not ask (got: $out)"
+  pass "G1 mounts: a drive path under an MSYS mount (the temp dir) gets no false out-of-scope ask"
+  rm -rf "$W2"
+else
+  echo "SKIP: G1 mounts — no MSYS mount table on this host (no drive paths to respell)"
+fi
 
 # --- Payload size: every verdict must arrive before the 5 s hook timeout ---------------------
 # bounded LABEL LIMIT PAYLOAD-FILE [VAR=val…]: run the guard in the background, stdout to a file,
