@@ -83,7 +83,7 @@ Re-verify the whole table:
 | PostCompact | `manual\|auto` (slice 1 "Continuity" C2/C3, 0.54.0) | ⏲30 `pre-compact.sh post` | 30 | compaction summary's Pending Tasks → `## Plan`, add-only, sanitized + injection-gated; measured 31-54s on a loaded box (node + scanner spawn) — raised from 15s in 0.54.0; kill `SB_COMPACT_CAPTURE=off` (§3.2, §8.8) |
 | PreToolUse | `Bash\|Write\|Edit\|MultiEdit\|Read\|WebFetch\|WebSearch\|Task\|Agent` (`Agent` = CC v2.1.63 rename of Task) | `persona-tool-guard.sh` | 5 | rule-based allow/ask/deny; every verdict → audit-log; kill `SB_PERSONA_GATE=off` |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `wiki-write-guard.sh` | 5 | denies frontmatter-less writes to `wiki/**/*.md` (index.md exempt) |
-| PreToolUse | `Write\|Edit\|MultiEdit` | `symlink-guard.sh` | 5 | resolve-symlinks-BEFORE-validate; denies writes resolving into ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/claude, ~/.config/gh, ~/.password-store, /etc, ~/.netrc; kill `SB_SYMLINK_GUARD=off` |
+| PreToolUse | `Write\|Edit\|MultiEdit` | `symlink-guard.sh` | 5 | resolve-symlinks-BEFORE-validate; denies writes resolving into a credential store — ~/.ssh, ~/.gnupg, ~/.aws, ~/.config/{claude,gh,gcloud}, ~/.azure, ~/.password-store, ~/.netrc, ~/.claude/.credentials.json, ~/.git-credentials, ~/.npmrc, ~/.docker/config.json, ~/.kube/config, ~/.pypirc (under HOME and USERPROFILE), %APPDATA%\\{GitHub CLI\\hosts.yml,gcloud}, /etc (`_SG_CRED_H`/`_SG_CRED_A`; persona-tool-guard's Read check holds the same lists, test-locked); kill `SB_SYMLINK_GUARD=off` |
 | PreToolUse | `Bash\|WebFetch\|WebSearch` | `flow-guard.sh` | 5 | asks when egress carries credential-shaped content; kill `SB_FLOW_GUARD=off` |
 | PreToolUse | `Task\|Agent\|Read\|Edit\|Write\|MultiEdit` | ⏲5 `protocol-guard.sh pre` | 5 | Agent/Task → delegation tier check (opt-in model rewrite via `SB_DELEGATION_REWRITE`); Read/Edit/Write/MultiEdit → path-triggered JIT memory + search-before-create nudge; kill `SB_PROTOCOL_GUARD=off` / `SB_DELEGATION_CHECK=off` / `SB_JIT=off` / `SB_SEARCH_FIRST=off` |
 | PreToolUse | `Write\|Edit\|MultiEdit` | `plan-first-nudge.sh` | 5 | SOFT, once/session, ≥2 code-file edits; kill `SB_PLAN_FIRST_NUDGE=off` |
@@ -455,6 +455,11 @@ previously named a phantom `tests/test-surface-budget.sh` — defect closed).
 9. **`ln -s` deep-copies on MSYS** (winsymlinks default). Use
    `node fs.symlinkSync(target, link, 'junction')` for directory links; ln-s-gated tests silently
    skip on Windows — the skip once hid ~3 GB of duplication (0.33.7).
+10. **Credential stores — accepted residuals (R3B).** Grep, Glob and Bash (`cat ~/.ssh/id_rsa`) reach
+   them unchecked: no PreToolUse hook matches Grep/Glob, flow-guard asks only on egress (GX7). A
+   junction/symlink inside the scope into a store is matched by spelling, not destination (D155;
+   symlink-guard resolves writes). 8.3 names: `test -ef` vs lexical + `cd -P` HOME spellings only.
+   `extra.late`: bash 5 only; an unwrapped guard counts from its own start (may under-report).
 
 ## When NOT to use this skill
 
