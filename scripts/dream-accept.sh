@@ -469,10 +469,17 @@ fi
 # Reindex
 sb_reindex_wiki "$KNOWLEDGE_DIR"
 
-# Archive the dream
+# Archive the dream. Checked (K10): a failed stamp used to fall through to the `rm -rf staging`
+# below, leaving a dream that was neither archived nor re-acceptable. Stop BEFORE the cleanup:
+# the pages are applied, staging stays, and a re-accept is an idempotent merge that finishes.
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 tmp=$(mktemp)
-jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" && mv "$tmp" "$DREAM_DIR/status.json"
+if ! jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" || ! mv "$tmp" "$DREAM_DIR/status.json"; then
+  rm -f "$tmp" 2>/dev/null
+  echo "error: dream $DREAM_ID was applied to the live wiki but its archived_at stamp could not be written to $DREAM_DIR/status.json — staging KEPT; re-run the accept to finish (it re-merges the same pages)" >&2
+  sb_log_error "dream-accept" "archived_at stamp failed for $DREAM_ID after the apply (status.json not rewritten); staging kept so a re-accept can finish" 1
+  exit 1
+fi
 
 # A dream acceptance IS the consolidation the wiki-writes counter was counting toward — reset
 # it, or the "N wiki writes since the last consolidation" banner nags forever (ledger F8:

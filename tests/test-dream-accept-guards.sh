@@ -341,4 +341,36 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?  
 pass "D212: at the shipped 30-day default, a freshly-written manifest page is PROTECT:age'd and kept live"
 rm -rf "$SB"
 
+# === K10: the archived_at stamp (`jq > tmp && mv`) had no exit check, so a failed stamp fell
+# through to `rm -rf staging` and left a dream that was neither archived nor re-acceptable
+# ("staging wiki not found"). The shim fails ONLY the stamping jq call; every other jq call
+# reaches the real binary (captured BEFORE the shim goes on PATH).
+setup 3 "p1 p2 p3 p9"   # additive: p9 is new
+D="$BRAIN_DIR/dreams/drm_test"
+REAL_JQ=$(command -v jq)
+JQSHIM="$SB/jqshim"; mkdir -p "$JQSHIM"
+cat > "$JQSHIM/jq" <<EOF
+#!/bin/bash
+case "\$*" in *'.archived_at = \$t'*) echo "jq: simulated write failure" >&2; exit 2 ;; esac
+exec "$REAL_JQ" "\$@"
+EOF
+chmod +x "$JQSHIM/jq"
+ERR=$(PATH="$JQSHIM:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1 1>/dev/null); rc=$?
+[ "$rc" -ne 0 ] || fail "K10: a failed archived_at stamp returned rc=0"
+[ -d "$D/staging/wiki" ] || fail "K10: staging was deleted after the archived_at stamp failed (the dream can no longer be re-accepted)"
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+{ [ -z "$A" ] || [ "$A" = "null" ]; } || fail "K10: archived_at is '$A' after a failed stamp"
+jq -c 'select(.script == "dream-accept" and .exit_code != 0 and ((.message // "") | test("archived_at")))' \
+  "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  || fail "K10: a failed archived_at stamp left no error-log row (stderr: $ERR)"
+pass "K10: a failed archived_at stamp exits 1, keeps staging and logs the failure"
+# The pages are already applied; a re-accept is an idempotent merge and must finish the job.
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+[ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ] && [ ! -d "$D/staging" ] \
+  && [ -f "$KNOWLEDGE_DIR/wiki/entities/p9.md" ] \
+  && pass "K10: the re-accept after a failed stamp archives the dream (rc=0, archived_at=$A, staging cleaned, p9 live)" \
+  || fail "K10: re-accept after a failed stamp did not finish (rc=$rc archived_at='$A' staging=$([ -d "$D/staging" ] && echo kept || echo gone))"
+rm -rf "$SB"
+
 echo "ALL PASS"
