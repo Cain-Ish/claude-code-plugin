@@ -101,7 +101,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 
 | Var | Default | Effect | Kind | Site | Tests |
 |---|---|---|---|---|---|
-| `SB_PROTOCOL_GUARD` | `on` | MASTER gate for all three protocol-guard.sh modes (card/pre/subagent); `off` no-ops the whole script, including the dream-runner write confinement (pre mode's one deny, `pg_dream_confine`). `SB_HOOK_PROFILE=minimal` defaults it `off` too (lib.sh:26). | KS | protocol-guard.sh:22 | bash |
+| `SB_PROTOCOL_GUARD` | `on` | MASTER gate for all three protocol-guard.sh modes (card/pre/subagent); `off` no-ops the whole script, including the dream-runner write confinement (pre mode's deny and ask verdicts, `pg_dream_confine`). `SB_HOOK_PROFILE=minimal` defaults it `off` too (lib.sh:26). | KS | protocol-guard.sh:22 | bash |
 | `SB_PROTOCOL_CARD` | `on` | SessionStart mode `card`: the ≤1200 B class-5 protocol card. | KS | protocol-guard.sh:630 | bash |
 | `SB_ROLE_CARDS` | `on` | SubagentStart mode `subagent`: the ≤900 B per-`agent_type` role card (skips `second-brain:*` and Plan). | KS | protocol-guard.sh:631 | bash |
 | `SB_DELEGATION_CHECK` | `on` | PreToolUse mode `pre`, Agent/Task path: the delegation-tier advisory (`pg_agent`). | KS | protocol-guard.sh:634 | bash |
