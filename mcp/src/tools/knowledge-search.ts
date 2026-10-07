@@ -1,10 +1,12 @@
 import { promises as fs } from 'fs';
 import { atomicWriteJson } from './atomic-write.js';
-import { join } from 'path';
+import { join, posix, win32 } from 'path';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { embedTexts, cosineSimilarity, appendErrorLog, appendGateTrace } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
-import { loadRegistry } from './doc-sources.js';
+import { loadRegistry, servableEntries } from './doc-sources.js';
+import { activeProjectDir } from './project-dir.js';
+import { stripInvisible } from './sanitize.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
 import { stripAiBlock, aiBlockSnippet } from './ai-block.js';
 import { projectFamily } from './project-registry.js';
@@ -44,7 +46,10 @@ function graphNeighbourhood(seeds: string[], edges: CurrentEdge[], hops: number)
   return reached;
 }
 
-export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; brainDir?: string; projectSlug?: string; }
+/** projectRoot: the active project's directory; a registered local doc is served only when its
+ *  realpath lies inside this one (X2). Defaults to activeProjectDir() (CLAUDE_PROJECT_DIR, else cwd),
+ *  which the hooks and the MCP server both inherit from Claude Code. */
+export interface KnowledgeSearchArgs { query: string; scope?: string; knowledgeDir?: string; brainDir?: string; projectSlug?: string; projectRoot?: string; }
 export interface KnowledgeSearchResult {
   candidates: {
     path: string;
@@ -262,7 +267,16 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
 
   if (args.brainDir && args.projectSlug) {
     const reg = await loadRegistry(args.brainDir, args.projectSlug);
-    for (const e of reg?.entries ?? []) {
+    // X2: only well-formed entries whose realpath is inside the active project root are ranked
+    // (servableEntries); the rest are dropped before ranking, counted in one audit row per search.
+    const s = servableEntries(reg?.entries, args.projectRoot ?? activeProjectDir());
+    const dropped = s.outside + s.relative + s.missing + s.malformed;
+    if (dropped > 0) {
+      await appendGateTrace(args.brainDir, 'knowledge-search',
+        `gate=local-doc-drop slug=${args.projectSlug} kept=${s.kept.length} dropped=${dropped} outside=${s.outside} `
+        + `relative=${s.relative} missing=${s.missing} malformed=${s.malformed}${s.rootUsable ? '' : ' root=unusable'}`);
+    }
+    for (const e of s.kept) {
       const doc: ParsedDoc = {
         title: '', description: e.gist, type: 'local-doc', tags: [],
         related: [], body: e.headings.join('\n'), path: e.path,
@@ -715,17 +729,76 @@ export function injectableWiki<C extends KnowledgeSearchResult['candidates'][num
  *  bracket): a page description used to reach the frame verbatim and could close it (D1).
  *  A local doc (doc-sources registry) is a file, not a wiki page — knowledge_fetch globs only the
  *  wiki, so the [[basename]] it used to get ([[SKILL]]) led to "Page not found" (D11). It renders
- *  as a Read line on its absolute path instead. A path the fold would change (a bracket, a line
- *  break) can be neither shown safely nor opened once folded, so that candidate prints nothing
- *  (''). The recall harness reads this CLI ungated, but its corpus has no registry. */
+ *  as a Read line on its absolute path instead. A path cannot be folded (it would no longer open),
+ *  so a local doc whose path breaks injectDropReason's rules prints nothing (''). The description
+ *  (a gist for a local doc) is stripped of invisible characters (T5), folded and capped at 200 code
+ *  points (T1: one ~1,100 B description outgrew the hook's whole frame). The recall harness reads
+ *  this CLI ungated, but its corpus has no registry. */
 export function injectedHitLine(c: { path: string; description?: string; source: string }): string {
-  const desc = foldServedSnippet(c.description ?? '').trim();
+  if (injectDropReason(c)) return '';
+  const desc = capCodePoints(foldServedSnippet(stripInvisible(c.description ?? '')).trim(), INJECT_TEXT_MAX_CP);
   const tail = desc ? ` — ${desc}` : '';
-  if (c.source === 'local-doc') {
-    return foldServedSnippet(c.path) === c.path ? `Read ${c.path}${tail}` : '';
-  }
-  const slug = foldServedSnippet(c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, ''));
+  if (c.source === 'local-doc') return `Read ${c.path}${tail}`;
+  const slug = foldServedSnippet(stripInvisible(c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, '')));
   return `### [[${slug}]]${tail}`;
+}
+
+const INJECT_TEXT_MAX_CP = 200;
+const LOCAL_DOC_PATH_MAX_CP = 260;
+// Letters, marks and digits of any script, the space, and ordinary path punctuation. Everything else
+// (brackets other than ASCII parentheses, quotes, backticks, angle brackets, controls, format
+// characters, dashes other than "-", symbols) is refused rather than folded: a folded path no
+// longer opens.
+const LOCAL_DOC_PATH_RE = /^[\p{L}\p{M}\p{N} ._\-/\\:~+@,()'&#]+$/u;
+
+function capCodePoints(s: string, max: number): string {
+  const cps = [...s];
+  return cps.length <= max ? s : `${cps.slice(0, max - 1).join('').trimEnd()}…`;
+}
+
+/** Why an injecting CLI must not print this candidate, or '' when it may. Only a local doc can be
+ *  refused: its path is printed as is (X2/T3, R3 review), so it must be absolute (Read needs one),
+ *  carry no " — " (persona-context.sh cuts a Read line at the first one), stay within 260 code
+ *  points, use only LOCAL_DOC_PATH_RE characters, and be left unchanged by the fold (which also
+ *  catches the frame's own phrase). Whether the file lies inside the project is knowledgeSearch's
+ *  check (servableEntries), done before ranking. */
+export function injectDropReason(c: { path: string; source: string }): string {
+  if (c.source !== 'local-doc') return '';
+  const p = c.path;
+  if (!(posix.isAbsolute(p) || win32.isAbsolute(p))) return 'path-relative';
+  if (p.includes(' — ')) return 'path-separator';
+  if ([...p].length > LOCAL_DOC_PATH_MAX_CP) return 'path-length';
+  if (!LOCAL_DOC_PATH_RE.test(p)) return 'path-chars';
+  if (foldServedSnippet(p) !== p) return 'path-frame-text';
+  return '';
+}
+
+export interface InjectDrop { path: string; source: string; reason: string }
+
+/** The lines an injecting CLI prints: the first `max` candidates that may be printed, in the order
+ *  given (the gate's, so the engine's ranking). A refused candidate does not take a slot (T2: both
+ *  CLIs sliced to 2 before the drop, so the slot was lost); each one is returned in `drops` for
+ *  reportInjectDrops. Candidates past the last printed one are not examined. */
+export function injectedHitLines(candidates: { path: string; description?: string; source: string }[], max: number):
+  { lines: string[]; drops: InjectDrop[] } {
+  const lines: string[] = [];
+  const drops: InjectDrop[] = [];
+  for (const c of candidates) {
+    if (lines.length >= max) break;
+    const reason = injectDropReason(c);
+    if (reason) { drops.push({ path: c.path, source: c.source, reason }); continue; }
+    lines.push(injectedHitLine(c));
+  }
+  return { lines, drops };
+}
+
+/** One audit-log TRACE row per refused candidate (the hooks discard CLI stderr):
+ *  gate=inject-drop reason=<r> source=<s> path=<JSON string, capped>. Never throws. */
+export async function reportInjectDrops(brainDir: string, script: string, drops: InjectDrop[]): Promise<void> {
+  for (const d of drops) {
+    await appendGateTrace(brainDir, script,
+      `gate=inject-drop reason=${d.reason} source=${d.source} path=${JSON.stringify(capCodePoints(d.path, 300))}`);
+  }
 }
 
 interface FieldIndex { counts: Map<string, number>; len: number; weight: number }

@@ -1,5 +1,5 @@
-import { promises as fs } from 'fs';
-import { join, relative, resolve, sep, isAbsolute } from 'path';
+import { promises as fs, realpathSync } from 'fs';
+import { join, relative, resolve, sep, isAbsolute, posix, win32 } from 'path';
 import { spawnSync } from 'child_process';
 import { glob } from 'glob';
 import { assertSafeSlug, cleanEnvPath } from '../path-guard.js';
@@ -98,6 +98,56 @@ function registryPath(brainDir: string, slug: string): string {
 export async function loadRegistry(brainDir: string, slug: string): Promise<DocRegistry | null> {
   try { assertSafeSlug(slug); return JSON.parse(await fs.readFile(registryPath(brainDir, slug), 'utf-8')); }
   catch { return null; }
+}
+
+/** The registry entries a search may offer the model, and why the rest were refused. */
+export interface ServableEntries {
+  kept: DocEntry[];
+  /** Absolute, existing, but its realpath is not inside the project root's realpath (a forged
+   *  entry, a link out of the project, a registry built from another checkout), or no usable root. */
+  outside: number;
+  relative: number;
+  /** Absolute but realpath failed: the file is gone (a stale registry) or unreadable. */
+  missing: number;
+  /** Not a DocEntry (wrong field types): a hand-edited or forged registry. */
+  malformed: number;
+  rootUsable: boolean;
+}
+
+function isDocEntry(e: unknown): e is DocEntry {
+  if (!e || typeof e !== 'object') return false;
+  const o = e as Record<string, unknown>;
+  return typeof o.path === 'string' && typeof o.gist === 'string' && typeof o.mtime === 'string'
+    && typeof o.size === 'number' && Array.isArray(o.headings) && o.headings.every((h) => typeof h === 'string');
+}
+
+/** realpath with the platform's canonical spelling; compared case-insensitively on Windows. */
+function canonicalReal(p: string): string {
+  const r = realpathSync.native(p);
+  return process.platform === 'win32' ? r.toLowerCase() : r;
+}
+
+/** X2 (R3 review): doc-sources.json is plain JSON under BRAIN_DIR with no guard, and its paths
+ *  reach every prompt as "Read <path>" lines. An entry is served only when it is a well-formed
+ *  DocEntry whose path is absolute (POSIX or Windows form) and whose realpath lies inside the
+ *  realpath of `projectRoot`, so neither a forged entry (path: ~/.netrc) nor a link inside the
+ *  project that leads out of it is offered. No usable root -> nothing is served (fails closed). */
+export function servableEntries(entries: unknown, projectRoot: string | undefined): ServableEntries {
+  const r: ServableEntries = { kept: [], outside: 0, relative: 0, missing: 0, malformed: 0, rootUsable: false };
+  let root = '';
+  try {
+    if (projectRoot) { root = canonicalReal(cleanEnvPath(projectRoot)); r.rootUsable = true; }
+  } catch { /* no usable root: every entry counts as outside */ }
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!isDocEntry(e)) { r.malformed++; continue; }
+    if (!(posix.isAbsolute(e.path) || win32.isAbsolute(e.path))) { r.relative++; continue; }
+    let real: string;
+    try { real = canonicalReal(e.path); } catch { r.missing++; continue; }
+    if (!r.rootUsable || !real.startsWith(prefix)) { r.outside++; continue; }
+    r.kept.push(e);
+  }
+  return r;
 }
 
 /** Scan the live FS (config-declared locations) and write the registry. The fresh
