@@ -262,21 +262,35 @@ function peerReportBody(rest: string): string {
   return mark + [report, ...flags].join('\n');
 }
 
-// Serve-time fold, the TS twin of session-load.sh's card fold and protocol-guard.sh's item fold:
-// any line break becomes a space and every square bracket (ASCII or a lookalike) a parenthesis,
-// so a stored snippet can never close the hook's "[End untrusted reference]" frame or start a
-// line that reads as a new turn. Code points, not escapes, so no tool or editor can decode them.
-const FOLD_TO_SPACE = new Set([0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x85, 0x2028, 0x2029]);
-const FOLD_TO_OPEN = new Set([0x5b, 0xff3b, 0x3010, 0x27e6, 0x301a, 0x2045, 0xfe47, 0x3014]);
-const FOLD_TO_CLOSE = new Set([0x5d, 0xff3d, 0x3011, 0x27e7, 0x301b, 0x2046, 0xfe48, 0x3015]);
+// Serve-time fold, the TS twin of session-load.sh's card fold (sb_card_trunc) and protocol-guard.sh's
+// item fold, so a stored snippet can never close the hook's "[End untrusted reference]" frame or
+// start a line that reads as a new turn:
+//  - every control (C0, DEL, C1), format character (\p{Cf}: bidi controls, zero-width characters,
+//    soft hyphen, BOM), Unicode space (\p{Zs}) and line/paragraph separator becomes a space;
+//  - every opening/closing bracket (\p{Ps}/\p{Pe}, plus the square-bracket pieces U+23A1-23A6, which
+//    Unicode files as math symbols) becomes a parenthesis. A fixed lookalike list missed whole
+//    blocks (X7: U+298B/298C passed). ASCII ( ) { } are left as they are: they cannot pass for the
+//    frame's square brackets, and code in a snippet stays readable;
+//  - the frame's own phrase "untrusted reference" (any case, any run of spaces, the Cyrillic
+//    homoglyphs of e/c/s/d) becomes "untrusted-reference". The bash fold maps those Cyrillic letters
+//    everywhere; here only inside the phrase, so Cyrillic text elsewhere is left intact.
+// No literal non-ASCII character and no escape sequence a tool could decode: the code points are
+// built with String.fromCodePoint, U+2028/2029 are \p{Zl}/\p{Zp}.
+const cps = (...xs: number[]): string => String.fromCodePoint(...xs);
+const FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
+const FOLD_OPEN_RE = new RegExp(`[\\p{Ps}${cps(0x23a1)}-${cps(0x23a3)}]`, 'gu');
+const FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}${cps(0x23a4)}-${cps(0x23a6)}]`, 'gu');
+const L_E = `[eE${cps(0x435, 0x415)}]`, L_C = `[cC${cps(0x441, 0x421)}]`;
+const L_S = `[sS${cps(0x455, 0x405)}]`, L_D = `[dD${cps(0x501)}]`;
+const FRAME_PHRASE_RE = new RegExp(
+  `[uU][nN][tT][rR][uU]${L_S}[tT]${L_E}${L_D}\\s+[rR]${L_E}[fF]${L_E}[rR]${L_E}[nN]${L_C}${L_E}`, 'gu');
 
 export function foldServedSnippet(text: string): string {
-  let out = '';
-  for (const ch of text) {
-    const c = ch.codePointAt(0)!;
-    out += FOLD_TO_SPACE.has(c) ? ' ' : FOLD_TO_OPEN.has(c) ? '(' : FOLD_TO_CLOSE.has(c) ? ')' : ch;
-  }
-  return out;
+  return text
+    .replace(FOLD_SPACE_RE, ' ')
+    .replace(FOLD_OPEN_RE, (m) => (m === '(' || m === '{' ? m : '('))
+    .replace(FOLD_CLOSE_RE, (m) => (m === ')' || m === '}' ? m : ')'))
+    .replace(FRAME_PHRASE_RE, 'untrusted-reference');
 }
 
 /** The user line of an episodic_search MCP result. A row with no human words is never shown as
