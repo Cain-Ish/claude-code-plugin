@@ -5,7 +5,7 @@
 # pins: SB_NESTED_SPAWN — never set here: the census reads the `SB_NESTED_SPAWN=1` grep pattern that
 #   asserts both spawn sites export it (lib.sh's sb_is_headless_child reads the variable since R1#2)
 # C: the opt-in headless-LLM maintainer. We test the GATING + the QUARANTINE structure and its
-# run-all-timeout: 300   (9 full quarantine-lane runs by design; measured 153s alone on MSYS — spawn-bound lib.sh, see LC-11)
+# run-all-timeout: 300   (9 full quarantine-lane runs by design, plus 2 short no-stacking runs (3b, 3c); measured 153s alone on MSYS before 3b/3c — spawn-bound lib.sh, see LC-11)
 # runtime attestation with a mock `claude` that emits canned stream-json. A real headless run is
 # operator-verified (it can't run from inside a Claude session — the recursive-claude OAuth lock).
 set -u
