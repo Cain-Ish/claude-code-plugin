@@ -989,6 +989,9 @@ sb_reindex_wiki() {
     if [ -n "$_reindex_err" ]; then
       sb_log_error "sb_reindex_wiki" "reindex-failed: $(printf '%s' "$_reindex_err" | tr '\n' ' ' | head -c 200)" 0
     fi
+  else
+    # No node or no bundle: the index stays stale, so say so (the sb_strip_invisible_copy pattern).
+    sb_log_error "sb_reindex_wiki" "reindex skipped: $(command -v node >/dev/null 2>&1 || printf 'node not on PATH ')$([ -f "$reindex_js" ] || printf 'bundle missing at %s' "$reindex_js") — wiki/index.md for $knowledge_dir not regenerated" 0
   fi
 }
 

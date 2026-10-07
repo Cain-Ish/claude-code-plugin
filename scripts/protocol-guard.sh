@@ -6,11 +6,14 @@
 #   pre       PreToolUse   : Agent|Task -> pg_agent (tier warn, opt-in model rewrite)   — Slice 1
 #                            Read|Edit|Write|MultiEdit -> pg_jit (path-triggered memory) — Slice 2
 #                            Write of a NEW path -> pg_search (search-before-create)     — Slice 3
+#                            Edit|Write|MultiEdit by the dream-runner outside its dream
+#                            dir -> pg_dream_confine (DENY, the only one)                  — K12
 #   subagent  SubagentStart: role card per tier (<=900 B), read from .injected/<sid>.rolecard.tsv that
 #                            card mode precomputes (live build only on a miss); skips second-brain:*
 #                            and Plan; start/end miss markers (see pg_marker)      — Slice 1, S0 B2
 # Protocol lock (CONSTITUTION.md class 5): inject capped text, return warn (additionalContext),
-# write telemetry; opt-in SB_DELEGATION_REWRITE=1 may set updatedInput.model. Never dispatches,
+# one deny (pg_dream_confine, K12), write telemetry; opt-in SB_DELEGATION_REWRITE=1 may set
+# updatedInput.model. Never dispatches,
 # never edits settings, never blocks a Stop. Fail-open: any error -> exit 0, no output.
 # Kill switches: SB_PROTOCOL_GUARD=off (all modes) · SB_PROTOCOL_CARD=off · SB_DELEGATION_CHECK=off
 #   · SB_DELEGATION_REWRITE (default off; =1 enables) · SB_ROLE_CARDS=off · SB_JIT=off · SB_SEARCH_FIRST=off
@@ -1022,6 +1025,84 @@ pg_search() {
   fi
 }
 # --- end pg_search ---
+# --- pg_dream_confine (K12) ---
+# agents/dream-runner.md grants Write and Edit with no path rule; its writes belong inside its own
+# dream directory ($BRAIN_DIR/dreams/drm_<id>/: staging/, the status.json heartbeat,
+# forget-manifest.tsv). An Edit/Write/MultiEdit from that agent (agent_type dream-runner or
+# <plugin>:dream-runner) anywhere else is DENIED: the one deny this surface returns (CONSTITUTION.md
+# lets a working-agreement surface return warn|ask|deny; tests/test-protocol-guard.sh's source-scan
+# lock admits only this keyed line). Any `..` segment is refused; on Windows (cygpath present) ONE
+# `cygpath -m` puts BRAIN_DIR and the path in C:/ form, since MSYS mount aliases (/tmp) and drive
+# forms (C:\…, /c/…) name the same dir; the prefix compares case-insensitively (nocasematch,
+# bash >= 3.1: NTFS/APFS treat case variants as the same path); the dream dir must exist (the id
+# is not in the payload, so any existing one qualifies); and no component from the dream dir down
+# may be a symlink (its Bash `cp *` grant can make one). Only dream-runner calls get this far.
+# Residuals: Bash writes are not matched here, and the hook fails open past its 5 s budget.
+pg_dream_confine() {
+  case "$PG_AGENT_LOWER" in dream-runner|*:dream-runner) ;; *) return 0 ;; esac
+  local p="$PG_PATH" pre="" id="" rest="" cur seg reason="" nc=0 agent out r
+  # The runner resolves its root as SB_BRAIN_DIR, else BRAIN_DIR (agents/dream-runner.md: the chain
+  # mcp/src/brain-paths.ts uses to create the dream). This script's BRAIN_DIR ignores SB_BRAIN_DIR,
+  # so a dream dir under either root qualifies.
+  local -a roots
+  roots=("${BRAIN_DIR%/}")
+  if [ -n "${SB_BRAIN_DIR:-}" ] && [ "${SB_BRAIN_DIR%/}" != "${BRAIN_DIR%/}" ]; then roots[1]="${SB_BRAIN_DIR%/}"; fi
+  if [ -z "$p" ] || [ "${#p}" -gt 4096 ]; then
+    reason="no-usable-path"
+  else
+    p=${p//\\//}
+    case "/$p/" in */../*) reason="dotdot" ;; esac
+  fi
+  if [ -z "$reason" ] && command -v cygpath >/dev/null 2>&1; then
+    # One spawn: line 1 = the path, then one line per root, all in C:/ form.
+    if out=$(cygpath -m -- "$p" "${roots[@]}" 2>/dev/null) && [ "${out#*$'\n'}" != "$out" ]; then
+      out=${out//$'\r'/}
+      p="${out%%$'\n'*}"; out="${out#*$'\n'}"
+      roots=()
+      while [ -n "$out" ]; do   # one line per root, cut by expansion (no here-string)
+        r="${out%%$'\n'*}"
+        [ -n "$r" ] && roots[${#roots[@]}]="$r"
+        case "$out" in *$'\n'*) out="${out#*$'\n'}" ;; *) out="" ;; esac
+      done
+      [ "${#roots[@]}" -gt 0 ] || reason="unresolvable-path"
+    else
+      reason="unresolvable-path"
+    fi
+  fi
+  if [ -z "$reason" ]; then
+    reason="outside-dream-dir"
+    shopt -q nocasematch && nc=1
+    shopt -s nocasematch
+    for r in "${roots[@]}"; do
+      pre="${r%/}/dreams/"
+      [[ $p == "$pre"* ]] || continue
+      rest="${p:${#pre}}"; id="${rest%%/*}"
+      if [[ $id == drm_?* ]] && [ "$id" != "$rest" ] && [ -d "$pre$id" ]; then reason=""; break; fi
+    done
+    [ "$nc" = 1 ] || shopt -u nocasematch
+  fi
+  if [ -z "$reason" ]; then
+    cur="$pre$id"; rest="${rest#*/}"
+    while :; do
+      if [ -L "$cur" ]; then reason="symlink"; break; fi
+      case "$rest" in
+        */*) seg="${rest%%/*}"; rest="${rest#*/}"; cur="$cur/$seg" ;;
+        *) [ -L "$cur/$rest" ] && reason="symlink"; break ;;
+      esac
+    done
+  fi
+  [ -n "$reason" ] || return 0
+  agent="${PG_AGENT_LOWER//[!A-Za-z0-9:._@-]/_}"
+  pg_row "gate=dream-confine tool=$PG_TOOL verdict=deny reason=$reason agent=${agent:0:80} sid=${PG_SID:--}"
+  local msg="the dream-runner writes only inside its own dream directory ${BRAIN_DIR%/}/dreams/<dream_id>/ (staging/, status.json, forget-manifest.tsv); this $PG_TOOL target is not ($reason)"
+  if out=$(jq -nc --arg r "$msg" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:("protocol-guard: dream-runner-confinement: " + $r)}}' 2>/dev/null); then
+    printf '%s\n' "${out%$'\r'}"
+  else
+    pg_lib && sb_log_error "protocol-guard.sh" "gate=dream-confine deny envelope could not be built (jq failed); the $PG_TOOL was NOT blocked" 1
+  fi
+  exit 0
+}
+# --- end pg_dream_confine ---
 # ---- dispatcher (director-owned; slices do not edit) ----
 case "$MODE" in
   card)
@@ -1041,6 +1122,7 @@ case "$MODE" in
     case "$PG_TOOL" in
       Agent|Task) [ "${SB_DELEGATION_CHECK:-on}" = "off" ] || pg_agent ;;
       Read|Edit|Write|MultiEdit)
+        [ "$PG_TOOL" = "Read" ] || pg_dream_confine   # K12: denies + exits, or returns
         # F8 item 19: the path advisories trim and match the path with expansions like ${p##*/},
         # O(n^2) on bash < 4.3 — a ~65,600-character file_path took 6 s on the macOS lane, past the
         # 5 s budget. No usable path is that long (PATH_MAX is 4096 on Linux, 1024 on macOS), and

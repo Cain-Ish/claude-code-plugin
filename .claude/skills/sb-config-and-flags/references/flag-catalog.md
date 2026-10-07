@@ -100,7 +100,7 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 
 | Var | Default | Effect | Kind | Site | Tests |
 |---|---|---|---|---|---|
-| `SB_PROTOCOL_GUARD` | `on` | MASTER gate for all three protocol-guard.sh modes (card/pre/subagent); `off` no-ops the whole script. `SB_HOOK_PROFILE=minimal` defaults it `off` too (lib.sh:26). | KS | protocol-guard.sh:16 | bash |
+| `SB_PROTOCOL_GUARD` | `on` | MASTER gate for all three protocol-guard.sh modes (card/pre/subagent); `off` no-ops the whole script, including the dream-runner write confinement (pre mode's one deny, `pg_dream_confine`). `SB_HOOK_PROFILE=minimal` defaults it `off` too (lib.sh:26). | KS | protocol-guard.sh:22 | bash |
 | `SB_PROTOCOL_CARD` | `on` | SessionStart mode `card`: the ≤1200 B class-5 protocol card. | KS | protocol-guard.sh:630 | bash |
 | `SB_ROLE_CARDS` | `on` | SubagentStart mode `subagent`: the ≤900 B per-`agent_type` role card (skips `second-brain:*` and Plan). | KS | protocol-guard.sh:631 | bash |
 | `SB_DELEGATION_CHECK` | `on` | PreToolUse mode `pre`, Agent/Task path: the delegation-tier advisory (`pg_agent`). | KS | protocol-guard.sh:634 | bash |
@@ -235,7 +235,7 @@ may hardcode a model-ID literal — guarded by the `tests/test-model-ladder.sh` 
 | `SB_DREAM_RUN_TIMEOUT` | `21600` (s = 6h) | A pending/running dream whose status file is older than this is judged dead/reclaimable. | TUNE | lib.sh:1113 | bash |
 | `SB_DREAM_KEEP_COUNT` | `5` (via config.json `.retention.dream_keep_count`) | Dream snapshots retained. The ONLY env-over-config layered knob (SKILL.md §1). | TUNE | dream-snapshot.sh:77 | none |
 | `SB_DREAM_ACCEPT_MIN_RATIO` | `50` (%) | dream-accept refuses when staging wiki < N% of live page count; empty staging + non-empty live = hard error ("a broken dream must not --delete the live wiki"). `0` disables (not advised). | guard | dream-accept.sh:104 | bash |
-| `SB_DREAM_ACCEPT_NO_DELETE` | `0` | `1` (set by `auto_accept=safe`, comment dream-accept.sh:117) refuses accepts that remove live pages. | guard | dream-accept.sh:121 | bash |
+| `SB_DREAM_ACCEPT_NO_DELETE` | `0` | `1` (set by `auto_accept=safe`, comment dream-accept.sh:228) refuses accepts whose apply would delete a live page (pages missing from staging, minus live pages newer than the dream's `created_at`). With no rsync or no usable `created_at` the apply is merge-only and deletes nothing, so the check is skipped and logged. | guard | dream-accept.sh:237 | bash |
 | `SB_DREAM_ACCEPT_SKIP_BACKUP` | `0` | Skip the pre-accept backup. | DEBUG | dream-accept.sh:140 | bash |
 | `SB_DREAM_SUMMARIZE` | `on` | Dream SUMMARIZE op (theme MOCs from graph clusters); `off` → graph-cluster.sh emits `[]` (byte-identical fail-safe skip). | KS | graph-cluster.sh:25 | bash |
 | `SB_DREAM_REFLECT` | `on` | 0.33.28 reflection op (grounded cross-cutting practices from clusters); gates independently of SUMMARIZE. | KS | graph-cluster.sh:24 | bash |

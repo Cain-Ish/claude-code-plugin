@@ -3,8 +3,9 @@ name: dream-runner
 description: |
   Background dream execution agent for transcript mining + wiki consolidation,
   operating on a staging copy of the wiki. Dispatched by the dream skill in
-  --background mode. Mutates only the staging directory — the live wiki is read
-  read-only, and nothing is applied or archived until dream_accept.
+  --background mode. Writes only inside its dream directory (staging wiki,
+  status.json, forget-manifest.tsv) — the live wiki is read read-only, and
+  nothing is applied or archived until dream_accept.
 
   <example>
   Context: User ran /second-brain:dream --background which created drm_20260511T143022Z.
@@ -251,7 +252,10 @@ HB=$(mktemp) && jq --arg t "$(date -u +%FT%TZ)" '.heartbeat_at=$t' \
 ## Constraints
 
 - Max 50 changes per run
-- Never touch files outside `staging/wiki/`
+- Write only inside your dream directory `$BRAIN_DIR/dreams/{dream_id}/`: wiki edits go to
+  `staging/wiki/`; `status.json` and `forget-manifest.tsv` are the only other files you write
+  (plus the `mktemp` files the snippets above create and move into place).
+  A Write/Edit outside that directory is denied by the protocol-guard hook.
 - Never delete user-created content unless exact duplicate or empty
 - Clean up session-narrative noise
 - Keep wiki-link format: `[[lowercase-kebab-case]]`

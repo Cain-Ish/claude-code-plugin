@@ -26,6 +26,20 @@ tbound() {
   kill "$wd" 2>/dev/null || true
   return "$ec"
 }
+# 0. K21: sb_reindex_wiki had no else branch, so a missing reindex bundle (or no node on PATH)
+# returned silently and wiki/index.md stayed stale with no trace anywhere. It must leave one
+# error-log row naming the skip. CLAUDE_PLUGIN_ROOT points at an existing EMPTY dir: sb_plugin_root
+# takes it as-is, so the bundle is absent while node may be present. Runs before the node/bundle
+# skips below: this case needs neither.
+K21B=$(mktemp -d); K21P=$(mktemp -d); K21K=$(mktemp -d); mkdir -p "$K21K/wiki"
+( export HOME="$K21B" BRAIN_DIR="$K21B" CLAUDE_PLUGIN_ROOT="$K21P"
+  . "$ROOT/scripts/lib.sh" && sb_reindex_wiki "$K21K" ) >/dev/null 2>&1
+K21ROW=$(jq -c 'select(.script == "sb_reindex_wiki" and ((.message // "") | test("reindex skipped")))' \
+  "$K21B/error-log.jsonl" 2>/dev/null | tr -d '\r')
+[ -n "$K21ROW" ] || fail "K21: sb_reindex_wiki with no reindex bundle returned silently (no error-log row; log: $(tail -2 "$K21B/error-log.jsonl" 2>/dev/null))"
+pass "K21: a missing reindex bundle leaves an error-log row instead of a silent no-op"
+rm -rf "$K21B" "$K21P" "$K21K"
+
 command -v node >/dev/null 2>&1 || { echo "SKIP: node absent"; exit 0; }
 [ -f "$ROOT/mcp/dist/tools/knowledge-reindex.bundle.js" ] || { echo "SKIP: reindex bundle absent"; exit 0; }
 

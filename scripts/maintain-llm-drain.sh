@@ -47,7 +47,7 @@ _ver_ge() {
   [ "$a2" -ne "$b2" ] && { [ "$a2" -gt "$b2" ]; return; }
   [ "$a3" -ge "$b3" ]
 }
-# _preflight_ok: the cheap probe that gates the LLM step AND self-clears the quarantine file.
+# _preflight_ok: the cheap probe that gates the LLM step AND clears a version-class quarantine.
 _preflight_ok() {
   [ -n "$CLI_VER" ] || CLI_VER=$(_cli_ver)
   [ -n "$CLI_VER" ] && _ver_ge "$CLI_VER" "$MIN_CLI"
@@ -55,9 +55,13 @@ _preflight_ok() {
 
 # Failure-aware lifecycle: a structural failure must not burn
 # the full weekly slot, and repeated failures must STOP retrying loudly instead
-# of spinning forever. The quarantine SELF-CLEARS once the cheap preflight
-# passes again (cause fixed), on a successful run, or by deleting the file
-# (the autostage banner names it).
+# of spinning forever. Only a quarantine whose recorded class is `version` clears
+# itself, once the cheap preflight passes again (the CLI was upgraded). Every
+# other class stays until the operator deletes $BRAIN_DIR/.llm-maintain-quarantine
+# AND .llm-maintain-fails (delete only the first and the strike count, still >= 3,
+# re-quarantines on the next failure). A successful run clears all three files,
+# but a quarantined lane never gets that far (it exits below; SB_MAINTAIN_LLM_FORCE=1
+# bypasses). The autostage banner names both files.
 FAILS_F="$BRAIN_DIR/.llm-maintain-fails"
 QUAR_F="$BRAIN_DIR/.llm-maintain-quarantine"
 # D132: the class of the LAST recorded failure (version|other). The preflight probe
@@ -69,11 +73,12 @@ QUAR_F="$BRAIN_DIR/.llm-maintain-quarantine"
 FAILCLASS_F="$BRAIN_DIR/.llm-maintain-fail-class"
 RETRY="${SB_MAINTAIN_LLM_RETRY:-86400}"; case "$RETRY" in ''|*[!0-9]*) RETRY=86400 ;; esac
 if [ -f "$QUAR_F" ] && [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
-  # SELF-CLEARING quarantine: it exists to stop POINTLESS retries, not to hide a
-  # persistent non-version failure behind a re-passing version check. Only clear
+  # The quarantine exists to stop POINTLESS retries, not to hide a persistent
+  # non-version failure behind a re-passing version check. Only clear it here
   # when the recorded cause WAS the version floor AND the cheap preflight now
   # passes (e.g. the CLI was upgraded); any other cause stays down until the
-  # quarantine file is removed by hand (the autostage banner names it).
+  # quarantine and strike-count files are removed by hand (the autostage banner
+  # names both).
   FAILCLASS=$(cat "$FAILCLASS_F" 2>/dev/null | tr -d '\r\n')
   if [ "$FAILCLASS" = "version" ] && _preflight_ok; then
     rm -f "$QUAR_F" "$FAILS_F" "$FAILCLASS_F" 2>/dev/null
@@ -106,6 +111,10 @@ _fail_step() {
   if [ "$n" -ge 3 ]; then
     printf '[%s] quarantined after %s consecutive failures: %s\n' "$(date -u +%FT%TZ)" "$n" "$1" > "$QUAR_F"
   fi
+  _restamp_retry
+}
+# _restamp_retry: set the throttle mark so the next run is due in ~RETRY seconds.
+_restamp_retry() {
   local target=$(( $(date +%s) - INT + RETRY ))
   local stamp
   # LOCAL-time render: `touch -t` interprets its stamp as local time; a UTC
@@ -113,14 +122,38 @@ _fail_step() {
   stamp=$(date -d "@$target" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$target" +%Y%m%d%H%M.%S 2>/dev/null)
   [ -n "$stamp" ] && touch -t "$stamp" "$MARK" 2>/dev/null
 }
+# _defer_step <summary>: another dream is in the way. That is not a failure (no strike), but it
+# is logged, and the throttle is re-stamped to the retry horizon so the row is written once per
+# horizon rather than on every drain tick.
+_defer_step() {
+  sb_log_error "maintain-llm-drain" "$1" 0
+  _restamp_retry
+}
 
 # Don't stack: if a completed-but-unreviewed (archived_at unset) dream already exists, skip until
-# the user accepts/discards it (the SP-C terminal predicate).
+# the user accepts/discards it (the SP-C terminal predicate). K1: this used to be a silent exit 0.
+# A dream that auto-accept refused stays unreviewed, so the lane stopped for good with no trace.
+# K3: a pending/running dream that is not stale (an attended run in progress) makes
+# dream-snapshot.sh refuse, and that refusal used to count as a failure strike: three ticks
+# during one long attended run quarantined the lane as class "other", which never clears itself.
+# Both are transient blocks. A STALE pending/running dream is left for the snapshot to reclaim.
 for sf in "$BRAIN_DIR"/dreams/drm_*/status.json; do
   [ -f "$sf" ] || continue
-  [ "$(jq -r '.status // ""' "$sf" 2>/dev/null)" = "completed" ] || continue
-  a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
-  { [ -z "$a" ] || [ "$a" = "null" ]; } && exit 0
+  _st=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
+  _did=${sf%/status.json}; _did=${_did##*/}
+  case "$_st" in
+    completed)
+      a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
+      if [ -z "$a" ] || [ "$a" = "null" ]; then
+        _defer_step "skipped: dream $_did is completed and unreviewed (archived_at unset); the lane does not stack dreams. Accept or discard it (dream_accept / dream_discard); next check in ${RETRY}s"
+        exit 0
+      fi ;;
+    pending|running)
+      if ! sb_dream_is_stale "$sf"; then
+        _defer_step "skipped: dream $_did is $_st (a dream run is in progress); the lane does not stack dreams; next check in ${RETRY}s"
+        exit 0
+      fi ;;
+  esac
 done
 
 # Preflight: prove the CLI enforces the output schema BEFORE staging anything. Below the floor,

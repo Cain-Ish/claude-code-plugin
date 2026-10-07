@@ -183,17 +183,73 @@ if [ "$LIVE_PAGES" -gt 0 ] && [ "$MIN_RATIO" -gt 0 ]; then
   fi
 fi
 
+# Post-snapshot protection (flow/premise review): staging is a full-mirror
+# SNAPSHOT taken at dream-create time (status.json .created_at). A completed
+# dream can sit unreviewed for DAYS while the drainer / knowledge-maintainer /
+# archive_to_wiki keep writing NEW pages to the LIVE wiki. Those pages are not
+# in staging, so a bare `rsync --delete` silently deletes them (and an older
+# staging copy would clobber a live page edited after the snapshot). The F1
+# floor only catches >50% loss; diff.md — computed at runner-completion — never
+# lists them. Protect every live page MODIFIED AFTER the snapshot: neither
+# delete nor overwrite it (merge-only; the newer LIVE version wins). A reference
+# file carries the snapshot mtime so `find -newer` (POSIX) stays portable — no
+# ISO date-parsing differences across GNU/BSD.
+# _compute_protect sets PROTECT (live page paths relative to the wiki, no ./ prefix) and
+# PROTECT_OK (0 = snapshot time unusable → the apply must be merge-only, never --delete).
+# Called twice: by the NO_DELETE check below, and again right before the apply so a page
+# written during the backup is still protected.
+CREATED_AT=$(jq -r '.created_at // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
+_compute_protect() {
+  PROTECT=""; PROTECT_OK=1
+  [ -d "$LIVE_WIKI" ] || return 0
+  local _snap_ref="$DREAM_DIR/.snap-ref.$$" _ref_ok=0 _tt
+  if [ -n "$CREATED_AT" ] && [ "$CREATED_AT" != "null" ]; then
+    if touch -d "$CREATED_AT" "$_snap_ref" 2>/dev/null; then _ref_ok=1        # GNU
+    else
+      _tt=$(printf '%s' "$CREATED_AT" | sed -E 's/[^0-9]//g')                  # 2026-07-01T12:00:00Z -> 20260701120000
+      # TZ=UTC: created_at is UTC ('Z'), but POSIX `touch -t` reads LOCAL time —
+      # without the override the protect boundary shifts by the UTC offset
+      # (west-of-UTC leaves up to ~12h of post-snapshot writes unprotected).
+      if   [ "${#_tt}" -ge 14 ]; then TZ=UTC touch -t "${_tt:0:12}.${_tt:12:2}" "$_snap_ref" 2>/dev/null && _ref_ok=1   # POSIX/BSD, with seconds
+      elif [ "${#_tt}" -ge 12 ]; then TZ=UTC touch -t "${_tt:0:12}" "$_snap_ref" 2>/dev/null && _ref_ok=1              # seconds-less timestamp
+      fi
+    fi
+  fi
+  if [ "$_ref_ok" = "1" ]; then
+    PROTECT=$(cd "$LIVE_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f -newer "$_snap_ref" 2>/dev/null | sed 's#^\./##')
+  else
+    # Fail-SAFE: with no trustworthy snapshot time we cannot tell which live
+    # pages postdate the dream, so --delete must not run at all this accept.
+    PROTECT_OK=0
+  fi
+  rm -f "$_snap_ref" 2>/dev/null
+}
+
 # F3 (premise review): SB_DREAM_ACCEPT_NO_DELETE=1 (set by auto_accept=safe) makes
 # "safe" mean what it says — refuse if the dream would remove ANY live page
 # (dedup/summarize delete pages directly in staging, leaving no forget-manifest
 # entry, so the manifest check alone is not a real no-deletions guarantee).
+# K1: "remove" means what the apply below would actually delete. A live page newer than the
+# snapshot is protected (never deleted), so it is subtracted; counting it refused every dream
+# that sat while the drainer wrote a page, and a refused auto-accept stays unarchived, which
+# stops the lane for good. With no rsync, or no usable created_at, the apply is merge-only and
+# deletes nothing, so there is nothing to refuse: the check is skipped and the skip is logged.
 if [ "${SB_DREAM_ACCEPT_NO_DELETE:-0}" = "1" ]; then
-  DELETED=$(comm -23 \
-    <(cd "$LIVE_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sort || true) \
-    <(cd "$STAGING_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sort || true) 2>/dev/null)
-  if [ -n "$DELETED" ]; then
-    echo "error: refusing accept of $DREAM_ID — auto_accept=safe but the dream removes live page(s): $(printf '%s' "$DELETED" | tr '\n' ' ' | head -c 300)" >&2
-    exit 1
+  _compute_protect
+  if ! command -v rsync >/dev/null 2>&1 || [ "$PROTECT_OK" != "1" ]; then
+    _why="rsync not installed"; [ "$PROTECT_OK" != "1" ] && _why="created_at '${CREATED_AT:-<empty>}' unusable"
+    echo "note: auto_accept=safe deletion check skipped for $DREAM_ID — the apply is merge-only ($_why) and deletes no live page." >&2
+    sb_log_error "dream-accept" "NO_DELETE check skipped for $DREAM_ID: the apply is merge-only ($_why) and deletes no live page" 0
+  else
+    _pages() { (cd "$1" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sed 's#^\./##' | LC_ALL=C sort) || true; }
+    DELETED=$(LC_ALL=C comm -23 <(_pages "$LIVE_WIKI") <(_pages "$STAGING_WIKI") 2>/dev/null)
+    if [ -n "$DELETED" ] && [ -n "$PROTECT" ]; then
+      DELETED=$(LC_ALL=C comm -23 <(printf '%s\n' "$DELETED") <(printf '%s\n' "$PROTECT" | LC_ALL=C sort) 2>/dev/null)
+    fi
+    if [ -n "$DELETED" ]; then
+      echo "error: refusing accept of $DREAM_ID — auto_accept=safe but the dream removes live page(s): $(printf '%s' "$DELETED" | tr '\n' ' ' | head -c 300)" >&2
+      exit 1
+    fi
   fi
 fi
 
@@ -266,44 +322,11 @@ if [ "${SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED:-0}" != "1" ] && [ -d "$STAGING_WIKI" 
   fi
 fi
 
-# Post-snapshot protection (flow/premise review): staging is a full-mirror
-# SNAPSHOT taken at dream-create time (status.json .created_at). A completed
-# dream can sit unreviewed for DAYS while the drainer / knowledge-maintainer /
-# archive_to_wiki keep writing NEW pages to the LIVE wiki. Those pages are not
-# in staging, so a bare `rsync --delete` silently deletes them (and an older
-# staging copy would clobber a live page edited after the snapshot). The F1
-# floor only catches >50% loss; diff.md — computed at runner-completion — never
-# lists them. Protect every live page MODIFIED AFTER the snapshot: neither
-# delete nor overwrite it (merge-only; the newer LIVE version wins). A reference
-# file carries the snapshot mtime so `find -newer` (POSIX) stays portable — no
-# ISO date-parsing differences across GNU/BSD.
-PROTECT=""
-PROTECT_OK=1     # 0 = snapshot time unusable → fail-SAFE: apply merge-only, never --delete
-_snap_ref="$DREAM_DIR/.snap-ref.$$"
-CREATED_AT=$(jq -r '.created_at // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
-if [ -d "$LIVE_WIKI" ]; then
-  _ref_ok=0
-  if [ -n "$CREATED_AT" ] && [ "$CREATED_AT" != "null" ]; then
-    if touch -d "$CREATED_AT" "$_snap_ref" 2>/dev/null; then _ref_ok=1        # GNU
-    else
-      _tt=$(printf '%s' "$CREATED_AT" | sed -E 's/[^0-9]//g')                  # 2026-07-01T12:00:00Z -> 20260701120000
-      # TZ=UTC: created_at is UTC ('Z'), but POSIX `touch -t` reads LOCAL time —
-      # without the override the protect boundary shifts by the UTC offset
-      # (west-of-UTC leaves up to ~12h of post-snapshot writes unprotected).
-      if   [ "${#_tt}" -ge 14 ]; then TZ=UTC touch -t "${_tt:0:12}.${_tt:12:2}" "$_snap_ref" 2>/dev/null && _ref_ok=1   # POSIX/BSD, with seconds
-      elif [ "${#_tt}" -ge 12 ]; then TZ=UTC touch -t "${_tt:0:12}" "$_snap_ref" 2>/dev/null && _ref_ok=1              # seconds-less timestamp
-      fi
-    fi
-  fi
-  if [ "$_ref_ok" = "1" ]; then
-    PROTECT=$(cd "$LIVE_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f -newer "$_snap_ref" 2>/dev/null | sed 's#^\./##')
-  else
-    # Fail-SAFE: with no trustworthy snapshot time we cannot tell which live
-    # pages postdate the dream, so --delete must not run at all this accept.
-    PROTECT_OK=0
-    echo "warn: dream $DREAM_ID has no usable created_at ('${CREATED_AT:-<empty>}') — applying merge-only (dream deletions skipped) to protect post-snapshot live pages." >&2
-  fi
-  rm -f "$_snap_ref" 2>/dev/null
+# Post-snapshot protection, recomputed here (see _compute_protect above) so a live page written
+# during the backup or the hold pass is protected too.
+_compute_protect
+if [ "$PROTECT_OK" != "1" ]; then
+  echo "warn: dream $DREAM_ID has no usable created_at ('${CREATED_AT:-<empty>}') — applying merge-only (dream deletions skipped) to protect post-snapshot live pages." >&2
 fi
 
 # Apply: rsync staging over live. --delete removes live pages the dream dropped
@@ -469,10 +492,17 @@ fi
 # Reindex
 sb_reindex_wiki "$KNOWLEDGE_DIR"
 
-# Archive the dream
+# Archive the dream. Checked (K10): a failed stamp used to fall through to the `rm -rf staging`
+# below, leaving a dream that was neither archived nor re-acceptable. Stop BEFORE the cleanup:
+# the pages are applied, staging stays, and a re-accept is an idempotent merge that finishes.
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 tmp=$(mktemp)
-jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" && mv "$tmp" "$DREAM_DIR/status.json"
+if ! jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" || ! mv "$tmp" "$DREAM_DIR/status.json"; then
+  rm -f "$tmp" 2>/dev/null
+  echo "error: dream $DREAM_ID was applied to the live wiki but its archived_at stamp could not be written to $DREAM_DIR/status.json — staging KEPT; re-run the accept to finish (it re-merges the same pages)" >&2
+  sb_log_error "dream-accept" "archived_at stamp failed for $DREAM_ID after the apply (status.json not rewritten); staging kept so a re-accept can finish" 1
+  exit 1
+fi
 
 # A dream acceptance IS the consolidation the wiki-writes counter was counting toward — reset
 # it, or the "N wiki writes since the last consolidation" banner nags forever (ledger F8:

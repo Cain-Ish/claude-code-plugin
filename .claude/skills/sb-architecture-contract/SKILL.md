@@ -202,7 +202,13 @@ idempotent via `scripts/kb-drain-reconcile.sh` and the required back-ref
   status.json mtime, re-stamped by the runner heartbeat). Snapshot is `cp -rp` —
   **mtime-preserving, the FORGET age-gate depends on it** (a bare `cp -r` re-armed the age gate
   corpus-wide once; CHANGELOG 0.24.50). Transcripts staged as SANITIZED copies, never symlinks.
-- **Runner** (`agents/dream-runner.md`, staging-only writes, max 50 changes/run): Phase 1 AUDIT →
+- **Runner** (`agents/dream-runner.md`, writes confined to its dream directory — staging wiki,
+  status.json heartbeat, forget-manifest.tsv; a Write/Edit/MultiEdit elsewhere is DENIED by
+  `protocol-guard.sh` pre mode `pg_dream_confine`, keyed on `agent_type` `dream-runner` /
+  `<plugin>:dream-runner`; max 50 changes/run). ACCEPTED RESIDUAL: its `Bash(rm|mv|cp *)` grant
+  stays (the heartbeat and on-failure snippets need `mv`) and Bash is not path-confined; the deny
+  is lexical (a symlink inside the dream dir is symlink-guard.sh's case) and fails open if the
+  hook is killed at its 5 s budget or `SB_PROTOCOL_GUARD=off`. Phase 1 AUDIT →
   2 DEDUPLICATE (deterministic MinHash via `scripts/wiki-redundancy.sh`; candidates only — "the
   signal proposes, you decide") → 3 RELATE (edges NOT curated here; `graph/edges.jsonl` is
   deliberately NOT snapshotted — append-only logs are unmergeable after concurrent live appends) →
@@ -217,7 +223,10 @@ idempotent via `scripts/kb-drain-reconcile.sh` and the required back-ref
      empty base would make the prefix test match EVERY absolute path, dream-accept.sh:62-66);
   3. staging validity floor — refuse if staging is EMPTY or <`SB_DREAM_ACCEPT_MIN_RATIO`%
      (default 50) of live page count;
-  4. `SB_DREAM_ACCEPT_NO_DELETE=1` (set by `auto_accept=safe`) refuses removal of any live page;
+  4. `SB_DREAM_ACCEPT_NO_DELETE=1` (set by `auto_accept=safe`) refuses a dream whose apply would
+     delete a live page: pages missing from staging MINUS the post-snapshot protected set (step 5),
+     checked only when the apply can delete (rsync present and `created_at` usable); a merge-only
+     apply deletes nothing, so the check is skipped with an error-log row;
   5. fail-CLOSED tar backup `wiki-backup-pre-accept-<stamp>.tgz` before the destructive apply
      (restore: `tar xzf <tgz> -C "$KNOWLEDGE_DIR"`), plus post-snapshot protection: live pages
      modified after the dream's `created_at` are neither deleted nor overwritten.
@@ -251,8 +260,14 @@ Reached via the brain-os engine (§3.8) when `auto_maintain` is on. The old shap
   transcripts are never bound into it.
 Gates: `claude` present + CLI ≥2.1.205 preflight + node/writer-bundle preconditions; no
 unreviewed dream pending; 7-day throttle. Stage A and Stage B share ONE staleness budget.
-3 consecutive failures → `$BRAIN_DIR/.llm-maintain-quarantine` (self-clearing, bannered at
-SessionStart). What reaches live is decided by `auto_accept` + the held-untrusted gate (§3.6a).
+3 consecutive failures → `$BRAIN_DIR/.llm-maintain-quarantine` (bannered at SessionStart). Only
+a `version`-class quarantine clears itself (the next drain cycle after the CLI passes the
+preflight); every other class stays until `.llm-maintain-quarantine` AND `.llm-maintain-fails`
+are deleted (the strike count alone re-quarantines on the next failure). Another dream in the
+way (completed and unreviewed, or pending/running and not stale) is not a failure: the lane
+logs the blocking dream id and defers to the ~24 h retry horizon without a strike; a stale
+pending/running dream is left for dream-snapshot.sh to reclaim. What reaches live is decided by `auto_accept` + the
+held-untrusted gate (§3.6a).
 
 ### 3.8 The brain-os engine seam — `scripts/brain-os-run.sh`
 Every OFFLINE pass (prune, deterministic upkeep, embedding warm pass, the consolidation lane,

@@ -5,7 +5,7 @@
 # pins: SB_NESTED_SPAWN — never set here: the census reads the `SB_NESTED_SPAWN=1` grep pattern that
 #   asserts both spawn sites export it (lib.sh's sb_is_headless_child reads the variable since R1#2)
 # C: the opt-in headless-LLM maintainer. We test the GATING + the QUARANTINE structure and its
-# run-all-timeout: 300   (9 full quarantine-lane runs by design; measured 153s alone on MSYS — spawn-bound lib.sh, see LC-11)
+# run-all-timeout: 300   (9 full quarantine-lane runs by design, plus 2 short no-stacking runs (3b, 3c); measured 153s alone on MSYS before 3b/3c — spawn-bound lib.sh, see LC-11)
 # runtime attestation with a mock `claude` that emits canned stream-json. A real headless run is
 # operator-verified (it can't run from inside a Claude session — the recursive-claude OAuth lock).
 set -u
@@ -118,7 +118,50 @@ mkdir -p "$B/dreams/drm_20260101T000000Z"
 jq -nc '{id:"drm_20260101T000000Z",status:"completed",archived_at:null}' > "$B/dreams/drm_20260101T000000Z/status.json"
 SB_MAINTAIN_LLM_FORCE=1 bash "$SCRIPT" >/dev/null 2>&1 || true
 [ "$(ndreams)" = "1" ] && pass "unreviewed dream pending → skip (no stacking)" || fail "stacked a new dream"
+# K1: the skip was a silent exit 0, and a dream that auto-accept refused stays unreviewed, so the
+# lane stopped for good with no trace. It must name the blocking dream in the error log, count
+# no strike (nothing failed), and re-stamp the throttle to the retry horizon so the row is
+# written once per horizon instead of on every drain tick (the mark from case 2 is fresh).
+jq -c 'select(.script == "maintain-llm-drain" and ((.message // "") | test("drm_20260101T000000Z")))' \
+  "$B/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  && pass "no-stacking skip names the blocking dream in the error log" \
+  || fail "no-stacking skip left no error-log row naming drm_20260101T000000Z"
+[ ! -f "$B/.llm-maintain-fails" ] && pass "no-stacking skip counts no failure strike" || fail "no-stacking skip counted a strike ($(cat "$B/.llm-maintain-fails"))"
+K1_AGE=$(( $(date +%s) - $(stat -c %Y "$B/.last-llm-maintain" 2>/dev/null || stat -f %m "$B/.last-llm-maintain") ))
+[ "$K1_AGE" -gt 3600 ] && pass "no-stacking skip re-stamps the throttle to the retry horizon (mark age ${K1_AGE}s)" \
+  || fail "no-stacking skip left the throttle mark at age ${K1_AGE}s (every drain tick would log again)"
 rm -rf "$B/dreams/drm_20260101T000000Z"
+
+# 3b. K3: an attended dream still RUNNING (fresh status.json) made dream-snapshot.sh refuse, and
+#     that refusal counted as a failure strike: three ticks during one long attended run
+#     quarantined the lane as class "other", which never clears itself. It is a transient
+#     block: logged with the dream id, deferred to the retry horizon, no strike.
+rm -f "$B/error-log.jsonl" "$B/.llm-maintain-fails" "$B/.llm-maintain-fail-class"; : > "$B/.last-llm-maintain"
+mkdir -p "$B/dreams/drm_20260102T000000Z"
+jq -nc '{id:"drm_20260102T000000Z",status:"running",archived_at:null}' > "$B/dreams/drm_20260102T000000Z/status.json"
+SB_MAINTAIN_LLM_FORCE=1 bash "$SCRIPT" >/dev/null 2>&1 || true
+[ "$(ndreams)" = "1" ] && pass "running attended dream → skip (no stacking)" || fail "stacked a dream next to a running one"
+[ ! -f "$B/.llm-maintain-fails" ] && pass "running attended dream counts no failure strike" \
+  || fail "running attended dream counted a strike ($(cat "$B/.llm-maintain-fails"); class $(cat "$B/.llm-maintain-fail-class" 2>/dev/null))"
+jq -c 'select(.script == "maintain-llm-drain" and ((.message // "") | test("drm_20260102T000000Z is running")))' \
+  "$B/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  && pass "running attended dream: the skip names it in the error log" \
+  || fail "running attended dream: no error-log row naming drm_20260102T000000Z ($(tail -1 "$B/error-log.jsonl" 2>/dev/null))"
+rm -rf "$B/dreams/drm_20260102T000000Z"
+# 3c. A STALE running dream (status.json untouched past SB_DREAM_RUN_TIMEOUT, 6 h) is a crashed
+#     run, not an attended one: the lane must not block on it. dream-snapshot.sh reclaims it to
+#     failed and stages the new dream.
+mkdir -p "$B/dreams/drm_20260103T000000Z"
+jq -nc '{id:"drm_20260103T000000Z",status:"running",archived_at:null}' > "$B/dreams/drm_20260103T000000Z/status.json"
+K3_T=$(( $(date +%s) - 25200 ))
+touch -d "@$K3_T" "$B/dreams/drm_20260103T000000Z/status.json" 2>/dev/null \
+  || touch -t "$(date -r "$K3_T" +%Y%m%d%H%M.%S)" "$B/dreams/drm_20260103T000000Z/status.json"
+SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" >/dev/null 2>&1 || true
+K3_ST=$(jq -r '.status' "$B/dreams/drm_20260103T000000Z/status.json" 2>/dev/null | tr -d '\r')
+[ "$K3_ST" = "failed" ] && [ "$(ndreams)" = "2" ] \
+  && pass "stale running dream is not a block: the snapshot reclaims it and stages a new dream" \
+  || fail "stale running dream: status=$K3_ST dreams=$(ndreams) (expected failed + a new dream)"
+rm -rf "$B"/dreams/drm_*
 
 # 4. proceeds: ON + FORCE + DRYRUN + no pile-up → snapshots a dream + reaches the quarantined
 #    spawn (WITH the additive jail: the bwrap stub's probe passes → jail=bwrap)
