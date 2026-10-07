@@ -967,6 +967,13 @@ mkdir -p "$BRAIN_DIR/observations"
 printf '{"ts":"2026-01-01T00:00:00Z","tool":"Bash","target":"x","ok":true}\n' > "$BRAIN_DIR/observations/old-session.jsonl"
 touch -t 202601010000 "$BRAIN_DIR/observations/old-session.jsonl"
 printf '{"ts":"2026-07-30T00:00:00Z","tool":"Bash","target":"y","ok":true}\n' > "$BRAIN_DIR/observations/fresh-session.jsonl"
+# Q-L10: the hook's loud-once flags (observations/<sid>.<condition>.flag, and the BRAIN_DIR fallback
+# .obs-<sid>.<condition>.flag) age out with the ledgers; only aged *flag* names go at BRAIN_DIR depth.
+: > "$BRAIN_DIR/observations/old-session.capped.flag"; touch -t 202601010000 "$BRAIN_DIR/observations/old-session.capped.flag"
+: > "$BRAIN_DIR/observations/fresh-session.capped.flag"
+: > "$BRAIN_DIR/.obs-old-session.append-failed.flag"; touch -t 202601010000 "$BRAIN_DIR/.obs-old-session.append-failed.flag"
+: > "$BRAIN_DIR/.obs-fresh-session.append-failed.flag"
+printf 'x\n' > "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl"; touch -t 202601010000 "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl"
 bash "$DRAIN" >/dev/null 2>&1 || true
 [ ! -f "$BRAIN_DIR/observations/old-session.jsonl" ] \
   && ok "observation GC: >7d ledger swept" \
@@ -974,6 +981,13 @@ bash "$DRAIN" >/dev/null 2>&1 || true
 [ -f "$BRAIN_DIR/observations/fresh-session.jsonl" ] \
   && ok "observation GC: fresh ledger kept" \
   || no "observation GC: fresh ledger was deleted"
+[ ! -e "$BRAIN_DIR/observations/old-session.capped.flag" ] && [ ! -e "$BRAIN_DIR/.obs-old-session.append-failed.flag" ] \
+  && ok "observation GC: >7d loud-once flags swept (observations/ and the BRAIN_DIR fallback)" \
+  || no "observation GC: an aged loud-once flag survived ($(ls -a "$BRAIN_DIR/observations" "$BRAIN_DIR" | grep -F '.flag' | tr '\n' ' '))"
+[ -e "$BRAIN_DIR/observations/fresh-session.capped.flag" ] && [ -e "$BRAIN_DIR/.obs-fresh-session.append-failed.flag" ] \
+  && [ -e "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl" ] \
+  && ok "observation GC: fresh flags and an aged non-flag file at BRAIN_DIR depth kept" \
+  || no "observation GC: a fresh flag or a non-flag BRAIN_DIR file was deleted"
 
 # --- lock steal must clear a NON-EMPTY stale lock dir ------------------------
 # The steal path itself writes $LOCK_DIR/pid, so any run killed after that point

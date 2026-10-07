@@ -703,6 +703,10 @@ fi
 # Their sent-line markers (<sid>.sent, X2#5) and the hook's once-per-session loud-row flags
 # (<sid>.<condition>.flag, observe-tool-use.sh) age out with them.
 find "$BRAIN_DIR/observations" -maxdepth 1 \( -name '*.jsonl' -o -name '*.sent' -o -name '*.flag' \) -mtime +7 -delete 2>/dev/null || true
+# The hook's fallback flags ($BRAIN_DIR/.obs-<sid>.<condition>.flag, written when observations/
+# itself fails) age out the same way. Name-anchored: BRAIN_DIR's own logs sit at this depth.
+find "$BRAIN_DIR" -maxdepth 1 -type f -name '.obs-*.flag' -mtime +7 -delete 2>/dev/null \
+  || sb_log_error "extract-drain.sh" "GC: the observation fallback-flag sweep (find -delete) failed in $BRAIN_DIR" 1
 # Transcripts of our own nested extractor spawns (cwd = BRAIN_DIR/scratch →
 # one ~/.claude/projects entry). Derive the encoded name from the live BRAIN_DIR
 # (CC encodes '/' and '.' as '-'); keep the substring glob as a fallback for
