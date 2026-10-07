@@ -196,20 +196,26 @@ pass "archive is episodic-parseable (meta header + ASSISTANT body)"
 # their OWN prune budget so they can never crowd out real session memory.
 # Cross-OS note: each run_hook call spawns bash+jq several times; on Windows/
 # Git-Bash that costs ~2s/call so 60 calls (the original loop) runs ~120s and
-# times out.  We override SB_SUBAGENT_ARCHIVE_CAP=5 and use 7 calls (cap+2) to
-# prove the cap enforces WITHOUT blowing the 90s wall-clock budget. ---
+# times out.  We override SB_SUBAGENT_ARCHIVE_CAP and use 7 calls to prove the cap enforces
+# WITHOUT blowing the 90s wall-clock budget.
+# 0.56.0 (X2 S4) changed WHICH cap applies: a sub-*.txt still waiting for extraction (every
+# archive here: no drainer ran) is evicted only past the HARD sub-cap, 3 x SB_SUBAGENT_ARCHIVE_CAP,
+# and loudly (migrations/0.56.0.md). The old oracle (cap 5, at most 5 left) asserted the pre-0.56
+# oldest-first rule and failed at e78111c already (7 left; found in R3). Cap 2 -> hard 6, so 7
+# un-extracted results cross the hard cap. ---
 B="$TMP/b11"; mkdir -p "$B/transcripts"; T="$TMP/t11.jsonl"; mk_transcript "$T" 1 "$LONG"
 echo "PRECIOUS MAIN SESSION ARCHIVE" > "$B/transcripts/s1_repo_2026-01-01.txt"  # old, must survive
-T11_CAP=5  # small cap so we only need cap+2 = 7 calls to prove the cap fires
-# write cap+2 distinct substantive subagent results (> the cap)
-for i in $(seq 1 $((T11_CAP + 2))); do
+T11_CAP=2; T11_HARD=$((T11_CAP * 3))
+for i in $(seq 1 $((T11_HARD + 1))); do
   run_hook "$B" "general-purpose" "aid${i}" "$T" SB_SUBAGENT_ARCHIVE_CAP="$T11_CAP" >/dev/null 2>&1
 done
 [ -f "$B/transcripts/s1_repo_2026-01-01.txt" ] || fail "11: main-session archive was EVICTED by a subagent flood"
 grep -q "PRECIOUS" "$B/transcripts/s1_repo_2026-01-01.txt" || fail "11: main-session archive corrupted"
 SUBN=$(ls "$B/transcripts/"sub-*.txt 2>/dev/null | wc -l | tr -d ' ')
-[ "$SUBN" -le "$T11_CAP" ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap $T11_CAP)"
-pass "subagent flood capped separately (got $SUBN sub-files); main-session archive survived"
+[ "$SUBN" -le "$T11_HARD" ] || fail "11: un-extracted subagent archives exceeded their hard cap (got $SUBN, hard cap $T11_HARD)"
+grep -q 'UN-EXTRACTED archive(s) past the hard ceiling' "$B/error-log.jsonl" 2>/dev/null \
+  || fail "11: evicting un-extracted subagent archives past the hard cap left no error row"
+pass "subagent flood capped separately (got $SUBN sub-files, hard cap $T11_HARD, eviction logged); main-session archive survived"
 
 # --- Test 12 (R1.2, HOOK-5 — updated for B1 finding #2): workflow "holding"
 # stub — the FINAL assistant record is tool_use-only (StructuredOutput carries
