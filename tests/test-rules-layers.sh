@@ -7,6 +7,8 @@
 #   rules-layer verdict being asserted (same idiom test-persona-tool-guard.sh already uses)
 # pins: SB_PROTOCOL_GUARD — set =off is asserted as a no-op guard elsewhere; not toggled here,
 #   listed because protocol-guard.sh is driven directly
+# pins: SB_GUARD_LOG_SYNC — =on: persona-tool-guard writes its full-logic audit row before exit (the
+#   detached default is tested in test-persona-tool-guard.sh); rows are read right after the call
 #
 # Slice 3 (docs/plans/2026-09-24-repo-brain.md) — layered plugin/user/repo rules, the learning
 # loop closing per repo, search-before-create, and one brain per git-worktree family.
@@ -21,6 +23,7 @@ fail() { echo "FAIL: $1"; fail_n=$((fail_n + 1)); }
 pass() { echo "PASS: $1"; }
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+export SB_GUARD_LOG_SYNC=on
 
 # A PATH-shim jq that counts every invocation (real work still happens via $REAL_JQ) — used to
 # prove "zero jq spawns from sb_rules_effective on an unchanged, cache-warm second call".
