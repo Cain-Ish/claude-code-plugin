@@ -185,4 +185,35 @@ J3_CTX=$(fake_run brain-j3 "$(printf '%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_BIG")")
 printf '%s\n' "$J3_CTX" | grep -qF 'Past sessions' && fail "J3: a header with no line that fits was still injected: $J3_CTX"
 pass "J2/J3: an over-cap line is dropped whole; a bare header is not injected"
 
+# --- K (R3 review): what the per-prompt hint drops is recorded, and what it serves is counted -------
+# pack_rows <brain dir name>: the gate=untrusted-pack rows that run left in its audit log.
+pack_rows() { grep -F '"gate=untrusted-pack ' "$SANDBOX/$1/audit-log.jsonl" 2>/dev/null; }
+# S15/D8: an over-cap [Past sessions] line used to vanish with no row. J2 dropped one line, J3 a line
+# and the bare header left behind.
+pack_rows brain-j2 | grep -qF 'section=prompt-episodic dropped=1 ' \
+  || fail "K: J2's dropped episodic line left no gate=untrusted-pack row: $(cat "$SANDBOX/brain-j2/audit-log.jsonl" 2>/dev/null)"
+pack_rows brain-j3 | grep -qF 'section=prompt-episodic dropped=2 ' \
+  || fail "K: J3's dropped line + bare header left no gate=untrusted-pack dropped=2 row: $(pack_rows brain-j3)"
+# T1 class: a line that does not fit no longer ends the hint; a later line that fits is still served.
+K1_CTX=$(fake_run brain-k1 "$(printf '%s\n%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_BIG" "$E_L1")")
+printf '%s\n' "$K1_CTX" | grep -qxF -- "$E_L1" || fail "K1: the line after an over-cap one was lost: $K1_CTX"
+pass "K: an over-cap episodic line is skipped (not the end of the hint) and every drop leaves a row"
+# S15/D11: a Read line that does not fit CAP_WIKI (600 B) used to vanish with no row.
+K2_PATH="/repo/docs/$(printf '%0640d' 0 | tr 0 p).md"
+K2_CTX=$(fake_run brain-k2 "$(printf '### [[tunnel-alpha]] — about tunnels\nRead %s — big\n%s\n' "$K2_PATH" "$SEP")")
+printf '%s\n' "$K2_CTX" | grep -qF "$K2_PATH" && fail "K2: a Read line over CAP_WIKI was served"
+pack_rows brain-k2 | grep -qF 'section=prompt-wiki dropped=1 ' \
+  || fail "K2: the dropped Read line left no gate=untrusted-pack row: $(cat "$SANDBOX/brain-k2/audit-log.jsonl" 2>/dev/null)"
+pass "K2: a Read line over CAP_WIKI is dropped and leaves a row"
+# T8: the manifest counted only [[slug]] tokens; a served Read line is now a codemap-kind id (stop-
+# extract matches those against Read paths), with / separators (the manifest refuses a backslash).
+K3_CTX=$(fake_run brain-k3 "$(printf '### [[tunnel-alpha]] — about tunnels\nRead /repo/skills/tunnel/SKILL.md — Tunnel skill\nRead C:\\repo\\docs\\w b.md — win\n%s\n' "$SEP")")
+K3_MF="$SANDBOX/brain-k3/.injected-manifest-brain-k3.jsonl"
+grep -qxF '{"kind":"wiki","id":"tunnel-alpha"}' "$K3_MF" 2>/dev/null || fail "K3: the slug is not in the manifest: $(cat "$K3_MF" 2>/dev/null)"
+grep -qxF '{"kind":"codemap","id":"/repo/skills/tunnel/SKILL.md"}' "$K3_MF" 2>/dev/null \
+  || fail "K3: a served Read line is not in the manifest: $(cat "$K3_MF" 2>/dev/null)"
+grep -qxF '{"kind":"codemap","id":"C:/repo/docs/w b.md"}' "$K3_MF" 2>/dev/null \
+  || fail "K3: a Windows Read path (with a space) is not counted with / separators: $(cat "$K3_MF" 2>/dev/null)"
+pass "K3: the manifest counts each served Read line"
+
 echo "ALL PASS"
