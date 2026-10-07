@@ -678,11 +678,13 @@ jq_err_row() { grep -F "$1" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null
 for jq1 in "stop|$SCRIPT|type == \"object\"|126|stdin-not-json-object" \
            "stop-field|$SCRIPT|.transcript_path // empty|137|transcript-path-empty" \
            "pc|$REPO_ROOT/scripts/pre-compact.sh|type == \"object\"|126|stdin-not-json-object" \
-           "pc-field|$REPO_ROOT/scripts/pre-compact.sh|.session_id // \"unknown\"|137|-"; do
+           "pc-field|$REPO_ROOT/scripts/pre-compact.sh|.session_id // \"unknown\"|137|-" \
+           "pc-post|$REPO_ROOT/scripts/pre-compact.sh|type == \"object\"|137|postcompact-capture reason=bad-stdin"; do
   IFS='|' read -r J1_NAME J1_HOOK J1_MATCH J1_RC J1_GATE <<< "$jq1"
   init_sandbox "jq1-$J1_NAME"
   seed_transcript_long_with_edit
-  run_jqfail "$J1_HOOK" "$J1_MATCH" "$J1_RC"
+  J1_ARG=""; [ "$J1_NAME" = pc-post ] && J1_ARG=post   # PostCompact mode: its Pending Tasks capture
+  run_jqfail "$J1_HOOK" "$J1_MATCH" "$J1_RC" "$J1_ARG"
   jq_err_row "jq exited $J1_RC" || fail "JQ1 ($J1_NAME): jq exit $J1_RC before the archive step left no error row naming it"
   [ "$J1_GATE" = - ] || ! grep -qF "gate=$J1_GATE" "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
     || fail "JQ1 ($J1_NAME): jq exit $J1_RC was logged as the routine gate '$J1_GATE'"
@@ -695,7 +697,7 @@ for jq1c in '[1]' 'not json'; do
   grep -qF 'gate=stdin-not-json-object' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "JQ1 control: stdin '$jq1c' lost its routine stdin-not-json-object gate"
   grep -qF 'jq exited' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "JQ1 control: stdin '$jq1c' was reported as a jq failure"
 done
-pass "JQ1: a jq exec failure (126/137) before the archive step is an error row with jq's exit status, not a routine gate (Stop, PreCompact); a non-object payload keeps its gate"
+pass "JQ1: a jq exec failure (126/137) before the archive step is an error row with jq's exit status, not a routine gate (Stop, PreCompact, PostCompact); a non-object payload keeps its gate"
 
 # TC2 (R3-B, S1): sb_window_tool_count returned 0 when its jq failed (killed, missing): the hooks
 # logged a routine tool-count-zero and ADVANCED the marker past a window the archive kept, so it was

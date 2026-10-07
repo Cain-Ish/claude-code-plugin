@@ -51,9 +51,15 @@ if [ "${1:-}" = "post" ]; then
   [ "${SB_COMPACT_CAPTURE:-on}" = "off" ] && { SB_GATE="postcompact-capture reason=off"; exit 0; }
 
   P_RAW=$(cat 2>/dev/null || true)
-  if [ -z "$P_RAW" ] || ! echo "$P_RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
-    SB_GATE="postcompact-capture reason=bad-stdin"; exit 0
-  fi
+  [ -n "$P_RAW" ] || { SB_GATE="postcompact-capture reason=bad-stdin"; exit 0; }
+  # Same jq status classes as the PreCompact check below: only 1/2/4/5 are the payload's.
+  echo "$P_RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _pc_jq_rc=$?
+  case "$_pc_jq_rc" in
+    0) ;;
+    1|2|4|5) SB_GATE="postcompact-capture reason=bad-stdin"; exit 0 ;;
+    *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PostCompact payload (jq missing, not executable or killed); its Pending Tasks are not captured" 1
+       exit 0 ;;
+  esac
 
   { IFS= read -r P_SID; IFS= read -r P_CWD; IFS= read -r P_TPATH; IFS= read -r P_TRIGGER; } < <(
     printf '%s' "$P_RAW" | jq -r '.session_id // "", .cwd // "", .transcript_path // "", .trigger // ""' 2>/dev/null | tr -d '\r'
