@@ -295,7 +295,7 @@ output directly. Bulk-authoring page content stays deliberate and reviewed, not 
 ## Phase 4c: RAW-INBOX DRAIN — delegated to the maintain skill's drain loop
 
 The raw inbox (`~/.second-brain/projects/<slug>/raw/`) holds **unprocessed** material dropped by
-`/second-brain:capture` and the setup deep-scan. Turning it into wiki nodes is a **separate, looped**
+the setup deep-scan and `raw-capture-cli` (run by hand; the capture skill only documents it). Turning it into wiki nodes is a **separate, looped**
 job — **do NOT drain it in-context here.** A single large captured document can exhaust one context's
 output budget (the old in-context drain truncated after 1–3 large items), so the
 `/second-brain:maintain` skill now drives the drain with a dedicated **`second-brain:raw-drainer`**

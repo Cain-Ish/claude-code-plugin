@@ -12,7 +12,7 @@ An **explicit** full maintenance pass over the knowledge base, in three stages. 
 auto-dispatched run (which the plugin triggers after extraction or a reindex and which performs
 only the consolidation phases), this also performs the two **bulk-authoring** phases that
 auto-runs deliberately skip: **Phase 4b** (author/backfill the machine-first `ai-block`) and the
-**raw-inbox drain** (turn `/second-brain:capture` + setup-deep-scan material into wiki nodes,
+**raw-inbox drain** (turn setup-deep-scan + `raw-capture-cli` material into wiki nodes,
 conservative create/update, never auto-discard, with provenance).
 
 ## Stage 1 — consolidation (one dispatch)

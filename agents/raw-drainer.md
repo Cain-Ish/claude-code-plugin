@@ -2,7 +2,7 @@
 name: raw-drainer
 description: |
   Lean, single-purpose raw-inbox drain worker. Drains ONE bounded batch of unprocessed
-  raw-inbox items (`/second-brain:capture` + setup deep-scan material) into wiki nodes —
+  raw-inbox items (setup deep-scan + raw-capture-cli material) into wiki nodes —
   conservatively, with provenance — then reports how many remain. Designed to be dispatched
   in a loop by the /second-brain:maintain skill: each dispatch is a FRESH context, so a large
   captured doc can never truncate the whole drain. Resumable and idempotent (reconcile-backed).
