@@ -4,7 +4,7 @@ import { join, basename, relative, isAbsolute } from 'path';
 import { embedTexts, appendErrorLog, embeddingsOptedOut, EMBEDDING_DIM } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
 import { stripInvisible } from './sanitize.js';
-import { capList } from './egress-budget.js';
+import { capList, estimateTokens } from './egress-budget.js';
 
 const INDEX_FILE = 'episodic-index.json';
 const SNIPPET_LEN = 200;
@@ -408,10 +408,13 @@ export function renderEpisodicSearch(result: EpisodicSearchResult, budgetTokens:
       `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
     ].join('\n');
   };
-  const text = capList(result.results, render, budgetTokens, 'narrow the query or use episodic_read on a specific result').text;
-  return result.degraded
-    ? `${text}\n\n_Degraded: vector search unavailable (embeddings missing) — these are text matches only._`
-    : text;
+  // T4 (R3 review): the footer is appended after capList, so the rows get the budget minus the
+  // footer; capList given the whole budget packed up to it and the footer broke the ceiling.
+  const footer = result.degraded
+    ? '\n\n_Degraded: vector search unavailable (embeddings missing) — these are text matches only._'
+    : '';
+  const rowBudget = Math.max(0, budgetTokens - estimateTokens(footer));
+  return capList(result.results, render, rowBudget, 'narrow the query or use episodic_read on a specific result').text + footer;
 }
 
 // A cleaned machine row has an empty user side (cleanUserText). Human-facing renderers show the
