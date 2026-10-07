@@ -41,6 +41,13 @@ fail() {
   # A case that keeps the hook's stderr writes it here (marker-clamp failed once under load in
   # 0.56.0 review with no evidence because stderr went to /dev/null).
   [ -s "$SANDBOX/hook.err" ] && { echo "── hook stderr:"; tail -20 "$SANDBOX/hook.err"; }
+  # R3: a hook that stops before its archive step leaves only a gate row (empty-stdin,
+  # stdin-not-json-object, transcript-*, slug-empty) or a differently named archive (a slug the
+  # case did not expect); the plain 5-line tails above can hide both. A case that saves its stdin
+  # payload ($SANDBOX/payload.json) shows whether the TEST's own jq built one.
+  echo "── gate rows:"; grep -h '"gate=' "$SANDBOX/.second-brain/audit-log.jsonl" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | tail -8
+  echo "── transcripts/:"; ls -la "$SANDBOX/.second-brain/transcripts" 2>&1 | tail -6
+  [ -e "$SANDBOX/payload.json" ] && { echo "── hook stdin payload ($(wc -c < "$SANDBOX/payload.json" | tr -d ' ') bytes):"; head -c 400 "$SANDBOX/payload.json"; echo; }
   echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
   exit 1
 }
@@ -497,7 +504,11 @@ rm -rf "$PROJ"
 mkdir -p "$PROJ"   # PROJECT.md is now a DIRECTORY -> merge-project-update.sh must fail
 MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
 rm -f "$MARKER"
-stop_payload | "$SCRIPT" >/dev/null 2>&1
+# R3: one unreproduced failure (jq 1.7.1, ~620 processes: no merge row, no archive; 6 reruns alone
+# clean) left no evidence, so the payload and the hook's stderr are kept for fail() to print.
+stop_payload > "$SANDBOX/payload.json"
+[ -s "$SANDBOX/payload.json" ] || fail "merge-failed-trap: the test's own payload builder (jq -nc) wrote nothing: a harness failure, not a hook result"
+"$SCRIPT" < "$SANDBOX/payload.json" >/dev/null 2>"$SANDBOX/hook.err"
 rc=$?
 [ "$rc" -eq 0 ] || fail "merge-failed-trap: expected exit 0 (fail-soft), got $rc"
 ( grep -q 'gate=merge-failed' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
