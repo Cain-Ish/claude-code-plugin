@@ -62,7 +62,7 @@ or history if removed; **REGEN** = regenerable, safe to delete; **AUTO** = prune
 | `.last-maintain` / `.last-llm-maintain` / `.last-verify` / `.plan-nudge*` / `.verify-gate-blocks-<sid>` | interval + once-per-session markers (maintenance cadence, verify freshness, plan-first nudge, verify-gate block count) | their namesake scripts (`maintain-deterministic.sh`, `maintain-llm-drain.sh`, `verify.sh:106`, `plan-first-nudge.sh:50`, `stop-verify-gate.sh:23`) | same | REGEN (deleting just re-arms the timer/nudge) |
 | `.injected/*.json` | per-session persona-injection memos | `persona-context.sh` | GC'd by `ensure-dirs.sh` at 7 days | AUTO |
 | `persona-signals.jsonl`, `.pin-candidates.jsonl`, `persona-budget.json`, `.persona-dismissals.jsonl` | persona learning state | extraction pipeline; `persona_think`/`persona_dismiss` MCP | `persona-context.sh`; `persona_stats` | KEEP |
-| `.llm-maintain-quarantine` / `.llm-maintain-fails` | headless-maintainer 3-strike quarantine | `maintain-llm-drain.sh` | dream-autostage banner; self-clears on healthy preflight | safe (clears quarantine) |
+| `.llm-maintain-quarantine` / `.llm-maintain-fails` | headless-maintainer 3-strike quarantine | `maintain-llm-drain.sh` | dream-autostage banner; only a CLI-version quarantine clears itself (healthy preflight), any other cause stays until both files are deleted | safe (delete BOTH to clear: the strike count alone re-quarantines on the next failure) |
 | `scratch/` | cwd for nested extractor spawns | drainer | GC'd (+3d) by drainer | AUTO |
 | `regressions/` | quality-gate regression capture | quality gates | review flows | KEEP |
 

@@ -236,6 +236,13 @@ reset_brain
 printf '[2026-06-11T00:00:00Z] quarantined after 3 consecutive failures: bwrap preflight failed\n' > "$BRAIN_DIR/.llm-maintain-quarantine"
 OUT=$(bash "$AUTOSTAGE" 2>/dev/null || true)
 assert_contains "quarantine file surfaced at SessionStart" "$OUT" "quarantine"
+# K3: the banner promised "self-clears on the next drain cycle once the cause is fixed", but only a
+# CLI-version quarantine clears itself (maintain-llm-drain.sh); any other cause stays until the
+# files are deleted, and deleting the quarantine file alone re-quarantines on the next failure
+# because .llm-maintain-fails still holds the strike count. The banner must name both real paths.
+assert_not_contains "quarantine banner does not promise a self-clear for every cause" "$OUT" "self-clears on the next drain cycle once the cause is fixed"
+assert_contains "quarantine banner names the quarantine file at its real path" "$OUT" "$BRAIN_DIR/.llm-maintain-quarantine"
+assert_contains "quarantine banner names the strike-count file too" "$OUT" "$BRAIN_DIR/.llm-maintain-fails"
 rm -f "$BRAIN_DIR/.llm-maintain-quarantine"
 
 # (i) STALE running (crashed mid-run, status.json mtime > 6h) → reclaimed to

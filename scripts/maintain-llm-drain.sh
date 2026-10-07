@@ -47,7 +47,7 @@ _ver_ge() {
   [ "$a2" -ne "$b2" ] && { [ "$a2" -gt "$b2" ]; return; }
   [ "$a3" -ge "$b3" ]
 }
-# _preflight_ok: the cheap probe that gates the LLM step AND self-clears the quarantine file.
+# _preflight_ok: the cheap probe that gates the LLM step AND clears a version-class quarantine.
 _preflight_ok() {
   [ -n "$CLI_VER" ] || CLI_VER=$(_cli_ver)
   [ -n "$CLI_VER" ] && _ver_ge "$CLI_VER" "$MIN_CLI"
@@ -55,9 +55,13 @@ _preflight_ok() {
 
 # Failure-aware lifecycle: a structural failure must not burn
 # the full weekly slot, and repeated failures must STOP retrying loudly instead
-# of spinning forever. The quarantine SELF-CLEARS once the cheap preflight
-# passes again (cause fixed), on a successful run, or by deleting the file
-# (the autostage banner names it).
+# of spinning forever. Only a quarantine whose recorded class is `version` clears
+# itself, once the cheap preflight passes again (the CLI was upgraded). Every
+# other class stays until the operator deletes $BRAIN_DIR/.llm-maintain-quarantine
+# AND .llm-maintain-fails (delete only the first and the strike count, still >= 3,
+# re-quarantines on the next failure). A successful run clears all three files,
+# but a quarantined lane never gets that far (it exits below; SB_MAINTAIN_LLM_FORCE=1
+# bypasses). The autostage banner names both files.
 FAILS_F="$BRAIN_DIR/.llm-maintain-fails"
 QUAR_F="$BRAIN_DIR/.llm-maintain-quarantine"
 # D132: the class of the LAST recorded failure (version|other). The preflight probe
@@ -69,11 +73,12 @@ QUAR_F="$BRAIN_DIR/.llm-maintain-quarantine"
 FAILCLASS_F="$BRAIN_DIR/.llm-maintain-fail-class"
 RETRY="${SB_MAINTAIN_LLM_RETRY:-86400}"; case "$RETRY" in ''|*[!0-9]*) RETRY=86400 ;; esac
 if [ -f "$QUAR_F" ] && [ "${SB_MAINTAIN_LLM_FORCE:-0}" != "1" ]; then
-  # SELF-CLEARING quarantine: it exists to stop POINTLESS retries, not to hide a
-  # persistent non-version failure behind a re-passing version check. Only clear
+  # The quarantine exists to stop POINTLESS retries, not to hide a persistent
+  # non-version failure behind a re-passing version check. Only clear it here
   # when the recorded cause WAS the version floor AND the cheap preflight now
   # passes (e.g. the CLI was upgraded); any other cause stays down until the
-  # quarantine file is removed by hand (the autostage banner names it).
+  # quarantine and strike-count files are removed by hand (the autostage banner
+  # names both).
   FAILCLASS=$(cat "$FAILCLASS_F" 2>/dev/null | tr -d '\r\n')
   if [ "$FAILCLASS" = "version" ] && _preflight_ok; then
     rm -f "$QUAR_F" "$FAILS_F" "$FAILCLASS_F" 2>/dev/null

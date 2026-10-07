@@ -238,8 +238,13 @@ Reached via the brain-os engine (§3.8) when `auto_maintain` is on. The old shap
   transcripts are never bound into it.
 Gates: `claude` present + CLI ≥2.1.205 preflight + node/writer-bundle preconditions; no
 unreviewed dream pending; 7-day throttle. Stage A and Stage B share ONE staleness budget.
-3 consecutive failures → `$BRAIN_DIR/.llm-maintain-quarantine` (self-clearing, bannered at
-SessionStart). What reaches live is decided by `auto_accept` + the held-untrusted gate (§3.6a).
+3 consecutive failures → `$BRAIN_DIR/.llm-maintain-quarantine` (bannered at SessionStart). Only
+a `version`-class quarantine clears itself (the next drain cycle after the CLI passes the
+preflight); every other class stays until `.llm-maintain-quarantine` AND `.llm-maintain-fails`
+are deleted (the strike count alone re-quarantines on the next failure). Another dream in the
+way (completed and unreviewed) is not a failure: the lane logs the blocking dream id and defers
+to the ~24 h retry horizon without a strike. What reaches live is decided by `auto_accept` + the
+held-untrusted gate (§3.6a).
 
 ### 3.8 The brain-os engine seam — `scripts/brain-os-run.sh`
 Every OFFLINE pass (prune, deterministic upkeep, embedding warm pass, the consolidation lane,
