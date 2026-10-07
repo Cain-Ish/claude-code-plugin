@@ -1059,7 +1059,11 @@ pg_dream_confine() {
       out=${out//$'\r'/}
       p="${out%%$'\n'*}"; out="${out#*$'\n'}"
       roots=()
-      while IFS= read -r r; do [ -n "$r" ] && roots[${#roots[@]}]="$r"; done <<< "$out"
+      while [ -n "$out" ]; do   # one line per root, cut by expansion (no here-string)
+        r="${out%%$'\n'*}"
+        [ -n "$r" ] && roots[${#roots[@]}]="$r"
+        case "$out" in *$'\n'*) out="${out#*$'\n'}" ;; *) out="" ;; esac
+      done
       [ "${#roots[@]}" -gt 0 ] || reason="unresolvable-path"
     else
       reason="unresolvable-path"
