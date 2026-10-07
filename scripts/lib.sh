@@ -270,11 +270,12 @@ sb_window_tool_count() {
 # Each raw line is parsed on its own (`jq -nR` + fromjson?), like sb_preprocess_transcript: a record
 # cut mid-write (a half-flushed last line, a torn append) or a non-object line is skipped, never the
 # rest of the window. The `jq -s` slurp this replaces failed whole on one such line, and its
-# `|| echo '[]'` fallback emptied the floor in silence.
+# `|| echo '[]'` fallback emptied the floor in silence. A jq that fails here (killed, missing) still
+# leaves an empty file list, now with an error row (S7): the floor then cites no files.
 sb_extract_deterministic() {
   local transcript="$1" start="$2" total="$3"
   local files_json
-  files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -nRc '
+  if ! files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -nRc '
     [ inputs | fromjson?
       | select(type == "object" and .type == "assistant")
       | .message.content[]?
@@ -283,10 +284,16 @@ sb_extract_deterministic() {
       | .input.file_path? | select(type == "string" and . != "") ]
     | map(gsub("\\\\"; "/"))
     | unique
-  ' 2>/dev/null || echo '[]')
+  ' 2>/dev/null); then
+    sb_log_error "lib.sh" "sb_extract_deterministic: jq failed reading raw lines ${start}-${total} of $transcript (missing or killed); the deterministic floor cites no files" 1
+    files_json='[]'
+  fi
   files_json=$(sb_safe_json_array "$files_json")
   files_json=$(sb_filter_scratch_paths "$files_json")
-  files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
+  if ! files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null); then
+    sb_log_error "lib.sh" "sb_extract_deterministic: jq failed capping the file list of raw lines ${start}-${total} of $transcript; the deterministic floor cites no files" 1
+    files_json='[]'
+  fi
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list
@@ -315,10 +322,12 @@ sb_degraded_floor() {
     else
       note="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
     fi
-    mkdir -p "$dir" 2>/dev/null || true
-    printf '[%s] %s\n' "$today" "$note" >> "$log" 2>/dev/null || true
-    if [ -f "$log" ]; then
-      tail -n 50 "$log" > "$log.tmp" 2>/dev/null && mv "$log.tmp" "$log" 2>/dev/null || rm -f "$log.tmp" 2>/dev/null
+    # S8: the breadcrumb write and the 50-line trim fail loud (both were `|| true` / `|| rm`).
+    if ! mkdir -p "$dir" 2>/dev/null || ! printf '[%s] %s\n' "$today" "$note" >> "$log" 2>/dev/null; then
+      sb_log_error "lib.sh" "sb_degraded_floor: the [degraded] breadcrumb could not be written to $log; today's LLM-unavailable capture is not recorded in the sidecar" 1
+    elif ! { tail -n 50 "$log" > "$log.tmp" 2>/dev/null && mv "$log.tmp" "$log" 2>/dev/null; }; then
+      rm -f "$log.tmp" 2>/dev/null
+      sb_log_error "lib.sh" "sb_degraded_floor: trimming $log to 50 lines failed (tail or mv); the sidecar grows until a later trim succeeds" 1
     fi
   fi
   printf '%s' "$delta"
