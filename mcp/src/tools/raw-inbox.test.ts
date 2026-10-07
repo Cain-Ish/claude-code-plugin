@@ -2,8 +2,37 @@ import { describe, it, expect } from 'vitest';
 import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed, stripInvisible } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed, stripInvisible, rawCaptureCliCommand, shellWord } from './raw-inbox.js';
 import type { RawItem } from './raw-inbox.js';
+
+// T6 (R3-B): the CLI hints named `node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"`,
+// but $CLAUDE_PLUGIN_ROOT is not set in a Bash tool's environment, so the pasted hint resolved to
+// /mcp/dist/... and failed with MODULE_NOT_FOUND. The hint is built from the running script's path.
+describe('rawCaptureCliCommand / shellWord (CLI hints)', () => {
+  it('names the sibling raw-capture bundle of the running script, forward-slashed and quoted', () => {
+    expect(rawCaptureCliCommand('/opt/plug/mcp/dist/tools/raw-scan-cli.bundle.js'))
+      .toBe('node "/opt/plug/mcp/dist/tools/raw-capture-cli.bundle.js"');
+    expect(rawCaptureCliCommand('C:\\Users\\u\\plug\\mcp\\dist\\tools\\raw-capture-cli.bundle.js'))
+      .toBe('node "C:/Users/u/plug/mcp/dist/tools/raw-capture-cli.bundle.js"');
+  });
+  it('never emits the unset $CLAUDE_PLUGIN_ROOT when the script path is known', () => {
+    expect(rawCaptureCliCommand('/a/b/raw-capture-cli.bundle.js')).not.toContain('CLAUDE_PLUGIN_ROOT');
+  });
+  it('escapes the characters a double-quoted shell word would expand', () => {
+    expect(rawCaptureCliCommand('/a/$HOME/`x`/"q"/raw-capture-cli.bundle.js'))
+      .toBe('node "/a/\\$HOME/\\`x\\`/\\"q\\"/raw-capture-cli.bundle.js"');
+  });
+  it('falls back to the documented plugin-root form only without a script path', () => {
+    expect(rawCaptureCliCommand(undefined)).toBe('node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"');
+    expect(rawCaptureCliCommand('')).toBe('node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"');
+  });
+  it('shellWord leaves a plain slug bare and quotes anything else', () => {
+    expect(shellWord('my-proj_2.0')).toBe('my-proj_2.0');
+    expect(shellWord('my proj')).toBe("'my proj'");
+    expect(shellWord("it's")).toBe("'it'\\''s'");
+    expect(shellWord('')).toBe("''");
+  });
+});
 
 async function brain(): Promise<{ brainDir: string; slug: string }> {
   const brainDir = await fs.mkdtemp(join(tmpdir(), 'raw-'));
