@@ -1,6 +1,6 @@
 #!/bin/bash
-# End-to-end: the capture CLI (which the skill drives) ingests material into a project's
-# raw inbox, is idempotent, lists items (flagging malformed), and discards.
+# End-to-end: the capture CLI (which the reference-only capture skill documents) ingests material
+# into a project's raw inbox, is idempotent, lists items (flagging malformed), and discards.
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 CLI="$ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"
@@ -8,12 +8,30 @@ SKILL="$ROOT/skills/capture/SKILL.md"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 
 [ -f "$SKILL" ] || fail "skills/capture/SKILL.md missing"
-grep -q 'raw-capture-cli.bundle.js' "$SKILL" || fail "capture skill does not invoke the raw-capture CLI"
-# 0.29.0 surface-collapse: capture is hook/automation-driven, NOT a user slash command.
-# It must be user-invocable: false (drained by /maintain + the hook capture path), while
-# still wired to the CLI so model-invocation keeps working. Assert the intended state.
-grep -q 'user-invocable: false' "$SKILL" || fail "capture skill should be user-invocable: false (surface-collapse) — hook/automation-driven"
-pass "capture skill present, CLI-wired, and hidden from the user surface"
+grep -q 'raw-capture-cli.bundle.js' "$SKILL" || fail "capture skill does not document the raw-capture CLI"
+# 0.29.0 surface-collapse: neither the user nor the model can invoke the capture skill, and no hook
+# writes raw items; it only documents raw-capture-cli. C1 audit (R3): its description still read
+# "Usage: /second-brain:capture <path|url> ...", and this comment claimed a hook capture path. Both
+# flags are locked, and the text may not present the skill as a command anyone can run.
+grep -q '^user-invocable: false' "$SKILL" || fail "capture skill should be user-invocable: false (surface-collapse)"
+grep -q '^disable-model-invocation: true' "$SKILL" || fail "capture skill should keep disable-model-invocation: true (reference only)"
+grep -qiE 'Usage: /second-brain:capture|^# /second-brain:capture' "$SKILL" \
+  && fail "capture skill presents itself as the /second-brain:capture command, which nothing can invoke"
+pass "capture skill present, documents the CLI, and invocable by nobody (user or model)"
+
+# R3 follow-up: since nothing can invoke the capture skill, no doc, agent prompt, CLI hint or report
+# string may tell anyone to run `/second-brain:capture` (the slash form is a command that does not
+# exist; `--list`/`--discard`/`--prune-processed` were never CLI syntax either). They name the CLI
+# itself (raw-capture-cli.bundle.js list|discard|prune-processed|capture). Scanned: user docs, skills,
+# agents, the CLI sources (src: dist is rebuilt from it) and the drain-loop report strings.
+STALE=$(cd "$ROOT" && grep -rnF '/second-brain:capture' README.md skills agents mcp/src \
+  tests/test-maintain-drain-loop.sh 2>/dev/null | grep -v '\.test\.ts:')
+[ -z "$STALE" ] || fail "the capture skill is named as a runnable command (nothing can invoke it); name raw-capture-cli instead:
+$STALE"
+for f in skills/maintain/SKILL.md agents/raw-drainer.md skills/setup/SKILL.md mcp/src/tools/raw-capture-cli.ts mcp/src/tools/raw-scan-cli.ts; do
+  grep -q 'raw-capture-cli.bundle.js' "$ROOT/$f" || fail "$f no longer names the real way to reach the raw inbox (raw-capture-cli.bundle.js)"
+done
+pass "no doc, prompt or CLI hint tells anyone to run /second-brain:capture; they name raw-capture-cli"
 
 command -v node >/dev/null 2>&1 || { echo "SKIP: node"; echo; echo "ALL PASS"; exit 0; }
 [ -f "$CLI" ] || { echo "SKIP: CLI bundle not built"; echo; echo "ALL PASS"; exit 0; }

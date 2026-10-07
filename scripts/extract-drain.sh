@@ -700,8 +700,9 @@ if ! find "$TX_DIR" -maxdepth 1 -type f \( \( \( -name '.*.txt.lock' -o -name '.
 fi
 # Observation ledgers (P0 rec 5): one file per session; after 7 days the
 # session's transcript has been drained (or pruned past recovery) — sweep.
-# Their sent-line markers (<sid>.sent, X2#5) age out with them.
-find "$BRAIN_DIR/observations" -maxdepth 1 \( -name '*.jsonl' -o -name '*.sent' \) -mtime +7 -delete 2>/dev/null || true
+# Their sent-line markers (<sid>.sent, X2#5) and the hook's once-per-session loud-row flags
+# (<sid>.<condition>.flag, observe-tool-use.sh) age out with them.
+find "$BRAIN_DIR/observations" -maxdepth 1 \( -name '*.jsonl' -o -name '*.sent' -o -name '*.flag' \) -mtime +7 -delete 2>/dev/null || true
 # Transcripts of our own nested extractor spawns (cwd = BRAIN_DIR/scratch →
 # one ~/.claude/projects entry). Derive the encoded name from the live BRAIN_DIR
 # (CC encodes '/' and '.' as '-'); keep the substring glob as a fallback for

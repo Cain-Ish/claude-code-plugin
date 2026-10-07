@@ -2048,7 +2048,10 @@ if [ "${SB_RAW_INBOX:-on}" != "off" ]; then
          && [ "${RAW_N:-0}" -ge "$NUDGE_THRESH" ]; then
         sb_append "$(printf '## ⓘ second-brain — auto-consolidation is off\n%s raw item(s) are piling up with nothing consolidating them automatically. Pick one:\n  • auto-upkeep:  set `auto_improve: true` in ~/.second-brain/config.json (keeps the wiki validated + reindexed on the drainer timer)\n  • author them:  /second-brain:maintain (refines raw items into wiki notes — needs a Claude session)\nSuppress: `SB_AUTOCONSOLIDATE_NUDGE=off`.\n\n' "$RAW_N")" "autoconsolidate-nudge" 450
       else
-        sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nThe maintainer drains these into wiki notes automatically (auto_maintain / the drainer timer); run `/second-brain:maintain` to do it now.\n\n' "$RAW_N")" \
+        # Only /second-brain:maintain (a Claude session) refines raw items: maintain-llm-drain.sh
+        # (auto_maintain) never reads raw/, and raw auto-drain is not built (memory-usage-fixes-2026-10
+        # design, "Not building"). The banner used to promise the drainer timer did it.
+        sb_append "$(printf '## ⓘ raw inbox — %s unprocessed item(s)\nThey stay here until you run `/second-brain:maintain` (refines them into wiki notes; needs a Claude session).\n\n' "$RAW_N")" \
           "raw-inbox-banner" 250
       fi
     fi

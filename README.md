@@ -91,10 +91,12 @@ dreams stage changes for review, forgetting archives rather than deletes.
 
 One output style, `second-brain:dev-focused` (select it under `/config` > Output style, or set `"outputStyle": "second-brain:dev-focused"` in settings). It shapes every reply for a reader who needs to act now: next action first, numbered steps, state restated each turn, no tangents, concrete time estimates, and work routed to the cheapest model tier (SCOUT/DO/THINK) that can do it. Opt-in only; it never overrides your chosen style.
 
-`/second-brain:capture` documents the raw-inbox CLI (`--list` to inspect, `--discard <id>` to
-prune); its frontmatter disables both user AND model invocation, so nothing can invoke it as a
-skill — it exists to document the bundled `raw-capture-cli` for direct/scripted use. The only
-automatic path into the raw inbox is `/second-brain:setup`'s one-time deep-scan.
+The `second-brain:capture` skill only documents the raw-inbox CLI; its frontmatter disables both
+user AND model invocation, so nothing can invoke it. Run the CLI directly:
+`node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" list` to inspect the inbox,
+`discard <id>` to drop an item, `prune-processed` to delete processed ones, `capture <path|url|"text">`
+to add one. The only automatic path into the raw inbox is `/second-brain:setup`'s one-time
+deep-scan, and only `/second-brain:maintain` drains it.
 
 `query` and `using-second-brain` are invoked by the model, not as slash commands. Four agents
 back the loop: `dream-runner`, `knowledge-maintainer`, `raw-drainer`, and `search-conversations`

@@ -275,14 +275,9 @@ fi
 START_LINE=$((LAST_LINE + 1))
 
 # Gate: at least one tool_use in the window. The buddy's end-of-turn buddy_react call is chat,
-# not work (same rule as stop-extract.sh's substantive gate).
-TOOL_COUNT=$(sed -n -- "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
-  select(.type == "assistant")
-  | .message.content[]?
-  | select(.type == "tool_use")
-  | .name
-  | select((. // "") | endswith("buddy_react") | not)
-' 2>/dev/null | wc -l | tr -d ' ')
+# not work (same rule as stop-extract.sh's substantive gate). Per-line parse
+# (sb_window_tool_count): a record cut mid-write no longer hides the rest of the window.
+TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
 
 if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
   SB_GATE="tool-count-zero-in-window new_lines=$NEW_LINES"
@@ -311,15 +306,17 @@ else
   WINDOW_START=$START_LINE
 fi
 
+# Every part of the input is checked, as stop-extract.sh and the drainer's sb_extract_transcript
+# do: a failed render (sb_preprocess_transcript returns 1: jq killed or missing, the scrub failed;
+# its output must not be used) is never sent to the extractor; the deterministic floor runs.
+EXTRACT_INPUT_OK=1
 {
-  echo "=== PROJECT.md ==="
-  cat "$PROJECT_MD"
-  echo
-  echo "---SEPARATOR---"
-  echo
-  echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
-} > "$EXTRACT_INPUT"
+  echo "=== PROJECT.md ===" && cat "$PROJECT_MD" && echo && echo "---SEPARATOR---" && echo \
+    && echo "=== TRANSCRIPT (preprocessed) ==="
+} > "$EXTRACT_INPUT" || EXTRACT_INPUT_OK=0
+sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript >> "$EXTRACT_INPUT"
+_ei_ps="${PIPESTATUS[*]}"
+[ "$_ei_ps" = "0 0" ] || EXTRACT_INPUT_OK=0
 
 # --- Run LLM extraction ---
 DELTA_JSON=""
@@ -328,6 +325,8 @@ DELTA_JSON=""
 # and writes .extractor-health.json so session-load.sh can surface failures.
 if [ "${SB_EXTRACT:-on}" = "off" ]; then
   SB_GATE="extract-off"
+elif [ "$EXTRACT_INPUT_OK" != 1 ]; then
+  sb_log_error "pre-compact.sh" "extractor input for raw lines ${WINDOW_START}-${TOTAL_LINES} could not be built (render pipe status $_ei_ps); not sent to the extractor, deterministic floor instead (the archived window is mined later)" 1
 elif sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else
@@ -335,48 +334,13 @@ else
   sb_log_error "pre-compact.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
-# Deterministic fallback: single [degraded] breadcrumb in a SIDECAR (not PROJECT.md
-# decisions — SP-E), deduped per day. The transcript is archived for out-of-band drainer
-# recovery of the real knowledge; this just logs the gap.
+# Deterministic fallback when the LLM is unavailable (sb_degraded_floor, lib.sh, shared with
+# stop-extract.sh): the files-changed floor of the FULL window reaches PROJECT.md, and ONE
+# [degraded] breadcrumb per day goes to the pending-extraction.log SIDECAR (SP-E). This path used to
+# merge an empty delta, so a compaction under a dead LLM captured no decision at all. The window is
+# archived (archive-first) for the drainer's later recovery of the real knowledge.
 if [ -z "$DELTA_JSON" ]; then
-  TODAY=$(date -u +%Y-%m-%d)
-  PENDING_LOG="$(dirname "$PROJECT_MD")/pending-extraction.log"
-  if grep -qF "[$TODAY] [degraded]" "$PENDING_LOG" 2>/dev/null; then
-    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
-  else
-    # Scratch-path filter: /tmp, /var/tmp, /proc, /dev, /run are session-ephemeral
-    # and have no value as future-session context — they only bloat the hot tier.
-    FILES_JSON=$(sed -n -- "${WINDOW_START},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
-      [
-        .[]
-        | select(.type == "assistant")
-        | .message.content[]?
-        | select(.type == "tool_use")
-        | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
-        | .input.file_path
-      ]
-      | unique
-      | map(select(. != null and . != ""))
-    ' 2>/dev/null || echo '[]')
-    FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
-    # D111: sb_filter_scratch_paths (lib.sh) catches Windows AppData\Local\Temp and
-    # macOS $TMPDIR (/var/folders/...) forms the old POSIX-only test() missed.
-    FILES_JSON=$(sb_filter_scratch_paths "$FILES_JSON")
-    FILES_JSON=$(printf '%s' "$FILES_JSON" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
-    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null | tr -d '\r')
-    if [ -n "$FILES_LIST" ]; then
-      NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"
-    else
-      NOTE="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
-    fi
-    # Sidecar (out of PROJECT.md decisions), bounded to 50 lines.
-    mkdir -p "$(dirname "$PENDING_LOG")" 2>/dev/null || true
-    printf '[%s] %s\n' "$TODAY" "$NOTE" >> "$PENDING_LOG" 2>/dev/null || true
-    if [ -f "$PENDING_LOG" ]; then
-      tail -n 50 "$PENDING_LOG" > "$PENDING_LOG.tmp" 2>/dev/null && mv "$PENDING_LOG.tmp" "$PENDING_LOG" 2>/dev/null || rm -f "$PENDING_LOG.tmp" 2>/dev/null
-    fi
-    DELTA_JSON='{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
-  fi
+  DELTA_JSON=$(sb_degraded_floor "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES" "$PROJECT_MD")
 fi
 
 # --- Quality gate (D157) ---
@@ -387,11 +351,13 @@ DELTA_JSON=$(sb_gate_extraction_delta "$DELTA_JSON")
 
 # --- Merge delta into PROJECT.md ---
 MERGE_ERR=$(mktemp)
+MERGE_FAILED=0
 if ! echo "$DELTA_JSON" \
   | bash "$(dirname "$0")/merge-project-update.sh" \
       --project-md "$PROJECT_MD" --knowledge-dir "$KNOWLEDGE_DIR" --session "$SESSION_ID" >/dev/null 2>"$MERGE_ERR"; then
   ERR_TAIL=$(tr '\n' ' ' < "$MERGE_ERR" | head -c 400)
   sb_log_error "pre-compact.sh" "merge-failed err=$ERR_TAIL" 0
+  MERGE_FAILED=1
 fi
 rm -f "$MERGE_ERR"; MERGE_ERR=""
 
@@ -439,6 +405,9 @@ if command -v node >/dev/null 2>&1 && [ -f "$PLUGIN_DIST/episodic-index-cli.bund
 fi
 
 # --- Update extraction marker ---
-sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
+# D177 (as stop-extract.sh): a failed merge means this window's decisions never reached PROJECT.md,
+# so the marker stays where it is and the next PreCompact or Stop retries the window (the archive
+# has its own cursor, so the retry does not re-archive it).
+[ "$MERGE_FAILED" = "1" ] || sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
 
 exit 0

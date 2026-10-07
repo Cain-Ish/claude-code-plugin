@@ -43,14 +43,29 @@ OBS_DIR="$BRAIN_DIR/observations"
 mkdir -p "$OBS_DIR" 2>/dev/null || exit 0
 OBS_FILE="$OBS_DIR/$SID.jsonl"
 
+# obs_loud_once <condition> <message>: one sb_log_error row per session ledger and condition, not
+# one per tool call (this hook fires on every tool use). <SID>.<condition>.flag remembers the row;
+# the drainer's 7-day GC sweeps the flags with the ledgers. Message: fixed text, the session id
+# prefix and numbers only, never the observation itself.
+obs_loud_once() {
+  local flag="$OBS_DIR/$SID.$1.flag"
+  [ -e "$flag" ] && return 0
+  : > "$flag" 2>/dev/null
+  sb_log_error "observe-tool-use.sh" "$2" 1
+}
+
 # Size cap BEFORE the append: a runaway session must not grow the ledger
-# unbounded (1 MiB ≈ 5000+ records — far past any real session).
+# unbounded (1 MiB ≈ 5000+ records — far past any real session). Past the cap every later
+# observation of the session is dropped: said once, not silently.
 MAX_BYTES="${SB_OBSERVATION_MAX_BYTES:-1048576}"
 case "$MAX_BYTES" in ''|*[!0-9]*) MAX_BYTES=1048576 ;; esac
 if [ -f "$OBS_FILE" ]; then
   CUR_BYTES=$(wc -c < "$OBS_FILE" 2>/dev/null | tr -d ' ')
   case "$CUR_BYTES" in ''|*[!0-9]*) CUR_BYTES=0 ;; esac
-  [ "$CUR_BYTES" -ge "$MAX_BYTES" ] && exit 0
+  if [ "$CUR_BYTES" -ge "$MAX_BYTES" ]; then
+    obs_loud_once capped "observation ledger for session ${SID:0:8} reached its cap (${CUR_BYTES} >= SB_OBSERVATION_MAX_BYTES ${MAX_BYTES}); later tool uses of this session are not recorded"
+    exit 0
+  fi
 fi
 
 # ONE jq builds the whole line (hot path — this fires on every matched tool
@@ -101,6 +116,8 @@ if sb_has_scrub_literal "$LINE"; then
     exit 0
   fi
 fi
-printf '%s\n' "$LINE" >> "$OBS_FILE" 2>/dev/null || true
+if ! printf '%s\n' "$LINE" >> "$OBS_FILE" 2>/dev/null; then
+  obs_loud_once append-failed "observation ledger append failed for session ${SID:0:8} ($OBS_FILE not writable); the observation is lost (reported once per session)"
+fi
 
 exit 0

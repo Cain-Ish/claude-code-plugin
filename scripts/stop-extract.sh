@@ -866,13 +866,8 @@ fi
 
 # Substantive-session gate: count tool_use entries in the FULL delta. The buddy's end-of-turn
 # buddy_react call is chat, not work: counting it would run the whole pipeline on every turn.
-TOOL_COUNT=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -r '
-  select(.type == "assistant")
-  | .message.content[]?
-  | select(.type == "tool_use")
-  | .name
-  | select((. // "") | endswith("buddy_react") | not)
-' 2>/dev/null | wc -l | tr -d ' ')
+# Per-line parse (sb_window_tool_count): a record cut mid-write no longer hides the rest.
+TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
 
 if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
   TS_LINES=$NEW_LINES
@@ -896,15 +891,18 @@ EXTRACT_INPUT=$(mktemp)
 EXTRACT_OUT=$(mktemp)
 # Cleanup for these two temp files is folded into _sb_stop_extract_cleanup (D177) —
 # a second `trap ... EXIT` here would silently replace the gate-logging trap.
+# Every part of the input is checked, as the drainer's sb_extract_transcript does (lib.sh): a
+# render that failed (jq killed or missing, the scrub failed: sb_preprocess_transcript returns 1
+# and its output must not be used) used to go out as PROJECT.md plus a cut or empty transcript and
+# merged as a real extraction. Such an input is never sent; the deterministic floor runs instead.
+EXTRACT_INPUT_OK=1
 {
-  echo "=== PROJECT.md ==="
-  cat "$PROJECT_MD"
-  echo
-  echo "---SEPARATOR---"
-  echo
-  echo "=== TRANSCRIPT (preprocessed) ==="
-  sed -n "${EXTRACT_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript
-} > "$EXTRACT_INPUT"
+  echo "=== PROJECT.md ===" && cat "$PROJECT_MD" && echo && echo "---SEPARATOR---" && echo \
+    && echo "=== TRANSCRIPT (preprocessed) ==="
+} > "$EXTRACT_INPUT" || EXTRACT_INPUT_OK=0
+sed -n "${EXTRACT_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript >> "$EXTRACT_INPUT"
+_ei_ps="${PIPESTATUS[*]}"
+[ "$_ei_ps" = "0 0" ] || EXTRACT_INPUT_OK=0
 
 DELTA_JSON=""
 
@@ -913,6 +911,8 @@ DELTA_JSON=""
 # reads to surface broken auth to the user on the next SessionStart.
 if [ "${SB_EXTRACT:-on}" = "off" ]; then
   log_gate "extract-off"
+elif [ "$EXTRACT_INPUT_OK" != 1 ]; then
+  sb_log_error "stop-extract.sh" "extractor input for raw lines ${EXTRACT_START}-${TOTAL_LINES} could not be built (render pipe status $_ei_ps); not sent to the extractor, deterministic floor instead (the archived window is mined later)" 1
 elif sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else
@@ -920,54 +920,13 @@ else
   sb_log_error "stop-extract.sh" "llm-extraction-failed model=$EXTRACTOR_MODEL output=$HEALTH_REASON" 0
 fi
 
-# Deterministic fallback when LLM is unavailable. Records a single [degraded] breadcrumb
-# in a SIDECAR (`pending-extraction.log`), NOT in PROJECT.md's Recent decisions — those
-# breadcrumbs are not decisions and were crowding real ones off the 5-bullet cap (SP-E).
-# The transcript was archived above (archive-first), so the out-of-band drainer mines the REAL
-# knowledge later; this sidecar just logs the gap. Deduped per day, bounded.
+# Deterministic fallback when the LLM is unavailable (sb_degraded_floor, lib.sh, shared with
+# pre-compact.sh): the files-changed floor reaches PROJECT.md, and ONE [degraded] breadcrumb per
+# day goes to the pending-extraction.log SIDECAR, never PROJECT.md's Recent decisions (SP-E). The
+# transcript was archived above (archive-first), so the out-of-band drainer mines the REAL
+# knowledge later.
 if [ -z "$DELTA_JSON" ]; then
-  TODAY=$(date -u +%Y-%m-%d)
-  PENDING_LOG="$(dirname "$PROJECT_MD")/pending-extraction.log"
-  if grep -qF "[$TODAY] [degraded]" "$PENDING_LOG" 2>/dev/null; then
-    # Already logged the breadcrumb today; still emit the deterministic delta — the files
-    # changed in THIS session window are real and distinct (merge dedups + 5-bullet caps).
-    DELTA_JSON=$(sb_extract_deterministic "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
-  else
-    # Scratch-path filter: /tmp, /var/tmp, /proc, /dev, /run are session-ephemeral
-    # and have no value as future-session context — they only bloat the hot tier.
-    FILES_JSON=$(sed -n "${START_LINE},${TOTAL_LINES}p" "$TRANSCRIPT" | jq -rcs '
-      [
-        .[]
-        | select(.type == "assistant")
-        | .message.content[]?
-        | select(.type == "tool_use")
-        | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
-        | .input.file_path
-      ]
-      | unique
-      | map(select(. != null and . != ""))
-    ' 2>/dev/null || echo '[]')
-    FILES_JSON=$(sb_safe_json_array "$FILES_JSON")
-    # D111: sb_filter_scratch_paths (lib.sh) catches Windows AppData\Local\Temp and
-    # macOS $TMPDIR (/var/folders/...) forms the old POSIX-only test() missed.
-    FILES_JSON=$(sb_filter_scratch_paths "$FILES_JSON")
-    FILES_JSON=$(printf '%s' "$FILES_JSON" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
-    FILES_LIST=$(echo "$FILES_JSON" | jq -r 'join(", ")' 2>/dev/null | tr -d '\r')
-    if [ -n "$FILES_LIST" ]; then
-      NOTE="[degraded] LLM extraction unavailable; session touched: $FILES_LIST"
-    else
-      NOTE="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
-    fi
-    # Write the breadcrumb to the sidecar (out of PROJECT.md decisions), bounded to 50 lines.
-    mkdir -p "$(dirname "$PENDING_LOG")" 2>/dev/null || true
-    printf '[%s] %s\n' "$TODAY" "$NOTE" >> "$PENDING_LOG" 2>/dev/null || true
-    if [ -f "$PENDING_LOG" ]; then
-      tail -n 50 "$PENDING_LOG" > "$PENDING_LOG.tmp" 2>/dev/null && mv "$PENDING_LOG.tmp" "$PENDING_LOG" 2>/dev/null || rm -f "$PENDING_LOG.tmp" 2>/dev/null
-    fi
-    # Deterministic delta (P1): a grounded files-changed decision so capture reaches
-    # PROJECT.md even with no LLM. The sidecar breadcrumb above stays the audit trail.
-    DELTA_JSON=$(sb_extract_deterministic "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
-  fi
+  DELTA_JSON=$(sb_degraded_floor "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES" "$PROJECT_MD")
 fi
 
 # Layer 4 Quality Gate (D157): shared with pre-compact.sh and the out-of-band

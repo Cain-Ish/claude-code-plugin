@@ -41,6 +41,13 @@ fail() {
   # A case that keeps the hook's stderr writes it here (marker-clamp failed once under load in
   # 0.56.0 review with no evidence because stderr went to /dev/null).
   [ -s "$SANDBOX/hook.err" ] && { echo "── hook stderr:"; tail -20 "$SANDBOX/hook.err"; }
+  # R3: a hook that stops before its archive step leaves only a gate row (empty-stdin,
+  # stdin-not-json-object, transcript-*, slug-empty) or a differently named archive (a slug the
+  # case did not expect); the plain 5-line tails above can hide both. A case that saves its stdin
+  # payload ($SANDBOX/payload.json) shows whether the TEST's own jq built one.
+  echo "── gate rows:"; grep -h '"gate=' "$SANDBOX/.second-brain/audit-log.jsonl" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | tail -8
+  echo "── transcripts/:"; ls -la "$SANDBOX/.second-brain/transcripts" 2>&1 | tail -6
+  [ -e "$SANDBOX/payload.json" ] && { echo "── hook stdin payload ($(wc -c < "$SANDBOX/payload.json" | tr -d ' ') bytes):"; head -c 400 "$SANDBOX/payload.json"; echo; }
   echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
   exit 1
 }
@@ -497,7 +504,11 @@ rm -rf "$PROJ"
 mkdir -p "$PROJ"   # PROJECT.md is now a DIRECTORY -> merge-project-update.sh must fail
 MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
 rm -f "$MARKER"
-stop_payload | "$SCRIPT" >/dev/null 2>&1
+# R3: one unreproduced failure (jq 1.7.1, ~620 processes: no merge row, no archive; 6 reruns alone
+# clean) left no evidence, so the payload and the hook's stderr are kept for fail() to print.
+stop_payload > "$SANDBOX/payload.json"
+[ -s "$SANDBOX/payload.json" ] || fail "merge-failed-trap: the test's own payload builder (jq -nc) wrote nothing: a harness failure, not a hook result"
+"$SCRIPT" < "$SANDBOX/payload.json" >/dev/null 2>"$SANDBOX/hook.err"
 rc=$?
 [ "$rc" -eq 0 ] || fail "merge-failed-trap: expected exit 0 (fail-soft), got $rc"
 ( grep -q 'gate=merge-failed' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
@@ -540,6 +551,105 @@ ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2
 [ -n "$ARCHIVE" ] || fail "extract-off: transcript window was not archived"
 pass "D077: SB_EXTRACT=off skips the LLM call but still archives + advances the marker"
 restore_path
+
+# === R3 (C1 audit): PreCompact parity with Stop, per-line transcript parsing ===================
+# ANTHROPIC_API_KEY / SB_EXTRACTOR_LOCAL_URL are blanked in every case so only the claude stub can
+# answer. A record cut mid-write (a half-flushed line) sits in front of the window's only tool call.
+CUT_LINE='{"type":"assistant","message":{"role":"assistant","content":[{"type":"te'
+FOO_EDIT='{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}'
+stub_claude_empty() {   # the extractor answers nothing: LLM extraction unavailable
+  printf '#!/bin/bash\nexit 0\n' > "$SANDBOX/path-stub/claude"; chmod +x "$SANDBOX/path-stub/claude"
+  export PATH="$SANDBOX/path-stub:$PATH"
+}
+stub_claude_sentinel() {   # records that it ran, then answers $1
+  printf '#!/bin/bash\necho ran >> "%s"\ncat <<'"'"'JSON'"'"'\n%s\nJSON\n' "$SANDBOX/claude-ran" "$1" > "$SANDBOX/path-stub/claude"
+  chmod +x "$SANDBOX/path-stub/claude"; export PATH="$SANDBOX/path-stub:$PATH"
+}
+run_pc() { stop_payload "${2:-test-session}" | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "${1:-$REPO_ROOT/scripts/pre-compact.sh}" >/dev/null 2>"$SANDBOX/hook.err"; }
+run_stop() { stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= "$SCRIPT" >/dev/null 2>"$SANDBOX/hook.err"; }
+
+# PC1: an LLM failure on PreCompact merges the deterministic files-changed floor, like Stop (7b).
+# Both branches: no breadcrumb yet today (the breadcrumb is written too), and one already logged.
+for pc1 in fresh logged; do
+  init_sandbox "pc-floor-$pc1"
+  seed_transcript_long_with_edit
+  stub_claude_empty
+  PENDING="$SANDBOX/.second-brain/projects/test-slug/pending-extraction.log"
+  [ "$pc1" = logged ] && printf '[%s] [degraded] LLM extraction unavailable; earlier session\n' "$(date -u +%Y-%m-%d)" > "$PENDING"
+  run_pc
+  PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+  grep -q 'auto-captured' "$PROJ" || fail "PC1 ($pc1): PreCompact merged no [auto-captured] floor after an LLM failure"
+  grep -q 'src/foo.ts' "$PROJ" || fail "PC1 ($pc1): the floor decision does not cite src/foo.ts"
+  grep -qF '[degraded]' "$PROJ" && fail "PC1 ($pc1): [degraded] leaked into PROJECT.md"
+  [ "$(grep -c '\[degraded\]' "$PENDING")" = 1 ] || fail "PC1 ($pc1): want exactly one [degraded] breadcrumb today, got $(grep -c '\[degraded\]' "$PENDING")"
+  restore_path
+done
+pass "PC1: a PreCompact LLM failure merges the deterministic floor (breadcrumb once per day), like Stop"
+
+# PC2 (D177 on PreCompact): a failed merge keeps the marker, so the next PreCompact or Stop retries
+# the window. The merge is failed by a stub in a scratch copy of scripts/ (a PROJECT.md directory
+# would stop PreCompact at its project-md-missing gate, before the merge).
+init_sandbox "pc-merge-failed"
+seed_transcript_long_with_edit
+stub_claude_json '{"recent_decisions":["pc2 decision survives a failed merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+PC2_ROOT="$TMP/pc2-root"; mkdir -p "$PC2_ROOT"; cp -R "$REPO_ROOT/scripts" "$PC2_ROOT/"
+printf '#!/bin/bash\ncat > /dev/null\necho "stub: merge refused" >&2\nexit 1\n' > "$PC2_ROOT/scripts/merge-project-update.sh"
+MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+run_pc "$PC2_ROOT/scripts/pre-compact.sh"
+grep -q 'merge-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PC2: the stubbed merge failure left no merge-failed row (the case proves nothing)"
+[ ! -f "$MARKER" ] || fail "PC2: PreCompact advanced the marker to $(cat "$MARKER") despite a failed merge: the window is lost"
+run_pc
+grep -q 'pc2 decision survives a failed merge' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PC2: the retry did not merge the window's decision"
+[ "$(cat "$MARKER" 2>/dev/null)" = 20 ] || fail "PC2: the successful retry did not advance the marker to 20 (got $(cat "$MARKER" 2>/dev/null))"
+pass "PC2: a failed PreCompact merge keeps the marker; the next run retries and advances it"
+restore_path
+
+# TC1: a record cut mid-write must not hide the rest of the window. A plain `jq` stops at the first
+# record that does not parse, so the Edit after it was never counted: the window read as
+# tool-count-zero and its marker advanced (Stop and PreCompact), and the deterministic floor
+# (`jq -s` over the window) came out empty.
+init_sandbox "tc-cut-stop"
+{ echo '{"type":"user","message":{"role":"user","content":"hi"}}'; echo "$CUT_LINE"; echo "$FOO_EDIT"; } > "$SANDBOX/transcript/session.jsonl"
+stub_claude_json '{"recent_decisions":["tc1 window behind a cut record"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+run_stop
+grep -q 'gate=tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null && fail "TC1 (Stop): a cut record hid the window's Edit (gate=tool-count-zero)"
+grep -q 'tc1 window behind a cut record' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC1 (Stop): the window behind the cut record was not extracted"
+restore_path
+init_sandbox "tc-cut-stop-floor"
+{ echo '{"type":"user","message":{"role":"user","content":"hi"}}'; echo "$CUT_LINE"; echo "$FOO_EDIT"; } > "$SANDBOX/transcript/session.jsonl"
+stub_claude_empty
+run_stop
+grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC1 (Stop floor): the deterministic floor lost src/foo.ts behind the cut record"
+restore_path
+init_sandbox "tc-cut-pc"
+seed_transcript_long_with_edit
+{ head -1 "$SANDBOX/transcript/session.jsonl"; echo "$CUT_LINE"; tail -n +2 "$SANDBOX/transcript/session.jsonl"; } > "$SANDBOX/transcript/s.tmp" && mv "$SANDBOX/transcript/s.tmp" "$SANDBOX/transcript/session.jsonl"
+stub_claude_json '{"recent_decisions":["tc1 precompact window behind a cut record"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+run_pc
+grep -q 'tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null && fail "TC1 (PreCompact): a cut record hid the window's Edit (tool-count-zero)"
+grep -q 'tc1 precompact window behind a cut record' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC1 (PreCompact): the window behind the cut record was not extracted"
+pass "TC1: a record cut mid-write hides nothing: Stop and PreCompact count and extract the rest of the window, and the floor keeps its files"
+restore_path
+
+# PR1: an extractor input whose transcript part could not be rendered (sb_preprocess_transcript
+# failed: jq killed, the scrub failed) is never sent: the hook logs it and merges the floor. The
+# render's jq is failed by a PATH shim that matches only the render program (`def cut(`).
+REAL_JQ=$(command -v jq)
+PR_SHIM="$TMP/pr-jq-shim"; mkdir -p "$PR_SHIM"
+printf '#!/bin/bash\ncase "$*" in *"def cut("*) cat > /dev/null; echo "jq: error: simulated render failure" >&2; exit 2 ;; esac\nexec "%s" "$@"\n' "$REAL_JQ" > "$PR_SHIM/jq"
+chmod +x "$PR_SHIM/jq"
+for pr in stop pre-compact; do
+  init_sandbox "pr-render-$pr"
+  if [ "$pr" = stop ]; then seed_transcript_with_edit; HOOK_PR="$SCRIPT"; else seed_transcript_long_with_edit; HOOK_PR="$REPO_ROOT/scripts/pre-compact.sh"; fi
+  stub_claude_sentinel '{"recent_decisions":["pr1 must not be extracted"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  P_PR=$(stop_payload)
+  printf '%s' "$P_PR" | env PATH="$PR_SHIM:$PATH" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$HOOK_PR" >/dev/null 2>"$SANDBOX/hook.err"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "PR1 ($pr): the extractor ran on an input whose transcript could not be rendered"
+  grep -q 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PR1 ($pr): the failed render was not logged"
+  grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PR1 ($pr): no deterministic floor after the failed render"
+  restore_path
+done
+pass "PR1: a window the render could not produce is never sent to the extractor (Stop and PreCompact): logged, floor merged"
 
 # === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
 # Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.

@@ -116,7 +116,7 @@ UserPromptSubmit ──> persona-context.sh (JIT hints)
 Stop / PreCompact ──> stop-extract.sh / pre-compact.sh ──> PROJECT.md merge + edges + transcripts/
     (skipped windows) ──> extract-drain.sh (out-of-band timer) ──> same merge path
 PostCompact ──> pre-compact.sh post (Pending Tasks -> ## Plan, add-only, §8.8)
-/second-brain:capture, setup scan ──> raw inbox ──> raw-drainer agent ──> wiki pages
+setup deep-scan, raw-capture-cli by hand ──> raw inbox ──> /second-brain:maintain (raw-drainer agent) ──> wiki pages
 wiki ──> dream (7-phase staging) ──> dream-accept (5 guards) ──> live wiki
                                 └──> FORGET manifest ──> reversible wiki-archive/
 ```
@@ -148,33 +148,49 @@ windows are archived too. Its cursor is `.last-archived-line-<slug>--<sid>` (`<r
 archived window, and `sb_archive_subagent_result` (`lib.sh:2009`) scrubs subagent results too, without changing a line count. Appends and the in-place scrub share a per-archive noclobber lock (`sb_archive_lock`, `lib.sh:1624`). Caps 400 files/25 MB soft, 1200 files/75 MB hard.
 → disjoint-window marker `.last-extracted-line-<slug>--<sid>` (raw transcript lines; line count
 via `awk 'END{print NR}'`, NOT `wc -l` — missing-final-newline undercount) →
-substantive gate (≥1 `tool_use` in the delta) → LLM extraction (`sb_call_extractor`; backend
-order: local endpoint → `claude` CLI → `ANTHROPIC_API_KEY` API) → on LLM-unavailable, a
-`[degraded]` breadcrumb + deterministic files-changed floor → quality gate → merge: delta →
-`merge-project-update.sh` (PROJECT.md), `relations[]` → `merge-edges.sh`
+substantive gate (≥1 `tool_use` in the delta, `sb_window_tool_count`: each raw line parsed on its
+own, so a record cut mid-write hides nothing after it) → extractor input (PROJECT.md + the
+rendered window; a render that failed is never sent) → LLM extraction (`sb_call_extractor`; backend
+order: local endpoint → `claude` CLI → `ANTHROPIC_API_KEY` API) → on LLM-unavailable or a failed
+render, `sb_degraded_floor`: one `[degraded]` breadcrumb per day in the `pending-extraction.log`
+sidecar + the deterministic files-changed floor (`sb_extract_deterministic`, also per line), in
+BOTH hooks (PreCompact merged an empty delta before R3) → quality gate → merge: delta →
+`merge-project-update.sh` (PROJECT.md; a failed merge leaves the marker in place in BOTH hooks,
+D177, so the next Stop or PreCompact retries the window), `relations[]` → `merge-edges.sh`
 (`$KNOWLEDGE_DIR/graph/edges.jsonl`; bad endpoints → `edges-quarantine.jsonl`), persona signals →
 `merge-persona-signals.sh` → incremental episodic
 index (`node mcp/dist/tools/episodic-index-cli.bundle.js`).
 
 ### 3.3 Out-of-band drainer — `scripts/extract-drain.sh` (+ `install-extract-timer.sh`)
-Runs OUTSIDE any Claude session on a 30-min timer (systemd/launchd/schtasks); refuses in-session
-(`CLAUDECODE=1` → exit 0) because a headless `claude -p` inside a live OAuth session deadlocks
-(the R1 incident — 169 consecutive timeouts; see sb-failure-archaeology). Defers while an
-interactive `claude` is live; a persisted starvation escape (`.drain-defer-count`, defers ≥6 or
-oldest pending >24 h) forces exactly ONE drain, and only when safe (API key, or pmode-only + a
-`timeout` binary). Single-flight via `flock` on `.extract-drain.lock` (mkdir fallback, 7200 s
-staleness steal). Up to 5 extractor calls per tick, oldest archive first; ledger
-`.extraction-state.jsonl` holds archive-line windows (`from`, `lines`), read through
-`sb_drain_cursor_map` (`done|pending|dead`), so only NEW lines of a grown archive are extracted
-(eligible at ≥`SB_DRAIN_DELTA_MIN_BYTES` new, or quiet ≥`SB_DRAIN_QUIET_S`); at 3 fails, a
-deterministic floor (`sb_floor_transcript`) merges the files-changed baseline, else that window is
-dead-lettered. Tail: archive
-pruning always; `maintain-deterministic.sh` when config `auto_improve`; `maintain-llm-drain.sh`
-when `auto_maintain` (§3.6).
+Runs OUTSIDE any Claude session on a 30-min timer (systemd/launchd/schtasks). Inside a session
+(`CLAUDECODE=1`) it refuses with **exit 3**, not 0 (`extract-drain.sh:217-224`; the old exit 0 read
+as "drained fine"); the LLM-free `--scrub-only` run is exempt (SessionStart forks it). A headless
+`claude -p` inside a live OAuth session deadlocked once (the R1 incident, 169 consecutive
+timeouts; sb-failure-archaeology). Defers while an interactive `claude` is live, but the lock is
+taken first, so a tick that loses it never burns an escape. Starvation escape (`sb_drain_starved`):
+after `SB_DRAIN_DEFER_MAX` (6) defers, or once the oldest pending archive is older than
+`SB_DRAIN_STALE_MAX` (24 h, rate-limited by `SB_DRAIN_ESCAPE_COOLDOWN`), exactly ONE drain runs.
+`sb_drain_escape_safe` (`:169-188`) always answers safe: every attempt is time-bounded (curl
+`--max-time` with `ANTHROPIC_API_KEY`, else `claude -p` under `sb_timeout`, which refuses loudly,
+exit 127 + error row, with no `timeout` binary), so a hang costs one `retry` and only
+`SB_DRAIN_MAX_FAILS` (3) failures dead-letter a window. The old API-key / pmode-only gate made the
+escape unreachable on subscription boxes (120 defers, 3 days undrained, 2026-08-22). Single-flight
+via `flock` on `.extract-drain.lock` (mkdir fallback, 7200 s staleness steal). Up to 5 extractor
+calls per tick, oldest archive first; ledger `.extraction-state.jsonl` holds archive-line windows
+(`from`, `lines`), read through `sb_drain_cursor_map` (`done|pending|dead`), so only NEW lines of a
+grown archive are extracted (eligible at ≥`SB_DRAIN_DELTA_MIN_BYTES` new, or quiet
+≥`SB_DRAIN_QUIET_S`); at 3 fails, a deterministic floor (`sb_floor_transcript`) merges the
+files-changed baseline, else that window is dead-lettered. Tail: archive pruning always;
+`maintain-deterministic.sh` when config `auto_improve`; `maintain-llm-drain.sh` when
+`auto_maintain` (§3.6).
 
 ### 3.4 Raw inbox → wiki
-Items are flat-frontmatter .md files (`status: unprocessed|processed|discarded`), written by
-`/second-brain:capture` and the setup deep-scan; invisible/Unicode-Tags chars stripped on write
+Items are flat-frontmatter .md files (`status: unprocessed|processed|discarded`), written only by
+`/second-brain:setup`'s one-time deep-scan (`raw-scan-cli`) and by `raw-capture-cli` run by hand
+or from a script. `skills/capture` merely documents that CLI: `user-invocable: false` plus
+`disable-model-invocation: true`, so nothing invokes it; no hook, MCP tool or drainer writes raw
+items, and nothing drains them except `/second-brain:maintain` in a Claude session (the SessionStart
+banner says so). Invisible/Unicode-Tags chars stripped on write
 AND read (`mcp/src/tools/sanitize.ts`); ids traversal-checked. The `raw-drainer` agent
 (`agents/raw-drainer.md`) drains ONE bounded batch (`SB_DRAIN_BATCH`, default 5) per dispatch,
 idempotent via `scripts/kb-drain-reconcile.sh` and the required back-ref
@@ -343,7 +359,7 @@ above shipped through a green suite to prove it.
 | 5 | A dream cannot gut the live wiki — the 5 accept guards of §3.5 | `dream-accept.sh:48-192` | `tests/test-dream-accept-guards.sh` |
 | 6 | `graph/edges.jsonl` is never merged from staging (append-only log, unmergeable under concurrent live appends); edge curation is live-path-only | dream snapshots `wiki/` only; RELATE phase surfaces suggestions in the report | `agents/dream-runner.md:84-100` protocol; grant locks in `mcp/src/agent-grants.test.ts` |
 | 7 | Extraction windows are disjoint: session-keyed markers `<slug>--<sid>` shared by Stop + PreCompact, advanced never cleared (a marker reset once re-archived one session 18×) | `lib.sh` marker helpers; `pre-compact.sh` shares the marker | `tests/test-stop-extract.sh` (Test 8: marker created, advances to TOTAL_LINES, rerun does NOT re-archive) + `tests/test-extract-drain.sh` (30-day marker GC, extract-drain.sh:301). `test-transcript-archive.sh` covers only the archive caps/metadata half of §3.2, NOT markers |
-| 8 | Capture never blocks the harness: capture/context hooks and the drainer always exit 0; SubagentStop must exit 0 | in-script contracts (stop-extract.sh header; hooks.json SubagentStop comment) | `tests/test-stop-extract.sh` (Tests 4-6: garbage LLM output / missing transcript / malformed stdin each MUST exit 0) + `tests/test-subagent-capture.sh` (every case asserts "must always exit 0") |
+| 8 | Capture never blocks the harness: capture/context hooks always exit 0 (SubagentStop included). The drainer exits 0 on every out-of-session path and 3 ONLY when run inside a Claude session (`CLAUDECODE=1`, `extract-drain.sh:217-224`): a refusal that must not read as a successful drain. The scheduler never runs in-session, so it never sees the 3 | in-script contracts (stop-extract.sh header; extract-drain.sh header; hooks.json SubagentStop comment) | `tests/test-stop-extract.sh` (Tests 4-6: garbage LLM output / missing transcript / malformed stdin each MUST exit 0) + `tests/test-subagent-capture.sh` (every case asserts "must always exit 0") + `tests/test-extract-drain.sh` (the in-session refusal leaves the drain state empty) |
 | 9 | FORGET is reversible and fail-safe: recall-guard-down → exit 2 → phase skipped; archive = move + JSONL log; `auto_accept=safe` refuses FORGET dreams; archive TTL defaults to never | `wiki-forget-candidates.sh`; `sb_auto_accept_decision` (lib.sh); `ensure-dirs.sh` seed | `tests/test-dream-accept-guards.sh`; forget-score tests |
 | 10 | Untrusted input is DATA, not instructions — and mechanically backed: transcripts staged as sanitized copies, raw items sanitized write+read, ids/slugs traversal-checked (incl. attacker-influenceable transcript headers) | `sanitize.ts`, `raw-inbox.ts`, `lib.sh` slug sanitizers; agent grant allowlists | `mcp/src/agent-grants.test.ts` (greps the agent markdown — prose promises get machine locks here) |
 | 11 | Two log channels with distinct rotation: `error-log.jsonl` (512 KB → newest 1000) vs `audit-log.jsonl` (5000 lines/5 MiB → oldest half dropped); `gate=*` breadcrumbs route to audit, not error | `sb_log_error` (lib.sh:232) / `sb_log_audit` (lib.sh:462) | `tests/test-log-hygiene.sh` (R6b: `gate=`/ec-0 routes to audit-log not error-log; a failing `gate=` line stays an error; error-log rotates at 512 KB keeping the newest tail; the trace path applies the audit-log's own rotation) |
@@ -386,9 +402,14 @@ previously named a phantom `tests/test-surface-budget.sh` — defect closed).
    3-strike file `.llm-maintain-quarantine` and the edge quarantine
    `graph/edges-quarantine.jsonl` remain separate, working mechanisms. Accepted residual: the
    model-API channel (see wiki `decisions/cross-platform-autonomy-architecture.md`).
-6. **Drainer starvation under always-on interactive OAuth use.** The escape only fires when SAFE
-   (API key, or `SB_DRAIN_DEFER_PMODE_ONLY=1` + a timeout binary); pure-OAuth boxes with a held
-   lock keep deferring and rely on the SessionStart drain-health banner.
+6. **Drainer starvation under always-on interactive OAuth use.** The escape no longer waits for an
+   API key or `SB_DRAIN_DEFER_PMODE_ONLY=1` (`sb_drain_escape_safe` always answers safe,
+   `extract-drain.sh:169-188`): after `SB_DRAIN_DEFER_MAX` defers or once the oldest pending archive
+   is older than `SB_DRAIN_STALE_MAX`, one time-bounded drain runs even beside a live session. The
+   residuals: a box with no `timeout`/`gtimeout` and no API key (stock macOS) cannot bound
+   `claude -p`, so each escape records `retry` with a logged `sb_timeout` refusal and the window
+   dead-letters after `SB_DRAIN_MAX_FAILS`; and a box with no drainer timer installed never drains
+   at all. Both rely on the SessionStart drain-health and loop-dead banners.
 7. **jq-on-Windows CRLF class.** jq 1.8.1 stdout is text-mode on Windows (`\n`→`\r\n`); every jq
    read boundary needs `tr -d '\r'` and line-oriented writes need `-c`. Class guard:
    `tests/test-jq-crlf-windows.sh` (stubbed Windows jq on Linux CI). New jq call sites are the
@@ -440,7 +461,12 @@ SessionStart `compact` group + PostCompact event ahead of the controller's 0.54.
 alarm), `scripts/pre-compact.sh` (`post` mode), `scripts/merge-project-update.sh` (`merge_plan`
 carry/stale/sticky-mark, `merge_compact_pending`), `hooks/hooks.json`, `hooks/hooks.notes.md`,
 `wiki/learnings/sessionstart-compact-reinject-probe-2026-09`,
-`code.claude.com/docs/en/hooks-guide.md` §"Re-inject context after compaction". Sources:
+`code.claude.com/docs/en/hooks-guide.md` §"Re-inject context after compaction". §3.2-§3.4, §7
+row 8 and §8.6 rewritten from the code 2026-10-07 (R3, C1 audit): `scripts/extract-drain.sh`
+(:169-188 escape, :217-224 in-session exit 3), `scripts/stop-extract.sh`, `scripts/pre-compact.sh`,
+`scripts/lib.sh` (`sb_window_tool_count`, `sb_extract_deterministic`, `sb_degraded_floor`),
+`skills/capture/SKILL.md` frontmatter, and the raw-item writers (`captureItem` callers:
+`mcp/src/tools/raw-capture-cli.ts`, `mcp/src/tools/raw-scan.ts`). Sources:
 `hooks/hooks.json`,
 `scripts/lib.sh`, `scripts/session-load.sh`, `scripts/stop-extract.sh`, `scripts/extract-drain.sh`,
 `scripts/dream-snapshot.sh`, `scripts/dream-accept.sh`, `scripts/maintain-llm-drain.sh`,

@@ -3,6 +3,8 @@
 # pins: SB_HEADLESS_CONTEXT — opt-in test (36): asserts =on restores capture for a foreign headless child
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
+# pins: SB_SUBAGENT_ARCHIVE_CAP — Test 11 lowers the subagent prune cap to 5 so 7 calls prove the cap
+#   evicts sub-* archives only (the cap is the subject, not a gate bypass)
 # run-all-timeout: 240   (~40 hook runs plus two real episodic-indexer runs; 48-52 s alone on an idle MSYS box, over half of run-all's 120 s default)
 # Tests for scripts/subagent-capture.sh — the SubagentStop hook that archives a
 # substantive, non-self subagent's FINAL RESULT into ~/.second-brain/transcripts/.
@@ -79,6 +81,66 @@ run_hook "$B" "plugin:second-brain:knowledge-maintainer" "aid333" "$T" >/dev/nul
 [ -z "$(arc "$B")" ] || fail "3: namespaced self agent should be skipped"
 pass "namespaced self agent: skipped"
 
+# --- Test 3b (C1 audit, R3): raw-drainer is one of the plugin's four agents (README), but the hand
+# list missed it, so its drain reports were archived as sub-*.txt and the drainer re-mined them
+# (mining-self). Bare, plugin-namespaced and fully namespaced forms are all skipped.
+for at3b in raw-drainer second-brain:raw-drainer plugin:second-brain:raw-drainer; do
+  B="$TMP/b3b-${at3b//:/_}"; mkdir -p "$B"; T="$TMP/t3b-${at3b//:/_}.jsonl"; mk_transcript "$T" 1 "$LONG"
+  run_hook "$B" "$at3b" "aid3b" "$T" >/dev/null 2>&1
+  [ -z "$(arc "$B")" ] || fail "3b: the plugin's own agent $at3b was archived (mining-self)"
+done
+pass "raw-drainer (bare and namespaced) is a self agent: skipped"
+
+# --- Test 3c: the self list is the plugin's agents/*.md frontmatter names, read at run time, so an
+# agent is excluded the day it ships. A scratch plugin root (the hook plus lib.sh, which it sources
+# beside itself) carries one extra agent; a subagent of that type is skipped, any other is archived.
+P3C="$TMP/plug3c"; mkdir -p "$P3C/scripts" "$P3C/agents"
+cp "$SCRIPT" "$ROOT/scripts/lib.sh" "$ROOT/scripts/kb-schema.sh" "$P3C/scripts/"
+cp "$ROOT/agents/"*.md "$P3C/agents/"
+printf -- '---\r\nname: zz-new-agent\r\ndescription: a test agent with CRLF frontmatter\r\n---\r\nname: not-this-one\r\n' > "$P3C/agents/zz-new-agent.md"
+# A frontmatter without a name: the body's name: line must not count either.
+printf -- '---\ndescription: no name here\n---\nname: body-only-name\n' > "$P3C/agents/zz-noname.md"
+for at3c in zz-new-agent second-brain:zz-new-agent not-this-one body-only-name; do
+  B="$TMP/b3c-${at3c//:/_}"; mkdir -p "$B"; T="$TMP/t3c-${at3c//:/_}.jsonl"; mk_transcript "$T" 1 "$LONG"
+  printf '%s' "$(jq -nc --arg at "$at3c" --arg tp "$T" --arg cw "$TMP/repo" \
+      '{hook_event_name:"SubagentStop", agent_type:$at, agent_id:"aid3c", transcript_path:$tp, cwd:$cw, session_id:"sess1"}')" \
+    | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$P3C" bash "$P3C/scripts/subagent-capture.sh" >/dev/null 2>&1
+done
+[ -z "$(arc "$TMP/b3c-zz-new-agent")" ] || fail "3c: an agent shipped in agents/*.md (zz-new-agent) was archived; the self list is not read from the frontmatter"
+[ -z "$(arc "$TMP/b3c-second-brain_zz-new-agent")" ] || fail "3c: the namespaced form of a shipped agent was archived"
+[ -n "$(arc "$TMP/b3c-not-this-one")" ] || fail "3c: a name: line in an agent's BODY made that name a self agent (only the frontmatter counts)"
+[ -n "$(arc "$TMP/b3c-body-only-name")" ] || fail "3c: a body name: line of an agent whose frontmatter has no name made it a self agent"
+pass "self agents are read from agents/*.md frontmatter (CRLF-safe, body ignored)"
+
+# --- Test 3d: the literal floor (used when agents/ cannot be read) names every shipped agent.
+FLOOR3D=$(sed -n 's/^SELF_AGENTS="\([^"]*\)".*/\1/p' "$SCRIPT" | head -1 | tr ' ' '\n' | grep . | LC_ALL=C sort | tr '\n' ' ')
+SHIPPED3D=$(sed -n 's/^name:[[:space:]]*//p' "$ROOT/agents/"*.md | tr -d '\r' | LC_ALL=C sort | tr '\n' ' ')
+[ -n "$SHIPPED3D" ] || fail "3d: no agents/*.md frontmatter names found (the case proves nothing)"
+[ "$FLOOR3D" = "$SHIPPED3D" ] || fail "3d: SELF_AGENTS floor [$FLOOR3D] != agents/*.md names [$SHIPPED3D]"
+pass "the SELF_AGENTS literal floor equals the agents/*.md names"
+
+# --- Test 3e (C1 audit, R3): with no jq the hook archived nothing and said nothing. It still archives
+# nothing (it cannot parse the payload), but one error row says why: once, not per subagent. The
+# host without jq is simulated by an exported `command` that denies `command -v jq` to the hook
+# (and to lib.sh's sb_log_error, which then takes its jq-free writer); jq itself stays on PATH for
+# this test's own payload building.
+B="$TMP/b3e"; mkdir -p "$B"; T="$TMP/t3e.jsonl"; mk_transcript "$T" 1 "$LONG"
+nojq_hook() {
+  ( command() { if [ "${1:-}" = -v ] && [ "${2:-}" = jq ]; then return 1; fi; builtin command "$@"; }
+    export -f command
+    run_hook "$B" "general-purpose" "aid3e" "$T" ) >/dev/null 2>&1
+}
+nojq_hook; RC=$?; nojq_hook
+[ "$RC" -eq 0 ] || fail "3e: the hook exited $RC without jq (must always exit 0)"
+[ -z "$(arc "$B")" ] || fail "3e: something was archived without jq"
+N3E=$(grep -c 'subagent-capture.sh.*jq' "$B/error-log.jsonl" 2>/dev/null | tr -d ' \r')
+[ "${N3E:-0}" = 1 ] || fail "3e: want exactly 1 error row naming the missing jq after 2 runs, got ${N3E:-0} ($(cat "$B/error-log.jsonl" 2>/dev/null))"
+run_hook "$B" "general-purpose" "aid3e" "$T" >/dev/null 2>&1
+[ -n "$(arc "$B")" ] || fail "3e: with jq back the result was not archived"
+: > "$B/error-log.jsonl"; nojq_hook
+[ "$(grep -c 'subagent-capture.sh.*jq' "$B/error-log.jsonl" | tr -d ' \r')" = 1 ] || fail "3e: a later jq outage (after jq came back) was not reported again"
+pass "no jq: nothing archived, one error row per outage (not per subagent), hook exits 0"
+
 # --- Test 4: below tool-gate (0 tool_use) => skipped ---
 B="$TMP/b4"; mkdir -p "$B"; T="$TMP/t4.jsonl"; mk_transcript "$T" 0 "$LONG"
 run_hook "$B" "general-purpose" "aid444" "$T" >/dev/null 2>&1
@@ -134,20 +196,26 @@ pass "archive is episodic-parseable (meta header + ASSISTANT body)"
 # their OWN prune budget so they can never crowd out real session memory.
 # Cross-OS note: each run_hook call spawns bash+jq several times; on Windows/
 # Git-Bash that costs ~2s/call so 60 calls (the original loop) runs ~120s and
-# times out.  We override SB_SUBAGENT_ARCHIVE_CAP=5 and use 7 calls (cap+2) to
-# prove the cap enforces WITHOUT blowing the 90s wall-clock budget. ---
+# times out.  We override SB_SUBAGENT_ARCHIVE_CAP and use 7 calls to prove the cap enforces
+# WITHOUT blowing the 90s wall-clock budget.
+# 0.56.0 (X2 S4) changed WHICH cap applies: a sub-*.txt still waiting for extraction (every
+# archive here: no drainer ran) is evicted only past the HARD sub-cap, 3 x SB_SUBAGENT_ARCHIVE_CAP,
+# and loudly (migrations/0.56.0.md). The old oracle (cap 5, at most 5 left) asserted the pre-0.56
+# oldest-first rule and failed at e78111c already (7 left; found in R3). Cap 2 -> hard 6, so 7
+# un-extracted results cross the hard cap. ---
 B="$TMP/b11"; mkdir -p "$B/transcripts"; T="$TMP/t11.jsonl"; mk_transcript "$T" 1 "$LONG"
 echo "PRECIOUS MAIN SESSION ARCHIVE" > "$B/transcripts/s1_repo_2026-01-01.txt"  # old, must survive
-T11_CAP=5  # small cap so we only need cap+2 = 7 calls to prove the cap fires
-# write cap+2 distinct substantive subagent results (> the cap)
-for i in $(seq 1 $((T11_CAP + 2))); do
+T11_CAP=2; T11_HARD=$((T11_CAP * 3))
+for i in $(seq 1 $((T11_HARD + 1))); do
   run_hook "$B" "general-purpose" "aid${i}" "$T" SB_SUBAGENT_ARCHIVE_CAP="$T11_CAP" >/dev/null 2>&1
 done
 [ -f "$B/transcripts/s1_repo_2026-01-01.txt" ] || fail "11: main-session archive was EVICTED by a subagent flood"
 grep -q "PRECIOUS" "$B/transcripts/s1_repo_2026-01-01.txt" || fail "11: main-session archive corrupted"
 SUBN=$(ls "$B/transcripts/"sub-*.txt 2>/dev/null | wc -l | tr -d ' ')
-[ "$SUBN" -le "$T11_CAP" ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap $T11_CAP)"
-pass "subagent flood capped separately (got $SUBN sub-files); main-session archive survived"
+[ "$SUBN" -le "$T11_HARD" ] || fail "11: un-extracted subagent archives exceeded their hard cap (got $SUBN, hard cap $T11_HARD)"
+grep -q 'UN-EXTRACTED archive(s) past the hard ceiling' "$B/error-log.jsonl" 2>/dev/null \
+  || fail "11: evicting un-extracted subagent archives past the hard cap left no error row"
+pass "subagent flood capped separately (got $SUBN sub-files, hard cap $T11_HARD, eviction logged); main-session archive survived"
 
 # --- Test 12 (R1.2, HOOK-5 — updated for B1 finding #2): workflow "holding"
 # stub — the FINAL assistant record is tool_use-only (StructuredOutput carries

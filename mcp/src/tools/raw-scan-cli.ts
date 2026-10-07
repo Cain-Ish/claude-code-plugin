@@ -6,6 +6,10 @@ import { resolveActiveSlug, slugFromProjectDir } from './project-dir.js';
 import { cleanEnvPath } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
 
+/** How a person lists what the scan filed. Nothing invokes the capture skill (user-invocable:false,
+ *  disable-model-invocation:true), so the hint names the CLI itself, never the skill as a slash command. */
+const RAW_CAPTURE_CLI = 'node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"';
+
 function resolveSlug(brainDir: string): string | undefined {
   // SB_ACTIVE_SLUG (explicit override) first; else the shared resolver
   // (CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd).
@@ -36,7 +40,7 @@ async function main(): Promise<void> {
     } else {
       const more = r.truncated ? `, ${r.truncated} over the cap (raise SB_SCAN_MAX or /second-brain:track them)` : '';
       const errNote = r.errored ? ` (${r.errored} unreadable)` : '';
-      console.log(`Captured ${r.captured}, skipped ${r.skipped} already-in-inbox${errNote}${more}. Review: /second-brain:capture --list`);
+      console.log(`Captured ${r.captured}, skipped ${r.skipped} already-in-inbox${errNote}${more}. Review: ${RAW_CAPTURE_CLI} list (/second-brain:maintain drains them)`);
     }
   } catch (e) {
     console.log(`scan error: ${e instanceof Error ? e.message : String(e)}`);

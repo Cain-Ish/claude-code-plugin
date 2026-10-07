@@ -73,6 +73,24 @@ D5=$(sb_extract_deterministic "$TX5" 1 1)
 [ "$(echo "$D5" | jq -r '.files_touched | length')" = "0" ] || fail "D111: macOS \$TMPDIR (/var/folders/...) path not excluded: $D5"
 pass "D111: macOS \$TMPDIR (/var/folders/...) scratch path excluded"
 
+# C1 audit (R3): a record cut mid-write (a half-flushed last line, a torn append) must not empty the
+# floor. `jq -s` over the window failed whole on it and the `|| echo '[]'` fallback dropped every
+# real file. Each line is parsed on its own now; non-object records and a non-string path are
+# skipped too.
+TX6="$TMP/t6.jsonl"
+cat > "$TX6" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/before.ts"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"te
+42
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":7}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"MultiEdit","input":{"file_path":"src/after.ts"}}]}}
+EOF
+D6=$(sb_extract_deterministic "$TX6" 1 5)
+[ "$(printf '%s' "$D6" | jq -c '.files_touched')" = '["src/after.ts","src/before.ts"]' ] \
+  || fail "a cut record emptied or truncated the floor (want src/after.ts + src/before.ts): $D6"
+[ "$(printf '%s' "$D6" | jq -r '.recent_decisions | length')" = 1 ] || fail "no grounded decision behind the cut record: $D6"
+pass "a cut record, a non-object line and a non-string path are skipped; the floor keeps every real file"
+
 # Twin: sb_extract_archived_deterministic (out-of-band drainer) reads preprocessed text,
 # not JSONL — same scratch-path exclusion must apply there.
 ARCHIVED_TXT="$TMP/archived.txt"
