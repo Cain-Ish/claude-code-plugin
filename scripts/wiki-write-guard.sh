@@ -508,7 +508,14 @@ _wwg_kdpage() {
   case "$2" in */wiki/*.md) ;; *) return 1 ;; esac
   _wk_d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
   _wk_d=${_wk_d/#\~/"$HOME"}   # quoted (GC6): an unquoted '&' in HOME would be the matched '~' on bash 5.2
-  _fp_path _wk_d "$_wk_d" lex; _wk_d="${_wk_d%/}"
+  # A relative one ("kb", "./kb") is HOME's, where the default ~/knowledge lives (GS8, R3B): compared
+  # as is, no absolute page path matched it and its wiki went unchecked.
+  case "$_wk_d" in
+    /*|"$_fp_bs"*|[A-Za-z]:/*|[A-Za-z]:"$_fp_bs"*|'') ;;
+    ./*) _wk_d="$HOME/${_wk_d#./}" ;;
+    *) _wk_d="$HOME/$_wk_d" ;;
+  esac
+  _fp_path _wk_d "$_wk_d" lex; _fp_collapse _wk_d "$_wk_d"; _wk_d="${_wk_d%/}"
   [ -n "$_wk_d" ] || return 1
   _fp_lower _wk_d "$_wk_d"
   _fp_path _wk_p "$1" lex; _fp_lower _wk_p "$_wk_p"
