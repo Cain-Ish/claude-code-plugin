@@ -31,6 +31,19 @@ describe('server.ts tool-registration contract', () => {
     expect((src.match(/server\.registerTool\(/g) ?? []).length).toBe(1);
   });
 
+  // D3 (2026-10-07): the episodic_search handler dropped result.degraded. Its text is built by
+  // renderEpisodicSearch (unit-tested in search-output-contract.test.ts); a bespoke render or a
+  // hard-coded not-found line here would bypass the degraded message again.
+  it('episodic_search returns renderEpisodicSearch(result, budget) and renders nothing itself', () => {
+    const idx = src.search(/registerJsonTool\(\s*"episodic_search"/);
+    expect(idx, 'episodic_search registration not found').toBeGreaterThan(-1);
+    const end = src.indexOf('registerJsonTool(', idx + 1);
+    const block = src.slice(idx, end);
+    expect(block).toMatch(/return renderEpisodicSearch\(\s*result,\s*egressBudgetTokens\(\)\s*\)/);
+    expect(block).not.toMatch(/No matching conversations found/);
+    expect(block).not.toMatch(/capList\(/);
+  });
+
   it('knowledge_search description no longer advertises the access-frequency boost removed in 0.33.30', () => {
     expect(src).not.toMatch(/access-frequency/);
   });

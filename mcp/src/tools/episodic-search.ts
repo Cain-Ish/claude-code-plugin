@@ -4,6 +4,7 @@ import { join, basename, relative, isAbsolute } from 'path';
 import { embedTexts, appendErrorLog, embeddingsOptedOut, EMBEDDING_DIM } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
 import { stripInvisible } from './sanitize.js';
+import { capList } from './egress-budget.js';
 
 const INDEX_FILE = 'episodic-index.json';
 const SNIPPET_LEN = 200;
@@ -359,6 +360,40 @@ export async function serveEpisodicLines(query: string, brainDir: string, o: Epi
     const sim = Math.round(r.similarity * 100);
     return `- "${foldServedSnippet(r.userSnippet).slice(0, 80)}..." (${foldServedSnippet(r.project)}, ${foldServedSnippet(r.date)}, ${sim}%)`;
   })];
+}
+
+/** The episodic_search MCP tool's text (server.ts returns it as is). Archive text is untrusted:
+ *  every snippet is folded to one bracket-free line, and a row with no human words is labelled by
+ *  its provenance (subagent report, peer message, machine turn), never with the user label
+ *  (security review, R1).
+ *  result.degraded reaches the model here (D3, 2026-10-07: the handler used to drop it, so a
+ *  concept array on an install without embeddings read as "no such conversation"):
+ *  'vector-unavailable' (a concept array or explicit vector mode: nothing could run) -> a no-results
+ *  line that says why and how to retry; 'text-only' -> a not-found line that says only text ran, or
+ *  a footer under the rows. The footer goes on AFTER capList, so the egress cap cannot drop it. */
+export function renderEpisodicSearch(result: EpisodicSearchResult, budgetTokens: number): string {
+  if (result.results.length === 0) {
+    if (result.degraded === 'vector-unavailable') {
+      return 'No results — vector search unavailable (embeddings missing); retry as a single string query (mode "both" or "text") for text matching.';
+    }
+    if (result.degraded === 'text-only') {
+      return 'No matching conversations found (text matching only — vector search unavailable (embeddings missing)).';
+    }
+    return 'No matching conversations found.';
+  }
+  const render = (r: EpisodicSearchResult['results'][number]) => {
+    const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
+    return [
+      `### ${foldServedSnippet(r.project)} — ${foldServedSnippet(r.date)}${sim}`,
+      episodeUserLine(r.userSnippet),
+      `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
+      `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
+    ].join('\n');
+  };
+  const text = capList(result.results, render, budgetTokens, 'narrow the query or use episodic_read on a specific result').text;
+  return result.degraded
+    ? `${text}\n\n_Degraded: vector search unavailable (embeddings missing) — these are text matches only._`
+    : text;
 }
 
 // A cleaned machine row has an empty user side (cleanUserText). Human-facing renderers show the

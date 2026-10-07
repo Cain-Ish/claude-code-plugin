@@ -12,11 +12,11 @@ import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
-import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, episodeUserLine, foldServedSnippet } from "./tools/episodic-search.js";
+import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, renderEpisodicSearch } from "./tools/episodic-search.js";
 import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
-import { capList, egressBudgetTokens } from "./tools/egress-budget.js";
+import { egressBudgetTokens } from "./tools/egress-budget.js";
 import { knowledgeRelate } from "./tools/knowledge-relate.js";
 import { knowledgeNeighbors } from "./tools/knowledge-neighbors.js";
 import { codeMap } from "./tools/codemap/code-map.js";
@@ -383,7 +383,7 @@ registerJsonTool(
 
 registerJsonTool(
   "episodic_search",
-  "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading. Result carries degraded:'text-only' when vector search is unavailable (embeddings missing) and only text matching ran.",
+  "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading. When vector search is unavailable (embeddings missing) the text says so: a footer under text-only results, or a no-results line for a concept array (vector-only) that says to retry as a single string query.",
   {
     query: z.union([
       z.string().describe("Search query for semantic + text matching"),
@@ -397,23 +397,10 @@ registerJsonTool(
   },
   async (args) => {
     const result = await episodicSearch(withActiveScope(args, resolveActiveSlug()), BRAIN_DIR);
-    if (result.results.length === 0) {
-      return "No matching conversations found.";
-    }
-    // Archive text is untrusted: every snippet is folded to one bracket-free line, and a row with
-    // no human words is labelled by its provenance (subagent report, peer message, machine turn),
-    // never with the user label (security review, R1).
-    const render = (r: typeof result.results[number]) => {
-      const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
-      return [
-        `### ${foldServedSnippet(r.project)} — ${foldServedSnippet(r.date)}${sim}`,
-        episodeUserLine(r.userSnippet),
-        `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
-        `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
-      ].join('\n');
-    };
-    const capped = capList(result.results, render, egressBudgetTokens(), 'narrow the query or use episodic_read on a specific result');
-    return capped.text;
+    // Folded rows, provenance labels, the egress cap and the degraded notice (D3) all live in
+    // renderEpisodicSearch, which search-output-contract.test.ts exercises (this module cannot be
+    // imported in a test).
+    return renderEpisodicSearch(result, egressBudgetTokens());
   }
 );
 
