@@ -63,13 +63,67 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && pass "F1c: a complete staging (== live) is accepted (rc=0)" || fail "F1c: a valid full consolidation was refused (rc=$rc)"
 rm -rf "$SB"
 
-# --- F3a: safe-mode (NO_DELETE) refuses a dream that drops a live page -------
+# --- F3a: safe-mode (NO_DELETE) refuses a dream that drops a PRE-snapshot live page ------
+# Only an apply that can delete is refused: rsync --delete with a usable created_at. Without
+# either the apply is merge-only and deletes nothing, so there is nothing to refuse (K1, F3c).
+# The pre-K1 F3a ran with no created_at, so it asserted a refusal that guarded nothing. A host
+# without rsync gets a stub on PATH: the refusal comes before the apply, so the stub never runs
+# there (gate-only), and where it does run (F3d) the case asserts the gate's verdict only.
+RSYNC_STUB=""
+if ! command -v rsync >/dev/null 2>&1; then
+  RSYNC_STUB=$(mktemp -d); printf '#!/bin/bash\nexit 0\n' > "$RSYNC_STUB/rsync"; chmod +x "$RSYNC_STUB/rsync"
+fi
+with_rsync() { if [ -n "$RSYNC_STUB" ]; then PATH="$RSYNC_STUB:$PATH" "$@"; else "$@"; fi; }
+# old_snapshot: created_at in the past, every live page older than it (all pre-snapshot).
+old_snapshot() {
+  jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' \
+    > "$BRAIN_DIR/dreams/drm_test/status.json"
+  find "$KNOWLEDGE_DIR/wiki" -name '*.md' -type f -exec touch -t 202512010000 {} +
+}
 setup 4 "p1 p2 p3"   # staging missing p4 → a deletion
+old_snapshot
 BEFORE=$(count "$KNOWLEDGE_DIR/wiki")
-CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+with_rsync env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
 AFTER=$(count "$KNOWLEDGE_DIR/wiki")
-[ "$rc" -ne 0 ] && [ "$AFTER" = "4" ] && pass "F3a: safe-mode refuses a deleting dream, all 4 live pages intact" || fail "F3a: safe-mode allowed a deletion (rc=$rc, live $BEFORE→$AFTER)"
+[ "$rc" -ne 0 ] && [ "$AFTER" = "4" ] && pass "F3a: safe-mode refuses a dream that drops a pre-snapshot page, all 4 live pages intact" || fail "F3a: safe-mode allowed a deletion (rc=$rc, live $BEFORE→$AFTER)"
 rm -rf "$SB"
+
+# --- F3c (K1): no usable created_at → merge-only apply → the deletion check is skipped, logged ---
+# A refused auto-accept stays completed and unarchived, and the lane's no-stacking check then
+# stops every later run, so refusing an apply that cannot delete was a permanent stall.
+setup 4 "p1 p2 p3"   # staging missing p4, but NO created_at: the apply cannot delete it
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+SKIPROW=$(jq -c 'select(.script == "dream-accept" and ((.message // "") | test("NO_DELETE check skipped")))' \
+  "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r')
+[ "$rc" -eq 0 ] && [ -f "$KNOWLEDGE_DIR/wiki/entities/p4.md" ] && [ "$(count "$KNOWLEDGE_DIR/wiki")" = "4" ] && [ -n "$SKIPROW" ] \
+  && pass "F3c: merge-only safe accept goes through, deletes nothing, logs the skipped check" \
+  || fail "F3c: merge-only safe accept (rc=$rc, p4=$([ -f "$KNOWLEDGE_DIR/wiki/entities/p4.md" ] && echo kept || echo GONE), row=${SKIPROW:-none})"
+rm -rf "$SB"
+
+# --- F3d (K1): a page created LIVE after the snapshot is not a deletion ----------------------
+# Staging mirrors the wiki at created_at; a live page newer than that is protected by the apply
+# (never deleted, never overwritten). The deletion check ran before that protection was computed,
+# so safe mode refused every dream that sat while the drainer wrote a page.
+k1_fixture() {
+  setup 3 SAME          # staging == live p1..p3
+  old_snapshot          # p1..p3 predate created_at
+  printf -- '---\ntitle: p4\ntype: entities\nrelated: []\n---\n\n# p4\n\nlive after the snapshot\n' \
+    > "$KNOWLEDGE_DIR/wiki/entities/p4.md"   # mtime now > created_at, absent from staging
+}
+k1_fixture
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$KNOWLEDGE_DIR/wiki/entities/p4.md" ] \
+  && pass "F3d: a post-snapshot live page is not counted as a deletion (rc=0, p4 kept; this host's apply path)" \
+  || fail "F3d: safe mode refused over a page created after the snapshot (rc=$rc)"
+rm -rf "$SB"
+if [ -n "$RSYNC_STUB" ]; then
+  k1_fixture
+  PATH="$RSYNC_STUB:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 0 ] \
+    && pass "F3d: with rsync on PATH the deletion check subtracts the protected page (gate-only: stub rsync)" \
+    || fail "F3d: with rsync on PATH, safe mode refused over a post-snapshot page (rc=$rc)"
+  rm -rf "$SB"
+fi
 
 # --- F3b: safe-mode accepts an additive/modifying dream (no deletion) -------
 setup 3 "p1 p2 p3 p4new"   # all live present + one new → no deletion

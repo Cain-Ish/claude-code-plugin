@@ -256,8 +256,9 @@ Lifecycle tools (MCP, on the `knowledge-base` server): `dream_create` → `dream
   ```
 
 - **Safe mode** (`auto_accept: "safe"`, the default) sets `SB_DREAM_ACCEPT_NO_DELETE=1`: accepts
-  that would remove any live page are refused, and FORGET-proposing dreams are always left for
-  manual review.
+  whose apply would delete a live page are refused (a page written live after the dream's snapshot
+  is protected, so it does not count), and FORGET-proposing dreams are always left for manual
+  review. Without rsync the apply is merge-only and deletes nothing, so the check is skipped (logged).
 - **Windows caveat**: without rsync (normal on Git Bash) accept merge-copies staging over live
   and **deletions are NOT applied** — announced in the accept output. FORGET/dedup removals wait
   for an rsync-equipped accept (`dream-accept.sh:216-241`).

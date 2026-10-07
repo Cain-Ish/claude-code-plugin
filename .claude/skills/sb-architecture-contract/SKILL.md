@@ -201,7 +201,10 @@ idempotent via `scripts/kb-drain-reconcile.sh` and the required back-ref
      empty base would make the prefix test match EVERY absolute path, dream-accept.sh:62-66);
   3. staging validity floor — refuse if staging is EMPTY or <`SB_DREAM_ACCEPT_MIN_RATIO`%
      (default 50) of live page count;
-  4. `SB_DREAM_ACCEPT_NO_DELETE=1` (set by `auto_accept=safe`) refuses removal of any live page;
+  4. `SB_DREAM_ACCEPT_NO_DELETE=1` (set by `auto_accept=safe`) refuses a dream whose apply would
+     delete a live page: pages missing from staging MINUS the post-snapshot protected set (step 5),
+     checked only when the apply can delete (rsync present and `created_at` usable); a merge-only
+     apply deletes nothing, so the check is skipped with an error-log row;
   5. fail-CLOSED tar backup `wiki-backup-pre-accept-<stamp>.tgz` before the destructive apply
      (restore: `tar xzf <tgz> -C "$KNOWLEDGE_DIR"`), plus post-snapshot protection: live pages
      modified after the dream's `created_at` are neither deleted nor overwritten.

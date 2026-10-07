@@ -235,7 +235,7 @@ may hardcode a model-ID literal — guarded by the `tests/test-model-ladder.sh` 
 | `SB_DREAM_RUN_TIMEOUT` | `21600` (s = 6h) | A pending/running dream whose status file is older than this is judged dead/reclaimable. | TUNE | lib.sh:1113 | bash |
 | `SB_DREAM_KEEP_COUNT` | `5` (via config.json `.retention.dream_keep_count`) | Dream snapshots retained. The ONLY env-over-config layered knob (SKILL.md §1). | TUNE | dream-snapshot.sh:77 | none |
 | `SB_DREAM_ACCEPT_MIN_RATIO` | `50` (%) | dream-accept refuses when staging wiki < N% of live page count; empty staging + non-empty live = hard error ("a broken dream must not --delete the live wiki"). `0` disables (not advised). | guard | dream-accept.sh:104 | bash |
-| `SB_DREAM_ACCEPT_NO_DELETE` | `0` | `1` (set by `auto_accept=safe`, comment dream-accept.sh:117) refuses accepts that remove live pages. | guard | dream-accept.sh:121 | bash |
+| `SB_DREAM_ACCEPT_NO_DELETE` | `0` | `1` (set by `auto_accept=safe`, comment dream-accept.sh:228) refuses accepts whose apply would delete a live page (pages missing from staging, minus live pages newer than the dream's `created_at`). With no rsync or no usable `created_at` the apply is merge-only and deletes nothing, so the check is skipped and logged. | guard | dream-accept.sh:237 | bash |
 | `SB_DREAM_ACCEPT_SKIP_BACKUP` | `0` | Skip the pre-accept backup. | DEBUG | dream-accept.sh:140 | bash |
 | `SB_DREAM_SUMMARIZE` | `on` | Dream SUMMARIZE op (theme MOCs from graph clusters); `off` → graph-cluster.sh emits `[]` (byte-identical fail-safe skip). | KS | graph-cluster.sh:25 | bash |
 | `SB_DREAM_REFLECT` | `on` | 0.33.28 reflection op (grounded cross-cutting practices from clusters); gates independently of SUMMARIZE. | KS | graph-cluster.sh:24 | bash |
