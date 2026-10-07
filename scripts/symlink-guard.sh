@@ -364,11 +364,18 @@ _fp_path() {
       _fp_joinsl _fq_p
       _fq_p="$_fq_p$_fq_t" ;;
   esac
-  case "$_fq_p" in "//?/"*) _fq_p=${_fq_p:4} ;; esac
-  case "$_fq_p" in "//./"*) _fq_p=${_fq_p:4} ;; esac
+  # \\?\ and \\.\ (Win32 device paths) are cut before a drive only, and \\?\UNC\host\… is the UNC
+  # path \\host\…. Any other device path (\\?\Volume{…}\, \\?\GLOBALROOT\…) keeps its //?/ prefix: it
+  # names no drive path, so no scope root or credential prefix matches it (GS2/GX2b, R3B: the old
+  # unconditional cut left Volume{…}/… and UNC/… relative — joined to the cwd, in scope).
   case "$_fq_p" in
-    //localhost/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:${_fq_p:14}" ;;
+    //[?.]/[A-Za-z]:*) _fq_p=${_fq_p:4} ;;
+    //[?.]/[Uu][Nn][Cc]/*) _fq_p="//${_fq_p:8}" ;;
+  esac
+  # The loopback admin share is the drive itself, in any case (Windows host names are).
+  case "$_fq_p" in
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$|//[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$|//127.0.0.1/[A-Za-z]\$/*)
+      _fq_d="${_fq_p:12:1}"; _fq_p="$_fq_d:/${_fq_p:15}" ;;
   esac
   if [ "${3:-}" = lex ]; then
     case "$_fq_p" in

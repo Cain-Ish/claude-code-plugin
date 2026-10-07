@@ -1072,6 +1072,97 @@ gx3 /home/gx3/.aws/credentials /home/gx3
 grep -q '"rule":"credential-read"' "$GX3/audit-log.jsonl" || fail "GX3: the floor's ask must be audited as credential-read"
 pass "GX3: credential-read is a floor below the rules — a deny rule stays deny, a warn rule still asks"
 
+# GS2/GC2/GX2 (R3B): other spellings of a credential store. symlink-guard's _sg_alias saw them for
+# writes; the Read check compared the plain spelling only, and node reads every one of these. A
+# literal ~/… is HOME's on every host (GX2a: the `~/*)` case arm was tilde-expanded, dead, and ~/.ssh
+# went to $CWD/~/.ssh). On a Windows host: \\?\UNC\localhost\C$\…, \\LOCALHOST\c$\… (any case) and
+# \\127.0.0.1\C$\… are the drive; a \\?\ device path naming no drive (GLOBALROOT, Volume{…}) and a
+# UNC share under the machine's own name cannot be compared, nor can NTFS stream syntax (.netrc::$DATA,
+# .ssh::$INDEX_ALLOCATION\id_rsa): they ask; trailing dots and spaces are dropped as Win32 drops them.
+# Fast path and full logic alike (a user rules file stands the fast path down), the scope off so only
+# the credential check can ask.
+A2=$(mktemp -d); mkdir -p "$A2/fast" "$A2/full"
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$A2/full/persona-rules.json"
+w() { printf '%s' "$1" | tr '|' '\134'; }
+a2() {  # a2 <rule|-> <file_path> <cwd> <HOME>: both paths reach <rule> (- = no verdict)
+  local b p
+  p=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$2" --arg c "$3" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}')
+  for b in fast full; do
+    : > "$A2/$b/audit-log.jsonl"
+    out=$(printf '%s' "$p" | SB_RESOURCE_SCOPE=off HOME="$4" BRAIN_DIR="$A2/$b" bash "$SCRIPT" 2>"$A2/err"); a2_rc=$?
+    if [ "$1" = - ]; then
+      [ -z "$out" ] && [ "$a2_rc" = 0 ] && [ ! -s "$A2/err" ] \
+        || fail "GS2 $b: a Read of '$2' must not ask (rc=$a2_rc, out: $out, stderr: $(head -c 300 "$A2/err"))"
+    else
+      printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "GS2 $b: a Read of '$2' must ask ($1) (got: '$out')"
+      grep -q "\"rule\":\"$1\"" "$A2/$b/audit-log.jsonl" || fail "GS2 $b: '$2' must ask as $1 (audit: $(cat "$A2/$b/audit-log.jsonl"))"
+    fi
+  done
+}
+a2 credential-read '~/.ssh/id_rsa' /w/proj /home/a2u
+a2 credential-read '~/.claude/.credentials.json' /w/proj /home/a2u
+# GT10: HOME's physical spelling counts as well (a junctioned or symlinked profile reaches the full
+# logic resolved — cygpath, realpath — while HOME keeps its own spelling): builtin cd -P, as
+# symlink-guard's _sg_homes. A HOME spelled through '..', and a symlinked one where ln -s makes links.
+mkdir -p "$A2/phys/home/.ssh" "$A2/phys/x"; : > "$A2/phys/home/.ssh/id_rsa"
+a2 credential-read "$A2/phys/home/.ssh/id_rsa" /w/proj "$A2/phys/x/../home"
+ln -s "$A2/phys/home" "$A2/phys/link" 2>/dev/null
+if [ -L "$A2/phys/link" ]; then
+  a2 credential-read "$A2/phys/home/.ssh/id_rsa" /w/proj "$A2/phys/link"
+else
+  echo "SKIP: GT10 symlinked HOME — ln -s makes no symlink here (MSYS copies)"
+fi
+if command -v cygpath >/dev/null 2>&1; then
+  a2 credential-read "$(w '||?|UNC|localhost|C$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w '||LOCALHOST|c$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w '||127.0.0.1|C$|Users|a2u|.netrc')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:unc "$(w '||?|GLOBALROOT|Device|HarddiskVolume3|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:unc "$(w '||?|Volume{2a024647-cc9f-415d-963e-f119fc16be42}|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:unc "$(w '||MYHOST|C$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:stream "$(w 'C:|Users|a2u|.netrc::$DATA')" 'C:\w\proj' /c/Users/a2u
+  a2 windows-alias:stream "$(w 'C:|Users|a2u|.ssh::$INDEX_ALLOCATION|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w 'C:|Users|a2u|.ssh.|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w 'C:|Users|a2u|.ssh |id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w 'C:|Users|a2u|.claude|.credentials.json.')" 'C:\w\proj' /c/Users/a2u
+  a2 - "$(w 'C:|Users|a2u|notes.txt')" 'C:\w\proj' /c/Users/a2u
+  # 8.3 short names (GC2/GX2c), on disk: SSH~1 is .ssh. The fast path cannot resolve one and stands
+  # down; the full logic asks unless test -ef shows no credential store among the target and its
+  # existing ancestors (a long-named project directory's short name stays silent).
+  A2H="$A2/home"; mkdir -p "$A2H/.ssh" "$A2H/longprojectdirectory"; : > "$A2H/.ssh/id_rsa"; : > "$A2H/longprojectdirectory/notes.txt"
+  A2S=$(cygpath -d "$A2H/.ssh" 2>/dev/null); A2L=$(cygpath -d "$A2H/longprojectdirectory" 2>/dev/null)
+  case "$A2S" in
+    *'~'[0-9]*)
+      a2 credential-read "$A2S\\id_rsa" 'C:\w\proj' "$A2H"
+      grep -q '"fastpath":true' "$A2/fast/audit-log.jsonl" && fail "GS2: an 8.3 Read must be left to the full logic (the fast path cannot resolve it)"
+      a2 - "$A2L\\notes.txt" 'C:\w\proj' "$A2H"
+      a2 windows-alias:8.3 "$A2L\\missing.txt" 'C:\w\proj' "$A2H" ;;
+    *) echo "SKIP: GS2 8.3 cases — no short names on this volume (cygpath -d gave '$A2S')" ;;
+  esac
+  # GS3: a cygpath that fails leaves C:/… — the full logic spells it /c/… as the fast path does (and
+  # logs it once), where _ptg_abs had taken it for a relative path: in scope, no credential match.
+  mkdir -p "$A2/cyg"; printf '#!/bin/sh\nexit 1\n' > "$A2/cyg/cygpath"; chmod +x "$A2/cyg/cygpath"
+  : > "$A2/full/error-log.jsonl"; : > "$A2/full/audit-log.jsonl"
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$(w 'C:|Users|a2u|.ssh|id_rsa')" --arg c "$(w 'C:|w|proj')" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}' \
+    | HOME=/c/Users/a2u PATH="$A2/cyg:$PATH" BRAIN_DIR="$A2/full" bash "$SCRIPT")
+  grep -q '"rule":"credential-read"' "$A2/full/audit-log.jsonl" \
+    || fail "GS3: with cygpath failing, a credential Read must still ask (out: $out, audit: $(cat "$A2/full/audit-log.jsonl"))"
+  grep -q 'cygpath' "$A2/full/error-log.jsonl" || fail "GS3: the failed cygpath must be logged (error-log: $(cat "$A2/full/error-log.jsonl"))"
+  # GT9: a project root given with a trailing backslash (C:\w\repo\, a drive root C:\) is still a
+  # scope root — its /x/… spelling kept the separator and no target matched "/c/w/repo//*".
+  for a2_p in 'C:\w\repo\' 'C:\'; do
+    out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f 'C:\w\repo\.claude\worktrees\r3-ro\scripts\lib.sh' --arg c 'C:\w\repo\.claude\worktrees\r3-mt' '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"a2"}' \
+      | CLAUDE_PROJECT_DIR="$a2_p" BRAIN_DIR="$A2/fast" bash "$SCRIPT")
+    [ -z "$out" ] || fail "GT9: CLAUDE_PROJECT_DIR='$a2_p' must be a scope root (got: $out)"
+  done
+else
+  echo "SKIP: GS2/GS3/GT9 Windows spellings — not a Windows host (no cygpath)"
+fi
+# Off Windows a ':' is a file-name character and nothing here is an alias.
+if ! command -v cygpath >/dev/null 2>&1 && [[ ${OSTYPE:-} != msys* && ${OSTYPE:-} != cygwin* ]]; then
+  a2 - '/w/proj/notes:2026.txt' /w/proj /home/a2u
+fi
+pass "GS2/GS3/GT9: Windows spellings of a credential store ask on both paths; a literal ~ is HOME; cygpath failure and a trailing-separator project root are handled"
+
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
 # r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
 # <repo>/.claude/worktrees/r3-ro/… got the out-of-scope ask. $PROJECT (CLAUDE_PROJECT_DIR, the
