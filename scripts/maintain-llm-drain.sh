@@ -124,9 +124,10 @@ _restamp_retry() {
 }
 # _defer_step <summary>: another dream is in the way. That is not a failure (no strike), but it
 # is logged, and the throttle is re-stamped to the retry horizon so the row is written once per
-# horizon rather than on every drain tick.
+# horizon rather than on every drain tick. The row is routine, so it is a gate= trace that
+# sb_log_error routes to the audit-log, not an error-log line (R3-B S12).
 _defer_step() {
-  sb_log_error "maintain-llm-drain" "$1" 0
+  sb_log_error "maintain-llm-drain" "gate=lane-defer $1" 0
   _restamp_retry
 }
 
@@ -139,8 +140,16 @@ _defer_step() {
 # Both are transient blocks. A STALE pending/running dream is left for the snapshot to reclaim.
 for sf in "$BRAIN_DIR"/dreams/drm_*/status.json; do
   [ -f "$sf" ] || continue
-  _st=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
   _did=${sf%/status.json}; _did=${_did##*/}
+  # R3-B S13: a status.json jq cannot read (or one with no status) used to read as "" and fall
+  # through, so the lane stacked a new dream next to it with no trace. That is an anomaly for a
+  # human, not a transient block: one exit_code-1 row naming it, no strike, the retry horizon.
+  if ! _st=$(jq -r '.status // ""' "$sf" 2>/dev/null) || [ -z "${_st//[$'\r\n']/}" ]; then
+    sb_log_error "maintain-llm-drain" "skipped: dream $_did has an unreadable status.json (not JSON, or no .status) at $sf; the lane does not stack a dream next to it. Repair or remove that dream dir; next check in ${RETRY}s" 1
+    _restamp_retry
+    exit 0
+  fi
+  _st=${_st//[$'\r\n']/}
   case "$_st" in
     completed)
       a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
@@ -200,6 +209,14 @@ if [ "$_snap_rc" -ne 0 ]; then
   _snap_err=""
   [ -n "$_snap_err_f" ] && _snap_err=$(tr -d '\r' < "$_snap_err_f" 2>/dev/null | tail -c 300)
   rm -f "$_snap_err_f" 2>/dev/null
+  # R3-B C5: the K3 pre-check above sees only a dream that existed before this tick. One created
+  # since (an attended /dream started meanwhile) makes the snapshot refuse "dream <id> is already
+  # pending|running": the same transient block, so defer it instead of counting a strike.
+  case "$_snap_err" in
+    *" is already pending"*|*" is already running"*)
+      _defer_step "skipped: dream-snapshot.sh refused because another dream started after the pre-check ($(printf '%s' "$_snap_err" | tr '\n' ' ')); the lane does not stack dreams; next check in ${RETRY}s"
+      exit 0 ;;
+  esac
   sb_log_error "maintain-llm-drain" "dream-snapshot.sh refused/failed (rc=$_snap_rc): ${_snap_err:-<no stderr>} — not burning the full weekly slot" 0
   _fail_step "dream-snapshot.sh refused/failed (rc=$_snap_rc): ${_snap_err:-<no stderr>}"
   exit 0
@@ -566,12 +583,23 @@ if [ "$AA_DECISION" = "accept" ]; then
     # Safe mode forbids ANY deletion (not just forget-manifest entries).
     AA_NODELETE=0; [ "$AA_MODE" = "safe" ] && AA_NODELETE=1
     AA_CONFIRM=0; [ "$AA_MODE" = "all" ] && AA_CONFIRM=1   # full-autonomy operators confirm untrusted-new; safe never reaches here with any
-    if SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED="$AA_CONFIRM" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>&1; then
+    # R3-B S5: dream-accept's stderr is kept (a file, not a pipe) so a refusal's reason reaches the
+    # row; it used to go to /dev/null and the row said only "refused/failed" with exit_code 0.
+    _aa_err_f=$(mktemp 2>/dev/null) || _aa_err_f=""
+    if SB_DREAM_ACCEPT_NO_DELETE="$AA_NODELETE" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED="$AA_CONFIRM" bash "$SDIR/dream-accept.sh" "$DREAM_ID" >/dev/null 2>"${_aa_err_f:-/dev/null}"; then
       AA_BK=$(ls -t "$BRAIN_DIR"/wiki-backup-pre-accept-*.tgz 2>/dev/null | head -1)
       sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: applied dream $DREAM_ID${AA_BK:+ (backup $AA_BK)}" 0
     else
-      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept refused/failed for $DREAM_ID — left for manual review (dream-accept's own pre-accept backup, if any, is under $BRAIN_DIR)" 0
+      _aa_rc=$?
+      # The last `error:` line names the refusal; with none, the stderr tail (~300 B).
+      _aa_err=""
+      if [ -n "$_aa_err_f" ]; then
+        _aa_err=$(tr -d '\r' < "$_aa_err_f" 2>/dev/null | grep '^error:' | tail -1 | head -c 300)
+        [ -n "$_aa_err" ] || _aa_err=$(tr -d '\r' < "$_aa_err_f" 2>/dev/null | tr '\n' ' ' | tail -c 300)
+      fi
+      sb_log_error "maintain-llm-drain" "auto_accept=$AA_MODE: dream-accept refused/failed for $DREAM_ID (rc=$_aa_rc): ${_aa_err:-<no stderr captured>} — left for manual review (dream-accept's own pre-accept backup, if any, is under $BRAIN_DIR)" 1
     fi
+    [ -n "$_aa_err_f" ] && rm -f "$_aa_err_f"
   fi
 elif [ "$AA_DECISION" = "skip:safe-refuses-forget" ]; then
   sb_log_error "maintain-llm-drain" "auto_accept=safe: dream $DREAM_ID proposes FORGET archives — left for manual review" 0

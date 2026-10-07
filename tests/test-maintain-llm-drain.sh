@@ -5,7 +5,8 @@
 # pins: SB_NESTED_SPAWN — never set here: the census reads the `SB_NESTED_SPAWN=1` grep pattern that
 #   asserts both spawn sites export it (lib.sh's sb_is_headless_child reads the variable since R1#2)
 # C: the opt-in headless-LLM maintainer. We test the GATING + the QUARANTINE structure and its
-# run-all-timeout: 300   (9 full quarantine-lane runs by design, plus 2 short no-stacking runs (3b, 3c); measured 153s alone on MSYS before 3b/3c — spawn-bound lib.sh, see LC-11)
+# run-all-timeout: 300   (9 full quarantine-lane runs by design, plus 2 short no-stacking runs (3b, 3c); measured 153s alone on MSYS before 3b/3c — spawn-bound lib.sh, see LC-11;
+#   2026-10-07 after R3-B's 3b-pending/3d/3e/d2 runs, alone on MSYS: 91 s jq 1.8.1 / 97 s jq 1.7.1, 14.4 GB free, 391 processes)
 # runtime attestation with a mock `claude` that emits canned stream-json. A real headless run is
 # operator-verified (it can't run from inside a Claude session — the recursive-claude OAuth lock).
 set -u
@@ -122,32 +123,44 @@ SB_MAINTAIN_LLM_FORCE=1 bash "$SCRIPT" >/dev/null 2>&1 || true
 # lane stopped for good with no trace. It must name the blocking dream in the error log, count
 # no strike (nothing failed), and re-stamp the throttle to the retry horizon so the row is
 # written once per horizon instead of on every drain tick (the mark from case 2 is fresh).
-jq -c 'select(.script == "maintain-llm-drain" and ((.message // "") | test("drm_20260101T000000Z")))' \
-  "$B/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
-  && pass "no-stacking skip names the blocking dream in the error log" \
-  || fail "no-stacking skip left no error-log row naming drm_20260101T000000Z"
+# R3-B S12: the skip is routine, so its row is a gate= trace in the audit-log (exit_code 0), not an
+# error-log line on every drain tick.
+defer_row() {  # $1 = ERE the message must match after the gate= prefix; prints the audit-log row(s)
+  jq -c --arg re "^gate=lane-defer .*$1" 'select(.script == "maintain-llm-drain" and .exit_code == 0 and ((.message // "") | test($re)))' \
+    "$B/audit-log.jsonl" 2>/dev/null | tr -d '\r'
+}
+[ -n "$(defer_row 'drm_20260101T000000Z')" ] && ! grep -q 'drm_20260101T000000Z' "$B/error-log.jsonl" 2>/dev/null \
+  && pass "no-stacking skip names the blocking dream in a gate=lane-defer audit row (not the error log)" \
+  || fail "no-stacking skip: no gate=lane-defer audit row naming drm_20260101T000000Z (error-log: $(tail -1 "$B/error-log.jsonl" 2>/dev/null))"
 [ ! -f "$B/.llm-maintain-fails" ] && pass "no-stacking skip counts no failure strike" || fail "no-stacking skip counted a strike ($(cat "$B/.llm-maintain-fails"))"
 K1_AGE=$(( $(date +%s) - $(stat -c %Y "$B/.last-llm-maintain" 2>/dev/null || stat -f %m "$B/.last-llm-maintain") ))
 [ "$K1_AGE" -gt 3600 ] && pass "no-stacking skip re-stamps the throttle to the retry horizon (mark age ${K1_AGE}s)" \
   || fail "no-stacking skip left the throttle mark at age ${K1_AGE}s (every drain tick would log again)"
 rm -rf "$B/dreams/drm_20260101T000000Z"
 
-# 3b. K3: an attended dream still RUNNING (fresh status.json) made dream-snapshot.sh refuse, and
-#     that refusal counted as a failure strike: three ticks during one long attended run
-#     quarantined the lane as class "other", which never clears itself. It is a transient
-#     block: logged with the dream id, deferred to the retry horizon, no strike.
-rm -f "$B/error-log.jsonl" "$B/.llm-maintain-fails" "$B/.llm-maintain-fail-class"; : > "$B/.last-llm-maintain"
-mkdir -p "$B/dreams/drm_20260102T000000Z"
-jq -nc '{id:"drm_20260102T000000Z",status:"running",archived_at:null}' > "$B/dreams/drm_20260102T000000Z/status.json"
-SB_MAINTAIN_LLM_FORCE=1 bash "$SCRIPT" >/dev/null 2>&1 || true
-[ "$(ndreams)" = "1" ] && pass "running attended dream → skip (no stacking)" || fail "stacked a dream next to a running one"
-[ ! -f "$B/.llm-maintain-fails" ] && pass "running attended dream counts no failure strike" \
-  || fail "running attended dream counted a strike ($(cat "$B/.llm-maintain-fails"); class $(cat "$B/.llm-maintain-fail-class" 2>/dev/null))"
-jq -c 'select(.script == "maintain-llm-drain" and ((.message // "") | test("drm_20260102T000000Z is running")))' \
-  "$B/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
-  && pass "running attended dream: the skip names it in the error log" \
-  || fail "running attended dream: no error-log row naming drm_20260102T000000Z ($(tail -1 "$B/error-log.jsonl" 2>/dev/null))"
-rm -rf "$B/dreams/drm_20260102T000000Z"
+# 3b. K3: an attended dream still RUNNING or PENDING (fresh status.json) made dream-snapshot.sh
+#     refuse, and that refusal counted as a failure strike: three ticks during one long attended
+#     run quarantined the lane as class "other", which never clears itself. It is a transient
+#     block: logged with the dream id, deferred to the retry horizon (the mark is re-stamped so
+#     the row is written once per horizon), no strike. R3-B Q-L7: both arms, and the re-stamp.
+mark_age_b() { echo $(( $(date +%s) - $(stat -c %Y "$B/.last-llm-maintain" 2>/dev/null || stat -f %m "$B/.last-llm-maintain") )); }
+for k3 in running:drm_20260102T000000Z pending:drm_20260102T000001Z; do
+  k3st=${k3%%:*}; k3id=${k3#*:}
+  rm -f "$B/error-log.jsonl" "$B/audit-log.jsonl" "$B/.llm-maintain-fails" "$B/.llm-maintain-fail-class"; : > "$B/.last-llm-maintain"
+  mkdir -p "$B/dreams/$k3id"
+  jq -nc --arg id "$k3id" --arg st "$k3st" '{id:$id,status:$st,archived_at:null}' > "$B/dreams/$k3id/status.json"
+  SB_MAINTAIN_LLM_FORCE=1 bash "$SCRIPT" >/dev/null 2>&1 || true
+  [ "$(ndreams)" = "1" ] && pass "$k3st attended dream → skip (no stacking)" || fail "stacked a dream next to a $k3st one"
+  [ ! -f "$B/.llm-maintain-fails" ] && pass "$k3st attended dream counts no failure strike" \
+    || fail "$k3st attended dream counted a strike ($(cat "$B/.llm-maintain-fails"); class $(cat "$B/.llm-maintain-fail-class" 2>/dev/null))"
+  [ -n "$(defer_row "$k3id is $k3st")" ] \
+    && pass "$k3st attended dream: the skip names it in a gate=lane-defer audit row" \
+    || fail "$k3st attended dream: no gate=lane-defer row naming $k3id (audit: $(tail -1 "$B/audit-log.jsonl" 2>/dev/null); error: $(tail -1 "$B/error-log.jsonl" 2>/dev/null))"
+  K3_AGE=$(mark_age_b)
+  [ "$K3_AGE" -gt 3600 ] && pass "$k3st attended dream: the throttle is re-stamped to the retry horizon (mark age ${K3_AGE}s)" \
+    || fail "$k3st attended dream: throttle mark left at age ${K3_AGE}s (every drain tick would log again)"
+  rm -rf "$B/dreams/$k3id"
+done
 # 3c. A STALE running dream (status.json untouched past SB_DREAM_RUN_TIMEOUT, 6 h) is a crashed
 #     run, not an attended one: the lane must not block on it. dream-snapshot.sh reclaims it to
 #     failed and stages the new dream.
@@ -162,6 +175,59 @@ K3_ST=$(jq -r '.status' "$B/dreams/drm_20260103T000000Z/status.json" 2>/dev/null
   && pass "stale running dream is not a block: the snapshot reclaims it and stages a new dream" \
   || fail "stale running dream: status=$K3_ST dreams=$(ndreams) (expected failed + a new dream)"
 rm -rf "$B"/dreams/drm_*
+
+# 3d. R3-B C5: K3's pre-check sees only a dream that existed before this tick. One created between
+#     it and the snapshot (an attended /dream started meanwhile) makes dream-snapshot.sh refuse with
+#     "is already pending", and that refusal still counted as a failure strike. The bwrap probe,
+#     which runs between the pre-check and the snapshot, stands in for that concurrent dream_create.
+C5BIN="$B/bin-c5"; mkdir -p "$C5BIN"
+cat > "$C5BIN/bwrap" <<EOF
+#!/bin/bash
+for a in "\$@"; do
+  if [ "\$a" = /bin/true ]; then
+    mkdir -p "$B/dreams/drm_20260104T000000Z"
+    printf '{"id":"drm_20260104T000000Z","status":"pending","archived_at":null}\n' > "$B/dreams/drm_20260104T000000Z/status.json"
+    exit 0
+  fi
+done
+exit 0
+EOF
+chmod +x "$C5BIN/bwrap"
+rm -f "$B/error-log.jsonl" "$B/audit-log.jsonl" "$B/.llm-maintain-fails" "$B/.llm-maintain-fail-class"; : > "$B/.last-llm-maintain"
+PATH="$C5BIN:$PATH" SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" >/dev/null 2>&1 || true
+[ "$(ndreams)" = "1" ] && [ -f "$B/dreams/drm_20260104T000000Z/status.json" ] \
+  && pass "C5: a dream created after the pre-check → the snapshot refuses, nothing stacked" \
+  || fail "C5: dreams=$(ndreams) after the concurrent pending dream (expected only drm_20260104T000000Z)"
+[ ! -f "$B/.llm-maintain-fails" ] && pass "C5: the snapshot's 'already pending' refusal counts no failure strike" \
+  || fail "C5: the snapshot's 'already pending' refusal counted a strike ($(cat "$B/.llm-maintain-fails"); class $(cat "$B/.llm-maintain-fail-class" 2>/dev/null))"
+[ -n "$(defer_row 'drm_20260104T000000Z is already pending')" ] \
+  && pass "C5: the refusal is a gate=lane-defer audit row naming the dream" \
+  || fail "C5: no gate=lane-defer row naming drm_20260104T000000Z (audit: $(tail -1 "$B/audit-log.jsonl" 2>/dev/null); error: $(tail -1 "$B/error-log.jsonl" 2>/dev/null))"
+C5_AGE=$(mark_age_b)
+[ "$C5_AGE" -gt 3600 ] && pass "C5: the throttle is re-stamped to the retry horizon (mark age ${C5_AGE}s)" \
+  || fail "C5: throttle mark left at age ${C5_AGE}s"
+rm -rf "$B"/dreams/drm_*
+
+# 3e. R3-B S13: a status.json jq cannot read gave the no-stacking check an empty status, so the lane
+#     stacked a new dream next to it with no trace. It is an anomaly for a human: one exit_code-1
+#     row naming the dream, no new dream, no strike, the throttle re-stamped.
+mkdir -p "$B/dreams/drm_20260105T000000Z"; printf '{"id":"drm_2026' > "$B/dreams/drm_20260105T000000Z/status.json"
+rm -f "$B/error-log.jsonl" "$B/audit-log.jsonl" "$B/.llm-maintain-fails" "$B/.llm-maintain-fail-class"; : > "$B/.last-llm-maintain"
+SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" >/dev/null 2>&1 || true
+[ "$(ndreams)" = "1" ] && pass "S13: an unreadable status.json → nothing stacked next to it" \
+  || fail "S13: dreams=$(ndreams) next to an unreadable status.json (stacked a new dream)"
+jq -c 'select(.script == "maintain-llm-drain" and .exit_code == 1 and ((.message // "") | test("drm_20260105T000000Z.*unreadable")))' \
+  "$B/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  && pass "S13: one exit_code-1 error-log row names the unreadable dream" \
+  || fail "S13: no exit_code-1 row naming drm_20260105T000000Z (error-log: $(tail -1 "$B/error-log.jsonl" 2>/dev/null))"
+[ ! -f "$B/.llm-maintain-fails" ] && [ "$(mark_age_b)" -gt 3600 ] \
+  && pass "S13: no failure strike, throttle re-stamped to the retry horizon" \
+  || fail "S13: strike=$(cat "$B/.llm-maintain-fails" 2>/dev/null || echo none) mark age=$(mark_age_b)s"
+rm -rf "$B"/dreams/drm_*
+
+# The source transcripts dir must still exist here: seed_tx's write is unchecked, so a case above
+# that removed it would turn case 4 into a run with no transcripts that fails for another reason.
+[ -d "$B/transcripts" ] || fail "case 4 precondition: $B/transcripts is gone before seeding"
 
 # 4. proceeds: ON + FORCE + DRYRUN + no pile-up → snapshots a dream + reaches the quarantined
 #    spawn (WITH the additive jail: the bwrap stub's probe passes → jail=bwrap)
@@ -359,6 +425,25 @@ grep -q 'SELFTOKEN' "$PCOPY" && fail "(d) SELF transcript leaked into the summar
 grep -q 'BEGIN UNTRUSTED TRANSCRIPT DATA' "$PCOPY" || fail "(d) untrusted-DATA framing missing from the prompt"
 pass "(d) success: attested run → candidate-facts.json, counters cleared, scratch cwd, jailed, self-transcript excluded"
 rm -f "$BRAIN_DIR/transcripts/selfsess_x_2026-01-02.txt"
+
+# --- (d2) R3-B S5: an auto-accept that dream-accept refuses. The lane ran dream-accept with stdout
+#          and stderr discarded, so its row said only "refused/failed" with exit_code 0 and the
+#          reason was lost. A tar that fails makes dream-accept refuse (it never applies without
+#          its pre-accept backup); the row must carry dream-accept's error line, exit_code 1.
+reset
+TARSHIM="$B2/bin-tar"; mkdir -p "$TARSHIM"
+printf '#!%s\necho "tar: simulated: No space left on device" >&2\nexit 2\n' "$BASH" > "$TARSHIM/tar"; chmod +x "$TARSHIM/tar"
+printf '{"auto_maintain": true, "auto_accept": "safe"}\n' > "$BRAIN_DIR/config.json"
+run_drain PATH="$TARSHIM:$PATH"
+printf '{"auto_maintain": true, "auto_accept": "off"}\n' > "$BRAIN_DIR/config.json"
+SF=$(dsf)
+[ "$(jq -r '.status' "$SF" 2>/dev/null)" = "completed" ] || fail "(d2) precondition: the run did not complete (got $(jq -r '.status' "$SF" 2>/dev/null))"
+AA_A=$(jq -r '.archived_at // ""' "$SF" 2>/dev/null | tr -d '\r')
+{ [ -z "$AA_A" ] || [ "$AA_A" = "null" ]; } || fail "(d2) the refused dream was archived ($AA_A)"
+AAROW=$(jq -c 'select(.script == "maintain-llm-drain" and .exit_code == 1 and ((.message // "") | test("refused/failed.*could not back up the live wiki.*simulated")))' \
+  "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r')
+[ -n "$AAROW" ] && pass "(d2) a refused auto-accept logs dream-accept's own error line, exit_code 1" \
+  || fail "(d2) refused auto-accept row lacks the reason or exit_code 1 (rows: $(grep 'auto_accept' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tail -2))"
 
 # --- (e) ATTESTATION FAIL: a real tool in the init event → output DISCARDED, dream failed,
 #         loud log, strike. The security-boundary case: NEVER fail open. ---

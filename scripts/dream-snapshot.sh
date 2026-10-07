@@ -174,9 +174,15 @@ while :; do
   # A cp error made only of vanished entries (ENOENT) is a race, not a fault: the embeddings cache
   # and index.md are rewritten through tmp+rename by every search, so their temp file can disappear
   # between cp's readdir and its copy while the page lists stay identical. Any other error — ENOSPC,
-  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once.
+  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once. Only GNU cp's two
+  # SOURCE-side ENOENT forms count (R3-B S11): a destination ENOENT ("cannot create regular file
+  # …: No such file or directory", the staging dir gone under cp) is a fault. BSD cp's message
+  # names no side, so a vanish there fails the attempt (fail-safe; the retry loop still runs).
   _vanished=0
-  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && ! grep -qv ': No such file or directory$' "$_cperr"; then _vanished=1; fi
+  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] \
+     && ! grep -qvE "^cp: (cannot stat '.*'|cannot open '.*' for reading): No such file or directory\$" "$_cperr"; then
+    _vanished=1
+  fi
   [ -s "$_cperr" ] && cat "$_cperr" >&2   # cp's own diagnostics stay visible
   rm -f "$_cperr"
   _staged=$(_page_list "$DREAM_DIR/staging/wiki") || LIST_RC=1

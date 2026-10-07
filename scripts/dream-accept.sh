@@ -109,6 +109,66 @@ KNOWLEDGE_DIR=$(_to_msys "$KNOWLEDGE_DIR")   # MSYS-normalize (Windows): tar -C 
 LIVE_WIKI="$KNOWLEDGE_DIR/wiki"
 STAGING_WIKI="$DREAM_DIR/staging/wiki"
 
+# C1 (R3-B): `.applied` marks a dream whose pages, FORGET archives and proposed edges are already
+# in the live wiki; it is written right after the edge merge, before the archived_at stamp. A
+# re-accept of such a dream (its stamp failed, K10) must not apply it again: FORGET consumed the
+# manifest and moved pages out of live that staging still holds, and merge-edges appends without
+# a dedupe, so a second apply put the archived pages back and appended the edges twice. It only
+# finishes: reindex, stamp, reset the write counters, clean up.
+APPLIED_MARK="$DREAM_DIR/.applied"
+_finish_accept() {
+  # Reindex
+  sb_reindex_wiki "$KNOWLEDGE_DIR"
+
+  # Archive the dream. Checked (K10): a failed stamp used to fall through to the `rm -rf staging`
+  # below, leaving a dream that was neither archived nor re-acceptable. Stop BEFORE the cleanup:
+  # the pages are applied, staging and the .applied marker stay, and a re-accept only finishes.
+  local NOW tmp DREAM_SLUG _wc _ws ADDED MODIFIED REMOVED
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  tmp=$(mktemp)
+  if ! jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" || ! mv "$tmp" "$DREAM_DIR/status.json"; then
+    rm -f "$tmp" 2>/dev/null
+    echo "error: dream $DREAM_ID was applied to the live wiki but its archived_at stamp could not be written to $DREAM_DIR/status.json — staging KEPT; re-run the accept to finish (it only stamps and cleans up: $APPLIED_MARK skips the apply)" >&2
+    sb_log_error "dream-accept" "archived_at stamp failed for $DREAM_ID after the apply (status.json not rewritten); staging kept so a re-accept can finish" 1
+    exit 1
+  fi
+
+  # A dream acceptance IS the consolidation the wiki-writes counter was counting toward — reset
+  # it, or the "N wiki writes since the last consolidation" banner nags forever (ledger F8:
+  # counter observed at 180 with dreams completing+archiving weekly; the only reset call sat in
+  # session-load's unreachable maintainer-reconcile branch). Scoped dream → that slug; unscoped
+  # (all-project) dream → every project's counter, since the consolidation covered them all.
+  DREAM_SLUG=$(jq -r '.inputs.project_slug // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
+  if [ -n "$DREAM_SLUG" ]; then
+    sb_reset_wiki_writes "$DREAM_SLUG"
+  else
+    for _wc in "$BRAIN_DIR"/projects/*/.wiki-writes; do
+      [ -f "$_wc" ] || continue
+      _ws="${_wc%/.wiki-writes}"; sb_reset_wiki_writes "${_ws##*/}"
+    done
+  fi
+
+  # Clean up staging to reclaim disk (the marker goes with it: archived_at is the record now)
+  rm -rf "$DREAM_DIR/staging" "$DREAM_DIR/transcripts"
+  rm -f "$APPLIED_MARK"
+
+  ADDED=$(jq -r '.outputs.pages_added // 0' "$DREAM_DIR/status.json" | tr -d '\r')
+  MODIFIED=$(jq -r '.outputs.pages_modified // 0' "$DREAM_DIR/status.json" | tr -d '\r')
+  REMOVED=$(jq -r '.outputs.pages_removed // 0' "$DREAM_DIR/status.json" | tr -d '\r')
+  echo "Dream $DREAM_ID accepted: +$ADDED ~$MODIFIED -$REMOVED pages applied to live wiki"
+
+  # Reversibility window: record what this accept did to the wiki. The pre-accept tarball can
+  # undo the WHOLE accept; this history can show and undo it page-by-page later. Fail-soft — a
+  # history failure must never turn a successful accept into an error.
+  [ -f "$(dirname "$0")/wiki-history.sh" ] && \
+    bash "$(dirname "$0")/wiki-history.sh" snapshot "dream $DREAM_ID accepted (+$ADDED ~$MODIFIED -$REMOVED)" >/dev/null 2>&1 || true
+}
+if [ -f "$APPLIED_MARK" ]; then
+  echo "note: dream $DREAM_ID was already applied to the live wiki (marker $APPLIED_MARK); finishing the accept without applying it again." >&2
+  _finish_accept
+  exit 0
+fi
+
 if [ ! -d "$STAGING_WIKI" ]; then
   echo "error: staging wiki not found" >&2
   exit 1
@@ -239,7 +299,8 @@ if [ "${SB_DREAM_ACCEPT_NO_DELETE:-0}" = "1" ]; then
   if ! command -v rsync >/dev/null 2>&1 || [ "$PROTECT_OK" != "1" ]; then
     _why="rsync not installed"; [ "$PROTECT_OK" != "1" ] && _why="created_at '${CREATED_AT:-<empty>}' unusable"
     echo "note: auto_accept=safe deletion check skipped for $DREAM_ID — the apply is merge-only ($_why) and deletes no live page." >&2
-    sb_log_error "dream-accept" "NO_DELETE check skipped for $DREAM_ID: the apply is merge-only ($_why) and deletes no live page" 0
+    # Routine on every host without rsync (R3-B S12): a gate= trace, routed to the audit-log.
+    sb_log_error "dream-accept" "gate=no-delete-check verdict=skipped dream=$DREAM_ID: NO_DELETE check skipped — the apply is merge-only ($_why) and deletes no live page" 0
   else
     _pages() { (cd "$1" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sed 's#^\./##' | LC_ALL=C sort) || true; }
     DELETED=$(LC_ALL=C comm -23 <(_pages "$LIVE_WIKI") <(_pages "$STAGING_WIKI") 2>/dev/null)
@@ -326,7 +387,10 @@ fi
 # during the backup or the hold pass is protected too.
 _compute_protect
 if [ "$PROTECT_OK" != "1" ]; then
-  echo "warn: dream $DREAM_ID has no usable created_at ('${CREATED_AT:-<empty>}') — applying merge-only (dream deletions skipped) to protect post-snapshot live pages." >&2
+  # R3-B S12b: merge-only protects post-snapshot pages from DELETION only. With no snapshot time no
+  # live page can be told apart as post-snapshot, so an edited live page that staging also holds is
+  # overwritten by the staging copy; say so, and where the live version survives.
+  echo "warn: dream $DREAM_ID has no usable created_at ('${CREATED_AT:-<empty>}') — applying merge-only: dream deletions are skipped, so no live page is deleted, but a live page edited after the snapshot is overwritten by its staging copy (the live version is in the pre-accept backup, if one was taken)." >&2
 fi
 
 # Apply: rsync staging over live. --delete removes live pages the dream dropped
@@ -489,46 +553,8 @@ if [ -s "$_PE" ] && [ -f "$(dirname "$0")/merge-edges.sh" ]; then
   rm -f "$_PEF" 
 fi
 
-# Reindex
-sb_reindex_wiki "$KNOWLEDGE_DIR"
-
-# Archive the dream. Checked (K10): a failed stamp used to fall through to the `rm -rf staging`
-# below, leaving a dream that was neither archived nor re-acceptable. Stop BEFORE the cleanup:
-# the pages are applied, staging stays, and a re-accept is an idempotent merge that finishes.
-NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-tmp=$(mktemp)
-if ! jq --arg t "$NOW" '.archived_at = $t' "$DREAM_DIR/status.json" > "$tmp" || ! mv "$tmp" "$DREAM_DIR/status.json"; then
-  rm -f "$tmp" 2>/dev/null
-  echo "error: dream $DREAM_ID was applied to the live wiki but its archived_at stamp could not be written to $DREAM_DIR/status.json — staging KEPT; re-run the accept to finish (it re-merges the same pages)" >&2
-  sb_log_error "dream-accept" "archived_at stamp failed for $DREAM_ID after the apply (status.json not rewritten); staging kept so a re-accept can finish" 1
-  exit 1
+# C1: the apply, FORGET and the edge merge are done. From here a re-accept only finishes.
+if ! printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$APPLIED_MARK"; then
+  sb_log_error "dream-accept" "could not write $APPLIED_MARK for $DREAM_ID after the apply; if the archived_at stamp also fails, a re-accept applies the dream a second time" 1
 fi
-
-# A dream acceptance IS the consolidation the wiki-writes counter was counting toward — reset
-# it, or the "N wiki writes since the last consolidation" banner nags forever (ledger F8:
-# counter observed at 180 with dreams completing+archiving weekly; the only reset call sat in
-# session-load's unreachable maintainer-reconcile branch). Scoped dream → that slug; unscoped
-# (all-project) dream → every project's counter, since the consolidation covered them all.
-DREAM_SLUG=$(jq -r '.inputs.project_slug // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
-if [ -n "$DREAM_SLUG" ]; then
-  sb_reset_wiki_writes "$DREAM_SLUG"
-else
-  for _wc in "$BRAIN_DIR"/projects/*/.wiki-writes; do
-    [ -f "$_wc" ] || continue
-    _ws="${_wc%/.wiki-writes}"; sb_reset_wiki_writes "${_ws##*/}"
-  done
-fi
-
-# Clean up staging to reclaim disk
-rm -rf "$DREAM_DIR/staging" "$DREAM_DIR/transcripts"
-
-ADDED=$(jq -r '.outputs.pages_added // 0' "$DREAM_DIR/status.json" | tr -d '\r')
-MODIFIED=$(jq -r '.outputs.pages_modified // 0' "$DREAM_DIR/status.json" | tr -d '\r')
-REMOVED=$(jq -r '.outputs.pages_removed // 0' "$DREAM_DIR/status.json" | tr -d '\r')
-echo "Dream $DREAM_ID accepted: +$ADDED ~$MODIFIED -$REMOVED pages applied to live wiki"
-
-# Reversibility window: record what this accept did to the wiki. The pre-accept tarball can
-# undo the WHOLE accept; this history can show and undo it page-by-page later. Fail-soft — a
-# history failure must never turn a successful accept into an error.
-[ -f "$(dirname "$0")/wiki-history.sh" ] && \
-  bash "$(dirname "$0")/wiki-history.sh" snapshot "dream $DREAM_ID accepted (+$ADDED ~$MODIFIED -$REMOVED)" >/dev/null 2>&1 || true
+_finish_accept
