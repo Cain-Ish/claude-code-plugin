@@ -144,33 +144,9 @@ quiet "5b (SB_HEADLESS_CONTEXT=on)" "$OUTHL"
   || fail "5b: SB_HEADLESS_CONTEXT=on did not restore the catalog for a headless child"
 pass "headless child: no output, no state but its gate=headless-child row; SB_HEADLESS_CONTEXT=on builds the catalog"
 
-# --- Test 6: PERF LOCK — must finish inside its own hooks.json timeout --------
-# Read the declared budget rather than hardcoding it, so retuning hooks.json
-# retunes this lock. Falls back to 10 (the 0.44.0 value) if the entry moves.
-BUDGET=$(jq -r '
-  [ .hooks.SessionStart[]?.hooks[]?
-    | select(.command | test("discover-installed"))
-    | .timeout ] | first // empty' "$ROOT/hooks/hooks.json" 2>/dev/null | tr -d '\r')
-case "$BUDGET" in ''|*[!0-9]*) BUDGET=10 ;; esac
-
-P6="$TMP/plugins6"; B6="$TMP/b6"; mkdir -p "$P6" "$B6"
-# 200 agents + 200 skills across 2 plugins. The pre-0.45.0 implementation spent
-# 3 process spawns per file (awk name, awk description, jq assemble) = ~1200
-# spawns here, which blows the budget on any real machine.
-mkplugin "$P6" "big1" "1.0.0" 100 100
-mkplugin "$P6" "big2" "1.0.0" 100 100
-T_START=$(date +%s)
-SO=$(env BRAIN_DIR="$B6" bash "$SCRIPT" "$P6" 2>/dev/null) || fail "6: script exited non-zero"
-T_ELAPSED=$(( $(date +%s) - T_START ))
-quiet 6 "$SO"; OUT6=$(cat "$B6/.installed-catalog.json")
-[ "$(printf '%s' "$OUT6" | jq -r '.agents | length')" = "200" ] || fail "6: wrong agent count under load"
-[ "$(printf '%s' "$OUT6" | jq -r '.skills | length')" = "200" ] || fail "6: wrong skill count under load"
-if [ "$T_ELAPSED" -gt "$BUDGET" ]; then
-  fail "6: PERF — 400 files took ${T_ELAPSED}s, over the ${BUDGET}s timeout hooks.json declares.
-       A killed run never writes the catalog, so the cache stays stale and every
-       later session re-enters the slow path. Do not spawn a process per file."
-fi
-pass "perf: 400 files discovered in ${T_ELAPSED}s (budget ${BUDGET}s)"
+# Test 6 (the wall-clock PERF LOCK) runs LAST, at the end of this file: `fail` exits, and on a
+# loaded MSYS box (measured 23-24 s against the 10 s budget, R3 review Q-M2) it used to stop the
+# file at case 6, so cases 7-19 never ran.
 
 # --- Test 7: hostile / malformed frontmatter cannot corrupt the catalog -------
 # The 0.45.0 implementation frames records with US (0x1f) between awk and jq, so a
@@ -654,6 +630,35 @@ LEFT19=$(find "$B19" -maxdepth 1 -name '.installed-catalog.lock*' | wc -l | tr -
 # probed it after its writer exited used to reclaim a RUNNING refresh's lock).
 [ ! -s "$B19/error-log.jsonl" ] || fail "19: parallel hooks logged errors: $(cut -c1-300 "$B19/error-log.jsonl")"
 pass "the refresh lock is never observable without its owner pid; parallel hooks leave no scaffolding (O13)"
+
+# --- Test 6: PERF LOCK — must finish inside its own hooks.json timeout --------
+# Last on purpose (see the note after Test 5b): a wall-clock failure must not hide cases 7-19.
+# Read the declared budget rather than hardcoding it, so retuning hooks.json
+# retunes this lock. Falls back to 10 (the 0.44.0 value) if the entry moves.
+BUDGET=$(jq -r '
+  [ .hooks.SessionStart[]?.hooks[]?
+    | select(.command | test("discover-installed"))
+    | .timeout ] | first // empty' "$ROOT/hooks/hooks.json" 2>/dev/null | tr -d '\r')
+case "$BUDGET" in ''|*[!0-9]*) BUDGET=10 ;; esac
+
+P6="$TMP/plugins6"; B6="$TMP/b6"; mkdir -p "$P6" "$B6"
+# 200 agents + 200 skills across 2 plugins. The pre-0.45.0 implementation spent
+# 3 process spawns per file (awk name, awk description, jq assemble) = ~1200
+# spawns here, which blows the budget on any real machine.
+mkplugin "$P6" "big1" "1.0.0" 100 100
+mkplugin "$P6" "big2" "1.0.0" 100 100
+T_START=$(date +%s)
+SO=$(env BRAIN_DIR="$B6" bash "$SCRIPT" "$P6" 2>/dev/null) || fail "6: script exited non-zero"
+T_ELAPSED=$(( $(date +%s) - T_START ))
+quiet 6 "$SO"; OUT6=$(cat "$B6/.installed-catalog.json")
+[ "$(printf '%s' "$OUT6" | jq -r '.agents | length')" = "200" ] || fail "6: wrong agent count under load"
+[ "$(printf '%s' "$OUT6" | jq -r '.skills | length')" = "200" ] || fail "6: wrong skill count under load"
+if [ "$T_ELAPSED" -gt "$BUDGET" ]; then
+  fail "6: PERF — 400 files took ${T_ELAPSED}s, over the ${BUDGET}s timeout hooks.json declares.
+       A killed run never writes the catalog, so the cache stays stale and every
+       later session re-enters the slow path. Do not spawn a process per file."
+fi
+pass "perf: 400 files discovered in ${T_ELAPSED}s (budget ${BUDGET}s)"
 
 # Test 5 left a detached freshness check running in $B1; let it finish before the EXIT trap
 # removes $TMP (Windows cannot delete a directory a live process still holds open).

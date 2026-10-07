@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { knowledgeSearch } from './knowledge-search.js';
 import { episodicSearch, renderEpisodicSearch } from './episodic-search.js';
+import { estimateTokens } from './egress-budget.js';
 
 // R2.3 (MCP-SEARCH-2): output must be interpretable — additive score_norm on
 // one 0..1 scale, and an explicit degraded flag when vector search is dead.
@@ -107,5 +108,24 @@ describe('search output contract', () => {
     const text = renderEpisodicSearch(two, 1);   // 1 token: capList keeps only the top row
     expect(text).toContain('1 more —');
     expect(text.trimEnd().split('\n').pop()).toMatch(/^_Degraded: vector search unavailable/);
+  });
+
+  // T4 (R3 review): the footer went on AFTER capList had packed the rows up to the whole budget, so
+  // a degraded result broke the egress ceiling by the footer's ~25 tokens. The rows get the budget
+  // minus the footer. capList always keeps the top row, so the ceiling holds once one row, the
+  // "N more" line and the footer fit.
+  it('episodic_search text: rows + degraded footer stay within the egress budget (T4)', async () => {
+    const r = await episodicSearch({ query: 'tunnels' }, brain);
+    expect(r.degraded).toBe('text-only');
+    const rows = Array.from({ length: 6 }, (_, i) => ({ ...r.results[0], sessionId: `s${i}` }));
+    const many = { ...r, results: rows };
+    const floor = estimateTokens(renderEpisodicSearch({ ...r, results: [rows[0]] }, 100_000)) + 40;
+    const over: number[] = [];
+    for (let budget = floor; budget <= floor + 400; budget++) {
+      const text = renderEpisodicSearch(many, budget);
+      if (estimateTokens(text) > budget) over.push(budget);
+      expect(text.trimEnd().split('\n').pop()).toMatch(/^_Degraded: vector search unavailable/);
+    }
+    expect(over, `budgets broken by the footer: ${over.slice(0, 5).join(', ')}...`).toEqual([]);
   });
 });

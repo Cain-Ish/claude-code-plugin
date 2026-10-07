@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision, injectedHitLine } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision, injectedHitLines, reportInjectDrops } from './knowledge-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
@@ -66,15 +66,14 @@ const result = await knowledgeSearch({ query, brainDir, projectSlug });
 const injectGate = parseInjectGate(process.env.SB_INJECT_GATE,
   (msg) => { process.stderr.write(`knowledge-search-cli: ${msg}\n`); });
 const gateOpts = { minScore, minRelevance, minGrounded };
-const top = (injectGate
+const gated = injectGate
   ? injectableWiki(result.candidates, gateOpts)
-  : legacyWikiFilter(result.candidates, gateOpts))
-  .slice(0, 2);
-if (top.length === 0) { process.exit(0); }
+  : legacyWikiFilter(result.candidates, gateOpts);
 
-// injectedHitLine folds every page-controlled field (the hooks frame these lines as untrusted)
-// and renders a local doc as a Read line; '' = a candidate that must not be printed.
-for (const c of top) {
-  const line = injectedHitLine(c);
-  if (line) console.log(line);
-}
+// injectedHitLines folds every page-controlled field (the hooks frame these lines as untrusted),
+// renders a local doc as a Read line, and skips a candidate that must not be printed WITHOUT losing
+// its slot (T2: the old slice to two ran first). Each skip leaves a gate=inject-drop audit row.
+const { lines, drops } = injectedHitLines(gated, 2);
+await reportInjectDrops(brainDir, 'knowledge-search-cli', drops);
+if (lines.length === 0) { process.exit(0); }
+for (const l of lines) console.log(l);

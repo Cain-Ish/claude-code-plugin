@@ -130,4 +130,15 @@ Q=$(cat "$B/query.txt" 2>/dev/null)
   || fail "Goal weighting wrong: got [$Q], want [quokka habitat survey firmware flashing fails vendor silent]"
 pass "a Goal word outranks a more frequent blocker word"
 
+# Q-L13 (R3 review): the weighting was only checked on an LF file. Same file as CRLF: the Goal/State
+# x3 weight keys on `^## Goal$`, which a trailing \r would defeat (every word would count 1 and the
+# query would reorder), so the CRLF query must be the LF one exactly.
+sed 's/$/\r/' "$B/projects/$SLUG/PROJECT.md" > "$B/projects/$SLUG/PROJECT.md.crlf" && mv "$B/projects/$SLUG/PROJECT.md.crlf" "$B/projects/$SLUG/PROJECT.md"
+od -An -tx1 "$B/projects/$SLUG/PROJECT.md" 2>/dev/null | grep -q ' 0d' || fail "Q-L13 setup: PROJECT.md is not CRLF"
+rm -f "$B/query.txt"; run_sl >/dev/null
+Q=$(cat "$B/query.txt" 2>/dev/null)
+[ "$Q" = "quokka habitat survey firmware flashing fails vendor silent" ] \
+  || fail "Goal weighting under CRLF wrong: got [$Q], want [quokka habitat survey firmware flashing fails vendor silent]"
+pass "a CRLF PROJECT.md weights its Goal words the same as the LF file"
+
 rm -rf "$B" "$PROJDIR" "$STUB"; echo; echo "ALL PASS"
