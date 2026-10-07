@@ -30,6 +30,8 @@ payload() {  # $1=tool $2=session_id $3=input-json $4=response-json
   jq -nc --arg t "$1" --arg sid "$2" --argjson inp "$3" --argjson resp "$4" \
     '{hook_event_name:"PostToolUse", tool_name:$t, session_id:$sid, tool_input:$inp, tool_response:$resp}'
 }
+# obs_rows <regex>: error-log rows matching it (0 when none).
+obs_rows() { grep -c "$1" "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d ' \r' || true; }
 
 # 1. Happy path: Bash success → one line, ok:true, command as target.
 payload "Bash" "sess-1" '{"command":"git status"}' '{"stdout":"clean","stderr":""}' \
@@ -116,7 +118,7 @@ LEDGERS=$(find "$OBS_DIR" -maxdepth 1 -name '*.jsonl' | wc -l | tr -d ' ')
 pass "session id sanitized — no path traversal out of observations/"
 
 # 9. Size cap: file at/over SB_OBSERVATION_MAX_BYTES → append skipped, exit 0.
-FCAP="$OBS_DIR/sess-cap.jsonl"
+FCAP="$OBS_DIR/sess-cap.jsonl"; mkdir -p "$OBS_DIR"
 printf '%0.s{"pad":1}\n' 1 2 3 4 5 6 7 8 9 10 > "$FCAP"
 CAP_BYTES=$(wc -c < "$FCAP" | tr -d ' ')
 payload "Bash" "sess-cap" '{"command":"x"}' '{}' | SB_OBSERVATION_MAX_BYTES="$CAP_BYTES" bash "$SCRIPT"; rc=$?
@@ -124,6 +126,29 @@ payload "Bash" "sess-cap" '{"command":"x"}' '{}' | SB_OBSERVATION_MAX_BYTES="$CA
 NEW_BYTES=$(wc -c < "$FCAP" | tr -d ' ')
 [ "$NEW_BYTES" -eq "$CAP_BYTES" ] || fail "cap: file grew past SB_OBSERVATION_MAX_BYTES ($CAP_BYTES → $NEW_BYTES)"
 pass "size cap: at-cap ledger stops appending (bounded per session)"
+
+# 9b (C1 audit, R3). The cap used to drop every later observation in silence. It is now loud: ONE
+# error row per session ledger (a .flag file remembers it), not one per dropped tool call. Test 9's
+# dropped call counts too: 1 + 3 dropped calls, one row.
+for _i in 1 2 3; do
+  payload "Bash" "sess-cap" '{"command":"x"}' '{}' | SB_OBSERVATION_MAX_BYTES="$CAP_BYTES" bash "$SCRIPT" || fail "cap-loud: exit $?"
+done
+[ "$(obs_rows 'observation ledger.*sess-cap.*cap')" = 1 ] \
+  || fail "cap-loud: want exactly 1 error row for the capped ledger after 4 dropped calls, got $(obs_rows 'sess-cap') ($(tail -3 "$BRAIN_DIR/error-log.jsonl"))"
+[ "$(wc -c < "$FCAP" | tr -d ' ')" -eq "$CAP_BYTES" ] || fail "cap-loud: the capped ledger grew"
+pass "size cap is loud once: one error row per capped session ledger, the ledger stays bounded"
+
+# 9c (C1 audit, R3). A failed append (`>> ledger || true`) lost the observation without a trace.
+# Now one error row per session; the hook still exits 0.
+: > "$BRAIN_DIR/error-log.jsonl"
+mkdir -p "$OBS_DIR/sess-afail.jsonl"   # a directory where the ledger file goes: the append fails
+for _i in 1 2; do
+  payload "Bash" "sess-afail" '{"command":"git status"}' '{}' | bash "$SCRIPT" || fail "append-fail: exit $?"
+done
+[ "$(obs_rows 'observation ledger append failed.*sess-afa')" = 1 ] \
+  || fail "append-fail: want exactly 1 error row for the failed appends, got $(obs_rows 'sess-afa') ($(tail -3 "$BRAIN_DIR/error-log.jsonl"))"
+grep -q 'git status' "$BRAIN_DIR/error-log.jsonl" && fail "append-fail: the error row carries the observation's target"
+pass "a failed ledger append is loud once per session, without the observation text"
 
 # 10. X2 S3: target (command[0:200]) and err (stderr[0:160]) are written through the secret scrub,
 #     so a key in a failed command never lands in the ledger the drainer embeds. Keys are assembled
@@ -255,6 +280,8 @@ for t in Bash Write Edit Read Task; do
 done
 grep -q 'observations' "$PLUGIN_ROOT/scripts/extract-drain.sh" \
   || fail "wiring: extract-drain.sh has no observations GC"
+grep -q "find \"\$BRAIN_DIR/observations\".*-name '\*\.flag'" "$PLUGIN_ROOT/scripts/extract-drain.sh" \
+  || fail "wiring: the observations GC does not sweep the hook's <sid>.<condition>.flag files"
 grep -q 'SB_OBSERVATION_LEDGER' "$PLUGIN_ROOT/scripts/lib.sh" \
   || fail "wiring: SB_OBSERVATION_LEDGER not mapped in lib.sh minimal profile"
 pass "wiring: hooks.json entry + drainer GC + minimal-profile mapping present"
