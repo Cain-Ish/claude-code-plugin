@@ -252,8 +252,8 @@ sb_extract_transcript "$WARCH" "guard-slug" 0 10 >/dev/null 2>&1 || fail "window
 sb_extract_transcript "$WARCH" "guard-slug" 10 15 >/dev/null 2>&1 || fail "windows: later window failed"
 WREC=$(jq -c 'select(.session_id == "win-sid")' "$GDIGEST" 2>/dev/null | tr -d '\r')
 [ "$(printf '%s\n' "$WREC" | grep -c .)" = "1" ] || fail "windows: expected one digest entry for the session (got: $WREC)"
-printf '%s' "$WREC" | jq -e '.goal == "THE SESSION GOAL"' >/dev/null 2>&1 || fail "windows: a later window replaced the session goal (got: $WREC)"
-printf '%s' "$WREC" | jq -e '.outcome == "done: shipped"' >/dev/null 2>&1 || fail "windows: the later window's outcome was dropped (got: $WREC)"
+[ -n "$WREC" ] && printf '%s' "$WREC" | jq -e '.goal == "THE SESSION GOAL"' >/dev/null 2>&1 || fail "windows: a later window replaced the session goal (got: $WREC)"
+[ -n "$WREC" ] && printf '%s' "$WREC" | jq -e '.outcome == "done: shipped"' >/dev/null 2>&1 || fail "windows: the later window's outcome was dropped (got: $WREC)"
 pass "drainer: delta windows keep the first window's goal and take the newest outcome"
 # the helper's merge on its own: an empty field keeps the entry's previous value
 sb_append_session_digest "guard-slug" "merge-sid" "G1" "O1"

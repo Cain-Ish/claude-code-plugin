@@ -684,7 +684,7 @@ case "$RX_OK" in
            || no "partial: ok row bounds wrong (got: $RX_OK)" ;;
   *) no "partial: no single ok row from 0 for the merged chunk (got: $RX_ROWS)" ;;
 esac
-printf '%s\n' "$RX_ROWS" | jq -e --argjson c "${RX_C1:-0}" 'select(.outcome == "retry" and .from == $c and .lines > $c)' >/dev/null 2>&1 \
+[ -n "$RX_ROWS" ] && printf '%s\n' "$RX_ROWS" | jq -e --argjson c "${RX_C1:-0}" 'select(.outcome == "retry" and .from == $c and .lines > $c)' >/dev/null 2>&1 \
   && ok "partial: the failed chunk is a retry row starting where the merged one ended" \
   || no "partial: retry row missing or misplaced (got: $RX_ROWS)"
 eq "partial: the next tick resumes at the end of the merged chunk (cursor next state)" \

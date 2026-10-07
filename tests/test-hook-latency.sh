@@ -106,17 +106,17 @@ grep -qF 'export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 ))' "$TIMER" \
 OUT=$(printf '' | SB_HOOK_LATE_MS=1 SB_HOOK_LATE_PID=1 bash "$TIMER" 0 "$PLUG/scripts/deadline.sh" 2>/dev/null)
 case "$OUT" in "unset unset "*) ;; *) fail "(g) budget 0 must unset an inherited SB_HOOK_LATE_MS/SB_HOOK_LATE_PID (child saw: '$OUT')" ;; esac
 LINE=$(grep '"kind":"latency"' "$AUD" | tail -1)
-printf '%s' "$LINE" | jq -e '.plugin_version == "9.8.7-rc.1" and (has("late") | not)' >/dev/null \
+[ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.plugin_version == "9.8.7-rc.1" and (has("late") | not)' >/dev/null \
   || fail "(g) an on-time row names the plugin version and is not late: $LINE"
 : > "$AUD"
 printf '' | bash "$TIMER" 1 "$PLUG/scripts/slow.sh" >/dev/null 2>&1
 LINE=$(grep '"kind":"latency"' "$AUD" | tail -1)
-printf '%s' "$LINE" | jq -e '.late == true' >/dev/null \
+[ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.late == true' >/dev/null \
   || fail "(g) a 1 s child against a 1 s budget ends past the deadline: the row must say late: $LINE"
 : > "$AUD"
 printf '' | bash "$TIMER" 60 "$CHILD" >/dev/null 2>&1
 LINE=$(grep '"kind":"latency"' "$AUD" | tail -1)
-printf '%s' "$LINE" | jq -e '(has("plugin_version") | not) and (has("late") | not)' >/dev/null \
+[ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '(has("plugin_version") | not) and (has("late") | not)' >/dev/null \
   || fail "(g) a script with no plugin.json beside it gets no version, and a fast one no late flag: $LINE"
 pass "(g) deadline handed to the child; latency row: plugin_version, late past the deadline"
 

@@ -582,10 +582,10 @@ is_ask "$out" || fail "#110 (detached): the verdict must arrive (got: $out)"
 [ "$fg_s" -lt 3 ] || fail "#110 (detached): the guard waited ${fg_s}s for its buddy line (its jq sleeps 3 s)"
 fg_row=$(grep '"verdict":"ask"' "$BRAIN/det/audit-log.jsonl" 2>/dev/null)
 [ -n "$fg_row" ] || fail "GS5: the ask's audit row must be on disk when the guard returns (audit: $(cat "$BRAIN/det/audit-log.jsonl" 2>/dev/null))"
-printf '%s' "$fg_row" | jq -e '.rule == "info-flow:jwt" and .target == "WebSearch:(jwt)" and .session_id == "cr1w" and (.extra.fastpath | not)' >/dev/null \
+[ -n "$fg_row" ] && printf '%s' "$fg_row" | jq -e '.rule == "info-flow:jwt" and .target == "WebSearch:(jwt)" and .session_id == "cr1w" and (.extra.fastpath | not)' >/dev/null \
   || fail "GS5: the row must be the full logic's ask (rule info-flow:jwt, no fastpath marker): $fg_row"
 if [ -n "${EPOCHREALTIME:-}" ]; then
-  printf '%s' "$fg_row" | jq -e '.extra.late == true' >/dev/null || fail "GT1: a verdict past hook-timer's deadline must be stamped late: $fg_row"
+  [ -n "$fg_row" ] && printf '%s' "$fg_row" | jq -e '.extra.late == true' >/dev/null || fail "GT1: a verdict past hook-timer's deadline must be stamped late: $fg_row"
 else
   echo "SKIP: GT1 late stamp — no EPOCHREALTIME (bash < 5): no clock without a process"
 fi

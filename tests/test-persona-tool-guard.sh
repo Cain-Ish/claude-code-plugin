@@ -1325,7 +1325,7 @@ if [ -n "${EPOCHREALTIME:-}" ]; then
       g2_row=$(grep '"verdict":"ask"' "$G2/$b/audit-log.jsonl" | head -1)
       [ -n "$g2_row" ] || fail "G2 $b, budget $budget: no verdict row (audit: $(cat "$G2/$b/audit-log.jsonl"))"
       g2_want=false; [ "$budget" = 2 ] && g2_want=true
-      printf '%s' "$g2_row" | jq -e --argjson w "$g2_want" '((.extra.late // false) == $w)' >/dev/null \
+      [ -n "$g2_row" ] && printf '%s' "$g2_row" | jq -e --argjson w "$g2_want" '((.extra.late // false) == $w)' >/dev/null \
         || fail "G2 $b, budget $budget: extra.late must be $g2_want: $g2_row"
     done
   done
@@ -1358,10 +1358,10 @@ printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "perf: the ful
 [ "$pf_s" -lt 25 ] || fail "perf: the guard waited ${pf_s}s for a jq (sb_log_audit's sleeps 30 s): its row must not need one"
 pf_row=$(grep '"verdict":"ask"' "$PF/brain/audit-log.jsonl" 2>/dev/null)
 [ -n "$pf_row" ] || fail "GS5: the ask's audit row must be on disk when the guard returns (audit: $(cat "$PF/brain/audit-log.jsonl" 2>/dev/null))"
-printf '%s' "$pf_row" | jq -e '.rule == "resource-scope-out-of-scope" and .session_id == "pf" and (.extra.fastpath | not)' >/dev/null \
+[ -n "$pf_row" ] && printf '%s' "$pf_row" | jq -e '.rule == "resource-scope-out-of-scope" and .session_id == "pf" and (.extra.fastpath | not)' >/dev/null \
   || fail "GS5: the row must be the full logic's resource-scope ask (no fastpath marker): $pf_row"
 if [ -n "${EPOCHREALTIME:-}" ]; then
-  printf '%s' "$pf_row" | jq -e '.extra.late == true' >/dev/null || fail "GT1: a verdict past hook-timer's deadline must be stamped late: $pf_row"
+  [ -n "$pf_row" ] && printf '%s' "$pf_row" | jq -e '.extra.late == true' >/dev/null || fail "GT1: a verdict past hook-timer's deadline must be stamped late: $pf_row"
 else
   echo "SKIP: GT1 late stamp — no EPOCHREALTIME (bash < 5): no clock without a process"
 fi
