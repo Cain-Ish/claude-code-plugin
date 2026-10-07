@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 840   (~79 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path, plus the integration scrub list + bound case D18 (3 ticks); measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel; 2026-10-06 on a quiet MSYS box, back to back: 522-566s at 12cfa63, 528-536s with D18 — see run-all.sh)
+# run-all-timeout: 900   (~79 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path, plus the integration scrub list + bound case D18 (3 ticks); measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel; 2026-10-06 on a quiet MSYS box, back to back: 522-566s at 12cfa63, 528-536s with D18; 2026-10-07 R3-B (Q-L10 adds asserts, no tick), alone: 422 s (jq 1.8.1, ~12 GB free, ~380 processes) / 538 s (jq 1.7.1, ~9 GB free, ~410 processes). 2x is past run-all's 900 s hard ceiling, so 900 (the most a header can declare) — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
 # pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks
@@ -967,6 +967,13 @@ mkdir -p "$BRAIN_DIR/observations"
 printf '{"ts":"2026-01-01T00:00:00Z","tool":"Bash","target":"x","ok":true}\n' > "$BRAIN_DIR/observations/old-session.jsonl"
 touch -t 202601010000 "$BRAIN_DIR/observations/old-session.jsonl"
 printf '{"ts":"2026-07-30T00:00:00Z","tool":"Bash","target":"y","ok":true}\n' > "$BRAIN_DIR/observations/fresh-session.jsonl"
+# Q-L10: the hook's loud-once flags (observations/<sid>.<condition>.flag, and the BRAIN_DIR fallback
+# .obs-<sid>.<condition>.flag) age out with the ledgers; only aged *flag* names go at BRAIN_DIR depth.
+: > "$BRAIN_DIR/observations/old-session.capped.flag"; touch -t 202601010000 "$BRAIN_DIR/observations/old-session.capped.flag"
+: > "$BRAIN_DIR/observations/fresh-session.capped.flag"
+: > "$BRAIN_DIR/.obs-old-session.append-failed.flag"; touch -t 202601010000 "$BRAIN_DIR/.obs-old-session.append-failed.flag"
+: > "$BRAIN_DIR/.obs-fresh-session.append-failed.flag"
+printf 'x\n' > "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl"; touch -t 202601010000 "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl"
 bash "$DRAIN" >/dev/null 2>&1 || true
 [ ! -f "$BRAIN_DIR/observations/old-session.jsonl" ] \
   && ok "observation GC: >7d ledger swept" \
@@ -974,6 +981,13 @@ bash "$DRAIN" >/dev/null 2>&1 || true
 [ -f "$BRAIN_DIR/observations/fresh-session.jsonl" ] \
   && ok "observation GC: fresh ledger kept" \
   || no "observation GC: fresh ledger was deleted"
+[ ! -e "$BRAIN_DIR/observations/old-session.capped.flag" ] && [ ! -e "$BRAIN_DIR/.obs-old-session.append-failed.flag" ] \
+  && ok "observation GC: >7d loud-once flags swept (observations/ and the BRAIN_DIR fallback)" \
+  || no "observation GC: an aged loud-once flag survived ($(ls -a "$BRAIN_DIR/observations" "$BRAIN_DIR" | grep -F '.flag' | tr '\n' ' '))"
+[ -e "$BRAIN_DIR/observations/fresh-session.capped.flag" ] && [ -e "$BRAIN_DIR/.obs-fresh-session.append-failed.flag" ] \
+  && [ -e "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl" ] \
+  && ok "observation GC: fresh flags and an aged non-flag file at BRAIN_DIR depth kept" \
+  || no "observation GC: a fresh flag or a non-flag BRAIN_DIR file was deleted"
 
 # --- lock steal must clear a NON-EMPTY stale lock dir ------------------------
 # The steal path itself writes $LOCK_DIR/pid, so any run killed after that point

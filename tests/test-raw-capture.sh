@@ -23,13 +23,20 @@ pass "capture skill present, documents the CLI, and invocable by nobody (user or
 # string may tell anyone to run `/second-brain:capture` (the slash form is a command that does not
 # exist; `--list`/`--discard`/`--prune-processed` were never CLI syntax either). They name the CLI
 # itself (raw-capture-cli.bundle.js list|discard|prune-processed|capture). Scanned: user docs, skills,
-# agents, the CLI sources (src: dist is rebuilt from it) and the drain-loop report strings.
+# agents, the CLI sources (src: dist is rebuilt from it), the drain-loop report strings, and (Q-L8)
+# every other surface that prints or documents a hint: hook scripts and their messages (scripts/,
+# hooks/), the dev skills (.claude/skills), output styles and docs/.
 STALE=$(cd "$ROOT" && grep -rnF '/second-brain:capture' README.md skills agents mcp/src \
+  scripts hooks .claude/skills output-styles docs \
   tests/test-maintain-drain-loop.sh 2>/dev/null | grep -v '\.test\.ts:')
 [ -z "$STALE" ] || fail "the capture skill is named as a runnable command (nothing can invoke it); name raw-capture-cli instead:
 $STALE"
-for f in skills/maintain/SKILL.md agents/raw-drainer.md skills/setup/SKILL.md mcp/src/tools/raw-capture-cli.ts mcp/src/tools/raw-scan-cli.ts; do
+for f in skills/maintain/SKILL.md agents/raw-drainer.md skills/setup/SKILL.md mcp/src/tools/raw-inbox.ts; do
   grep -q 'raw-capture-cli.bundle.js' "$ROOT/$f" || fail "$f no longer names the real way to reach the raw inbox (raw-capture-cli.bundle.js)"
+done
+# T6: both CLIs build their hint from their own running path (raw-inbox.ts rawCaptureCliCommand).
+for f in mcp/src/tools/raw-capture-cli.ts mcp/src/tools/raw-scan-cli.ts; do
+  grep -q 'rawCaptureCliCommand(process.argv\[1\])' "$ROOT/$f" || fail "$f does not build its raw-capture hint from its running path"
 done
 pass "no doc, prompt or CLI hint tells anyone to run /second-brain:capture; they name raw-capture-cli"
 
@@ -142,6 +149,25 @@ PRUNE_ALPHA=$(BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" --slug alpha prune-
 echo "$PRUNE_ALPHA" | grep -qE 'Pruned 1 ' || fail "--slug alpha prune-processed should remove alpha's 1 closed item ($PRUNE_ALPHA)"
 [ ! -f "$T/projects/alpha/raw/$ALPHA_ID.md" ] || fail "--slug alpha prune-processed did not delete alpha's processed item"
 pass "--slug alpha prune-processed (active=beta) is slug-scoped to alpha's closed items"
+
+# --- T6/T7 (R3-B): the printed hints run as pasted. With CLAUDE_PLUGIN_ROOT unset (as in a Bash
+# tool's environment) the hint used to name "$CLAUDE_PLUGIN_ROOT/mcp/dist/...", which resolved to
+# /mcp/dist/... (MODULE_NOT_FOUND); it now names the bundle's real path. The foreign-item discard
+# hint lacked --slug, so pasted from another project it discarded nothing (or the wrong inbox).
+mkdir -p "$T/projects/empty"; : > "$T/projects/empty/PROJECT.md"
+HINT=$(env -u CLAUDE_PLUGIN_ROOT BRAIN_DIR="$T" SB_ACTIVE_SLUG=empty node "$CLI" list)
+case "$HINT" in *CLAUDE_PLUGIN_ROOT*) fail "T6: a hint names the unset \$CLAUDE_PLUGIN_ROOT ($HINT)" ;; esac
+HINT_JS=$(printf '%s\n' "$HINT" | sed -n 's/.*node "\([^"]*raw-capture-cli\.bundle\.js\)".*/\1/p' | head -1)
+[ -n "$HINT_JS" ] && [ -f "$HINT_JS" ] || fail "T6: the list hint does not name an existing raw-capture bundle ($HINT)"
+mkdir -p "$T/projects/gamma" "$T/projects/delta"; : > "$T/projects/gamma/PROJECT.md"; : > "$T/projects/delta/PROJECT.md"
+BRAIN_DIR="$T" SB_ACTIVE_SLUG=gamma node "$CLI" capture "a gamma-origin note filed in delta" >/dev/null
+mkdir -p "$T/projects/delta/raw"; cp "$T/projects/gamma/raw/"*.md "$T/projects/delta/raw/"
+FOREIGN=$(env -u CLAUDE_PLUGIN_ROOT BRAIN_DIR="$T" SB_ACTIVE_SLUG=beta node "$CLI" --slug delta pending 2>&1 >/dev/null)
+echo "$FOREIGN" | grep -q 'held back 1 foreign-origin' || fail "T7: the foreign item was not held back ($FOREIGN)"
+echo "$FOREIGN" | grep -q 'raw-capture-cli\.bundle\.js" --slug delta discard <id>' \
+  || fail "T7: the discard hint does not carry --slug delta ($FOREIGN)"
+case "$FOREIGN" in *CLAUDE_PLUGIN_ROOT*) fail "T6: the pending hint names the unset \$CLAUDE_PLUGIN_ROOT ($FOREIGN)" ;; esac
+pass "hints name the raw-capture bundle's real path (no \$CLAUDE_PLUGIN_ROOT) and the discard hint carries --slug"
 
 rm -rf "$T"
 echo; echo "ALL PASS"

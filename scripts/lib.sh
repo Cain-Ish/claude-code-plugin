@@ -242,15 +242,22 @@ sb_filter_scratch_paths() {
 # its own (`jq -R` + fromjson?): a record cut mid-write is skipped, never the rest of the window. A
 # plain `jq` stops at the first record that does not parse, so one half-flushed line in front of
 # the window's tool calls made it read as tool-count-zero and its marker advanced past it.
-# Prints the count; 0 when jq is missing or fails (one spawn, no per-line loop).
+# Prints the count and returns 0 (one jq, no per-line loop). A window that could not be read or
+# counted (sed or jq failed: missing, killed) prints NOTHING and returns 1: the 0 printed here before
+# read as "no tool calls", and both hooks advanced the marker past a window nobody counted. Callers
+# test the status; they never default an empty count to 0.
 sb_window_tool_count() {
   local n
-  n=$(sed -n "${2},${3}p" "$1" 2>/dev/null | jq -R -r 'fromjson?
+  if n=$(sed -n "${2},${3}p" "$1" 2>/dev/null | jq -R -r 'fromjson?
       | select(type == "object" and .type == "assistant") | .message.content[]?
       | select(type == "object" and .type == "tool_use") | (.name // "" | tostring)
       | select(endswith("buddy_react") | not)
-    ' 2>/dev/null | wc -l | tr -d ' ')
-  printf '%s' "${n:-0}"
+    ' 2>/dev/null | wc -l | tr -d ' '; _ps="${PIPESTATUS[*]}"; [ "$_ps" = "0 0 0 0" ]); then
+    case "$n" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s' "$n"
+    return 0
+  fi
+  return 1
 }
 
 # Deterministic, no-LLM extraction floor (P1 Task 1). Given a transcript and a line window,
@@ -263,11 +270,12 @@ sb_window_tool_count() {
 # Each raw line is parsed on its own (`jq -nR` + fromjson?), like sb_preprocess_transcript: a record
 # cut mid-write (a half-flushed last line, a torn append) or a non-object line is skipped, never the
 # rest of the window. The `jq -s` slurp this replaces failed whole on one such line, and its
-# `|| echo '[]'` fallback emptied the floor in silence.
+# `|| echo '[]'` fallback emptied the floor in silence. A jq that fails here (killed, missing) still
+# leaves an empty file list, now with an error row (S7): the floor then cites no files.
 sb_extract_deterministic() {
   local transcript="$1" start="$2" total="$3"
   local files_json
-  files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -nRc '
+  if ! files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -nRc '
     [ inputs | fromjson?
       | select(type == "object" and .type == "assistant")
       | .message.content[]?
@@ -276,10 +284,16 @@ sb_extract_deterministic() {
       | .input.file_path? | select(type == "string" and . != "") ]
     | map(gsub("\\\\"; "/"))
     | unique
-  ' 2>/dev/null || echo '[]')
+  ' 2>/dev/null); then
+    sb_log_error "lib.sh" "sb_extract_deterministic: jq failed reading raw lines ${start}-${total} of $transcript (missing or killed); the deterministic floor cites no files" 1
+    files_json='[]'
+  fi
   files_json=$(sb_safe_json_array "$files_json")
   files_json=$(sb_filter_scratch_paths "$files_json")
-  files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
+  if ! files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null); then
+    sb_log_error "lib.sh" "sb_extract_deterministic: jq failed capping the file list of raw lines ${start}-${total} of $transcript; the deterministic floor cites no files" 1
+    files_json='[]'
+  fi
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list
@@ -308,10 +322,12 @@ sb_degraded_floor() {
     else
       note="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
     fi
-    mkdir -p "$dir" 2>/dev/null || true
-    printf '[%s] %s\n' "$today" "$note" >> "$log" 2>/dev/null || true
-    if [ -f "$log" ]; then
-      tail -n 50 "$log" > "$log.tmp" 2>/dev/null && mv "$log.tmp" "$log" 2>/dev/null || rm -f "$log.tmp" 2>/dev/null
+    # S8: the breadcrumb write and the 50-line trim fail loud (both were `|| true` / `|| rm`).
+    if ! mkdir -p "$dir" 2>/dev/null || ! printf '[%s] %s\n' "$today" "$note" >> "$log" 2>/dev/null; then
+      sb_log_error "lib.sh" "sb_degraded_floor: the [degraded] breadcrumb could not be written to $log; today's LLM-unavailable capture is not recorded in the sidecar" 1
+    elif ! { tail -n 50 "$log" > "$log.tmp" 2>/dev/null && mv "$log.tmp" "$log" 2>/dev/null; }; then
+      rm -f "$log.tmp" 2>/dev/null
+      sb_log_error "lib.sh" "sb_degraded_floor: trimming $log to 50 lines failed (tail or mv); the sidecar grows until a later trim succeeds" 1
     fi
   fi
   printf '%s' "$delta"
@@ -2183,8 +2199,11 @@ sb_archive_transcript() {
   fi
   # A new file's header tool count is computed before the lock (it reads the raw transcript only;
   # a record that does not parse is skipped, as in the render).
+  # A failed count leaves the header at 0 (informational only; nothing reads it as a gate) and is
+  # logged: the hook's own substantive gate counts the same window again and keeps its marker.
   if [ ! -f "$archive_file" ] && [ -z "$tool_count" ]; then
-    tool_count=$(sb_window_tool_count "$transcript" "$start_line" "$end_line")
+    tool_count=$(sb_window_tool_count "$transcript" "$start_line" "$end_line") \
+      || sb_log_error "lib.sh" "sb_archive_transcript: the tool count of raw lines ${start_line}-${end_line} of $transcript failed (sed or jq); the new archive's header says tool_count: 0 (session=$session_id)" 1
   fi
 
   # The header write, the torn-tail terminator and the append run under the per-archive lock that

@@ -40,6 +40,26 @@ export interface CaptureInput {
   now?: string;                   // ISO timestamp; injectable for deterministic tests
 }
 
+/** The command that runs the raw-capture CLI, for the hints the raw-* CLIs print (T6). Built from
+ *  the running script's own path (pass process.argv[1]): the raw-capture-cli.bundle.js sits beside
+ *  every raw-* bundle in mcp/dist/tools/. The hints used to name `$CLAUDE_PLUGIN_ROOT`, which is not
+ *  set in a Bash tool's environment: a pasted hint resolved to /mcp/dist/... (MODULE_NOT_FOUND).
+ *  Forward slashes; the characters a double-quoted shell word would expand are escaped. Only
+ *  without a script path does the documented plugin-root form come back. */
+export function rawCaptureCliCommand(scriptPath: string | undefined): string {
+  const p = (scriptPath ?? '').replace(/\\/g, '/');
+  const cut = p.lastIndexOf('/');
+  if (cut < 0) return 'node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"';
+  const cli = `${p.slice(0, cut)}/raw-capture-cli.bundle.js`;
+  return `node "${cli.replace(/(["$`])/g, '\\$1')}"`;
+}
+
+/** One shell word for a hint: a plain token stays bare, anything else is single-quoted. */
+export function shellWord(s: string): string {
+  if (/^[A-Za-z0-9._/:@+=-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
 export function rawDir(brainDir: string, slug: string): string {
   return join(brainDir, 'projects', slug, 'raw');
 }

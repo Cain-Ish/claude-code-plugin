@@ -70,14 +70,28 @@ EXTRACT_TIMEOUT="${SB_EXTRACT_TIMEOUT:-25}"
 RAW=$(cat 2>/dev/null || true)
 if [ -z "$RAW" ]; then log_gate "empty-stdin"; exit 0; fi
 
-if ! echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; then
-  log_gate "stdin-not-json-object"
+# jq -e: 1 = parsed but not an object, 4/5 = no value / not JSON (2: jq 1.6's parse error). Any other
+# status (126/127 jq not runnable, 128+N killed, 3 broken jq) is jq failing, not the payload: an error
+# row with its status, never the routine gate row (the window is not archived; the next Stop retries).
+echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _se_jq_rc=$?
+case "$_se_jq_rc" in
+  0) ;;
+  1|2|4|5) log_gate "stdin-not-json-object"; exit 0 ;;
+  *) sb_log_error "stop-extract.sh" "jq exited $_se_jq_rc checking the Stop payload (jq missing, not executable or killed); this Stop's window is neither archived nor extracted, the next Stop retries it" 1
+     exit 0 ;;
+esac
+
+# The payload is an object, so a nonzero jq status on a field read is jq failing (killed, missing):
+# an empty field then is not the payload's, and must not read as transcript-path-empty or as an
+# empty session id. jq's status leaves each substitution through its own `exit`.
+_se_jq_rc=0
+TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _se_jq_rc=$?
+CWD=$(echo       "$RAW" | jq -r '.cwd             // empty' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _se_jq_rc=$?
+SESSION_ID=$(echo "$RAW" | jq -r '.session_id     // "unknown"' 2>/dev/null | tr -d '\r'; exit "${PIPESTATUS[1]}") || _se_jq_rc=$?
+if [ "$_se_jq_rc" -ne 0 ]; then
+  sb_log_error "stop-extract.sh" "jq exited $_se_jq_rc reading the Stop payload's fields; this Stop's window is neither archived nor extracted, the next Stop retries it" 1
   exit 0
 fi
-
-TRANSCRIPT=$(echo "$RAW" | jq -r '.transcript_path // empty' 2>/dev/null | tr -d '\r')
-CWD=$(echo       "$RAW" | jq -r '.cwd             // empty' 2>/dev/null | tr -d '\r')
-SESSION_ID=$(echo "$RAW" | jq -r '.session_id     // "unknown"' 2>/dev/null | tr -d '\r')
 if [ -z "$TRANSCRIPT" ]; then log_gate "transcript-path-empty cwd=$CWD"; exit 0; fi
 if [ ! -f "$TRANSCRIPT" ]; then log_gate "transcript-file-missing path=$TRANSCRIPT"; exit 0; fi
 
@@ -867,9 +881,15 @@ fi
 # Substantive-session gate: count tool_use entries in the FULL delta. The buddy's end-of-turn
 # buddy_react call is chat, not work: counting it would run the whole pipeline on every turn.
 # Per-line parse (sb_window_tool_count): a record cut mid-write no longer hides the rest.
-TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
+# A count that failed (sed or jq killed or missing) is not "no tool calls": the marker stays, so
+# the next Stop examines the window again (it is archived already; the archive cursor does not
+# re-append it).
+if ! TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES"); then
+  sb_log_error "stop-extract.sh" "the tool count of raw lines ${START_LINE}-${TOTAL_LINES} failed (sed or jq); the marker stays at $LAST_LINE and the next Stop examines the window again" 1
+  exit 0
+fi
 
-if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
+if [ "$TOOL_COUNT" -lt 1 ]; then
   TS_LINES=$NEW_LINES
   TS_FIRST_TYPE=$(sed -n "${START_LINE}p" "$TRANSCRIPT" 2>/dev/null | jq -r '.type // "no-type"' 2>/dev/null | tr -d '\r\n')
   log_gate "tool-count-zero lines=$TS_LINES first-type=$TS_FIRST_TYPE marker=$LAST_LINE"
@@ -895,14 +915,15 @@ EXTRACT_OUT=$(mktemp)
 # render that failed (jq killed or missing, the scrub failed: sb_preprocess_transcript returns 1
 # and its output must not be used) used to go out as PROJECT.md plus a cut or empty transcript and
 # merged as a real extraction. Such an input is never sent; the deterministic floor runs instead.
-EXTRACT_INPUT_OK=1
+EXTRACT_INPUT_OK=1 _ei_why=""
 {
   echo "=== PROJECT.md ===" && cat "$PROJECT_MD" && echo && echo "---SEPARATOR---" && echo \
     && echo "=== TRANSCRIPT (preprocessed) ==="
-} > "$EXTRACT_INPUT" || EXTRACT_INPUT_OK=0
+} > "$EXTRACT_INPUT" || { EXTRACT_INPUT_OK=0; _ei_why="its PROJECT.md header could not be written"; }
 sed -n "${EXTRACT_START},${TOTAL_LINES}p" "$TRANSCRIPT" | sb_preprocess_transcript >> "$EXTRACT_INPUT"
 _ei_ps="${PIPESTATUS[*]}"
-[ "$_ei_ps" = "0 0" ] || EXTRACT_INPUT_OK=0
+# The row names the part that failed: a header failure used to read "render pipe status 0 0".
+[ "$_ei_ps" = "0 0" ] || { EXTRACT_INPUT_OK=0; _ei_why="${_ei_why:+$_ei_why; }the transcript render failed (sed|render status $_ei_ps)"; }
 
 DELTA_JSON=""
 
@@ -912,7 +933,7 @@ DELTA_JSON=""
 if [ "${SB_EXTRACT:-on}" = "off" ]; then
   log_gate "extract-off"
 elif [ "$EXTRACT_INPUT_OK" != 1 ]; then
-  sb_log_error "stop-extract.sh" "extractor input for raw lines ${EXTRACT_START}-${TOTAL_LINES} could not be built (render pipe status $_ei_ps); not sent to the extractor, deterministic floor instead (the archived window is mined later)" 1
+  sb_log_error "stop-extract.sh" "extractor input for raw lines ${EXTRACT_START}-${TOTAL_LINES} could not be built: ${_ei_why}; not sent to the extractor, deterministic floor instead (the archived window is mined later)" 1
 elif sb_call_extractor "$EXTRACT_INPUT" "$EXTRACT_OUT" "$EXTRACTOR_MODEL" "$PROMPT" "$EXTRACT_TIMEOUT"; then
   DELTA_JSON=$(cat "$EXTRACT_OUT")
 else

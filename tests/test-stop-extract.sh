@@ -13,7 +13,11 @@
 #   + a 33 MB subagent volume fixture) measured 649s under heavy load (~70 concurrent bash).
 #   0.56.0 R2-F, same MSYS box, alone: 414s at the R2-F head vs 428s at fcb1abf (the cheap prune
 #   gate barely moves it: few archives here); 506-627s alone and 1334s under load were reported
-#   earlier, so this budget holds alone (~2x headroom) and not under a 2-3x load factor)
+#   earlier, so this budget holds alone (~2x headroom) and not under a 2-3x load factor.
+#   2026-10-07 R3-B (+JQ1/TC2/HD1, ~14 more hook runs), alone on the MSYS dev box: 519 s before
+#   them (jq 1.8.1 and 1.7.1), 561 s (jq 1.8.1) / 530 s (jq 1.7.1) after, ~12-13 GB free, ~390
+#   processes. 2x would be ~1120 s, past run-all's 900 s hard ceiling: 900 is the most a header
+#   can declare, so this file now holds ~1.6x alone; splitting it is the remaining fix)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #
@@ -633,13 +637,15 @@ restore_path
 
 # PR1: an extractor input whose transcript part could not be rendered (sb_preprocess_transcript
 # failed: jq killed, the scrub failed) is never sent: the hook logs it and merges the floor. The
-# render's jq is failed by a PATH shim that matches only the render program (`def cut(`).
+# render's jq is failed by a PATH shim that matches only the render program (`def cut(`), and only
+# its SECOND run in the hook (Q-L9): the first is the archive's (archive-first), which must succeed,
+# or the case could not tell the extractor input's failure from the archive's.
 REAL_JQ=$(command -v jq)
-PR_SHIM="$TMP/pr-jq-shim"; mkdir -p "$PR_SHIM"
-printf '#!/bin/bash\ncase "$*" in *"def cut("*) cat > /dev/null; echo "jq: error: simulated render failure" >&2; exit 2 ;; esac\nexec "%s" "$@"\n' "$REAL_JQ" > "$PR_SHIM/jq"
+PR_SHIM="$TMP/pr-jq-shim"; mkdir -p "$PR_SHIM"; PR_CNT="$TMP/pr-render-count"
+printf '#!/bin/bash\ncase "$*" in *"def cut("*) echo x >> "%s"; if [ "$(grep -c x "%s")" = 2 ]; then cat > /dev/null; echo "jq: error: simulated render failure" >&2; exit 2; fi ;; esac\nexec "%s" "$@"\n' "$PR_CNT" "$PR_CNT" "$REAL_JQ" > "$PR_SHIM/jq"
 chmod +x "$PR_SHIM/jq"
 for pr in stop pre-compact; do
-  init_sandbox "pr-render-$pr"
+  init_sandbox "pr-render-$pr"; : > "$PR_CNT"
   if [ "$pr" = stop ]; then seed_transcript_with_edit; HOOK_PR="$SCRIPT"; else seed_transcript_long_with_edit; HOOK_PR="$REPO_ROOT/scripts/pre-compact.sh"; fi
   stub_claude_sentinel '{"recent_decisions":["pr1 must not be extracted"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
   P_PR=$(stop_payload)
@@ -647,9 +653,99 @@ for pr in stop pre-compact; do
   [ ! -e "$SANDBOX/claude-ran" ] || fail "PR1 ($pr): the extractor ran on an input whose transcript could not be rendered"
   grep -q 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PR1 ($pr): the failed render was not logged"
   grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PR1 ($pr): no deterministic floor after the failed render"
+  # Q-L9: only the extractor input's render failed; the archive (rendered first) holds the window.
+  PR_ARCH=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+  [ -n "$PR_ARCH" ] && grep -q '\[Edit\] src/foo.ts' "$PR_ARCH" || fail "PR1 ($pr): the archive render was failed too, so the case cannot tell the extractor input's render failure apart"
   restore_path
 done
 pass "PR1: a window the render could not produce is never sent to the extractor (Stop and PreCompact): logged, floor merged"
+
+# A jq shim that fails ONE program: the call whose arguments contain $JQ_FAIL_MATCH exits $JQ_FAIL_RC
+# without running (126: jq not executable, 137: jq killed); every other jq call (the error row's
+# own jq included) runs the real jq.
+JQ_FAIL_SHIM="$TMP/jq-fail-shim"; mkdir -p "$JQ_FAIL_SHIM"
+printf '#!/bin/bash\nif [ -n "${JQ_FAIL_MATCH:-}" ]; then case "$*" in *"$JQ_FAIL_MATCH"*) exit "${JQ_FAIL_RC:-137}" ;; esac; fi\nexec "%s" "$@"\n' "$REAL_JQ" > "$JQ_FAIL_SHIM/jq"
+chmod +x "$JQ_FAIL_SHIM/jq"
+# run_jqfail <hook> <match> <rc> [hook arg]: one hook run with the shim first on PATH.
+run_jqfail() {
+  stop_payload | env PATH="$JQ_FAIL_SHIM:$PATH" JQ_FAIL_MATCH="$2" JQ_FAIL_RC="$3" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= \
+    bash "$1" ${4:+"$4"} >/dev/null 2>"$SANDBOX/hook.err"
+}
+# jq_err_row <text>: an exit_code 1 error-log row carrying <text>.
+jq_err_row() { grep -F "$1" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep -q '"exit_code":1'; }
+
+# JQ1 (R3-B): before the archive step, a jq that cannot run (exit 126) or was killed (137) is not a
+# payload that "is not a JSON object" or "has no transcript_path". Stop and PreCompact used to
+# write that routine gate row (audit-log, exit 0) and exit: the window went unarchived with no
+# error anywhere (a failed session_id read archived it under an empty session id). Now an error row
+# names jq's exit status, nothing is archived, and the next hook retries the window.
+for jq1 in "stop|$SCRIPT|type == \"object\"|126|stdin-not-json-object" \
+           "stop-field|$SCRIPT|.transcript_path // empty|137|transcript-path-empty" \
+           "pc|$REPO_ROOT/scripts/pre-compact.sh|type == \"object\"|126|stdin-not-json-object" \
+           "pc-field|$REPO_ROOT/scripts/pre-compact.sh|.session_id // \"unknown\"|137|-" \
+           "pc-post|$REPO_ROOT/scripts/pre-compact.sh|type == \"object\"|137|postcompact-capture reason=bad-stdin"; do
+  IFS='|' read -r J1_NAME J1_HOOK J1_MATCH J1_RC J1_GATE <<< "$jq1"
+  init_sandbox "jq1-$J1_NAME"
+  seed_transcript_long_with_edit
+  J1_ARG=""; [ "$J1_NAME" = pc-post ] && J1_ARG=post   # PostCompact mode: its Pending Tasks capture
+  run_jqfail "$J1_HOOK" "$J1_MATCH" "$J1_RC" "$J1_ARG"
+  jq_err_row "jq exited $J1_RC" || fail "JQ1 ($J1_NAME): jq exit $J1_RC before the archive step left no error row naming it"
+  [ "$J1_GATE" = - ] || ! grep -qF "gate=$J1_GATE" "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+    || fail "JQ1 ($J1_NAME): jq exit $J1_RC was logged as the routine gate '$J1_GATE'"
+  [ -z "$(ls "$SANDBOX/.second-brain/transcripts/" 2>/dev/null)" ] || fail "JQ1 ($J1_NAME): a window was archived with a payload jq never read"
+done
+# Control: a payload that really is not an object keeps its routine gate (jq status 1 and 5).
+for jq1c in '[1]' 'not json'; do
+  init_sandbox "jq1-control"
+  printf '%s' "$jq1c" | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$SCRIPT" >/dev/null 2>"$SANDBOX/hook.err"
+  grep -qF 'gate=stdin-not-json-object' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "JQ1 control: stdin '$jq1c' lost its routine stdin-not-json-object gate"
+  grep -qF 'jq exited' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "JQ1 control: stdin '$jq1c' was reported as a jq failure"
+done
+pass "JQ1: a jq exec failure (126/137) before the archive step is an error row with jq's exit status, not a routine gate (Stop, PreCompact, PostCompact); a non-object payload keeps its gate"
+
+# TC2 (R3-B, S1): sb_window_tool_count returned 0 when its jq failed (killed, missing): the hooks
+# logged a routine tool-count-zero and ADVANCED the marker past a window the archive kept, so it was
+# never extracted. A failed count is now an error row and the marker stays; the next run extracts.
+for tc2 in stop pc; do
+  init_sandbox "tc2-count-fail-$tc2"
+  if [ "$tc2" = stop ]; then seed_transcript_with_edit; TC2_HOOK="$SCRIPT"; TC2_END=3; else seed_transcript_long_with_edit; TC2_HOOK="$REPO_ROOT/scripts/pre-compact.sh"; TC2_END=20; fi
+  stub_claude_sentinel '{"recent_decisions":["tc2 window extracted after the failed count"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+  run_jqfail "$TC2_HOOK" buddy_react 137
+  [ ! -f "$MARKER" ] || fail "TC2 ($tc2): the marker advanced to $(cat "$MARKER") past a window whose tool count failed"
+  grep -q 'tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null && fail "TC2 ($tc2): a failed tool count was logged as a routine tool-count-zero"
+  jq_err_row "the marker stays at 0" || fail "TC2 ($tc2): the failed tool count left no error row saying the marker stays"
+  jq_err_row "header says tool_count: 0" || fail "TC2 ($tc2): the new archive's failed header count was not logged"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "TC2 ($tc2): the extractor ran on a window whose tool count failed"
+  TC2_ARCH=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+  [ -n "$TC2_ARCH" ] || fail "TC2 ($tc2): archive-first did not archive the window"
+  grep -q '^tool_count: -' "$TC2_ARCH" && fail "TC2 ($tc2): a negative tool count reached the archive header"
+  if [ "$tc2" = stop ]; then run_stop; else run_pc; fi
+  [ "$(cat "$MARKER" 2>/dev/null)" = "$TC2_END" ] || fail "TC2 ($tc2): the next run did not extract the kept window (marker $(cat "$MARKER" 2>/dev/null), want $TC2_END)"
+  grep -q 'tc2 window extracted after the failed count' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC2 ($tc2): the kept window's decision was not merged by the next run"
+  restore_path
+done
+pass "TC2: a failed tool count keeps the marker with an error row (Stop and PreCompact); the next run extracts the window"
+
+# HD1 (R3-B, S9): the extractor input's PROJECT.md header failing (here: a `cat` of PROJECT.md that
+# fails) was reported as "render pipe status 0 0", a render failure whose status says it succeeded.
+# The row names the part that failed; the input is still never sent and the floor still merges.
+REAL_CAT=$(command -v cat)
+CAT_SHIM="$TMP/cat-fail-shim"; mkdir -p "$CAT_SHIM"
+printf '#!/bin/bash\ncase "$*" in *PROJECT.md) exit 1 ;; esac\nexec "%s" "$@"\n' "$REAL_CAT" > "$CAT_SHIM/cat"
+chmod +x "$CAT_SHIM/cat"
+for hd in stop pre-compact; do
+  init_sandbox "hd1-header-$hd"
+  if [ "$hd" = stop ]; then seed_transcript_with_edit; HD_HOOK="$SCRIPT"; else seed_transcript_long_with_edit; HD_HOOK="$REPO_ROOT/scripts/pre-compact.sh"; fi
+  stub_claude_sentinel '{"recent_decisions":["hd1 must not be extracted"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  stop_payload | env PATH="$CAT_SHIM:$PATH" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$HD_HOOK" >/dev/null 2>"$SANDBOX/hook.err"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "HD1 ($hd): the extractor ran on an input without its PROJECT.md header"
+  grep -q 'render pipe status 0 0' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "HD1 ($hd): a header failure was reported as a render failure with status 0 0"
+  grep 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep 'PROJECT.md header' | grep -q '"exit_code":1' \
+    || fail "HD1 ($hd): no error row says the extractor input's PROJECT.md header could not be written"
+  restore_path
+done
+pass "HD1: a failed PROJECT.md header of the extractor input is reported as such, not as a render with status 0 0 (Stop and PreCompact)"
 
 # === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
 # Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.

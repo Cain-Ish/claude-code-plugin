@@ -56,6 +56,16 @@ Resolve the project slug once at the start:
 Pass `--slug <slug>` on **every** CLI/reconcile call below so the drain targets the correct
 inbox even when a different project is the active session.
 
+## Plugin root
+
+The commands below name `$CLAUDE_PLUGIN_ROOT`. A Bash tool's environment does not set it: a
+command run as written then resolves to `/mcp/dist/...` and fails with MODULE_NOT_FOUND. If
+`echo "$CLAUDE_PLUGIN_ROOT"` prints nothing, use the absolute plugin path the dispatch prompt
+gave you, or resolve it once (BSD/macOS `sort` has no `-V`, so always fall back):
+`PR=$(ls -d ~/.claude/plugins/cache/second-brain/second-brain/*/ | { sort -V 2>/dev/null || sort -t. -k1,1n -k2,2n -k3,3n; } | tail -1)`
+and use `$PR` in its place. The raw-capture CLI's own hints (e.g. its foreign-item discard hint)
+print the bundle's absolute path and the `--slug`, so they run as printed.
+
 ## Resumability contract
 
 The drain is **resumable and idempotent**: `pending` lists only `status:unprocessed` items, and
