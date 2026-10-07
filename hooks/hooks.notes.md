@@ -201,7 +201,9 @@ Task/Agent gets a tier-mismatch delegation check (warn-only unless
 SB_DELEGATION_REWRITE=1 rewrites `tool_input.model`); Read/Edit/Write/MultiEdit
 gets path-triggered repo memory (Slice 2) and Write of a new path gets a
 search-before-create nudge (Slice 3). At most one `hookSpecificOutput` envelope
-per call. Never `deny`/`ask`, never blocks. Kill switches SB_PROTOCOL_GUARD=off,
+per call. One `deny`, nothing else blocks: an Edit/Write/MultiEdit from the
+dream-runner agent outside its own `$BRAIN_DIR/dreams/<id>/` (pg_dream_confine,
+K12). Never `ask`. Kill switches SB_PROTOCOL_GUARD=off,
 SB_DELEGATION_CHECK=off, SB_DELEGATION_REWRITE (default off), SB_JIT=off,
 SB_SEARCH_FIRST=off.
 

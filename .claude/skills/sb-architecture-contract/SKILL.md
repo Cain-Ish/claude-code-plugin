@@ -186,7 +186,13 @@ idempotent via `scripts/kb-drain-reconcile.sh` and the required back-ref
   status.json mtime, re-stamped by the runner heartbeat). Snapshot is `cp -rp` —
   **mtime-preserving, the FORGET age-gate depends on it** (a bare `cp -r` re-armed the age gate
   corpus-wide once; CHANGELOG 0.24.50). Transcripts staged as SANITIZED copies, never symlinks.
-- **Runner** (`agents/dream-runner.md`, staging-only writes, max 50 changes/run): Phase 1 AUDIT →
+- **Runner** (`agents/dream-runner.md`, writes confined to its dream directory — staging wiki,
+  status.json heartbeat, forget-manifest.tsv; a Write/Edit/MultiEdit elsewhere is DENIED by
+  `protocol-guard.sh` pre mode `pg_dream_confine`, keyed on `agent_type` `dream-runner` /
+  `<plugin>:dream-runner`; max 50 changes/run). ACCEPTED RESIDUAL: its `Bash(rm|mv|cp *)` grant
+  stays (the heartbeat and on-failure snippets need `mv`) and Bash is not path-confined; the deny
+  is lexical (a symlink inside the dream dir is symlink-guard.sh's case) and fails open if the
+  hook is killed at its 5 s budget or `SB_PROTOCOL_GUARD=off`. Phase 1 AUDIT →
   2 DEDUPLICATE (deterministic MinHash via `scripts/wiki-redundancy.sh`; candidates only — "the
   signal proposes, you decide") → 3 RELATE (edges NOT curated here; `graph/edges.jsonl` is
   deliberately NOT snapshotted — append-only logs are unmergeable after concurrent live appends) →
