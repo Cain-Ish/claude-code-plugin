@@ -27,6 +27,16 @@ echo "$out" | grep -q 'raw inbox —' && fail "plain raw-inbox banner ALSO fired
 seed 3; out=$(emit "")
 echo "$out" | grep -q 'raw inbox —' || fail "plain banner missing for sub-threshold backlog"
 echo "$out" | grep -q 'auto-consolidation is off' && fail "nudge fired below threshold" || pass "below threshold → plain banner, no nudge"
+# C1 audit (R3): raw items are drained only by /second-brain:maintain in a Claude session (raw
+# auto-drain is not built, memory-usage-fixes-2026-10 design). The banner said "The maintainer
+# drains these into wiki notes automatically (auto_maintain / the drainer timer)".
+# The banner text only: from its heading (it can follow another block on the same line) to the
+# end of the next line.
+BANNER2=$(printf '%s\n' "$out" | awk '/raw inbox —/ { sub(/.*raw inbox —/, "raw inbox —"); print; if ((getline l) > 0) print l; exit }')
+[ -n "$BANNER2" ] || fail "plain banner text not found (the case proves nothing)"
+echo "$BANNER2" | grep -q '/second-brain:maintain' || fail "plain banner does not name /second-brain:maintain: $BANNER2"
+echo "$BANNER2" | grep -qiE 'automatic|timer|auto_maintain|drains these' \
+  && fail "plain banner promises automatic draining (not built): $BANNER2" || pass "plain banner names /second-brain:maintain and never claims automatic draining"
 
 # 3. auto_improve:true → nudge suppressed (user opted in)
 seed 6; out=$(emit '{"auto_improve": true}')
