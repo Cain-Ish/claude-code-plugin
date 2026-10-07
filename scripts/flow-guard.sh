@@ -519,137 +519,96 @@ _fg_fast && exit 0
 _fp_raw_all
 [ -z "$RAW" ] && exit 0
 
-# Tool, session and the tool-specific haystack: builtin decode when every field is decidable,
-# else ONE jq, NUL-framed (the old form spent one jq for tool+session and one for the haystack,
-# and sourced lib.sh up front — it is sourced only on the ask path now). If RAW is not a JSON
-# object jq errors → TOOL empty → exit 0 (fail-soft). CRs dropped except in the WebFetch
-# haystack, and trailing newlines trimmed, as the old captures did.
-TOOL="" SESSION_ID="" HAYSTACK=""
-_fg_fields() {
-  local rc u="" pr=""
-  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && return 1; TOOL="$_FP"
-  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && return 1; SESSION_ID="$_FP"
-  case "$TOOL" in
-    Bash)      _fp_str command; rc=$?; [ "$rc" = 2 ] && return 1; HAYSTACK="$_FP" ;;
-    WebFetch)  _fp_str url; rc=$?; [ "$rc" = 2 ] && return 1; u="$_FP"
-               _fp_str prompt; rc=$?; [ "$rc" = 2 ] && return 1; pr="$_FP"
-               HAYSTACK="$u $pr" ;;
-    WebSearch) _fp_str query; rc=$?; [ "$rc" = 2 ] && return 1; HAYSTACK="$_FP" ;;
+# #110 (R3, 2026-10-07): ONE jq reads the call and decides it. The old form piped the whole
+# haystack to grep 3+N times (the egress gate, the combined pattern, one grep per label), each
+# through _fp_feed (a second fork past 8 KB), then sourced lib.sh and wrote the audit and buddy
+# rows before printing the verdict: a 512 KB credentialed heredoc took 3.7 s median (15 s max) on
+# a loaded MSYS box, 50,000 interior newlines 6.7-7.3 s — past the 5 s timeout, so the call ran.
+# Now jq builds the haystack the fast path reads (a Bash command, a WebSearch query, a WebFetch's
+# url and prompt joined by a space; CRs dropped except in WebFetch's), applies FG_NET to a Bash
+# command (the egress gate, D103: a local `echo $TOKEN > file` is no egress) and FG_RES to the
+# haystack, and returns the indices of the patterns that matched. The verdict is printed before
+# lib.sh is sourced; its rows follow from a detached job (_fg_log).
+# Line semantics: grep and the fast path's _fp_lines match line by line; a jq regex sees the whole
+# string, where [[:space:]] also matches a newline. So the quantified [[:space:]] runs (pem,
+# bearer) are bounded to one line ([^\S\n]); every other pattern either cannot span a newline or
+# ends in a boundary class a newline satisfies, as a line end does. tests/test-flow-guard.sh holds
+# this form to the fast path's over one corpus. NUL-framed out: status, tool, session, indices, and
+# a closing "end" (a jq cut short reads as a failed jq, never as "no match").
+FG_JQ='
+def str: if type == "string" then . elif . == null then "" else tojson end;
+($ARGS.positional | map(gsub("\\[\\[:space:\\]\\](?<q>[+*])"; "[^\\S\\n]\(.q)"))) as $res
+| (.tool_name | str) as $t
+| (if $t == "Bash" then (.tool_input.command | str)
+   elif $t == "WebFetch" then ([(.tool_input.url | str), (.tool_input.prompt | str)] | join(" "))
+   elif $t == "WebSearch" then (.tool_input.query | str)
+   else "" end
+   | if $t == "WebFetch" then . else (split("\r") | join("")) end) as $h
+| (if ([.tool_name, .session_id, .tool_input.command, .tool_input.url, .tool_input.prompt, .tool_input.query] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end),
+  "\u0000", $t, "\u0000", (.session_id | str), "\u0000",
+  (if $h == "" or ($t == "Bash" and ($h | test($net) | not)) then ""
+   else [range(0; $res | length) as $i | select($h | test($res[$i])) | $i | tostring] | join(",") end),
+  "\u0000", "end", "\u0000"
+'
+TOOL="" SESSION_ID="" FG_HITS="" _FP_JST="" _FG_END=""
+{
+  IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID
+  IFS= read -r -d '' FG_HITS; IFS= read -r -d '' _FG_END
+} < <(_fp_feed "$RAW" jq -j --arg net "$FG_NET" "$FG_JQ" --args "${FG_RES[@]}" 2>/dev/null)
+if [ "$_FP_JST" = nul ]; then
+  _fp_audit "flow-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
+  _fp_emit ask "second-brain flow-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
+  exit 0
+fi
+if [ "$_FG_END" != end ]; then
+  # jq failed, or stopped short: no verdict was read. A payload that names a tool asks (_fp_jqfail);
+  # garbage stdin (no tool name at all) exits 0 as before.
+  case "$RAW" in *'"tool_name"'*)
+    _fp_jqfail "flow-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain flow-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
   esac
-  return 0
-}
-if ! _fg_fields; then
-  TOOL="" SESSION_ID="" HAYSTACK="" _FP_JST=""
-  # The haystack comes last and unframed, read whole by _fp_rest: byte by byte, a 450 KB one from
-  # jq cost ~0.85 s on MSYS (F8 item 20).
-  {
-    IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' SESSION_ID; _fp_rest HAYSTACK
-  } < <(_fp_feed "$RAW" jq -j '(if ([.tool_name, .session_id, .tool_input.command, .tool_input.url, .tool_input.prompt, .tool_input.query] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.session_id // ""), "\u0000",
-               (if .tool_name == "Bash" then (.tool_input.command // "")
-                elif .tool_name == "WebFetch" then ([.tool_input.url // "", .tool_input.prompt // ""] | join(" "))
-                elif .tool_name == "WebSearch" then (.tool_input.query // "")
-                else "" end)' 2>/dev/null)
-  _FP_RRC=$?
-  [ "$_FP_RRC" -gt 1 ] && _FP_JST=nul   # a failed read of the last field: undecidable, like a NUL
-  if [ "$_FP_JST" = nul ]; then
-    _fp_audit "flow-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}"
-    _fp_emit ask "second-brain flow-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
-    exit 0
-  fi
-  if [ -z "$TOOL" ]; then
-    case "$RAW" in *'"tool_name"'*)
-      _fp_jqfail "flow-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain flow-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
-    esac
-  fi
+  exit 0
 fi
 # The payload is not read again: freeing it keeps every later fork cheap (MSYS copies the heap).
 RAW="" _FP_RAW=""
 _fp_clean TOOL SESSION_ID
-[ -z "${TOOL:-}" ] && exit 0
-
-# Only outbound channels concern us.
-case "$TOOL" in
-  Bash|WebFetch|WebSearch) ;;
-  *) exit 0 ;;
-esac
-[ "$TOOL" = WebFetch ] || _fp_nocr HAYSTACK "$HAYSTACK"
-_fp_trimnl HAYSTACK "$HAYSTACK"
-_FP_A=()   # _fp_nocr's split of a big haystack: freed for the forks below, as RAW above
-[ -z "$HAYSTACK" ] && exit 0
-
-# Bash gate: require a network tool keyword in addition to the credential
-# pattern. Without this, a local `echo $TOKEN > file` would be flagged —
-# noise without exfil risk.
-# Note: `http` is intentionally NOT in the keyword list — it appears as
-# a URL substring in many local commands (grep over access.log, paths
-# containing http-* names) and would trip the egress gate on grep/awk/sed
-# operations that never touch the network. httpie has the binary name
-# `http` but the keyword match is bounded — keeping only `httpie` is the
-# conservative choice (the few power-users running httpie can disable the
-# guard or use curl).
-# D103: git/gh/python/node/aws/openssl added — the two most realistic egress
-# shapes this guard missed were `git push` with an embedded token (github-pat
-# pattern already matches; only the gate keyword was missing) and a script
-# runtime (python/node) POSTing a secret. A plain `git status`/`python -m x`
-# never trips the guard — the credential-pattern scan below still has to match.
-if [ "$TOOL" = "Bash" ]; then
-  _fp_feed "$HAYSTACK" grep -qE "$FG_NET" || exit 0
-fi
-
-# Pattern set: FG_LABELS[i] ↔ FG_RES[i] (defined with the fast path above — one list for both
-# paths). We collect all matches and report the labels. Keep each pattern narrow so we don't
-# accidentally match readable English text.
-# OpenAI: matches both legacy keys (`sk-` + 40+ base62) and the current
-# project-scoped format (`sk-proj-` + body). Hyphens allowed inside the
-# body to accommodate `sk-proj-...`. Anthropic and Slack tokens are
-# matched by their dedicated patterns too — duplicate matches just
-# add labels, they don't break anything.
-# D103: credential-shaped FILE upload via curl/httpie's `@path` syntax (-d @file,
-# -F field=@file). No secret VALUE appears in the command text here — only a
-# path naming a known credential file — so this needs its own pattern rather
-# than reusing the literal-secret scans.
-# ONE grep with every pattern (-e each) says whether ANY can match; only then the per-pattern
-# scan that names them (the old form ran all nine greps on every egress-shaped call). An error
-# (exit 2) counts as a hit, so the per-pattern scan then decides exactly as before.
-# A big haystack keeps only the lines that ONE pattern matched (grep is line-based: a line one
-# pattern matches is among them), so the per-pattern greps read those, not the whole text again.
-FG_ARGS=()
-for _p in "${FG_RES[@]}"; do FG_ARGS+=(-e "$_p"); done
-FG_SCAN="$HAYSTACK"
-if [ "${#HAYSTACK}" -le 8192 ]; then
-  _fp_feed "$HAYSTACK" grep -qE ${FG_ARGS[@]+"${FG_ARGS[@]}"}; [ $? -eq 1 ] && exit 0
-else
-  FG_SCAN=$(_fp_feed "$HAYSTACK" grep -E ${FG_ARGS[@]+"${FG_ARGS[@]}"}); _rc=$?
-  [ "$_rc" -eq 1 ] && exit 0
-  [ "$_rc" -eq 0 ] || FG_SCAN="$HAYSTACK"
-fi
+# Only outbound channels concern us; no pattern matched (or the egress gate did not), no verdict.
+case "$TOOL" in Bash|WebFetch|WebSearch) ;; *) exit 0 ;; esac
+[ -n "$FG_HITS" ] || exit 0
 MATCHED_LABELS=""
-for ((_i = 0; _i < ${#FG_RES[@]}; _i++)); do
-  _fp_feed "$FG_SCAN" grep -qE "${FG_RES[$_i]}" && MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$_i]}"
+_fp_split , "$FG_HITS"
+for _i in ${_FP_A[@]+"${_FP_A[@]}"}; do
+  MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$_i]}"
 done
 
-[ -z "$MATCHED_LABELS" ] && exit 0
-
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-
-# Fail-soft on lib.sh source so the guard still emits its decision JSON
-# even if audit logging is unavailable.
-if ! source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null; then
-  sb_log_audit() { :; }
-fi
-
-# Decision: ask. The audit-log TARGET intentionally carries only the
-# matched labels — NOT the haystack content — because the haystack
-# contains the secret value we just detected. Never log raw haystack
-# slices: even a short prefix carries enough of e.g. a JWT into the
-# log to be re-recognized by downstream consumers. Labels alone give
-# /second-brain:audit and the SAR summary everything they need.
+# Decision: ask. The audit-log TARGET intentionally carries only the matched labels — NOT the
+# haystack content — because the haystack contains the secret value we just detected. Never log
+# raw haystack slices: even a short prefix carries enough of e.g. a JWT into the log to be
+# re-recognized by downstream consumers. Labels alone give /second-brain:audit and the SAR summary
+# everything they need.
 TARGET="${TOOL}:(${MATCHED_LABELS})"
 _fg_reason "$TOOL" "$MATCHED_LABELS"
-
-sb_log_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$FG_REASON" "$SESSION_ID"
-command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SESSION_ID" guard alert "Held for your OK: credential-shaped data heading out (${MATCHED_LABELS:0:60})." flow-guard 300
-
+_fp_late
 _fp_emit ask "$FG_REASON"
+
+# The verdict is out; its audit row and the buddy line follow (#110). Detached by default, every fd
+# redirected so the hook's stdout closes at once (1d82fc1's shape): lib.sh's sourcing and the rows'
+# jq/date spawns no longer stand between the guard and its answer. The late flag is the verdict's
+# (taken above), not the job's. SB_GUARD_LOG_SYNC=on writes them before exiting (tests that read
+# the row at once). lib.sh unsourceable: the verdict stands, the row is lost (as before).
+_fg_log() {
+  local x='{}'
+  [ "$_FP_LATE" = 1 ] && x='{"late":true}'
+  unset SB_HOOK_LATE_MS
+  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+  source "$PLUGIN_ROOT/scripts/lib.sh" 2>/dev/null || return 0
+  sb_log_audit "flow-guard.sh" "ask" "info-flow:${MATCHED_LABELS}" "$TARGET" "$FG_REASON" "$SESSION_ID" "$x"
+  command -v sb_buddy_event >/dev/null 2>&1 && sb_buddy_event "$SESSION_ID" guard alert "Held for your OK: credential-shaped data heading out (${MATCHED_LABELS:0:60})." flow-guard 300
+  return 0
+}
+if [ "${SB_GUARD_LOG_SYNC:-off}" = on ]; then
+  _fg_log
+else
+  ( _fg_log ) </dev/null >/dev/null 2>&1 &
+fi
 
 exit 0
