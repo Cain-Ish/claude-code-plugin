@@ -1040,7 +1040,13 @@ pg_search() {
 # Residuals: Bash writes are not matched here, and the hook fails open past its 5 s budget.
 pg_dream_confine() {
   case "$PG_AGENT_LOWER" in dream-runner|*:dream-runner) ;; *) return 0 ;; esac
-  local p="$PG_PATH" pre="${BRAIN_DIR%/}" id rest cur seg reason="" nc=0 agent out
+  local p="$PG_PATH" pre="" id="" rest="" cur seg reason="" nc=0 agent out r
+  # The runner resolves its root as SB_BRAIN_DIR, else BRAIN_DIR (agents/dream-runner.md: the chain
+  # mcp/src/brain-paths.ts uses to create the dream). This script's BRAIN_DIR ignores SB_BRAIN_DIR,
+  # so a dream dir under either root qualifies.
+  local -a roots
+  roots=("${BRAIN_DIR%/}")
+  if [ -n "${SB_BRAIN_DIR:-}" ] && [ "${SB_BRAIN_DIR%/}" != "${BRAIN_DIR%/}" ]; then roots[1]="${SB_BRAIN_DIR%/}"; fi
   if [ -z "$p" ] || [ "${#p}" -gt 4096 ]; then
     reason="no-usable-path"
   else
@@ -1048,22 +1054,27 @@ pg_dream_confine() {
     case "/$p/" in */../*) reason="dotdot" ;; esac
   fi
   if [ -z "$reason" ] && command -v cygpath >/dev/null 2>&1; then
-    if out=$(cygpath -m -- "$pre" "$p" 2>/dev/null) && [ "${out#*$'\n'}" != "$out" ]; then
-      pre="${out%%$'\n'*}"; pre="${pre%$'\r'}"; p="${out#*$'\n'}"; p="${p%$'\r'}"
+    # One spawn: line 1 = the path, then one line per root, all in C:/ form.
+    if out=$(cygpath -m -- "$p" "${roots[@]}" 2>/dev/null) && [ "${out#*$'\n'}" != "$out" ]; then
+      out=${out//$'\r'/}
+      p="${out%%$'\n'*}"; out="${out#*$'\n'}"
+      roots=()
+      while IFS= read -r r; do [ -n "$r" ] && roots[${#roots[@]}]="$r"; done <<< "$out"
+      [ "${#roots[@]}" -gt 0 ] || reason="unresolvable-path"
     else
       reason="unresolvable-path"
     fi
   fi
   if [ -z "$reason" ]; then
-    pre="${pre%/}/dreams/"
+    reason="outside-dream-dir"
     shopt -q nocasematch && nc=1
     shopt -s nocasematch
-    if [[ $p == "$pre"* ]]; then
+    for r in "${roots[@]}"; do
+      pre="${r%/}/dreams/"
+      [[ $p == "$pre"* ]] || continue
       rest="${p:${#pre}}"; id="${rest%%/*}"
-      if [[ $id != drm_?* ]] || [ "$id" = "$rest" ] || [ ! -d "$pre$id" ]; then reason="outside-dream-dir"; fi
-    else
-      reason="outside-dream-dir"
-    fi
+      if [[ $id == drm_?* ]] && [ "$id" != "$rest" ] && [ -d "$pre$id" ]; then reason=""; break; fi
+    done
     [ "$nc" = 1 ] || shopt -u nocasematch
   fi
   if [ -z "$reason" ]; then

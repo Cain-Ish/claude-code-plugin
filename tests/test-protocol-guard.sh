@@ -11,8 +11,11 @@
 #   calling shell can't leak into protocol-guard.sh's own re-entrancy guard under test.
 # pins: SB_RULES_LAYERS — =off in ONE T7 case: the raw user rules file is the only path on which
 #   pg_rc_build's own `.enabled != false` filter is reachable (the layered merge drops them first).
-# run-all-timeout: 480   (~90 protocol-guard.sh runs, many doing the full live role-card build,
-#   plus waits on detached precomputes; 139-189 s measured on MSYS under heavy load, 2026-09-29)
+# pins: SB_BRAIN_DIR — set in ONE K12 case: pg_dream_confine accepts a dream dir under it (the
+#   runner's own root chain); scrubbed in run() otherwise.
+# run-all-timeout: 480   (~115 protocol-guard.sh runs, many doing the full live role-card build,
+#   plus waits on detached precomputes; 139-189 s measured on MSYS under heavy load, 2026-09-29;
+#   the ~25 K12 dream-confine runs are light pre-mode calls)
 #
 # docs/plans/2026-09-24-repo-brain.md Slice 1: SessionStart protocol card, PreToolUse
 # Agent/Task delegation-tier warn (+ opt-in rewrite), SubagentStart role cards, and the
@@ -53,6 +56,7 @@ run() {
     -u SB_MODEL_TIER_FAST -u SB_MODEL_TIER_MID -u SB_MODEL_TIER_DEEP -u SB_MODEL_ELASTIC \
     -u SB_DELEGATION_REWRITE -u SB_NESTED_SPAWN -u SB_HOOK_PROFILE -u SB_PROTOCOL_GUARD \
     -u SB_PROTOCOL_CARD -u SB_DELEGATION_CHECK -u SB_ROLE_CARDS -u SB_RULES_LAYERS -u CLAUDE_PROJECT_DIR \
+    -u SB_BRAIN_DIR \
     "$@" HOME="$SB_HOME" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
     SB_MODEL_LADDER="$LADDER" bash "$SCRIPT" "$mode"
 }
@@ -908,6 +912,21 @@ dc_case "another agent writing outside the brain" none Write general-purpose "$S
 dc_case "a name that only ends in dream-runner" none Write my-dream-runner "$SB_HOME/.claude/settings.json"
 dc_case "the main thread (no agent_type)" none Write "" "$SB_HOME/.claude/settings.json"
 dc_case "a Read outside its dream dir (reads are not confined)" none Read second-brain:dream-runner "$SANDBOX/knowledge/wiki/entities/a.md"
+# SB_BRAIN_DIR: the MCP creates the dream under it (brain-paths.ts resolves it before BRAIN_DIR)
+# and the runner writes there, while this script's BRAIN_DIR ignores it. A dream dir under it
+# must not be denied; the same path with SB_BRAIN_DIR unset is outside every root.
+ALTB="$SANDBOX/altbrain"; mkdir -p "$ALTB/dreams/drm_20261007T000001Z/staging/wiki"
+ALT_PAYLOAD=$(dc_payload Write second-brain:dream-runner "$ALTB/dreams/drm_20261007T000001Z/staging/wiki/a.md")
+for alt in set unset; do
+  if [ "$alt" = set ]; then
+    want=none; OUT_ALT=$(run pre "$ALT_PAYLOAD" SB_BRAIN_DIR="$ALTB")
+  else
+    want=deny; OUT_ALT=$(run pre "$ALT_PAYLOAD")
+  fi
+  got=$(printf '%s' "$OUT_ALT" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null | tr -d '\r'); [ -n "$got" ] || got=none
+  [ "$got" = "$want" ] && pass "dream-confine: a dream dir under SB_BRAIN_DIR ($alt) -> $want" \
+    || fail "dream-confine: a dream dir under SB_BRAIN_DIR ($alt) -> got $got, want $want" "$OUT_ALT"
+done
 # A symlink inside the dream dir would carry the write out of it (its Bash grant has `cp *`, and
 # `cp -s` makes links). Only where ln -s makes a real link (git-bash deep-copies instead).
 mkdir -p "$SB_HOME/.claude"; : > "$SB_HOME/.claude/target"
