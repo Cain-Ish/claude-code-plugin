@@ -6,6 +6,10 @@ import { resolveActiveSlug } from './project-dir.js';
 import { cleanEnvPath } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
 
+/** How a person runs this CLI. Nothing invokes the capture skill (user-invocable:false,
+ *  disable-model-invocation:true), so hints name the CLI itself, never the skill as a slash command. */
+const RAW_CAPTURE_CLI = 'node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"';
+
 function resolveSlug(brainDir: string, flagSlug?: string): string | undefined {
   // Precedence: --slug flag > SB_ACTIVE_SLUG env > resolveActiveSlug
   // (CLAUDE_PROJECT_DIR > cwd-if-known-project > pin > cwd).
@@ -52,7 +56,7 @@ async function main(): Promise<void> {
       for (const i of items) {
         console.log(`  - ${i.id} [${i.malformed ? 'malformed' : i.status}] ${i.gist || i.source}`);
       }
-      if (items.length === 0) console.log('  (empty — capture something, e.g. /second-brain:capture ./notes.md)');
+      if (items.length === 0) console.log(`  (empty — capture something, e.g. ${RAW_CAPTURE_CLI} capture ./notes.md)`);
     } else if (action === 'discard') {
       const id = rest[0];
       if (!id) { console.log('usage: capture [--slug <project>] discard <id>'); return; }
@@ -76,7 +80,7 @@ async function main(): Promise<void> {
       if (foreign.length) {
         // fail loud: foreign-origin items are NEVER drained silently (the 88-doc misroute class).
         console.error(`pending: held back ${foreign.length} foreign-origin item(s) (origin≠${slug}): ` +
-          `${foreign.map(i => i.id).join(', ')} — re-capture in the right project or /second-brain:capture --discard <id>`);
+          `${foreign.map(i => i.id).join(', ')} — re-capture in the right project or ${RAW_CAPTURE_CLI} discard <id>`);
       }
     } else if (action === 'process') {
       const id = rest[0];

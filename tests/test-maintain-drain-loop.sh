@@ -105,7 +105,7 @@ sb_drain_loop() {
         no_shrink=$((no_shrink + 1))
         if [ "$no_shrink" -ge 2 ]; then
           STOP_REASON="no-shrink"
-          REPORT="STALL: REMAINING stuck at $m across two consecutive successful batches — drained without shrinking; inspect with /second-brain:capture --list"
+          REPORT="STALL: REMAINING stuck at $m across two consecutive successful batches — drained without shrinking; inspect with: node \"\$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js\" list"
           return 0
         fi
       else
@@ -126,7 +126,7 @@ sb_drain_loop() {
 
   # Reached the 30-iteration hard cap with REMAINING still > 0 -> fail loud.
   STOP_REASON="cap"
-  REPORT="STALL: hit 30-iteration cap with REMAINING: ${last_m:-unknown} still > 0 — inspect with /second-brain:capture --list"
+  REPORT="STALL: hit 30-iteration cap with REMAINING: ${last_m:-unknown} still > 0 — inspect with: node \"\$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js\" list"
   return 0
 }
 

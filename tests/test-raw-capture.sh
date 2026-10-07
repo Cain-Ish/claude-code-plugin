@@ -19,6 +19,20 @@ grep -qiE 'Usage: /second-brain:capture|^# /second-brain:capture' "$SKILL" \
   && fail "capture skill presents itself as the /second-brain:capture command, which nothing can invoke"
 pass "capture skill present, documents the CLI, and invocable by nobody (user or model)"
 
+# R3 follow-up: since nothing can invoke the capture skill, no doc, agent prompt, CLI hint or report
+# string may tell anyone to run `/second-brain:capture` (the slash form is a command that does not
+# exist; `--list`/`--discard`/`--prune-processed` were never CLI syntax either). They name the CLI
+# itself (raw-capture-cli.bundle.js list|discard|prune-processed|capture). Scanned: user docs, skills,
+# agents, the CLI sources (src: dist is rebuilt from it) and the drain-loop report strings.
+STALE=$(cd "$ROOT" && grep -rnF '/second-brain:capture' README.md skills agents mcp/src \
+  tests/test-maintain-drain-loop.sh 2>/dev/null | grep -v '\.test\.ts:')
+[ -z "$STALE" ] || fail "the capture skill is named as a runnable command (nothing can invoke it); name raw-capture-cli instead:
+$STALE"
+for f in skills/maintain/SKILL.md agents/raw-drainer.md skills/setup/SKILL.md mcp/src/tools/raw-capture-cli.ts mcp/src/tools/raw-scan-cli.ts; do
+  grep -q 'raw-capture-cli.bundle.js' "$ROOT/$f" || fail "$f no longer names the real way to reach the raw inbox (raw-capture-cli.bundle.js)"
+done
+pass "no doc, prompt or CLI hint tells anyone to run /second-brain:capture; they name raw-capture-cli"
+
 command -v node >/dev/null 2>&1 || { echo "SKIP: node"; echo; echo "ALL PASS"; exit 0; }
 [ -f "$CLI" ] || { echo "SKIP: CLI bundle not built"; echo; echo "ALL PASS"; exit 0; }
 

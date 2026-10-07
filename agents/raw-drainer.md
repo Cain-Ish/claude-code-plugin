@@ -96,7 +96,7 @@ node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" --slug <slug
 ```
 Each TSV row is `id⇥path⇥captured_by⇥target_node⇥gist`. Empty output → nothing to drain; skip to
 Step 5 and report `DRAINED: 0  REMAINING: 0`. (Malformed items are excluded here — they still
-show in `/second-brain:capture --list` for manual repair. Foreign-origin items are held back and
+show in `node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" list` for manual repair. Foreign-origin items are held back and
 flagged on stderr — never mix another project's capture into this drain.)
 
 Keep the **whole** list — do **not** pre-slice it to `N`. Step 3 walks the rows top-to-bottom,

@@ -231,7 +231,8 @@ Output a brief `## Self-Assessment` section at the end of the report with 2-3 se
 ### 8. Integration offers
 
 After the report, offer but do NOT auto-execute:
-- "Capture finding #N via `/second-brain:capture` (the raw-inbox drain turns it into a wiki learning)?"
+- "File finding #N in the raw inbox for `/second-brain:maintain` to turn into a wiki learning?"
+  (On a yes, run `node "${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-capture-cli.bundle.js" capture '<finding>'`.)
 - "Create a regression probe in `~/.second-brain/regressions/` for finding #N?"
 - "Fix finding #N directly?"
 - "Update the doubt skill with improvements from the self-assessment?"
