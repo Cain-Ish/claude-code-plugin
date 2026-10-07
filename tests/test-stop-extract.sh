@@ -633,13 +633,15 @@ restore_path
 
 # PR1: an extractor input whose transcript part could not be rendered (sb_preprocess_transcript
 # failed: jq killed, the scrub failed) is never sent: the hook logs it and merges the floor. The
-# render's jq is failed by a PATH shim that matches only the render program (`def cut(`).
+# render's jq is failed by a PATH shim that matches only the render program (`def cut(`), and only
+# its SECOND run in the hook (Q-L9): the first is the archive's (archive-first), which must succeed,
+# or the case could not tell the extractor input's failure from the archive's.
 REAL_JQ=$(command -v jq)
-PR_SHIM="$TMP/pr-jq-shim"; mkdir -p "$PR_SHIM"
-printf '#!/bin/bash\ncase "$*" in *"def cut("*) cat > /dev/null; echo "jq: error: simulated render failure" >&2; exit 2 ;; esac\nexec "%s" "$@"\n' "$REAL_JQ" > "$PR_SHIM/jq"
+PR_SHIM="$TMP/pr-jq-shim"; mkdir -p "$PR_SHIM"; PR_CNT="$TMP/pr-render-count"
+printf '#!/bin/bash\ncase "$*" in *"def cut("*) echo x >> "%s"; if [ "$(grep -c x "%s")" = 2 ]; then cat > /dev/null; echo "jq: error: simulated render failure" >&2; exit 2; fi ;; esac\nexec "%s" "$@"\n' "$PR_CNT" "$PR_CNT" "$REAL_JQ" > "$PR_SHIM/jq"
 chmod +x "$PR_SHIM/jq"
 for pr in stop pre-compact; do
-  init_sandbox "pr-render-$pr"
+  init_sandbox "pr-render-$pr"; : > "$PR_CNT"
   if [ "$pr" = stop ]; then seed_transcript_with_edit; HOOK_PR="$SCRIPT"; else seed_transcript_long_with_edit; HOOK_PR="$REPO_ROOT/scripts/pre-compact.sh"; fi
   stub_claude_sentinel '{"recent_decisions":["pr1 must not be extracted"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
   P_PR=$(stop_payload)
@@ -647,6 +649,9 @@ for pr in stop pre-compact; do
   [ ! -e "$SANDBOX/claude-ran" ] || fail "PR1 ($pr): the extractor ran on an input whose transcript could not be rendered"
   grep -q 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PR1 ($pr): the failed render was not logged"
   grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PR1 ($pr): no deterministic floor after the failed render"
+  # Q-L9: only the extractor input's render failed; the archive (rendered first) holds the window.
+  PR_ARCH=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+  [ -n "$PR_ARCH" ] && grep -q '\[Edit\] src/foo.ts' "$PR_ARCH" || fail "PR1 ($pr): the archive render was failed too, so the case cannot tell the extractor input's render failure apart"
   restore_path
 done
 pass "PR1: a window the render could not produce is never sent to the extractor (Stop and PreCompact): logged, floor merged"
