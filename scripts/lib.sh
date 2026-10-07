@@ -242,15 +242,22 @@ sb_filter_scratch_paths() {
 # its own (`jq -R` + fromjson?): a record cut mid-write is skipped, never the rest of the window. A
 # plain `jq` stops at the first record that does not parse, so one half-flushed line in front of
 # the window's tool calls made it read as tool-count-zero and its marker advanced past it.
-# Prints the count; 0 when jq is missing or fails (one spawn, no per-line loop).
+# Prints the count and returns 0 (one jq, no per-line loop). A window that could not be read or
+# counted (sed or jq failed: missing, killed) prints NOTHING and returns 1: the 0 printed here before
+# read as "no tool calls", and both hooks advanced the marker past a window nobody counted. Callers
+# test the status; they never default an empty count to 0.
 sb_window_tool_count() {
   local n
-  n=$(sed -n "${2},${3}p" "$1" 2>/dev/null | jq -R -r 'fromjson?
+  if n=$(sed -n "${2},${3}p" "$1" 2>/dev/null | jq -R -r 'fromjson?
       | select(type == "object" and .type == "assistant") | .message.content[]?
       | select(type == "object" and .type == "tool_use") | (.name // "" | tostring)
       | select(endswith("buddy_react") | not)
-    ' 2>/dev/null | wc -l | tr -d ' ')
-  printf '%s' "${n:-0}"
+    ' 2>/dev/null | wc -l | tr -d ' '; _ps="${PIPESTATUS[*]}"; [ "$_ps" = "0 0 0 0" ]); then
+    case "$n" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s' "$n"
+    return 0
+  fi
+  return 1
 }
 
 # Deterministic, no-LLM extraction floor (P1 Task 1). Given a transcript and a line window,
@@ -2173,8 +2180,11 @@ sb_archive_transcript() {
   fi
   # A new file's header tool count is computed before the lock (it reads the raw transcript only;
   # a record that does not parse is skipped, as in the render).
+  # A failed count leaves the header at 0 (informational only; nothing reads it as a gate) and is
+  # logged: the hook's own substantive gate counts the same window again and keeps its marker.
   if [ ! -f "$archive_file" ] && [ -z "$tool_count" ]; then
-    tool_count=$(sb_window_tool_count "$transcript" "$start_line" "$end_line")
+    tool_count=$(sb_window_tool_count "$transcript" "$start_line" "$end_line") \
+      || sb_log_error "lib.sh" "sb_archive_transcript: the tool count of raw lines ${start_line}-${end_line} of $transcript failed (sed or jq); the new archive's header says tool_count: 0 (session=$session_id)" 1
   fi
 
   # The header write, the torn-tail terminator and the append run under the per-archive lock that

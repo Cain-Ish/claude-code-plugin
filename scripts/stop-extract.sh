@@ -881,9 +881,15 @@ fi
 # Substantive-session gate: count tool_use entries in the FULL delta. The buddy's end-of-turn
 # buddy_react call is chat, not work: counting it would run the whole pipeline on every turn.
 # Per-line parse (sb_window_tool_count): a record cut mid-write no longer hides the rest.
-TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
+# A count that failed (sed or jq killed or missing) is not "no tool calls": the marker stays, so
+# the next Stop examines the window again (it is archived already; the archive cursor does not
+# re-append it).
+if ! TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES"); then
+  sb_log_error "stop-extract.sh" "the tool count of raw lines ${START_LINE}-${TOTAL_LINES} failed (sed or jq); the marker stays at $LAST_LINE and the next Stop examines the window again" 1
+  exit 0
+fi
 
-if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
+if [ "$TOOL_COUNT" -lt 1 ]; then
   TS_LINES=$NEW_LINES
   TS_FIRST_TYPE=$(sed -n "${START_LINE}p" "$TRANSCRIPT" 2>/dev/null | jq -r '.type // "no-type"' 2>/dev/null | tr -d '\r\n')
   log_gate "tool-count-zero lines=$TS_LINES first-type=$TS_FIRST_TYPE marker=$LAST_LINE"

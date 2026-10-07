@@ -290,9 +290,14 @@ START_LINE=$((LAST_LINE + 1))
 # Gate: at least one tool_use in the window. The buddy's end-of-turn buddy_react call is chat,
 # not work (same rule as stop-extract.sh's substantive gate). Per-line parse
 # (sb_window_tool_count): a record cut mid-write no longer hides the rest of the window.
-TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES")
+# A failed count (sed or jq killed or missing) is not "no tool calls": the marker stays, and the
+# next PreCompact or Stop examines the window again (stop-extract.sh does the same).
+if ! TOOL_COUNT=$(sb_window_tool_count "$TRANSCRIPT" "$START_LINE" "$TOTAL_LINES"); then
+  sb_log_error "pre-compact.sh" "the tool count of raw lines ${START_LINE}-${TOTAL_LINES} failed (sed or jq); the marker stays at $LAST_LINE and a later hook examines the window again" 1
+  exit 0
+fi
 
-if [ "${TOOL_COUNT:-0}" -lt 1 ]; then
+if [ "$TOOL_COUNT" -lt 1 ]; then
   SB_GATE="tool-count-zero-in-window new_lines=$NEW_LINES"
   sb_set_extraction_marker "$MARKER_KEY" "$TOTAL_LINES"
   exit 0

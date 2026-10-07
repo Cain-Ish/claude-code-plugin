@@ -697,6 +697,30 @@ for jq1c in '[1]' 'not json'; do
 done
 pass "JQ1: a jq exec failure (126/137) before the archive step is an error row with jq's exit status, not a routine gate (Stop, PreCompact); a non-object payload keeps its gate"
 
+# TC2 (R3-B, S1): sb_window_tool_count returned 0 when its jq failed (killed, missing): the hooks
+# logged a routine tool-count-zero and ADVANCED the marker past a window the archive kept, so it was
+# never extracted. A failed count is now an error row and the marker stays; the next run extracts.
+for tc2 in stop pc; do
+  init_sandbox "tc2-count-fail-$tc2"
+  if [ "$tc2" = stop ]; then seed_transcript_with_edit; TC2_HOOK="$SCRIPT"; TC2_END=3; else seed_transcript_long_with_edit; TC2_HOOK="$REPO_ROOT/scripts/pre-compact.sh"; TC2_END=20; fi
+  stub_claude_sentinel '{"recent_decisions":["tc2 window extracted after the failed count"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+  run_jqfail "$TC2_HOOK" buddy_react 137
+  [ ! -f "$MARKER" ] || fail "TC2 ($tc2): the marker advanced to $(cat "$MARKER") past a window whose tool count failed"
+  grep -q 'tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null && fail "TC2 ($tc2): a failed tool count was logged as a routine tool-count-zero"
+  jq_err_row "the marker stays at 0" || fail "TC2 ($tc2): the failed tool count left no error row saying the marker stays"
+  jq_err_row "header says tool_count: 0" || fail "TC2 ($tc2): the new archive's failed header count was not logged"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "TC2 ($tc2): the extractor ran on a window whose tool count failed"
+  TC2_ARCH=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+  [ -n "$TC2_ARCH" ] || fail "TC2 ($tc2): archive-first did not archive the window"
+  grep -q '^tool_count: -' "$TC2_ARCH" && fail "TC2 ($tc2): a negative tool count reached the archive header"
+  if [ "$tc2" = stop ]; then run_stop; else run_pc; fi
+  [ "$(cat "$MARKER" 2>/dev/null)" = "$TC2_END" ] || fail "TC2 ($tc2): the next run did not extract the kept window (marker $(cat "$MARKER" 2>/dev/null), want $TC2_END)"
+  grep -q 'tc2 window extracted after the failed count' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC2 ($tc2): the kept window's decision was not merged by the next run"
+  restore_path
+done
+pass "TC2: a failed tool count keeps the marker with an error row (Stop and PreCompact); the next run extracts the window"
+
 # === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
 # Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.
 rep() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
