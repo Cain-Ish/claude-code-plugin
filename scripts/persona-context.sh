@@ -356,7 +356,10 @@ KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 
 # Caps per section (wiki + episodic only — persona/catalog have no per-prompt injection).
 CAP_WIKI=600
-CAP_EPISODIC=300
+# BYTES, whole lines only (D8). Fits the serve step's header (55 B) plus its two served lines at
+# their widest: an 80-unit snippet at 3 B/unit (240 B), a long project slug, the date and the
+# percentage, ~330 B each. Plain-ASCII hints stay ~310-340 B; 300 clipped line 2 every time.
+CAP_EPISODIC=720
 
 # --- Persona card abstract (auto-seed if missing) ---
 PCARD_FILE="$BRAIN_DIR/persona-card.md"
@@ -523,16 +526,41 @@ fi
 #     pages exist, decide which to read in full". That's stronger than a
 #     decorative snippet.
 # Cap at 12 slugs to bound size (~30 chars each = ~360B, well under CAP_WIKI).
+# D11 (2026-10-07): a registered local doc is a file, not a wiki page, so the CLI prints it as
+# "Read <absolute path> — gist" (injectedHitLine, knowledge-search.ts); knowledge_fetch cannot open
+# it and it used to arrive here as [[SKILL]]. Its path goes on a line of its own after the slug
+# list (gist dropped like a wiki description), kept only while the whole value fits CAP_WIKI bytes,
+# so the cut below never lands inside a path. One awk, LC_ALL=C: length() counts bytes.
 if [ -n "$WIKI_RAW" ]; then
-  WIKI_HITS=$(printf '%s' "$WIKI_RAW" \
-    | grep -oE '\[\[[a-zA-Z0-9_-]+\]\]' \
-    | awk '!seen[$0]++' \
-    | head -12 \
-    | tr '\n' ' ' \
-    | sed 's/ *$//')
+  WIKI_HITS=$(printf '%s\n' "$WIKI_RAW" | LC_ALL=C awk -v cap="$CAP_WIKI" '
+    /^Read / { d = $0; sub(/ — .*$/, "", d); if (!(d in seen_d)) { seen_d[d] = 1; docs[++nd] = d }; next }
+    { s = $0
+      while (match(s, /\[\[[a-zA-Z0-9_-]+\]\]/)) {
+        t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+        if (!(t in seen) && ns < 12) { seen[t] = 1; out = out (ns++ ? " " : "") t }
+      } }
+    END { for (i = 1; i <= nd; i++) if (length(out) + 1 + length(docs[i]) <= cap) out = out (out != "" ? "\n" : "") docs[i]
+          if (out != "") print out }')
   [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
 fi
-[ ${#EPISODIC_HINT} -gt $CAP_EPISODIC ] && EPISODIC_HINT=$(printf '%s' "$EPISODIC_HINT" | head -c $CAP_EPISODIC)
+# D8 (2026-10-07): the episodic cap was `${#}` (characters) checked against a `head -c` (bytes) cut
+# at 300, and the CLI's header plus its two served lines run ~305-340 B of plain ASCII, so line 2
+# was always cut inside its "(project, date, NN%)" provenance, or inside a UTF-8 character. Keep
+# WHOLE lines while the total fits CAP_EPISODIC bytes; a header left with no line is dropped.
+# Pure bash, no spawn (the hint is at most three lines).
+_pc_bytes() { local LC_ALL=C; _PC_BYTES=${#1}; }
+if [ -n "$EPISODIC_HINT" ]; then
+  _eh_out=""; _eh_rest="$EPISODIC_HINT"; _eh_n=0
+  while [ -n "$_eh_rest" ]; do
+    _eh_l="${_eh_rest%%$'\n'*}"
+    case "$_eh_rest" in *$'\n'*) _eh_rest="${_eh_rest#*$'\n'}" ;; *) _eh_rest="" ;; esac
+    [ -n "$_eh_l" ] || continue
+    _pc_bytes "${_eh_out}${_eh_out:+$'\n'}$_eh_l"
+    [ "$_PC_BYTES" -le "$CAP_EPISODIC" ] || break
+    _eh_out="${_eh_out}${_eh_out:+$'\n'}$_eh_l"; _eh_n=$((_eh_n + 1))
+  done
+  if [ "$_eh_n" -ge 2 ]; then EPISODIC_HINT="$_eh_out"; else EPISODIC_HINT=""; fi
+fi
 
 # --- Behavioral principles re-surface (once per session, first coding-intent prompt) ---
 # Karpathy: prose in CLAUDE.md drifts; re-surfacing the compact Four Principles at the moment
@@ -693,7 +721,7 @@ Installed specialists: $CATALOG_ABS"
 STORE_BLOCK=""
 [ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] && STORE_BLOCK="$STORE_BLOCK
 
-[Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them.]
+[Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them. A line starting \"Read \" is a local project doc: open that absolute path with Read.]
 $WIKI_HITS"
 # D-bug 4: session-load was the ONLY sb_manifest_add caller, so the per-prompt wiki
 # hits injected here (often the bulk of a session's injections) never reached the

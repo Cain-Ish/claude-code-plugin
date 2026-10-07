@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki, reportInjectPrecision } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, reportInjectPrecision, injectedHitLine } from './knowledge-search.js';
 import { serveEpisodicLines } from './episodic-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
@@ -57,9 +57,11 @@ const wikiLines: string[] = [];
 try {
   const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
   const top = injectableWiki(result.candidates, { minScore, minRelevance, minGrounded }).slice(0, 2);
+  // Same renderer as knowledge-search-cli (the wiki-section parity test locks it): folded fields,
+  // a local doc as a Read line, '' for a candidate that must not be printed.
   for (const c of top) {
-    const slug = c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
-    wikiLines.push(`### [[${slug}]]${c.description ? ' — ' + c.description : ''}`);
+    const line = injectedHitLine(c);
+    if (line) wikiLines.push(line);
   }
 } catch { /* fail-open: empty wiki section */ }
 
@@ -70,7 +72,8 @@ let epiLines: string[] = [];
 try {
   if (!brainDir) throw new Error('no brain dir resolvable');
   // serveEpisodicLines is the one serve step shared with the fallback episodic-search-cli: the
-  // pool, the hardcoded 0.15 floor (no knob, R1#3) and the servableEpisodes filter live there.
+  // pool, the hardcoded 0.15 floor (no knob, R1#3; it filters vector hits only — a text hit
+  // scores >= 0.25) and the servableEpisodes filter live there.
   epiLines = await serveEpisodicLines(query, brainDir, { sessionId, activeProject: projectSlug });
 } catch { /* fail-open: empty episodic section */ }
 

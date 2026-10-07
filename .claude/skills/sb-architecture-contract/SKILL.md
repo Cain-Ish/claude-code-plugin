@@ -308,7 +308,7 @@ Re-verify: `grep -n '^registerJsonTool(' mcp/src/server.ts`. Lines as of 0.33.37
 | 353 | `dream_accept` | spawn dream-accept.sh (guarded apply, §3.5) |
 | 367 | `dream_discard` | delete staging/transcripts, stamp archived_at |
 | 381 | `dream_cancel` | pending/running → canceled (runner self-stops on status check) |
-| 397 | `episodic_search` | hybrid vector+text transcript search; `degraded:'text-only'` w/o embeddings |
+| 397 | `episodic_search` | hybrid vector+text transcript search; w/o embeddings the tool text says so (text-only footer, or a no-results line for a concept array) |
 | 439 | `episodic_read` | read a transcript slice; path-constrained to the transcripts dir |
 | 469 | `persona_think` | spawn `claude -p` Opus advisor brief |
 | 491 | `persona_stats` | read-only persona state |
