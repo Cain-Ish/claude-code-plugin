@@ -23,8 +23,11 @@ pass "capture skill present, documents the CLI, and invocable by nobody (user or
 # string may tell anyone to run `/second-brain:capture` (the slash form is a command that does not
 # exist; `--list`/`--discard`/`--prune-processed` were never CLI syntax either). They name the CLI
 # itself (raw-capture-cli.bundle.js list|discard|prune-processed|capture). Scanned: user docs, skills,
-# agents, the CLI sources (src: dist is rebuilt from it) and the drain-loop report strings.
+# agents, the CLI sources (src: dist is rebuilt from it), the drain-loop report strings, and (Q-L8)
+# every other surface that prints or documents a hint: hook scripts and their messages (scripts/,
+# hooks/), the dev skills (.claude/skills), output styles and docs/.
 STALE=$(cd "$ROOT" && grep -rnF '/second-brain:capture' README.md skills agents mcp/src \
+  scripts hooks .claude/skills output-styles docs \
   tests/test-maintain-drain-loop.sh 2>/dev/null | grep -v '\.test\.ts:')
 [ -z "$STALE" ] || fail "the capture skill is named as a runnable command (nothing can invoke it); name raw-capture-cli instead:
 $STALE"

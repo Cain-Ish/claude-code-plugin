@@ -1,15 +1,21 @@
 #!/bin/bash
-# Guard: the SP-2/SP-5 command skills (/second-brain:capture, /second-brain:maintain) are documented
-# in the README skill table. They shipped but were initially missing — README drift caught by the
-# 0.24.16 whole-product audit. Keep this list in sync if new user-command skills are added.
+# Guard: the SP-2/SP-5 skills are documented in the README. They shipped but were initially missing —
+# README drift caught by the 0.24.16 whole-product audit. Keep this in sync if user-command skills
+# are added. /second-brain:maintain is a command skill. capture is REFERENCE-ONLY since the 0.29.0
+# surface-collapse (user-invocable:false, disable-model-invocation:true): nothing can invoke it, so
+# the README names the CLI it documents (raw-capture-cli) and never the `/second-brain:capture`
+# command. (Q-L8: this guard used to require "second-brain:capture" and passed on any mention.)
 set -u
 ROOT="$(cd "$(dirname "$0")"/.. && pwd)"; README="$ROOT/README.md"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 for s in capture maintain; do
   [ -f "$ROOT/skills/$s/SKILL.md" ] || fail "skills/$s/SKILL.md missing (test stale?)"
-  grep -q "second-brain:$s" "$README" || fail "README does not document /second-brain:$s"
 done
-pass "README documents /second-brain:capture and /second-brain:maintain"
+grep -q "/second-brain:maintain" "$README" || fail "README does not document /second-brain:maintain"
+grep -q 'raw-capture-cli.bundle.js' "$README" || fail "README does not name raw-capture-cli, the CLI the reference-only capture skill documents"
+grep -qF '/second-brain:capture' "$README" \
+  && fail "README presents /second-brain:capture as a command; the capture skill is reference-only and nothing can invoke it"
+pass "README documents /second-brain:maintain and the capture CLI (raw-capture-cli), never a /second-brain:capture command"
 
 # R6: the 5 de-vendored skills must not be sold as live /second-brain:* commands.
 for s in brainstorming writing-plans test-driven-development verification-before-completion systematic-debugging; do
