@@ -1048,6 +1048,30 @@ sg_files=$(grep -oE '"\$_sc_h/[^"]+"\) _SG_LABEL=[a-z-]+' "$SG" | sed -E 's|"\$_
   || fail "G1: _PTG_CRED_FILES != symlink-guard's credential files. want: $(echo $sg_files) | have: $(echo $ptg_files)"
 pass "G1: the Read credential list mirrors symlink-guard's (dirs and files)"
 
+# GX3 (R3B): credential-read is a floor below the rules, as path-too-long is. Before, its ask exited
+# ahead of the rule loop, so a user or repo rule that DENIES a Read of a credential store was
+# weakened to an ask. A rules file with Read rules stands the fast path down; in scope or out of it,
+# the deny wins, and a rule that only warns still gets the credential ask.
+GX3=$(mktemp -d)
+jq '.rules += [{name:"deny-ssh-read",tool:"Read",action:"deny",match_path:"/\\.ssh/",reason:"user layer: no ssh reads"},
+               {name:"warn-aws-read",tool:"Read",action:"warn",match_path:"/\\.aws/",reason:"user layer: aws reads"}]' \
+  "$(dirname "$SCRIPT")/persona-rules.default.json" > "$GX3/persona-rules.json"
+gx3() {  # gx3 <file> <cwd> -> out
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$1" --arg c "$2" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"gx3"}' \
+    | HOME=/home/gx3 BRAIN_DIR="$GX3" bash "$SCRIPT")
+}
+gx3 /home/gx3/.ssh/id_rsa /home/gx3
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("user layer"))' >/dev/null \
+  || fail "GX3: a user rule denying a credential Read must stay a deny (in scope) (got: $out)"
+gx3 /home/gx3/.ssh/id_rsa /w/proj
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "GX3: a user rule denying a credential Read must stay a deny (out of scope) (got: $out)"
+gx3 /home/gx3/.aws/credentials /home/gx3
+[ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | contains("credential store"))' >/dev/null \
+  || fail "GX3: a warn rule must not lower the credential Read ask (got: $out)"
+grep -q '"rule":"credential-read"' "$GX3/audit-log.jsonl" || fail "GX3: the floor's ask must be audited as credential-read"
+pass "GX3: credential-read is a floor below the rules — a deny rule stays deny, a warn rule still asks"
+
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
 # r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
 # <repo>/.claude/worktrees/r3-ro/… got the out-of-scope ask. $PROJECT (CLAUDE_PROJECT_DIR, the

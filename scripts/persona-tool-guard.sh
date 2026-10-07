@@ -1303,12 +1303,16 @@ fi
 # (in scope when the session runs in HOME; no scope ask at all under SB_RESOURCE_SCOPE=off). The
 # fast path asks the same; _ptg_cred holds the list (symlink-guard's) and why /etc is not on it.
 # Not past 4096 characters: the path-too-long floor below asks for such a target anyway.
+# A floor below the rules (GX3, R3B), as path-too-long is: decided here, applied after the rule loop
+# unless a rule asked or denied — its ask used to exit ahead of the loop and weaken a user or repo
+# rule that DENIES the Read to an ask. It stands in for the resource-scope ask as well (the fast
+# path's order: the credential ask, then the scope one).
+_PTG_CR_RULE="" _PTG_CR_TGT="" _PTG_CR_REASON=""
 if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
   _ptg_abs "$PATH_INPUT" "$CWD"
   if _ptg_cred "$_PTG_ABS"; then
     _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"
-    _ptg_verdict ask credential-read "$_PTG_ABS" "$_PTG_SR"
-    exit 0
+    _PTG_CR_RULE=credential-read _PTG_CR_TGT="$_PTG_ABS" _PTG_CR_REASON="$_PTG_SR"
   fi
 fi
 
@@ -1322,7 +1326,7 @@ fi
 # payload-sized path — above ~400 KB the scope ask arrived past the 5 s hook timeout (fail-open). A
 # target over 4096 characters (_PTG_LONG) is left to the path-too-long floor below: it also asks (and
 # a deny rule stays reachable), so skipping the scope collapse here loses no verdict and no time.
-if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
+if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ] && [ -z "$_PTG_CR_RULE" ]; then
   if [ "${RS_ENABLED:-false}" = "true" ]; then
     # Is this tool subject to scope checking?
     if [ "$RS_TOOL_IN" = "yes" ]; then
@@ -1339,7 +1343,7 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_L
   fi
 fi
 
-[ -z "$RULE_STREAM" ] && [ "$_PTG_LONG" = 0 ] && exit 0
+[ -z "$RULE_STREAM" ] && [ "$_PTG_LONG" = 0 ] && [ -z "$_PTG_CR_RULE" ] && exit 0
 
 # Pre-filter: ONE grep per field says whether ANY rule pattern can match (grep -E with every
 # pattern as a -e argument is true exactly when one of them matches a line); the per-rule greps
@@ -1427,6 +1431,11 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
 done
 }
 _fp_feed "$RULE_STREAM" _ptg_match
+
+# GX3: the credential Read floor (decided above the scope check): a rule's ask or deny stands.
+if [ -n "$_PTG_CR_RULE" ] && [ "$V_RANK" -lt 3 ]; then
+  V_RANK=3 V_ACTION=ask V_RULE="$_PTG_CR_RULE" V_TARGET="$_PTG_CR_TGT" V_REASON="$_PTG_CR_REASON"
+fi
 
 # G3: a target past 4096 characters was matched in its lexical spelling only (_ptg_norm) — every rule
 # saw all of it, but not cygpath's spelling (an MSYS mount name such as /tmp). A call no rule asked
