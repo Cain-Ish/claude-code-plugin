@@ -5,7 +5,7 @@
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # pins: SB_SUBAGENT_ARCHIVE_CAP — Test 11 lowers the subagent prune cap to 5 so 7 calls prove the cap
 #   evicts sub-* archives only (the cap is the subject, not a gate bypass)
-# run-all-timeout: 240   (~40 hook runs plus two real episodic-indexer runs; 48-52 s alone on an idle MSYS box, over half of run-all's 120 s default)
+# run-all-timeout: 300   (~55 hook runs plus two real episodic-indexer runs; 2026-10-07 R3-B, alone on the MSYS dev box: 120 s (jq 1.8.1) / 94 s (jq 1.7.1), ~12-13 GB free, ~380-415 processes; the round-3 review saw 441-1849 s under heavy parallel load, which no per-file budget covers)
 # Tests for scripts/subagent-capture.sh — the SubagentStop hook that archives a
 # substantive, non-self subagent's FINAL RESULT into ~/.second-brain/transcripts/.
 # Each case runs with an isolated BRAIN_DIR sandbox; the script must ALWAYS exit 0

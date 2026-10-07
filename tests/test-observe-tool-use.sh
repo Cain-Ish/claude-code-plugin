@@ -3,6 +3,7 @@
 # pins: SB_NESTED_SPAWN — quiets the shim's own diagnostic output so stdout assertions aren't polluted by unrelated logging
 # pins: SB_OBSERVATION_LEDGER — kill-switch test: asserts =off disables the ledger
 # pins: SB_OBSERVATION_MAX_BYTES — sets a small cap so the truncation behavior under test actually triggers within the fixture payload size
+# run-all-timeout: 150   (~45 hook runs; 2026-10-07 R3-B, alone on the MSYS dev box: 58 s (jq 1.8.1) / 60 s (jq 1.7.1), ~12 GB free, ~400 processes; run-all's 120 s default is under 2x)
 # Tests for the deterministic PostToolUse observation ledger (P0 rec 5).
 # Contract under test:
 #   scripts/observe-tool-use.sh appends ONE compact JSONL line per tool use —

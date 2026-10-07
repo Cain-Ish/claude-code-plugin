@@ -13,7 +13,11 @@
 #   + a 33 MB subagent volume fixture) measured 649s under heavy load (~70 concurrent bash).
 #   0.56.0 R2-F, same MSYS box, alone: 414s at the R2-F head vs 428s at fcb1abf (the cheap prune
 #   gate barely moves it: few archives here); 506-627s alone and 1334s under load were reported
-#   earlier, so this budget holds alone (~2x headroom) and not under a 2-3x load factor)
+#   earlier, so this budget holds alone (~2x headroom) and not under a 2-3x load factor.
+#   2026-10-07 R3-B (+JQ1/TC2/HD1, ~14 more hook runs), alone on the MSYS dev box: 519 s before
+#   them (jq 1.8.1 and 1.7.1), 561 s (jq 1.8.1) / 530 s (jq 1.7.1) after, ~12-13 GB free, ~390
+#   processes. 2x would be ~1120 s, past run-all's 900 s hard ceiling: 900 is the most a header
+#   can declare, so this file now holds ~1.6x alone; splitting it is the remaining fix)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #
