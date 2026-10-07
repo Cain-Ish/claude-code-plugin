@@ -40,6 +40,30 @@ K21ROW=$(jq -c 'select(.script == "sb_reindex_wiki" and ((.message // "") | test
 pass "K21: a missing reindex bundle leaves an error-log row instead of a silent no-op"
 rm -rf "$K21B" "$K21P" "$K21K"
 
+# 0b. S10 (R3-B): sb_reindex_wiki discarded node's exit status (`|| true`) and always returned 0,
+# so a reindex that died without stderr left no trace, its rows said exit_code 0, and
+# wiki-history.sh's `sb_reindex_wiki || sb_log_error` could never fire. A node that exits 3 (once
+# silently, once with stderr) must make it return 3 and log an exit_code-1 row. The bundle is an
+# empty stand-in file: only its existence is checked before node runs.
+S10B=$(mktemp -d); S10P=$(mktemp -d); S10K=$(mktemp -d); S10BIN=$(mktemp -d)
+mkdir -p "$S10K/wiki" "$S10P/mcp/dist/tools"; : > "$S10P/mcp/dist/tools/knowledge-reindex.bundle.js"
+for s10 in silent loud; do
+  if [ "$s10" = loud ]; then
+    printf '#!%s\necho "reindex: simulated crash" >&2\nexit 3\n' "$BASH" > "$S10BIN/node"
+  else
+    printf '#!%s\nexit 3\n' "$BASH" > "$S10BIN/node"
+  fi
+  chmod +x "$S10BIN/node"; rm -f "$S10B/error-log.jsonl"
+  ( export HOME="$S10B" BRAIN_DIR="$S10B" CLAUDE_PLUGIN_ROOT="$S10P" PATH="$S10BIN:$PATH"
+    . "$ROOT/scripts/lib.sh" && sb_reindex_wiki "$S10K" ) >/dev/null 2>&1; s10rc=$?
+  S10ROW=$(jq -c 'select(.script == "sb_reindex_wiki" and .exit_code == 1 and ((.message // "") | test("reindex-failed \\(node exit 3\\)")))' \
+    "$S10B/error-log.jsonl" 2>/dev/null | tr -d '\r')
+  [ "$s10rc" = 3 ] && [ -n "$S10ROW" ] \
+    && pass "S10: a node reindex that exits 3 ($s10) returns 3 and logs an exit_code-1 row" \
+    || fail "S10: node exit 3 ($s10) -> sb_reindex_wiki rc=$s10rc, row=${S10ROW:-none} (log: $(tail -2 "$S10B/error-log.jsonl" 2>/dev/null))"
+done
+rm -rf "$S10B" "$S10P" "$S10K" "$S10BIN"
+
 command -v node >/dev/null 2>&1 || { echo "SKIP: node absent"; exit 0; }
 [ -f "$ROOT/mcp/dist/tools/knowledge-reindex.bundle.js" ] || { echo "SKIP: reindex bundle absent"; exit 0; }
 

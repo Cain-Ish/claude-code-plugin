@@ -990,16 +990,22 @@ sb_reindex_wiki() {
     # Error path: route stderr to the error-log so a corrupted bundle or
     # missing-export failure surfaces in the next session-load banner
     # instead of silently leaving the wiki index stale.
-    local _reindex_err
+    # S10 (R3-B): node's exit status is kept and returned. `|| true` here made every reindex
+    # "succeed": a crash with no stderr left no trace, rows said exit_code 0, and a caller's
+    # `sb_reindex_wiki || …` (wiki-history.sh restore) could never fire.
+    local _reindex_err _reindex_rc=0
     _reindex_err=$(SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" \
       node --input-type=module -e "
         const { pathToFileURL } = await import('node:url');
         const m = await import(pathToFileURL(process.env.SB_BUNDLE).href);
         await m.knowledgeReindex(process.env.SB_KDIR);
-      " 2>&1 >/dev/null) || true
-    if [ -n "$_reindex_err" ]; then
-      sb_log_error "sb_reindex_wiki" "reindex-failed: $(printf '%s' "$_reindex_err" | tr '\n' ' ' | head -c 200)" 0
+      " 2>&1 >/dev/null) || _reindex_rc=$?
+    if [ "$_reindex_rc" -ne 0 ]; then
+      sb_log_error "sb_reindex_wiki" "reindex-failed (node exit $_reindex_rc): $(printf '%s' "${_reindex_err:-<no stderr>}" | tr '\n' ' ' | head -c 200) — wiki/index.md for $knowledge_dir not regenerated" 1
+    elif [ -n "$_reindex_err" ]; then
+      sb_log_error "sb_reindex_wiki" "reindex stderr (node exit 0): $(printf '%s' "$_reindex_err" | tr '\n' ' ' | head -c 200)" 0
     fi
+    return "$_reindex_rc"
   else
     # No node or no bundle: the index stays stale, so say so (the sb_strip_invisible_copy pattern).
     sb_log_error "sb_reindex_wiki" "reindex skipped: $(command -v node >/dev/null 2>&1 || printf 'node not on PATH ')$([ -f "$reindex_js" ] || printf 'bundle missing at %s' "$reindex_js") — wiki/index.md for $knowledge_dir not regenerated" 0
