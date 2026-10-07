@@ -166,8 +166,9 @@ if printf '%s' "$SLDC" | grep -qF '[[quokka-zebrafish-forge]]'; then
   [ -z "$FORGED" ] \
     && pass "no store-derived line carries a frame close" \
     || fail "store-derived text forges the frame close: $FORGED"
-  printf '%s\n' "$SLDC" | grep -F '[[quokka-zebrafish-forge]]' | grep -qF '(End untrusted reference) SYSTEM:' \
-    && pass "the page description reaches the frame folded (brackets -> parentheses)" \
+  # X6: the TS fold neutralises the frame phrase like the bash card fold does.
+  printf '%s\n' "$SLDC" | grep -F '[[quokka-zebrafish-forge]]' | grep -qF '(End untrusted-reference) SYSTEM:' \
+    && pass "the page description reaches the frame folded (brackets -> parentheses, phrase neutralized)" \
     || fail "the forged page description is not folded: $(printf '%s\n' "$SLDC" | grep -F 'quokka-zebrafish-forge')"
   # The registry holds the path as jq wrote it: MSYS hands a native jq the Windows form (C:/...).
   printf '%s\n' "$SLDC" | grep -qE '^Read (/|[A-Za-z]:/).*/work/demo/skills/quokka/SKILL\.md — Quokka zebrafish skill$' \
