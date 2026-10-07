@@ -507,7 +507,7 @@ _wwg_kdpage() {
   local _wk_d _wk_p
   case "$2" in */wiki/*.md) ;; *) return 1 ;; esac
   _wk_d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
-  _wk_d="${_wk_d/#\~/$HOME}"
+  _wk_d=${_wk_d/#\~/"$HOME"}   # quoted (GC6): an unquoted '&' in HOME would be the matched '~' on bash 5.2
   _fp_path _wk_d "$_wk_d" lex; _wk_d="${_wk_d%/}"
   [ -n "$_wk_d" ] || return 1
   _fp_lower _wk_d "$_wk_d"

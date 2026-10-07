@@ -586,9 +586,10 @@ _ptg_scope() {
   _ps_x="${SB_RESOURCE_SCOPE_EXTRA:-}"; _ps_x=${_ps_x//:/"$_fp_nl"}
   _fp_split "$_fp_nl" "$3$_fp_nl$_ps_x"
   for _ps_pre in ${_FP_A[@]+"${_FP_A[@]}"}; do
-    _ps_pre="${_ps_pre//\$HOME/$HOME}"
-    _ps_pre="${_ps_pre//\$CWD/$2}"
-    _ps_pre="${_ps_pre//\$PROJECT/${4:-}}"
+    # Quoted replacements (GC6): bash 5.2's patsub_replacement makes an unquoted '&' the matched text.
+    _ps_pre=${_ps_pre//\$HOME/"$HOME"}
+    _ps_pre=${_ps_pre//\$CWD/"$2"}
+    _ps_pre=${_ps_pre//\$PROJECT/"${4:-}"}
     [ -n "$_ps_pre" ] || continue
     case "$_PTG_ABS" in "$_ps_pre"|"$_ps_pre"/*) return 0 ;; esac
   done

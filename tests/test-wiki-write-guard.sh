@@ -277,6 +277,14 @@ g18 "$KD/wiki/index.md" "# index" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDV"
 g18 "$KD/notes/plain.md" "no frontmatter" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KDV"
 [ -z "$out" ] || fail "G18: a non-wiki file under the custom KNOWLEDGE_DIR stays silent (got: $out)"
 pass "G18: a custom KNOWLEDGE_DIR's wiki gets frontmatter enforcement (fast path and full logic)"
+# GC6 (R3B): bash 5.2's patsub_replacement turned the '&' of a HOME such as "R&D" into the matched
+# '~' when ~/kb was expanded, so the custom wiki was not recognized and a bare page went unchecked.
+GC6H="$TMP/R&D home"; mkdir -p "$GC6H/kb/wiki/concepts"
+GC6HV="$GC6H"; command -v cygpath >/dev/null 2>&1 && GC6HV=$(cygpath -m "$GC6H")
+g18 "$GC6H/kb/wiki/concepts/amp.md" "no frontmatter" HOME="$GC6HV" KNOWLEDGE_DIR='~/kb'
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
+  || fail "GC6: a bare page under ~/kb with '&' in HOME must be denied (got: $out)"
+pass "GC6: '&' in HOME keeps a ~-relative KNOWLEDGE_DIR's wiki recognized"
 
 # G18: the full logic read a Write's content with one jq and exited 0 when it read nothing — a jq
 # that failed (killed, out of memory) let a bare page through unchecked (Edit/MultiEdit already

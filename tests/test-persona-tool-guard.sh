@@ -1065,6 +1065,21 @@ gw ''
 [ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "GW: with CLAUDE_PROJECT_DIR empty the sibling worktree is out of scope again — an empty \$PROJECT must not match every path (got: $out)"
 pass "GW: the session's project root (CLAUDE_PROJECT_DIR) is in scope, worktrees included; an empty one adds nothing"
+# GC6 (R3B): bash 5.2's patsub_replacement turns an unquoted '&' in a ${v//pat/rep} replacement into
+# the matched text — a project root, cwd or HOME holding '&' became another prefix ("/w/R$PROJECTD"),
+# and every Read under it asked.
+gc6() {  # gc6 <file> <cwd> <CLAUDE_PROJECT_DIR> [HOME] -> out
+  # MSYS2_ARG_CONV_EXCL: MSYS would rewrite a /w/… argument to C:/Program Files/Git/w/… for jq.exe.
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$1" --arg c "$2" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"gc6"}' \
+    | CLAUDE_PROJECT_DIR="$3" HOME="${4:-$HOME}" BRAIN_DIR="$GW" bash "$SCRIPT")
+}
+gc6 '/w/R&D/repo/.claude/worktrees/r3-ro/x.sh' '/w/R&D/repo/.claude/worktrees/r3-mt' '/w/R&D/repo'
+[ -z "$out" ] || fail "GC6: a Read under a project root holding '&' must be in scope (got: $out)"
+gc6 '/w/R&D/proj/a.txt' '/w/R&D/proj' ''
+[ -z "$out" ] || fail "GC6: a Read under a cwd holding '&' must be in scope (got: $out)"
+gc6 '/h/a&b/knowledge/x.md' '/w/proj' '' '/h/a&b'
+[ -z "$out" ] || fail "GC6: a Read under \$HOME/knowledge with '&' in HOME must be in scope (got: $out)"
+pass "GC6: '&' in the project root, cwd or HOME keeps its scope root"
 rm -rf "$GW"
 
 # G1 MSYS mounts: cygpath spells a drive path under a mount by the mount's name (%TEMP% is /tmp),
