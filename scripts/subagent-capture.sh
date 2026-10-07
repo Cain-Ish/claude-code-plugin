@@ -114,29 +114,43 @@ _t_base="${TRANSCRIPT##*/}"; _t_base="${_t_base##*\\}"; _t_base="${_t_base%.json
 # The names are the `name:` lines of the plugin's own agents/*.md frontmatter, read with builtins
 # (no spawn), so an agent is excluded the day it ships: the old hand list missed raw-drainer, whose
 # drain reports were archived as sub-*.txt and re-mined by the drainer. The literal list is the
-# floor when agents/ cannot be read; tests/test-subagent-capture.sh (3d) locks it to agents/*.md. ---
+# floor when agents/ cannot be read; tests/test-subagent-capture.sh (3d) locks it to agents/*.md.
+# X9: a UTF-8 BOM before the opening --- no longer hides an agent's name; a name: that collides with
+# a built-in agent type (it would drop the result of every subagent of that type) is refused and
+# logged; membership is a quoted, glob-free match; each self-skip leaves one audit row. ---
 SELF_AGENTS="dream-runner knowledge-maintainer raw-drainer search-conversations"
+_SC_BUILTINS=" general-purpose Explore Plan statusline-setup output-style-setup claude-code-guide "
 _sc_dir="${BASH_SOURCE[0]%/*}"; [ "$_sc_dir" = "${BASH_SOURCE[0]}" ] && _sc_dir=.
-_sc_cr=$'\r'
+_sc_cr=$'\r' _sc_bom=$'\xef\xbb\xbf'
 for _sc_af in "$_sc_dir/../agents/"*.md; do
   [ -f "$_sc_af" ] || continue
   _sc_fm=0
   while IFS= read -r _sc_l || [ -n "$_sc_l" ]; do
     _sc_l="${_sc_l%"$_sc_cr"}"
+    [ "$_sc_fm" -eq 0 ] && _sc_l="${_sc_l#"$_sc_bom"}"
     if [ "$_sc_l" = "---" ]; then
       _sc_fm=$((_sc_fm + 1)); [ "$_sc_fm" -ge 2 ] && break; continue
     fi
     [ "$_sc_fm" -eq 1 ] || break   # no opening --- on line 1: no frontmatter, no name
     case "$_sc_l" in
       name:*) _sc_n="${_sc_l#name:}"; _sc_n="${_sc_n//[[:space:]\"\']/}"
-              [ -n "$_sc_n" ] && SELF_AGENTS="$SELF_AGENTS $_sc_n"; break ;;
+              case "$_SC_BUILTINS" in
+                *" $_sc_n "*) sb_log_error "subagent-capture.sh" "agents/${_sc_af##*/} is named '$_sc_n', a built-in agent type: not self-excluded (that would drop the result of every $_sc_n subagent); rename the agent" 1 ;;
+                *) [ -n "$_sc_n" ] && SELF_AGENTS="$SELF_AGENTS $_sc_n" ;;
+              esac
+              break ;;
     esac
   done < "$_sc_af"
 done
 bare_type="${AGENT_TYPE##*:}"   # strip any plugin:second-brain: prefix
-for self in $SELF_AGENTS; do
-  [ "$bare_type" = "$self" ] && exit 0
-done
+case "$bare_type" in
+  ''|*[[:space:]]*) ;;   # never a self name (and never matches across two list entries)
+  *) case " $SELF_AGENTS " in
+       *" $bare_type "*)
+         sb_log_audit "subagent-capture.sh" "allow" "self-agent-skip" "$AGENT_ID" "agent_type=$AGENT_TYPE is one of the plugin's own agents: its result is not archived (no mining-self)" "$SESSION_ID" 2>/dev/null || true
+         exit 0 ;;
+     esac ;;
+esac
 
 # --- Substantive gate 1: at least one tool_use in the subagent transcript. ---
 TOOL_COUNT=$(jq -r '

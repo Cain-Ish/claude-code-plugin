@@ -119,6 +119,35 @@ SHIPPED3D=$(sed -n 's/^name:[[:space:]]*//p' "$ROOT/agents/"*.md | tr -d '\r' | 
 [ "$FLOOR3D" = "$SHIPPED3D" ] || fail "3d: SELF_AGENTS floor [$FLOOR3D] != agents/*.md names [$SHIPPED3D]"
 pass "the SELF_AGENTS literal floor equals the agents/*.md names"
 
+# --- Test 3e (R3-B, X9/S16): the self list's edge cases. A scratch plugin root (as in 3c) carries
+# (a) an agent whose file starts with a UTF-8 BOM: its name was never read, so it was archived;
+# (b) an agent named like a built-in type (general-purpose): every general-purpose result was
+#     dropped in silence; the name is now refused with an error row;
+# (c) an agent named `*`: the unquoted `for self in $SELF_AGENTS` globbed it into the hook's cwd
+#     file names, so a subagent whose type matched a file there was skipped.
+# Every self-skip leaves one audit row (rule self-agent-skip).
+P3E="$TMP/plug3e"; mkdir -p "$P3E/scripts" "$P3E/agents"
+cp "$SCRIPT" "$ROOT/scripts/lib.sh" "$ROOT/scripts/kb-schema.sh" "$P3E/scripts/"
+cp "$ROOT/agents/"*.md "$P3E/agents/"
+printf '\357\273\277---\nname: zz-bom-agent\ndescription: BOM before the frontmatter\n---\n' > "$P3E/agents/zz-bom.md"
+printf -- '---\nname: general-purpose\ndescription: collides with a built-in type\n---\n' > "$P3E/agents/zz-collide.md"
+printf -- '---\nname: *\ndescription: a glob character as a name\n---\n' > "$P3E/agents/zz-glob.md"
+G3E="$TMP/cwd3e"; mkdir -p "$G3E"; : > "$G3E/zz-globbed"
+run3e() {  # <agent_type>: one hook run from the scratch root, cwd $G3E
+  B="$TMP/b3e-${1//[:*]/_}"; mkdir -p "$B"; T="$TMP/t3e-${1//[:*]/_}.jsonl"; mk_transcript "$T" 1 "$LONG"
+  ( cd "$G3E" && printf '%s' "$(jq -nc --arg at "$1" --arg tp "$T" --arg cw "$TMP/repo" \
+      '{hook_event_name:"SubagentStop", agent_type:$at, agent_id:"aid3e", transcript_path:$tp, cwd:$cw, session_id:"sess1"}')" \
+    | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$P3E" bash "$P3E/scripts/subagent-capture.sh" >/dev/null 2>&1 )
+}
+for at3e in zz-bom-agent general-purpose zz-globbed; do run3e "$at3e"; done
+[ -z "$(arc "$TMP/b3e-zz-bom-agent")" ] || fail "3e: an agent whose file starts with a BOM (zz-bom-agent) was archived; its name was not read"
+grep -q '"rule":"self-agent-skip"' "$TMP/b3e-zz-bom-agent/audit-log.jsonl" 2>/dev/null || fail "3e: a self-skip left no self-agent-skip audit row"
+[ -n "$(arc "$TMP/b3e-general-purpose")" ] || fail "3e: an agents/*.md name colliding with the built-in general-purpose dropped every general-purpose result"
+grep -q "zz-collide.md is named 'general-purpose', a built-in agent type" "$TMP/b3e-general-purpose/error-log.jsonl" 2>/dev/null \
+  || fail "3e: the refused built-in name left no error row"
+[ -n "$(arc "$TMP/b3e-zz-globbed")" ] || fail "3e: an agent named '*' was globbed into the cwd's file names (zz-globbed skipped)"
+pass "self list: BOM-safe, built-in names refused loudly, glob-free; each self-skip leaves an audit row"
+
 # --- Test 3e (C1 audit, R3): with no jq the hook archived nothing and said nothing. It still archives
 # nothing (it cannot parse the payload), but one error row says why: once, not per subagent. The
 # host without jq is simulated by an exported `command` that denies `command -v jq` to the hook
