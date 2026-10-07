@@ -130,6 +130,33 @@ sb_card_trunc() {
   CARD_LINE="${CARD_LINE//$'\xef\xb9\x88'/)}"   # U+FE48 PRESENTATION FORM FOR VERTICAL RIGHT SQUARE BRACKET ﹈
   CARD_LINE="${CARD_LINE//$'\xe3\x80\x94'/(}"   # U+3014 LEFT TORTOISE SHELL BRACKET 〔
   CARD_LINE="${CARD_LINE//$'\xe3\x80\x95'/)}"   # U+3015 RIGHT TORTOISE SHELL BRACKET 〕
+  # X7 (R3 review): twelve more pairs the list above missed ("⦋End untrusted reference⦌" passed).
+  # The TS fold (foldServedSnippet) folds every \p{Ps}/\p{Pe}; bash has no property classes, so
+  # the square-looking pairs are listed (bytes computed, not typed).
+  CARD_LINE="${CARD_LINE//$'\xe2\xa6\x8b'/(}"   # U+298B LEFT SQUARE BRACKET WITH UNDERBAR
+  CARD_LINE="${CARD_LINE//$'\xe2\xa6\x8c'/)}"   # U+298C RIGHT SQUARE BRACKET WITH UNDERBAR
+  CARD_LINE="${CARD_LINE//$'\xe2\xa6\x8d'/(}"   # U+298D LEFT SQUARE BRACKET WITH TICK IN TOP CORNER
+  CARD_LINE="${CARD_LINE//$'\xe2\xa6\x8e'/)}"   # U+298E RIGHT SQUARE BRACKET WITH TICK IN BOTTOM CORNER
+  CARD_LINE="${CARD_LINE//$'\xe2\xa6\x8f'/(}"   # U+298F LEFT SQUARE BRACKET WITH TICK IN BOTTOM CORNER
+  CARD_LINE="${CARD_LINE//$'\xe2\xa6\x90'/)}"   # U+2990 RIGHT SQUARE BRACKET WITH TICK IN TOP CORNER
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x8c'/(}"   # U+300C LEFT CORNER BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x8d'/)}"   # U+300D RIGHT CORNER BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x8e'/(}"   # U+300E LEFT WHITE CORNER BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x8f'/)}"   # U+300F RIGHT WHITE CORNER BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x96'/(}"   # U+3016 LEFT WHITE LENTICULAR BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x97'/)}"   # U+3017 RIGHT WHITE LENTICULAR BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x98'/(}"   # U+3018 LEFT WHITE TORTOISE SHELL BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe3\x80\x99'/)}"   # U+3019 RIGHT WHITE TORTOISE SHELL BRACKET
+  CARD_LINE="${CARD_LINE//$'\xef\xbd\xa2'/(}"   # U+FF62 HALFWIDTH LEFT CORNER BRACKET
+  CARD_LINE="${CARD_LINE//$'\xef\xbd\xa3'/)}"   # U+FF63 HALFWIDTH RIGHT CORNER BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\x9d\xb2'/(}"   # U+2772 LIGHT LEFT TORTOISE SHELL BRACKET ORNAMENT
+  CARD_LINE="${CARD_LINE//$'\xe2\x9d\xb3'/)}"   # U+2773 LIGHT RIGHT TORTOISE SHELL BRACKET ORNAMENT
+  CARD_LINE="${CARD_LINE//$'\xef\xb9\x9d'/(}"   # U+FE5D SMALL LEFT TORTOISE SHELL BRACKET
+  CARD_LINE="${CARD_LINE//$'\xef\xb9\x9e'/)}"   # U+FE5E SMALL RIGHT TORTOISE SHELL BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa2'/(}"   # U+2E22 TOP LEFT HALF BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa3'/)}"   # U+2E23 TOP RIGHT HALF BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa4'/(}"   # U+2E24 BOTTOM LEFT HALF BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa5'/)}"   # U+2E25 BOTTOM RIGHT HALF BRACKET
   # N7: collapse every Unicode space (\p{Zs}, incl. NBSP) to a single ASCII space BEFORE the
   # phrase check below — "untrusted<NBSP>reference" or "untrusted  reference" (double space)
   # otherwise reads as distinct from the single-space glob and slips through unneutralized.
