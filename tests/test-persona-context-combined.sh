@@ -163,4 +163,26 @@ printf '%s\n' "$I_CTX" | grep -F 'Wiki — auto-retrieved' | grep -qF 'starting 
   || fail "I: the wiki hint does not say how to open a Read line (hint must stay true): $I_CTX"
 pass "I: a local-doc Read line survives the slug filter on a line of its own, and the hint covers it"
 
+# --- J (D8): the [Past sessions] hint keeps WHOLE lines within its byte cap ------------------------
+# The cap was `${#}` (characters) against `head -c` (bytes) at 300, and the header plus the two
+# served lines is ~305-340 B of plain ASCII, so line 2 was always cut inside its
+# "(project, date, NN%)" provenance — or inside a multibyte character (verify-c2/d8.*).
+E_HDR='[Past sessions — use episodic_search for full context]'
+E_L1='- "how do I calibrate the widget zero point before the span reading in the lab log..." (claude-code-plugin, 2026-10-01, 42%)'
+E_L2='- "naïve café über façade — résumé of the déjà-vu bug in the episodic serve step..." (claude-code-plugin, 2026-10-02, 37%)'
+J_CTX=$(fake_run brain-j "$(printf '%s\n%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_L1" "$E_L2")")
+printf '%s\n' "$J_CTX" | grep -qxF -- "$E_HDR" || fail "J: the [Past sessions] header is missing: $J_CTX"
+printf '%s\n' "$J_CTX" | grep -qxF -- "$E_L1" || fail "J: served line 1 is not whole: $J_CTX"
+printf '%s\n' "$J_CTX" | grep -qxF -- "$E_L2" \
+  || fail "J: served line 2 was cut (provenance or a UTF-8 character): $(printf '%s\n' "$J_CTX" | grep -F 'naïve' | od -c | tail -4)"
+pass "J: header + two served lines (multibyte text) arrive whole"
+# A line that cannot fit is dropped whole, never cut; a header left with no line goes too.
+E_BIG='- "'"$(printf '%0700d' 0 | tr 0 x)"'..." (claude-code-plugin, 2026-10-03, 30%)'
+J2_CTX=$(fake_run brain-j2 "$(printf '%s\n%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_L1" "$E_BIG")")
+printf '%s\n' "$J2_CTX" | grep -qxF -- "$E_L1" || fail "J2: the line that fits was lost: $J2_CTX"
+printf '%s\n' "$J2_CTX" | grep -q '^- "xxx' && fail "J2: an over-cap line was cut instead of dropped"
+J3_CTX=$(fake_run brain-j3 "$(printf '%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_BIG")")
+printf '%s\n' "$J3_CTX" | grep -qF 'Past sessions' && fail "J3: a header with no line that fits was still injected: $J3_CTX"
+pass "J2/J3: an over-cap line is dropped whole; a bare header is not injected"
+
 echo "ALL PASS"

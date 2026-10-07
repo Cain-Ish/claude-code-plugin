@@ -356,7 +356,10 @@ KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 
 # Caps per section (wiki + episodic only — persona/catalog have no per-prompt injection).
 CAP_WIKI=600
-CAP_EPISODIC=300
+# BYTES, whole lines only (D8). Fits the serve step's header (55 B) plus its two served lines at
+# their widest: an 80-unit snippet at 3 B/unit (240 B), a long project slug, the date and the
+# percentage, ~330 B each. Plain-ASCII hints stay ~310-340 B; 300 clipped line 2 every time.
+CAP_EPISODIC=720
 
 # --- Persona card abstract (auto-seed if missing) ---
 PCARD_FILE="$BRAIN_DIR/persona-card.md"
@@ -540,7 +543,24 @@ if [ -n "$WIKI_RAW" ]; then
           if (out != "") print out }')
   [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
 fi
-[ ${#EPISODIC_HINT} -gt $CAP_EPISODIC ] && EPISODIC_HINT=$(printf '%s' "$EPISODIC_HINT" | head -c $CAP_EPISODIC)
+# D8 (2026-10-07): the episodic cap was `${#}` (characters) checked against a `head -c` (bytes) cut
+# at 300, and the CLI's header plus its two served lines run ~305-340 B of plain ASCII, so line 2
+# was always cut inside its "(project, date, NN%)" provenance, or inside a UTF-8 character. Keep
+# WHOLE lines while the total fits CAP_EPISODIC bytes; a header left with no line is dropped.
+# Pure bash, no spawn (the hint is at most three lines).
+_pc_bytes() { local LC_ALL=C; _PC_BYTES=${#1}; }
+if [ -n "$EPISODIC_HINT" ]; then
+  _eh_out=""; _eh_rest="$EPISODIC_HINT"; _eh_n=0
+  while [ -n "$_eh_rest" ]; do
+    _eh_l="${_eh_rest%%$'\n'*}"
+    case "$_eh_rest" in *$'\n'*) _eh_rest="${_eh_rest#*$'\n'}" ;; *) _eh_rest="" ;; esac
+    [ -n "$_eh_l" ] || continue
+    _pc_bytes "${_eh_out}${_eh_out:+$'\n'}$_eh_l"
+    [ "$_PC_BYTES" -le "$CAP_EPISODIC" ] || break
+    _eh_out="${_eh_out}${_eh_out:+$'\n'}$_eh_l"; _eh_n=$((_eh_n + 1))
+  done
+  if [ "$_eh_n" -ge 2 ]; then EPISODIC_HINT="$_eh_out"; else EPISODIC_HINT=""; fi
+fi
 
 # --- Behavioral principles re-surface (once per session, first coding-intent prompt) ---
 # Karpathy: prose in CLAUDE.md drifts; re-surfacing the compact Four Principles at the moment
