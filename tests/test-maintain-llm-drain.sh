@@ -118,6 +118,18 @@ mkdir -p "$B/dreams/drm_20260101T000000Z"
 jq -nc '{id:"drm_20260101T000000Z",status:"completed",archived_at:null}' > "$B/dreams/drm_20260101T000000Z/status.json"
 SB_MAINTAIN_LLM_FORCE=1 bash "$SCRIPT" >/dev/null 2>&1 || true
 [ "$(ndreams)" = "1" ] && pass "unreviewed dream pending → skip (no stacking)" || fail "stacked a new dream"
+# K1: the skip was a silent exit 0, and a dream that auto-accept refused stays unreviewed, so the
+# lane stopped for good with no trace. It must name the blocking dream in the error log, count
+# no strike (nothing failed), and re-stamp the throttle to the retry horizon so the row is
+# written once per horizon instead of on every drain tick (the mark from case 2 is fresh).
+jq -c 'select(.script == "maintain-llm-drain" and ((.message // "") | test("drm_20260101T000000Z")))' \
+  "$B/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  && pass "no-stacking skip names the blocking dream in the error log" \
+  || fail "no-stacking skip left no error-log row naming drm_20260101T000000Z"
+[ ! -f "$B/.llm-maintain-fails" ] && pass "no-stacking skip counts no failure strike" || fail "no-stacking skip counted a strike ($(cat "$B/.llm-maintain-fails"))"
+K1_AGE=$(( $(date +%s) - $(stat -c %Y "$B/.last-llm-maintain" 2>/dev/null || stat -f %m "$B/.last-llm-maintain") ))
+[ "$K1_AGE" -gt 3600 ] && pass "no-stacking skip re-stamps the throttle to the retry horizon (mark age ${K1_AGE}s)" \
+  || fail "no-stacking skip left the throttle mark at age ${K1_AGE}s (every drain tick would log again)"
 rm -rf "$B/dreams/drm_20260101T000000Z"
 
 # 4. proceeds: ON + FORCE + DRYRUN + no pile-up → snapshots a dream + reaches the quarantined

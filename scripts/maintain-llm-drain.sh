@@ -106,6 +106,10 @@ _fail_step() {
   if [ "$n" -ge 3 ]; then
     printf '[%s] quarantined after %s consecutive failures: %s\n' "$(date -u +%FT%TZ)" "$n" "$1" > "$QUAR_F"
   fi
+  _restamp_retry
+}
+# _restamp_retry: set the throttle mark so the next run is due in ~RETRY seconds.
+_restamp_retry() {
   local target=$(( $(date +%s) - INT + RETRY ))
   local stamp
   # LOCAL-time render: `touch -t` interprets its stamp as local time; a UTC
@@ -113,14 +117,26 @@ _fail_step() {
   stamp=$(date -d "@$target" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$target" +%Y%m%d%H%M.%S 2>/dev/null)
   [ -n "$stamp" ] && touch -t "$stamp" "$MARK" 2>/dev/null
 }
+# _defer_step <summary>: another dream is in the way. That is not a failure (no strike), but it
+# is logged, and the throttle is re-stamped to the retry horizon so the row is written once per
+# horizon rather than on every drain tick.
+_defer_step() {
+  sb_log_error "maintain-llm-drain" "$1" 0
+  _restamp_retry
+}
 
 # Don't stack: if a completed-but-unreviewed (archived_at unset) dream already exists, skip until
-# the user accepts/discards it (the SP-C terminal predicate).
+# the user accepts/discards it (the SP-C terminal predicate). K1: this used to be a silent exit 0.
+# A dream that auto-accept refused stays unreviewed, so the lane stopped for good with no trace.
 for sf in "$BRAIN_DIR"/dreams/drm_*/status.json; do
   [ -f "$sf" ] || continue
-  [ "$(jq -r '.status // ""' "$sf" 2>/dev/null)" = "completed" ] || continue
+  [ "$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')" = "completed" ] || continue
   a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
-  { [ -z "$a" ] || [ "$a" = "null" ]; } && exit 0
+  if [ -z "$a" ] || [ "$a" = "null" ]; then
+    _did=${sf%/status.json}; _did=${_did##*/}
+    _defer_step "skipped: dream $_did is completed and unreviewed (archived_at unset); the lane does not stack dreams. Accept or discard it (dream_accept / dream_discard); next check in ${RETRY}s"
+    exit 0
+  fi
 done
 
 # Preflight: prove the CLI enforces the output schema BEFORE staging anything. Below the floor,
