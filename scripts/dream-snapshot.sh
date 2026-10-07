@@ -184,11 +184,16 @@ while :; do
   WIKI_PAGE_COUNT=$(printf '%s\n' "$_staged" | grep -c .)
   LIVE_PAGE_COUNT=$(printf '%s\n' "$_after" | grep -c .)
   _tries="$_tries $WIKI_PAGE_COUNT/$LIVE_PAGE_COUNT"
+  # K4: a cp error made only of vanished entries copied every page that still exists, so with the
+  # staged list equal to live it is a complete snapshot. Requiring CP_RC=0 here retried it, and a
+  # temp file that vanished on all three attempts failed the dream.
+  _cp_ok=0
+  { [ "$CP_RC" -eq 0 ] || [ "$_vanished" = 1 ]; } && _cp_ok=1
   # Retry only on a race: the live list moved (a page unlinked mid-copy by a reindex/autofix also
   # makes cp exit 1 with "cannot stat"), cp lost only vanished entries, or the live listing failed.
   _race=0
   { [ "$_before" != "$_after" ] || [ "$_vanished" = 1 ] || [ "$LIVE_RC" -ne 0 ]; } && _race=1
-  if [ "$LIST_RC" -ne 0 ] || { [ "$CP_RC" -eq 0 ] && [ "$LIVE_RC" -eq 0 ] && [ "$_staged" = "$_after" ]; } \
+  if [ "$LIST_RC" -ne 0 ] || { [ "$_cp_ok" = 1 ] && [ "$LIVE_RC" -eq 0 ] && [ "$_staged" = "$_after" ]; } \
      || [ "$_race" = 0 ] || [ "$_attempt" -ge "$SNAPSHOT_ATTEMPTS" ]; then
     break
   fi
@@ -198,12 +203,14 @@ while :; do
 done
 SNAPSHOT_BYTES=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
 if [ -z "$SNAPSHOT_FAIL_REASON" ]; then
-  if [ "$CP_RC" -ne 0 ]; then
+  if [ "$CP_RC" -ne 0 ] && [ "$_vanished" != 1 ]; then
     SNAPSHOT_FAIL_REASON="cp -rp of wiki exited $CP_RC (partial snapshot) on attempt $_attempt/$SNAPSHOT_ATTEMPTS (staged/live per attempt:$_tries)"
   elif [ "$LIST_RC" -ne 0 ] || [ "$LIVE_RC" -ne 0 ]; then
     SNAPSHOT_FAIL_REASON="could not list wiki pages to verify the snapshot (find failed)"
   elif [ "$_staged" != "$_after" ]; then
     SNAPSHOT_FAIL_REASON="wiki snapshot incomplete: staged $WIKI_PAGE_COUNT of $LIVE_PAGE_COUNT live pages, page lists differ (staged/live per attempt:$_tries)"
+  elif [ "$CP_RC" -ne 0 ]; then
+    sb_log_error "dream-snapshot.sh" "cp -rp of wiki exited $CP_RC with only vanished entries (No such file or directory) on attempt $_attempt/$SNAPSHOT_ATTEMPTS; staged page list matches live ($WIKI_PAGE_COUNT pages), snapshot accepted" 0
   fi
 fi
 if [ -n "$SNAPSHOT_FAIL_REASON" ]; then

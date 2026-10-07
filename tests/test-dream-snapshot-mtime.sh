@@ -164,7 +164,7 @@ case "$3:\$n" in
   partial:*) rm -f "\${dest%/}/entities/p.md" ;;
   vanish:1) rm -f "$2/entities/p.md"; rc=1 ;;
   truncate:*) : > "\${dest%/}/entities/p.md"; rc=28 ;;
-  tmpvanish:1) echo "cp: cannot stat '$2/.embeddings-cache.json.tmp.4242': No such file or directory" >&2; rc=1 ;;
+  tmpvanish:1|tmpvanishall:*) echo "cp: cannot stat '$2/.embeddings-cache.json.tmp.4242': No such file or directory" >&2; rc=1 ;;
   ioerr:*) echo "cp: error reading '$2/entities/p.md': Input/output error" >&2; rc=1 ;;
   statio:*) echo "cp: cannot stat '$2/entities/p.md': Input/output error" >&2; rc=1 ;;
 esac
@@ -272,17 +272,35 @@ fi
 
 # A temp file renamed away mid-copy (the embeddings cache and index.md are rewritten through
 # tmp+rename by every search) makes cp exit 1 with only "cannot stat … No such file" while the
-# page lists hold still: a race, retried — not a failed dream.
+# page lists hold still. K4: every page is in the copy, so this is a complete snapshot, not a
+# fault and not a reason to copy again. It used to be retried, and when the temp file vanished on
+# all three attempts (searches running through the copy) the dream FAILED. Now it is accepted on
+# the attempt it happened, with one error-log row saying so.
 BRAIN_DIR12="$SANDBOX/brain12"; KNOWLEDGE_DIR12="$SANDBOX/knowledge12"
 race_fixture "$BRAIN_DIR12" "$KNOWLEDGE_DIR12"
 make_race_cp "$SANDBOX/fakebin-race-tmpvanish" "$KNOWLEDGE_DIR12/wiki" tmpvanish
 run_race "$SANDBOX/fakebin-race-tmpvanish" "$BRAIN_DIR12" "$KNOWLEDGE_DIR12"; RC=$?
 ST=$(find "$BRAIN_DIR12/dreams" -name status.json -exec jq -r '.status' {} \; | tr -d '\r' | head -1)
 CALLS=$(cat "$SANDBOX/fakebin-race-tmpvanish/calls" 2>/dev/null || echo 0)
-if [ "$RC" -eq 0 ] && [ "$ST" = "pending" ] && [ "$CALLS" = 2 ]; then
-  pass "a cp error made only of vanished temp files is retried, not failed"
+if [ "$RC" -eq 0 ] && [ "$ST" = "pending" ] && [ "$CALLS" = 1 ]; then
+  pass "a cp error made only of vanished temp files, page lists matching, is a complete snapshot (1 copy)"
 else
-  fail "vanished temp file, lists unchanged: rc=$RC status='$ST' copies=$CALLS (expected rc=0, pending, 2 copies)"
+  fail "vanished temp file, lists unchanged: rc=$RC status='$ST' copies=$CALLS (expected rc=0, pending, 1 copy)"
+fi
+VROW=$(jq -c 'select(.script == "dream-snapshot.sh" and ((.message // "") | test("vanished")))' \
+  "$BRAIN_DIR12/error-log.jsonl" 2>/dev/null | tr -d '\r')
+[ -n "$VROW" ] && pass "the accepted vanished-only cp error leaves an error-log row" \
+  || fail "vanished-only cp error accepted with no error-log row"
+BRAIN_DIR15="$SANDBOX/brain15"; KNOWLEDGE_DIR15="$SANDBOX/knowledge15"
+race_fixture "$BRAIN_DIR15" "$KNOWLEDGE_DIR15"
+make_race_cp "$SANDBOX/fakebin-race-tmpvanishall" "$KNOWLEDGE_DIR15/wiki" tmpvanishall
+run_race "$SANDBOX/fakebin-race-tmpvanishall" "$BRAIN_DIR15" "$KNOWLEDGE_DIR15"; RC=$?
+ST=$(find "$BRAIN_DIR15/dreams" -name status.json -exec jq -r '.status' {} \; | tr -d '\r' | head -1)
+CALLS=$(cat "$SANDBOX/fakebin-race-tmpvanishall/calls" 2>/dev/null || echo 0)
+if [ "$RC" -eq 0 ] && [ "$ST" = "pending" ] && [ "$CALLS" = 1 ]; then
+  pass "a temp file vanishing on EVERY copy attempt no longer fails the dream (K4)"
+else
+  fail "temp file vanishing on every attempt: rc=$RC status='$ST' copies=$CALLS (expected rc=0, pending, 1 copy)"
 fi
 
 # Any other cp error with matching page lists (EIO here) is a fault: fail at once, no retry, and
