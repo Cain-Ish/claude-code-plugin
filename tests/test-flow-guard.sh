@@ -583,6 +583,31 @@ fg_w=0
 until grep -q 'credential-shaped data' "$BRAIN/det/.buddy/cr1w.log.jsonl" 2>/dev/null || [ "$fg_w" -ge 20 ]; do sleep 0.5; fg_w=$((fg_w + 1)); done
 grep -q 'credential-shaped data' "$BRAIN/det/.buddy/cr1w.log.jsonl" 2>/dev/null || fail "GS5: the detached buddy line never landed (10 s)"
 pass "#110/GS5: the verdict comes first; the row is written before exit (late, full logic), the buddy line follows detached (guard returned in ${fg_s}s)"
+# GS6/GC5/GX5 (R3B): flow-guard, symlink-guard and wiki-write-guard run unwrapped (no hook-timer), so
+# no deadline reached them and none of their verdicts was ever stamped late. Each now takes its own
+# start + 3000 ms (the 5 s hook timeout less hook-timer's 2000 ms head start) unless it is
+# hook-timer's direct child: a scan jq sleeping 3.5 s puts the verdict past it. GT11: a deadline
+# inherited through a process the wrapped hook spawned (a claude -p under stop-extract) is not the
+# grandchild's — SB_HOOK_LATE_PID names hook-timer's direct child — so a guard under a budget-2 wrapper
+# one process removed keeps its own deadline (a fast-path ask, well inside it).
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  mkdir -p "$BRAIN/late35" "$BRAIN/lt"
+  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = --args ] && { sleep 3.5; break; }; done\nexec "%s" "$@"\n' "$(command -v jq)" > "$BRAIN/late35/jq"; chmod +x "$BRAIN/late35/jq"
+  out=$(BRAIN_DIR="$BRAIN/lt" PATH="$BRAIN/late35:$PATH" bash "$SCRIPT" < "$BRAIN/cr1w.json")
+  is_ask "$out" || fail "GS6: the slow scan must still ask (got: $out)"
+  grep '"verdict":"ask"' "$BRAIN/lt/audit-log.jsonl" | grep -q '"late":true' \
+    || fail "GS6: an unwrapped guard's verdict past its own start + 3000 ms must be stamped late (audit: $(cat "$BRAIN/lt/audit-log.jsonl"))"
+  printf '#!/bin/bash\nbash "%s"\n' "$SCRIPT" > "$BRAIN/lt/wrap.sh"
+  : > "$BRAIN/lt/audit-log.jsonl"
+  out=$(printf '%s' '{"tool_name":"WebSearch","tool_input":{"query":"ghp_abcdefghijklmnopqrstuvwxyz0123456789AB"},"session_id":"gt11"}' \
+    | BRAIN_DIR="$BRAIN/lt" bash "$(dirname "$SCRIPT")/hook-timer.sh" 2 "$BRAIN/lt/wrap.sh")
+  is_ask "$out" || fail "GT11: the fast-path ask must arrive (got: $out)"
+  grep '"verdict":"ask"' "$BRAIN/lt/audit-log.jsonl" | grep -q '"late":true' \
+    && fail "GT11: a guard one process below hook-timer took the wrapper's deadline as its own (audit: $(cat "$BRAIN/lt/audit-log.jsonl"))"
+  pass "GS6/GT11: an unwrapped guard stamps late past its own deadline; an inherited deadline is not taken"
+else
+  echo "SKIP: GS6/GT11 late stamps — no EPOCHREALTIME (bash < 5): no clock without a process, no flag"
+fi
 # A scan jq whose output stops short but exits 0 (a reader cut off) carries no closing mark: that is
 # a failed read, never "no match" — the call asks.
 mkdir -p "$BRAIN/cut"

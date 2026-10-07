@@ -71,6 +71,17 @@ _fp_ob=0
 # The payload: up to 16 KiB by builtin read (bash reads a pipe a byte at a time, ~1 us/byte on
 # MSYS, so a typical Edit/Bash payload costs 1-5 ms and no process); the rest by one `cat` in
 # _fp_raw_all, only for a bigger payload.
+# _FP_DL: the epoch ms from which this guard's verdict counts as late (G2; GS6/GC5/GX5, R3B): Claude
+# Code had likely cancelled the hook and run the call. hook-timer's SB_HOOK_LATE_MS when this guard is
+# its direct child (SB_HOOK_LATE_PID is $PPID; GT11: one inherited through a process the wrapped hook
+# spawned is not this guard's); otherwise — the guards hooks.json does not wrap — this guard's own
+# start plus the 5 s hook timeout less the same 2000 ms head start. Taken here, before the payload is
+# read. bash 5 only (EPOCHREALTIME): before it there is no clock without a process, and no stamp.
+_FP_DL=""
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _FP_DL=${EPOCHREALTIME//[!0-9]/}; _FP_DL=$(( 10#$_FP_DL / 1000 + 3000 ))
+  case "${SB_HOOK_LATE_MS:-}" in ''|*[!0-9]*) ;; *) [ "${SB_HOOK_LATE_PID:-}" = "$PPID" ] && _FP_DL="$SB_HOOK_LATE_MS" ;; esac
+fi
 _FP_RAW="" _FP_EOF=0 _FP="" _FP_I=0
 _FP_A=()
 IFS= read -r -d '' -n 16384 _FP_RAW || _FP_EOF=1
@@ -409,17 +420,15 @@ _fp_emit() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$_fm_r"
 }
 
-# _fp_late: _FP_LATE=1 once hook-timer's deadline has passed (SB_HOOK_LATE_MS, epoch ms: its start +
-# budget - 2000 ms; G2, R3): a verdict written then was likely cancelled with the hook, and the call
-# ran. EPOCHREALTIME only (bash 5): before that there is no clock without a process, and no stamp.
+# _fp_late: _FP_LATE=1 once this guard's deadline (_FP_DL, above) has passed: a verdict written then
+# was likely cancelled with the hook, and the call ran.
 _FP_LATE=0
 _fp_late() {
   local _fy_n="${EPOCHREALTIME:-}"
   _FP_LATE=0
-  case "${SB_HOOK_LATE_MS:-}" in ''|*[!0-9]*) return 0 ;; esac
-  [ -n "$_fy_n" ] || return 0
+  [ -n "$_FP_DL" ] && [ -n "$_fy_n" ] || return 0
   _fy_n="${_fy_n//[!0-9]/}"
-  [ $(( 10#$_fy_n / 1000 )) -ge "$SB_HOOK_LATE_MS" ] && _FP_LATE=1
+  [ $(( 10#$_fy_n / 1000 )) -ge "$_FP_DL" ] && _FP_LATE=1
   return 0
 }
 

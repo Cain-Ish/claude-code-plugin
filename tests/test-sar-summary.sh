@@ -190,6 +190,14 @@ printf '%s\n' '{"ts":"t","hook":"persona-tool-guard.sh","verdict":"ask","rule":"
 out=$(echo '{"session_id":"s14b"}' | BRAIN_DIR="$BRAIN" bash "$SCRIPT")
 printf '%s' "$out" | jq -r '.systemMessage' | grep -q 'after cancel' && fail "14: no late rows, no after-cancel line (got: $out)"
 pass "late ask/deny rows are reported as asked after cancel, apart from the enforced counts"
+# GC7 (R3B): a late rewrite is a cancelled one too — the command ran unrewritten.
+: > "$BRAIN/audit-log.jsonl"
+printf '%s\n' '{"ts":"t","hook":"persona-tool-guard.sh","verdict":"rewrite","rule":"r1","session_id":"s14c","extra":{"late":true}}' \
+  '{"ts":"t","hook":"persona-tool-guard.sh","verdict":"ask","rule":"r2","session_id":"s14c","extra":{"late":true}}' >> "$BRAIN/audit-log.jsonl"
+out=$(echo '{"session_id":"s14c"}' | BRAIN_DIR="$BRAIN" bash "$SCRIPT")
+printf '%s' "$out" | jq -r '.systemMessage' | grep -q 'after cancel: 2' \
+  || fail "GC7: a late rewrite counts beside a late ask (got: $out)"
+pass "GC7: a late rewrite is reported with the late ask/deny rows"
 
 echo
 echo "ALL PASS"

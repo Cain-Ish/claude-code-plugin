@@ -51,7 +51,14 @@ _now_ms; T0=$_MS
 # 70-2000 ms on a loaded MSYS box (R3 measurements) — so a verdict 3 s in may already be past a 5 s
 # timeout. Conservative on purpose: "late" may over-report, never claim a cancelled verdict was
 # enforced. The guards' audit rows stamp it (_fp_audit, sb_log_audit; EPOCHREALTIME, bash 5 only).
-case "$BUDGET_S" in ''|*[!0-9]*|0) ;; *) export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 )) ;; esac
+# SB_HOOK_LATE_PID (GT11, R3B): this wrapper's PID — the deadline belongs to its direct child (whose
+# $PPID it is) and to nothing that child spawns: a claude -p under stop-extract runs hooks of its own
+# with this export still in their environment. A budget of 0 (or none) hands no deadline on, and drops
+# one inherited from a wrapper further up.
+case "$BUDGET_S" in
+  ''|*[!0-9]*|0) unset SB_HOOK_LATE_MS SB_HOOK_LATE_PID ;;
+  *) export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 )) SB_HOOK_LATE_PID=$$ ;;
+esac
 bash "$SCRIPT" "$@"
 EC=$?
 _now_ms; T1=$_MS

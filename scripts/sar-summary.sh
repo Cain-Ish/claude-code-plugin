@@ -97,12 +97,13 @@ fi
 # short "verdict=N" lines. Before, every DISTINCT verdict string in the session's rows (any
 # writer, any length) became a line, and the list is read back through a `<<<` here-string,
 # which blocks Git-Bash for good at 65,537..~65,650 bytes — past this Stop hook's timeout.
-# G2 (R3): an ask/deny stamped extra.late (written after hook-timer's deadline: Claude Code had
-# likely cancelled the hook and run the tool) also yields a "late" line, counted on its own.
+# G2 (R3): an ask/deny stamped extra.late (written after the hook's deadline: Claude Code had likely
+# cancelled the hook and run the tool) also yields a "late" line, counted on its own; so does a late
+# rewrite (GC7, R3B: the command then ran unrewritten).
 counts=$(jq -Rr --arg sid "$SESSION_ID" '
   fromjson? | select(type == "object" and .session_id == $sid)
   | ((.verdict // empty | select(. == "allow" or . == "ask" or . == "deny" or . == "flag" or . == "rewrite")),
-     (select((.verdict == "ask" or .verdict == "deny") and (.extra | type) == "object" and .extra.late == true) | "late"))
+     (select((.verdict == "ask" or .verdict == "deny" or .verdict == "rewrite") and (.extra | type) == "object" and .extra.late == true) | "late"))
 ' "$AUDIT" 2>/dev/null | sort | uniq -c | awk '{print $2 "=" $1}')
 
 # Log a torn line ONCE per read (not once per skipped row) so a corrupt audit-log
@@ -143,7 +144,7 @@ top=$(jq -Rr --arg sid "$SESSION_ID" '
 
 SID_SHORT="${SESSION_ID:0:8}"
 LATE_LINE=""
-[ "$late" -gt 0 ] && LATE_LINE="  asked after cancel: $late (ask/deny written past the hook deadline — Claude Code had likely cancelled the hook and run the call)"$'\n'
+[ "$late" -gt 0 ] && LATE_LINE="  asked after cancel: $late (ask/deny/rewrite written past the hook deadline — Claude Code had likely cancelled the hook and run the call unchanged)"$'\n'
 BANNER=$(printf '[second-brain SAR] session=%s\n  verdicts: allow=%d ask=%d deny=%d flag=%d rewrite=%d (total %d)\n%s  sar=%s  (1.00 = clean, 0.00 = every-call-blocked)\n%s  Detail: jq '\''select(.session_id=="%s")'\'' %s' \
   "$SID_SHORT" \
   "$allow" "$ask" "$deny" "$flag" "$rewrite" "$total" \

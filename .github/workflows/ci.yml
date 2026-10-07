@@ -94,7 +94,7 @@ jobs:
           rc=0
           for t in persona-tool-guard symlink-guard flow-guard wiki-write-guard guard-wiring \
                    protocol-guard stop-verify-gate script-portability \
-                   discover-installed subagent-capture session-load-graph sar-summary \
+                   discover-installed subagent-capture session-load-graph sar-summary hook-latency \
                    telemetry-loop transcript-archive real-kb-isolation jq-e-empty-guard; do
             echo "::group::test-$t"
             if bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
