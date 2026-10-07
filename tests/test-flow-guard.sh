@@ -462,13 +462,22 @@ PAD70=""; for _i in $(seq 1 70); do PAD70="${PAD70}echo pad"$'\n'; done
 GHP="ghp_$(printf '%36s' '' | tr ' ' a)"; B41=$(printf '%41s' '' | tr ' ' b)
 # A call the fast path declines goes to the full logic either way, so equal output alone cannot see a
 # full logic that asks too much: each call also names the verdict it must get (ask, or - for none).
+# GT7 (R3B): "must not ask" also needs rc 0 and an empty stderr — a guard that aborts (set -u) prints
+# nothing either, and that is a fail-open, not a pass. GT8: a short call's ask must come from the fast
+# path (its row carries the marker), or the corpus no longer exercises the fast path at all.
 fg_par() {  # fg_par <ask|-> <tool> <field> <value>
-  local p1 p2 o1 o2
+  local p1 p2 o1 o2 r1 r2
   p1=$(jq -nc --arg t "$2" --arg f "$3" --arg v "$4" '{tool_name:$t, session_id:"par", tool_input:{($f):$v}}')
   p2=$(jq -nc --arg t "$2" --arg f "$3" --arg v "$PAD70$4" '{tool_name:$t, session_id:"par", tool_input:{($f):$v}}')
-  o1=$(printf '%s' "$p1" | BRAIN_DIR="$BRAIN" bash "$SCRIPT")
   : > "$BRAIN/audit-log.jsonl"
-  o2=$(printf '%s' "$p2" | BRAIN_DIR="$BRAIN" bash "$SCRIPT")
+  o1=$(printf '%s' "$p1" | BRAIN_DIR="$BRAIN" bash "$SCRIPT" 2>"$BRAIN/par1.err"); r1=$?
+  if [ -n "$o1" ] && [ "$FP_OFF" = 0 ]; then
+    grep -q '"fastpath":true' "$BRAIN/audit-log.jsonl" || fail "GT8: $2 $3='${4:0:80}' — the short call's ask must come from the fast path"
+  fi
+  : > "$BRAIN/audit-log.jsonl"
+  o2=$(printf '%s' "$p2" | BRAIN_DIR="$BRAIN" bash "$SCRIPT" 2>"$BRAIN/par2.err"); r2=$?
+  [ "$r1" = 0 ] && [ "$r2" = 0 ] && [ ! -s "$BRAIN/par1.err" ] && [ ! -s "$BRAIN/par2.err" ] \
+    || fail "GT7: $2 $3='${4:0:80}' — the guard must exit 0 with an empty stderr (rc $r1/$r2; $(head -c 300 "$BRAIN/par1.err" "$BRAIN/par2.err"))"
   [ "$o1" = "$o2" ] || fail "#110 parity: $2 $3='${4:0:80}' fast/short=[$o1] full/padded=[$o2]"
   if [ "$1" = ask ]; then is_ask "$o2" || fail "#110 parity: $2 $3='${4:0:80}' must ask (full logic got: '$o2')"
   else [ -z "$o2" ] || fail "#110 parity: $2 $3='${4:0:80}' must not ask (full logic got: $o2)"; fi

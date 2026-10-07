@@ -1187,14 +1187,16 @@ pass "GS2/GS3/GT9: Windows spellings of a credential store ask on both paths; a 
 # <repo>/.claude/worktrees/r3-ro/… got the out-of-scope ask. $PROJECT (CLAUDE_PROJECT_DIR, the
 # directory the session was started in) is a scope root beside $CWD; an empty one adds nothing.
 GW=$(mktemp -d)
-gw() {  # gw <CLAUDE_PROJECT_DIR> -> out
+gw() {  # gw <CLAUDE_PROJECT_DIR> -> out, gw_rc (stderr in $GW/err)
   out=$(printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/w/repo/.claude/worktrees/r3-ro/scripts/lib.sh"},"cwd":"/w/repo/.claude/worktrees/r3-mt","session_id":"gw"}' \
-    | CLAUDE_PROJECT_DIR="$1" BRAIN_DIR="$GW" bash "$SCRIPT")
+    | CLAUDE_PROJECT_DIR="$1" BRAIN_DIR="$GW" bash "$SCRIPT" 2>"$GW/err"); gw_rc=$?
 }
+# GT7 (R3B): silent = no output, rc 0 and an empty stderr (a guard that aborts prints nothing either).
+gw_silent() { [ -z "$out" ] && [ "$gw_rc" = 0 ] && [ ! -s "$GW/err" ]; }
 gw /w/repo
-[ -z "$out" ] || fail "GW: a Read under the session's project root (cwd in a sibling worktree) must be in scope (got: $out)"
+gw_silent || fail "GW: a Read under the session's project root (cwd in a sibling worktree) must be in scope (rc=$gw_rc, got: $out, stderr: $(head -c 300 "$GW/err"))"
 gw '/w/repo/'
-[ -z "$out" ] || fail "GW: a project root with a trailing '/' must still be a scope root (got: $out)"
+gw_silent || fail "GW: a project root with a trailing '/' must still be a scope root (rc=$gw_rc, got: $out, stderr: $(head -c 300 "$GW/err"))"
 gw ''
 [ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
   || fail "GW: with CLAUDE_PROJECT_DIR empty the sibling worktree is out of scope again — an empty \$PROJECT must not match every path (got: $out)"
@@ -1205,14 +1207,14 @@ pass "GW: the session's project root (CLAUDE_PROJECT_DIR) is in scope, worktrees
 gc6() {  # gc6 <file> <cwd> <CLAUDE_PROJECT_DIR> [HOME] -> out
   # MSYS2_ARG_CONV_EXCL: MSYS would rewrite a /w/… argument to C:/Program Files/Git/w/… for jq.exe.
   out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$1" --arg c "$2" '{tool_name:"Read",tool_input:{file_path:$f},cwd:$c,session_id:"gc6"}' \
-    | CLAUDE_PROJECT_DIR="$3" HOME="${4:-$HOME}" BRAIN_DIR="$GW" bash "$SCRIPT")
+    | CLAUDE_PROJECT_DIR="$3" HOME="${4:-$HOME}" BRAIN_DIR="$GW" bash "$SCRIPT" 2>"$GW/err"); gw_rc=$?
 }
 gc6 '/w/R&D/repo/.claude/worktrees/r3-ro/x.sh' '/w/R&D/repo/.claude/worktrees/r3-mt' '/w/R&D/repo'
-[ -z "$out" ] || fail "GC6: a Read under a project root holding '&' must be in scope (got: $out)"
+gw_silent || fail "GC6: a Read under a project root holding '&' must be in scope (rc=$gw_rc, got: $out)"
 gc6 '/w/R&D/proj/a.txt' '/w/R&D/proj' ''
-[ -z "$out" ] || fail "GC6: a Read under a cwd holding '&' must be in scope (got: $out)"
+gw_silent || fail "GC6: a Read under a cwd holding '&' must be in scope (rc=$gw_rc, got: $out)"
 gc6 '/h/a&b/knowledge/x.md' '/w/proj' '' '/h/a&b'
-[ -z "$out" ] || fail "GC6: a Read under \$HOME/knowledge with '&' in HOME must be in scope (got: $out)"
+gw_silent || fail "GC6: a Read under \$HOME/knowledge with '&' in HOME must be in scope (rc=$gw_rc, got: $out)"
 pass "GC6: '&' in the project root, cwd or HOME keeps its scope root"
 rm -rf "$GW"
 
@@ -1223,8 +1225,9 @@ if [ -r /proc/mounts ] && command -v cygpath >/dev/null 2>&1 && W2_TMP=$(cygpath
    && case "$W2_TMP" in [A-Za-z]:/*) true ;; *) false ;; esac; then
   W2=$(mktemp -d)
   out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg f "$W2_TMP/g1-w2.txt" '{tool_name:"Read",tool_input:{file_path:$f},cwd:"C:\\Workplace\\proj",session_id:"w2"}' \
-    | BRAIN_DIR="$W2" bash "$SCRIPT")
-  [ -z "$out" ] || fail "G1 mounts: a Read of $W2_TMP/g1-w2.txt (= /tmp/g1-w2.txt, in scope) must not ask (got: $out)"
+    | BRAIN_DIR="$W2" bash "$SCRIPT" 2>"$W2/err"); w2_rc=$?
+  [ -z "$out" ] && [ "$w2_rc" = 0 ] && [ ! -s "$W2/err" ] \
+    || fail "G1 mounts: a Read of $W2_TMP/g1-w2.txt (= /tmp/g1-w2.txt, in scope) must not ask (rc=$w2_rc, got: $out, stderr: $(head -c 300 "$W2/err"))"
   pass "G1 mounts: a drive path under an MSYS mount (the temp dir) gets no false out-of-scope ask"
   rm -rf "$W2"
 else
@@ -1282,8 +1285,10 @@ out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"sessio
 pass "G3: a default rules file that is not JSON denies"
 # A cache that IS bad is rebuilt in place: its .sig is dropped so sb_rules_effective rebuilds (tmp +
 # mv), never deleted first — a concurrent guard that had just been handed the path read a missing file.
-grep -qE '^[[:space:]]*rm -f "\$EFF"' "$SCRIPT" \
-  && fail "G3: the guard deletes the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
+# GT6 (R3B): any spelling of it — rm or unlink with any flags, ${EFF}, an mv away, or a truncation.
+grep -vE '^[[:space:]]*#' "$SCRIPT" \
+  | grep -qE '((^|[^A-Za-z_])(rm|unlink|mv)[[:space:]]+([^;&|#]*[[:space:]])?|>[[:space:]]*)"?\$\{?EFF\}?"?([[:space:];&|)]|$)' \
+  && fail "G3: the guard deletes (or empties) the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
 pass "G3: a failed cache is rebuilt in place, not deleted"
 # GC4 (R3B): a missing jq is not a failed rules read. _fp_jqfail's rule — jq ran and failed: ask; jq
 # absent: log and pass (SessionStart's banner reports it) — held for the payload read but not for the
