@@ -40,9 +40,19 @@ set -u
 [ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && { source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" && sb_headless_trace subagent-capture; exit 0; }  # sb-headless-inline
 source "$(dirname "$0")/lib.sh"
 
-# Kill switch + jq dependency (no jq => silently no-op, like other hooks).
+# Kill switch + jq dependency. No jq: nothing can be parsed, so nothing is archived, and ONE error
+# row says so per outage, not one per subagent (the marker remembers it; the first run with jq
+# back clears it, so the next outage is reported again). This exit used to be silent.
 [ "${SB_SUBAGENT_CAPTURE:-on}" = "off" ] && exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+_sc_nojq="$BRAIN_DIR/.subagent-capture-no-jq"
+if ! command -v jq >/dev/null 2>&1; then
+  if [ ! -e "$_sc_nojq" ]; then
+    : > "$_sc_nojq" 2>/dev/null
+    sb_log_error "subagent-capture.sh" "jq not found on PATH: subagent results are not archived until it is installed (reported once per outage)" 1
+  fi
+  exit 0
+fi
+[ -e "$_sc_nojq" ] && rm -f "$_sc_nojq"
 
 RAW=$(cat 2>/dev/null || true)
 [ -n "$RAW" ] || exit 0
@@ -100,8 +110,29 @@ _t_base="${TRANSCRIPT##*/}"; _t_base="${_t_base##*\\}"; _t_base="${_t_base%.json
 [ -n "$SESSION_ID" ] && [ "$_t_base" = "$SESSION_ID" ] && exit 0
 
 # --- Self-exclude: never archive the plugin's OWN agents (mining-self = noise
-# feeding itself). Match the bare name and the namespaced plugin:...:name form. ---
-SELF_AGENTS="dream-runner knowledge-maintainer search-conversations"
+# feeding itself). Match the bare name and the namespaced plugin:...:name form.
+# The names are the `name:` lines of the plugin's own agents/*.md frontmatter, read with builtins
+# (no spawn), so an agent is excluded the day it ships: the old hand list missed raw-drainer, whose
+# drain reports were archived as sub-*.txt and re-mined by the drainer. The literal list is the
+# floor when agents/ cannot be read; tests/test-subagent-capture.sh (3d) locks it to agents/*.md. ---
+SELF_AGENTS="dream-runner knowledge-maintainer raw-drainer search-conversations"
+_sc_dir="${BASH_SOURCE[0]%/*}"; [ "$_sc_dir" = "${BASH_SOURCE[0]}" ] && _sc_dir=.
+_sc_cr=$'\r'
+for _sc_af in "$_sc_dir/../agents/"*.md; do
+  [ -f "$_sc_af" ] || continue
+  _sc_fm=0
+  while IFS= read -r _sc_l || [ -n "$_sc_l" ]; do
+    _sc_l="${_sc_l%"$_sc_cr"}"
+    if [ "$_sc_l" = "---" ]; then
+      _sc_fm=$((_sc_fm + 1)); [ "$_sc_fm" -ge 2 ] && break; continue
+    fi
+    [ "$_sc_fm" -eq 1 ] || break   # no opening --- on line 1: no frontmatter, no name
+    case "$_sc_l" in
+      name:*) _sc_n="${_sc_l#name:}"; _sc_n="${_sc_n//[[:space:]\"\']/}"
+              [ -n "$_sc_n" ] && SELF_AGENTS="$SELF_AGENTS $_sc_n"; break ;;
+    esac
+  done < "$_sc_af"
+done
 bare_type="${AGENT_TYPE##*:}"   # strip any plugin:second-brain: prefix
 for self in $SELF_AGENTS; do
   [ "$bare_type" = "$self" ] && exit 0
