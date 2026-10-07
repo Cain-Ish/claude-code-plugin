@@ -248,8 +248,9 @@ unreviewed dream pending; 7-day throttle. Stage A and Stage B share ONE stalenes
 a `version`-class quarantine clears itself (the next drain cycle after the CLI passes the
 preflight); every other class stays until `.llm-maintain-quarantine` AND `.llm-maintain-fails`
 are deleted (the strike count alone re-quarantines on the next failure). Another dream in the
-way (completed and unreviewed) is not a failure: the lane logs the blocking dream id and defers
-to the ~24 h retry horizon without a strike. What reaches live is decided by `auto_accept` + the
+way (completed and unreviewed, or pending/running and not stale) is not a failure: the lane
+logs the blocking dream id and defers to the ~24 h retry horizon without a strike; a stale
+pending/running dream is left for dream-snapshot.sh to reclaim. What reaches live is decided by `auto_accept` + the
 held-untrusted gate (§3.6a).
 
 ### 3.8 The brain-os engine seam — `scripts/brain-os-run.sh`

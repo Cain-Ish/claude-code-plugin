@@ -133,15 +133,27 @@ _defer_step() {
 # Don't stack: if a completed-but-unreviewed (archived_at unset) dream already exists, skip until
 # the user accepts/discards it (the SP-C terminal predicate). K1: this used to be a silent exit 0.
 # A dream that auto-accept refused stays unreviewed, so the lane stopped for good with no trace.
+# K3: a pending/running dream that is not stale (an attended run in progress) makes
+# dream-snapshot.sh refuse, and that refusal used to count as a failure strike: three ticks
+# during one long attended run quarantined the lane as class "other", which never clears itself.
+# Both are transient blocks. A STALE pending/running dream is left for the snapshot to reclaim.
 for sf in "$BRAIN_DIR"/dreams/drm_*/status.json; do
   [ -f "$sf" ] || continue
-  [ "$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')" = "completed" ] || continue
-  a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
-  if [ -z "$a" ] || [ "$a" = "null" ]; then
-    _did=${sf%/status.json}; _did=${_did##*/}
-    _defer_step "skipped: dream $_did is completed and unreviewed (archived_at unset); the lane does not stack dreams. Accept or discard it (dream_accept / dream_discard); next check in ${RETRY}s"
-    exit 0
-  fi
+  _st=$(jq -r '.status // ""' "$sf" 2>/dev/null | tr -d '\r')
+  _did=${sf%/status.json}; _did=${_did##*/}
+  case "$_st" in
+    completed)
+      a=$(jq -r '.archived_at // ""' "$sf" 2>/dev/null | tr -d '\r')
+      if [ -z "$a" ] || [ "$a" = "null" ]; then
+        _defer_step "skipped: dream $_did is completed and unreviewed (archived_at unset); the lane does not stack dreams. Accept or discard it (dream_accept / dream_discard); next check in ${RETRY}s"
+        exit 0
+      fi ;;
+    pending|running)
+      if ! sb_dream_is_stale "$sf"; then
+        _defer_step "skipped: dream $_did is $_st (a dream run is in progress); the lane does not stack dreams; next check in ${RETRY}s"
+        exit 0
+      fi ;;
+  esac
 done
 
 # Preflight: prove the CLI enforces the output schema BEFORE staging anything. Below the floor,
