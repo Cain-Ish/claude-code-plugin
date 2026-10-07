@@ -336,7 +336,11 @@ export function servableEpisodes<R extends { sessionId: string; userSnippet: str
 export interface EpisodicServeOpts { sessionId: string; activeProject?: string }
 
 export const EPISODIC_SERVE_HEADER = '[Past sessions — use episodic_search for full context]';
-// The hardcoded per-engine similarity floor (no knob, R1#3), the pool and the served cap.
+// The pool, the served cap and the hardcoded similarity floor (no knob, R1#3). The floor is ONE
+// value applied to the merged ranking of both engines, not a per-engine floor, and in practice it
+// only filters VECTOR hits: a text hit scores 0.5*tf/(tf+n) with tf >= n query tokens, so never
+// below 0.25. The text engine's real filter is its AND gate (textSearch: every query token must
+// appear in the exchange).
 const SERVE_MIN_SIMILARITY = 0.15;
 const SERVE_POOL = 10;
 const SERVE_MAX = 2;
@@ -895,8 +899,10 @@ function textSearch(
       tf += occ;
     }
     if (allHit) {
-      // tf >= tokens.length (each token hits >=1). Map into (0, 0.5] monotonically
-      // in tf, saturating below 0.5 so a vector match (up to 1.0) still outranks.
+      // tf >= tokens.length (each token hits >=1), so this maps into [0.25, 0.5), monotonic
+      // in tf and saturating below 0.5 so a vector match (up to 1.0) still outranks. Being
+      // >= 0.25, a text hit always clears the serve floor (0.15): the AND gate above is the
+      // only thing that filters text hits.
       const similarity = 0.5 * (tf / (tf + tokens.length));
       scored.push({ ...e, similarity });
     }

@@ -72,7 +72,8 @@ let epiLines: string[] = [];
 try {
   if (!brainDir) throw new Error('no brain dir resolvable');
   // serveEpisodicLines is the one serve step shared with the fallback episodic-search-cli: the
-  // pool, the hardcoded 0.15 floor (no knob, R1#3) and the servableEpisodes filter live there.
+  // pool, the hardcoded 0.15 floor (no knob, R1#3; it filters vector hits only — a text hit
+  // scores >= 0.25) and the servableEpisodes filter live there.
   epiLines = await serveEpisodicLines(query, brainDir, { sessionId, activeProject: projectSlug });
 } catch { /* fail-open: empty episodic section */ }
 
