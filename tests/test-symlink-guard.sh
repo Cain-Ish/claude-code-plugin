@@ -758,20 +758,54 @@ fi
 # ~/.git-credentials, ~/.npmrc, ~/.docker/config.json, ~/.kube/config, ~/.pypirc, ~/.config/gcloud
 # and ~/.azure hold tokens as surely as ~/.netrc; on Windows so do %APPDATA%\GitHub CLI\hosts.yml and
 # %APPDATA%\gcloud, and the native tools keep theirs under %USERPROFILE% when HOME points elsewhere.
-for f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json; do
-  OUT=$(run_guard Write "$HOME/$f"); assert_deny "GX6: write to ~/$f" "$OUT" "credential"
+# P-S8 added %HOME%\_netrc (curl on Windows), ~/.config/git/credentials, ~/.pgpass, ~/.vault-token,
+# ~/.cargo/credentials(.toml), ~/.terraform.d/credentials.tfrc.json and ~/.gem/credentials.
+# P-C2 (0.56.0 policy): the stores this release added are an ASK tier on Write — "edit my ~/.npmrc" is
+# routine, and a hard deny left no per-call approve — while the stores denied at 407fa24 (.ssh, .gnupg,
+# .aws, .config/claude, .config/gh, .password-store, .netrc, .claude/.credentials.json, /etc) stay DENY.
+assert_ask() {  # assert_ask LABEL OUT NEEDLE: an ask whose reason mentions NEEDLE
+  local d r
+  d=$(printf '%s' "$2" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null | tr -d '\r')
+  [ "$d" = ask ] || fail "$1 — expected ask, got '$d' (out: $2)"
+  r=$(printf '%s' "$2" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+  printf '%s' "$r" | grep -q "$3" || fail "$1 — reason should mention '$3' (got: $r)"
+  pass "$1 (ask, reason mentions $3)"
+}
+for f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json \
+         _netrc .config/git/credentials .pgpass .vault-token .cargo/credentials .cargo/credentials.toml \
+         .terraform.d/credentials.tfrc.json .gem/credentials; do
+  OUT=$(run_guard Write "$HOME/$f"); assert_ask "GX6/P-S8/P-C2: write to ~/$f asks (the ask tier)" "$OUT" "credential"
+done
+for f in .ssh/authorized_keys .gnupg/gpg.conf .aws/credentials .config/claude/x .config/gh/hosts.yml .password-store/a.gpg .netrc .claude/.credentials.json; do
+  OUT=$(run_guard Write "$HOME/$f"); assert_deny "P-C2: write to ~/$f stays a deny (the deny tier)" "$OUT" "credential"
 done
 OUT=$(run_guard Write "$HOME/.docker/daemon.json"); assert_allow "GX6: ~/.docker/daemon.json is no credential store" "$OUT"
+OUT=$(run_guard Write "$HOME/.cargo/config.toml"); assert_allow "P-S8: ~/.cargo/config.toml is no credential store" "$OUT"
 OUT=$(USERPROFILE="$TMP/profile" run_guard Write "$TMP/profile/.claude/.credentials.json")
 assert_deny "GX6: write to USERPROFILE's .claude/.credentials.json (HOME elsewhere)" "$OUT" "credential"
 OUT=$(USERPROFILE="$TMP/profile" run_guard Edit "$TMP/profile/.ssh/authorized_keys")
 assert_deny "GX6: edit of USERPROFILE's .ssh/authorized_keys (HOME elsewhere)" "$OUT" "credential"
+OUT=$(USERPROFILE="$TMP/profile" run_guard Write "$TMP/profile/.npmrc")
+assert_ask "GX6/P-C2: write to USERPROFILE's .npmrc asks (HOME elsewhere)" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/GitHub CLI/hosts.yml")
-assert_deny "GX6: write to %APPDATA%/GitHub CLI/hosts.yml" "$OUT" "credential"
+assert_ask "GX6/P-C2: write to %APPDATA%/GitHub CLI/hosts.yml asks" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/gcloud/credentials.db")
-assert_deny "GX6: write into %APPDATA%/gcloud" "$OUT" "credential"
+assert_ask "GX6/P-C2: write into %APPDATA%/gcloud asks" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/Code/settings.json")
 assert_allow "GX6: other %APPDATA% files are no credential store" "$OUT"
+# The strictest store wins: an ask-tier spelling that leads into a deny-tier store denies. ~/.azure as
+# a directory link to ~/.ssh — the literal target is the ask tier, the resolved one the deny tier.
+if dir_link "$HOME/.ssh" "$HOME/.azure"; then
+  OUT=$(run_guard Write "$HOME/.azure/authorized_keys")
+  assert_deny "P-C2: an ask-tier path (~/.azure) linked into ~/.ssh denies" "$OUT" "ssh"
+  # With a '..' the fast path cannot resolve it: the full logic holds the literal ask-tier match until
+  # realpath shows the deny-tier store, and the fast path does not ask on the spelling alone.
+  OUT=$(run_guard Write "$HOME/.azure/../.azure/authorized_keys")
+  assert_deny "P-C2: the same path through '..' (full logic) denies, not asks" "$OUT" "ssh"
+  dir_unlink "$HOME/.azure"
+else
+  echo "SKIP: P-C2 linked ask-tier path — no directory link can be made here"
+fi
 
 # Mutation i (source-scan): the `_sg_segs SG_SEGS` count must stay gated by the length cap. Without the
 # gate, a 300 KB run of '/' spends ~1.6 s splitting into ~300k fields for a count that is moot past the

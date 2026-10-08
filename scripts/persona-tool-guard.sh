@@ -632,17 +632,22 @@ _ptg_proj() {
 # Credential stores (G1, R3): a Read of one asks, on the fast path and in the full logic alike,
 # whatever the resource scope says — a session started in HOME has ~/.ssh in scope, and
 # SB_RESOURCE_SCOPE=off drops the scope ask altogether. The list is symlink-guard's (the guard
-# that denies writes into these; tests/test-persona-tool-guard.sh locks the lists together): label:path
-# entries under HOME (and USERPROFILE: _ptg_homes), then under APPDATA (Windows: gh keeps its tokens in
-# %APPDATA%\GitHub CLI\hosts.yml, gcloud its in %APPDATA%\gcloud). Each entry is the path itself or
-# anything inside it — a file has nothing inside, and ~/.claude is no entry (plans/, projects/ and
-# settings.json live there). GX6 (R3B) added gcloud, azure, .git-credentials, .npmrc,
-# .docker/config.json, .kube/config, .pypirc and the APPDATA list. symlink-guard's /etc arm is not mirrored:
+# that guards writes into these; tests/test-persona-tool-guard.sh locks the lists together, tiers
+# included): tier:label:path entries under HOME (and USERPROFILE: _ptg_homes), then under APPDATA
+# (Windows: gh keeps its tokens in %APPDATA%\GitHub CLI\hosts.yml, gcloud its in %APPDATA%\gcloud).
+# The tier is symlink-guard's Write verdict (P-C2: deny for the stores denied at 407fa24, ask for those
+# 0.56.0 added); a Read of either tier asks here. Each entry is the path itself or anything inside
+# it — a file has nothing inside, and ~/.claude is no entry (plans/, projects/ and settings.json live
+# there). GX6 (R3B) added gcloud, azure, .git-credentials, .npmrc, .docker/config.json, .kube/config,
+# .pypirc and the APPDATA list; P-S8 _netrc, .config/git/credentials, .pgpass, .vault-token, cargo's,
+# terraform's and RubyGems' tokens. symlink-guard's /etc arm is not mirrored:
 # /etc is outside every default scope root already (an out-of-scope ask), and reading /etc/hosts or
 # /etc/os-release is routine — a project kept under /etc would ask on every Read. Case-insensitive
 # (nocasematch), as there: NTFS and default APFS are, and on Linux it only widens toward an ask.
-_PTG_CRED_H=(ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store gcloud:.config/gcloud azure:.azure netrc:.netrc claude-oauth:.claude/.credentials.json git-credentials:.git-credentials npmrc:.npmrc docker-config:.docker/config.json kube-config:.kube/config pypirc:.pypirc)
-_PTG_CRED_A=('gh-hosts:GitHub CLI/hosts.yml' gcloud:gcloud)
+_PTG_CRED_H=(deny:ssh:.ssh deny:gnupg:.gnupg deny:aws:.aws deny:claude-config:.config/claude deny:gh-config:.config/gh deny:passwordstore:.password-store deny:netrc:.netrc deny:claude-oauth:.claude/.credentials.json ask:gcloud:.config/gcloud ask:azure:.azure ask:git-credentials:.git-credentials ask:npmrc:.npmrc ask:docker-config:.docker/config.json ask:kube-config:.kube/config ask:pypirc:.pypirc ask:netrc:_netrc ask:git-credentials:.config/git/credentials ask:pgpass:.pgpass ask:vault-token:.vault-token ask:cargo-credentials:.cargo/credentials ask:cargo-credentials:.cargo/credentials.toml ask:terraform-credentials:.terraform.d/credentials.tfrc.json ask:gem-credentials:.gem/credentials)
+_PTG_CRED_A=('ask:gh-hosts:GitHub CLI/hosts.yml' ask:gcloud:gcloud)
+# _ptg_clabel ENTRY: _PTG_CL = ENTRY's label (tier:label:path).
+_ptg_clabel() { local _pk_r="${1#*:}"; _PTG_CL="${_pk_r%%:*}"; }
 # _ptg_homes: _PTG_H = the directories _PTG_CRED_H is spelled under, _PTG_HA those _PTG_CRED_A is,
 # each as _ptg_fpath spells a target (lexically, a drive form as /x/…: the full logic's cygpath spelling
 # of a drive path that sits under no MSYS mount — see _ptg_mnt), without repeats: HOME, then USERPROFILE
@@ -686,15 +691,15 @@ _ptg_cred() {
   shopt -s nocasematch
   for _pc_h in ${_PTG_H[@]+"${_PTG_H[@]}"}; do
     for _pc_e in "${_PTG_CRED_H[@]}"; do
-      _pc_p="$_pc_h/${_pc_e#*:}"
-      case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break 2 ;; esac
+      _pc_p="$_pc_h/${_pc_e#*:*:}"
+      case "$1" in "$_pc_p"|"$_pc_p"/*) _ptg_clabel "$_pc_e"; break 2 ;; esac
     done
   done
   if [ -z "$_PTG_CL" ]; then
     for _pc_h in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do
       for _pc_e in "${_PTG_CRED_A[@]}"; do
-        _pc_p="$_pc_h/${_pc_e#*:}"
-        case "$1" in "$_pc_p"|"$_pc_p"/*) _PTG_CL="${_pc_e%%:*}"; break 2 ;; esac
+        _pc_p="$_pc_h/${_pc_e#*:*:}"
+        case "$1" in "$_pc_p"|"$_pc_p"/*) _ptg_clabel "$_pc_e"; break 2 ;; esac
       done
     done
   fi
@@ -773,12 +778,12 @@ _ptg_inode() {
     if [ -e "$_pi_p" ]; then
       for _pi_h in ${_PTG_H[@]+"${_PTG_H[@]}"}; do
         for _pi_e in "${_PTG_CRED_H[@]}"; do
-          [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:}" ] && { _PTG_CL="${_pi_e%%:*}"; return 0; }
+          [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:*:}" ] && { _ptg_clabel "$_pi_e"; return 0; }
         done
       done
       for _pi_h in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do
         for _pi_e in "${_PTG_CRED_A[@]}"; do
-          [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:}" ] && { _PTG_CL="${_pi_e%%:*}"; return 0; }
+          [ "$_pi_p" -ef "$_pi_h/${_pi_e#*:*:}" ] && { _ptg_clabel "$_pi_e"; return 0; }
         done
       done
     fi
@@ -1062,10 +1067,10 @@ _ptg_rawcred() {
   shopt -q nocasematch && _rw_o=1
   shopt -s nocasematch
   for _rw_e in "${_PTG_CRED_H[@]}" "${_PTG_CRED_A[@]}"; do
-    _rw_p="${_rw_e#*:}"
+    _rw_p="${_rw_e#*:*:}"
     _fp_split / "$_rw_p"; printf -v _rw_q '%s//' "${_FP_A[@]}"; _rw_q="${_rw_q%//}"
     case "$_rw_t" in
-      *"/$_rw_p/"*|*"/$_rw_p$_fp_q"*|*"/$_rw_q/"*|*"/$_rw_q$_fp_q"*) _PTG_CL="${_rw_e%%:*}"; break ;;
+      *"/$_rw_p/"*|*"/$_rw_p$_fp_q"*|*"/$_rw_q/"*|*"/$_rw_q$_fp_q"*) _ptg_clabel "$_rw_e"; break ;;
     esac
   done
   [ "$_rw_o" = 1 ] || shopt -u nocasematch

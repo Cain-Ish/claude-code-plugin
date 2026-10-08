@@ -1053,7 +1053,16 @@ for g1_f in _sg_cred_match _sg_inode; do
 done
 [ "$(grep -c 'ssh:\.ssh' "$SG")" = 1 ] || fail "GT10: symlink-guard spells an entry outside _SG_CRED_H (a copy that can drift)"
 [ "$(grep -c 'ssh:\.ssh' "$SCRIPT")" = 1 ] || fail "GT10: persona-tool-guard spells an entry outside _PTG_CRED_H"
-pass "G1: the Read credential lists mirror symlink-guard's, which every one of its credential tests reads"
+# P-C2: every entry names its Write tier (tier:label:path, tier deny|ask), and the deny tier is
+# exactly the stores symlink-guard denied at 407fa24 (the 0.56.0 additions ask). The lists above are
+# compared with their tiers, so the two guards agree on each entry's tier as well.
+g1_all=$(eval "$(grep -E '^_SG_CRED_H=' "$SG")"; eval "$(grep -E '^_SG_CRED_A=' "$SG")"; printf '%s\n' "${_SG_CRED_H[@]}" "${_SG_CRED_A[@]}")
+g1_bad=$(printf '%s\n' "$g1_all" | grep -vE '^(deny|ask):[a-z0-9-]+:[^:]+$')
+[ -z "$g1_bad" ] || fail "P-C2: credential entries without a deny|ask tier (tier:label:path): $(echo $g1_bad)"
+g1_deny=$(printf '%s\n' "$g1_all" | grep '^deny:' | LC_ALL=C sort | tr '\n' ' ')
+[ "$g1_deny" = "deny:aws:.aws deny:claude-config:.config/claude deny:claude-oauth:.claude/.credentials.json deny:gh-config:.config/gh deny:gnupg:.gnupg deny:netrc:.netrc deny:passwordstore:.password-store deny:ssh:.ssh " ] \
+  || fail "P-C2: the deny tier must be the stores denied at 407fa24, no more, no fewer (have: $g1_deny)"
+pass "G1: the Read credential lists mirror symlink-guard's, tiers included, which every one of its credential tests reads"
 
 # GX3 (R3B): credential-read is a floor below the rules, as path-too-long is. Before, its ask exited
 # ahead of the rule loop, so a user or repo rule that DENIES a Read of a credential store was
@@ -1111,11 +1120,16 @@ a2() {  # a2 <rule|-> <file_path> <cwd> <HOME> [VAR=val…]: both paths reach <r
 a2 credential-read '~/.ssh/id_rsa' /w/proj /home/a2u
 a2 credential-read '~/.claude/.credentials.json' /w/proj /home/a2u
 # GX6: the stores beyond the first eight, under HOME, under USERPROFILE when HOME points elsewhere,
-# and under APPDATA (Windows: gh's hosts.yml, gcloud's directory).
-for a2_f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json; do
+# and under APPDATA (Windows: gh's hosts.yml, gcloud's directory). P-S8: _netrc (curl on Windows),
+# git's XDG credential file, .pgpass, .vault-token, cargo's, terraform's and RubyGems' tokens. A Read
+# asks for symlink-guard's ask tier and deny tier alike (P-C2 tiers Writes only).
+for a2_f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json \
+            _netrc .config/git/credentials .pgpass .vault-token .cargo/credentials .cargo/credentials.toml \
+            .terraform.d/credentials.tfrc.json .gem/credentials; do
   a2 credential-read "/home/a2u/$a2_f" /w/proj /home/a2u
 done
 a2 - /home/a2u/.docker/daemon.json /w/proj /home/a2u
+a2 - /home/a2u/.cargo/config.toml /w/proj /home/a2u
 a2 credential-read /home/a2p/.claude/.credentials.json /w/proj /home/a2u USERPROFILE=/home/a2p
 a2 credential-read "/home/a2u/AppData/Roaming/GitHub CLI/hosts.yml" /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
 a2 credential-read /home/a2u/AppData/Roaming/gcloud/credentials.db /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
