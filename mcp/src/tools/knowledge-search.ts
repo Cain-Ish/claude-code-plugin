@@ -1,10 +1,10 @@
 import { promises as fs } from 'fs';
 import { atomicWriteJson } from './atomic-write.js';
-import { join, posix, win32 } from 'path';
+import { join } from 'path';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { embedTexts, cosineSimilarity, appendErrorLog, appendGateTrace } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
-import { loadRegistry, servableEntries } from './doc-sources.js';
+import { loadRegistry, servableEntries, isPlainAbsolutePath } from './doc-sources.js';
 import { activeProjectDir } from './project-dir.js';
 import { stripInvisible } from './sanitize.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
@@ -734,8 +734,9 @@ export function injectableWiki<C extends KnowledgeSearchResult['candidates'][num
  *  (a gist for a local doc) is stripped of invisible characters (T5), folded and capped at 200 code
  *  points (T1: one ~1,100 B description outgrew the hook's whole frame). The recall harness reads
  *  this CLI ungated, but its corpus has no registry. */
-export function injectedHitLine(c: { path: string; description?: string; source: string }): string {
-  if (injectDropReason(c)) return '';
+export function injectedHitLine(c: { path: string; description?: string; source: string },
+  platform: NodeJS.Platform = process.platform): string {
+  if (injectDropReason(c, platform)) return '';
   const desc = capCodePoints(foldServedSnippet(stripInvisible(c.description ?? '')).trim(), INJECT_TEXT_MAX_CP);
   const tail = desc ? ` — ${desc}` : '';
   if (c.source === 'local-doc') return `Read ${c.path}${tail}`;
@@ -745,11 +746,16 @@ export function injectedHitLine(c: { path: string; description?: string; source:
 
 const INJECT_TEXT_MAX_CP = 200;
 const LOCAL_DOC_PATH_MAX_CP = 260;
-// Letters, marks and digits of any script, the space, and ordinary path punctuation. Everything else
-// (brackets other than ASCII parentheses, quotes, backticks, angle brackets, controls, format
-// characters, dashes other than "-", symbols) is refused rather than folded: a folded path no
-// longer opens.
-const LOCAL_DOC_PATH_RE = /^[\p{L}\p{M}\p{N} ._\-/\\:~+@,()'&#]+$/u;
+// Letters and digits of any script, the space, and ordinary path punctuation. Everything else
+// (combining marks and variation selectors, brackets other than ASCII parentheses, quotes,
+// backticks, angle brackets, controls, format characters, dashes other than "-", symbols) is
+// refused rather than folded: a folded path no longer opens. A mark or variation selector renders
+// as part of the letter before it (or as nothing), so "untrusted<U+0301>" reads as the plain word
+// (review 2, P-S3/P-T6).
+const LOCAL_DOC_PATH_RE = /^[\p{L}\p{N} ._\-/\\:~+@,()'&#]+$/u;
+// The Hangul fillers are letters (\p{Lo}) that render as nothing (P-T6). U+3164 and U+FFA0 are not
+// listed: NFKC maps them to U+1160, so the NFKC check refuses them first.
+const HANGUL_FILLER_RE = new RegExp(`[${String.fromCodePoint(0x115f)}${String.fromCodePoint(0x1160)}]`, 'u');
 
 function capCodePoints(s: string, max: number): string {
   const cps = [...s];
@@ -757,18 +763,23 @@ function capCodePoints(s: string, max: number): string {
 }
 
 /** Why an injecting CLI must not print this candidate, or '' when it may. Only a local doc can be
- *  refused: its path is printed as is (X2/T3, R3 review), so it must be absolute (Read needs one),
- *  carry no " — " (persona-context.sh cuts a Read line at the first one), stay within 260 code
- *  points, use only LOCAL_DOC_PATH_RE characters, and be left unchanged by the fold (which also
- *  catches the frame's own phrase). Whether the file lies inside the project is knowledgeSearch's
- *  check (servableEntries), done before ranking. */
-export function injectDropReason(c: { path: string; source: string }): string {
+ *  refused: its path is printed as is (X2/T3, R3 review), so it must be absolute in `platform`'s own
+ *  form (Read needs one), carry no " — " (persona-context.sh cuts a Read line at the first one),
+ *  stay within 260 code points, have no `.`/`..` segment (isPlainAbsolutePath: the realpath check
+ *  does not cover the printed spelling), be NFKC-stable (fullwidth or composed look-alikes), use
+ *  only LOCAL_DOC_PATH_RE characters and no Hangul filler, and be left unchanged by the fold (which
+ *  also catches the frame's own phrase). Whether the file lies inside the project is
+ *  knowledgeSearch's check (servableEntries), done before ranking. */
+export function injectDropReason(c: { path: string; source: string }, platform: NodeJS.Platform = process.platform): string {
   if (c.source !== 'local-doc') return '';
   const p = c.path;
-  if (!(posix.isAbsolute(p) || win32.isAbsolute(p))) return 'path-relative';
+  if (!isPlainAbsolutePath(p, platform)) {
+    return p.split(/[\\/]/).some((seg) => seg === '.' || seg === '..') ? 'path-dots' : 'path-relative';
+  }
   if (p.includes(' — ')) return 'path-separator';
   if ([...p].length > LOCAL_DOC_PATH_MAX_CP) return 'path-length';
-  if (!LOCAL_DOC_PATH_RE.test(p)) return 'path-chars';
+  if (p.normalize('NFKC') !== p) return 'path-not-nfkc';
+  if (!LOCAL_DOC_PATH_RE.test(p) || HANGUL_FILLER_RE.test(p)) return 'path-chars';
   if (foldServedSnippet(p) !== p) return 'path-frame-text';
   return '';
 }
@@ -779,15 +790,15 @@ export interface InjectDrop { path: string; source: string; reason: string }
  *  given (the gate's, so the engine's ranking). A refused candidate does not take a slot (T2: both
  *  CLIs sliced to 2 before the drop, so the slot was lost); each one is returned in `drops` for
  *  reportInjectDrops. Candidates past the last printed one are not examined. */
-export function injectedHitLines(candidates: { path: string; description?: string; source: string }[], max: number):
-  { lines: string[]; drops: InjectDrop[] } {
+export function injectedHitLines(candidates: { path: string; description?: string; source: string }[], max: number,
+  platform: NodeJS.Platform = process.platform): { lines: string[]; drops: InjectDrop[] } {
   const lines: string[] = [];
   const drops: InjectDrop[] = [];
   for (const c of candidates) {
     if (lines.length >= max) break;
-    const reason = injectDropReason(c);
+    const reason = injectDropReason(c, platform);
     if (reason) { drops.push({ path: c.path, source: c.source, reason }); continue; }
-    lines.push(injectedHitLine(c));
+    lines.push(injectedHitLine(c, platform));
   }
   return { lines, drops };
 }

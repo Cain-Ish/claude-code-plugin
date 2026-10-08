@@ -1,5 +1,5 @@
 import { promises as fs, realpathSync } from 'fs';
-import { join, relative, resolve, sep, isAbsolute, posix, win32 } from 'path';
+import { join, relative, resolve, sep, isAbsolute } from 'path';
 import { spawnSync } from 'child_process';
 import { glob } from 'glob';
 import { assertSafeSlug, cleanEnvPath } from '../path-guard.js';
@@ -106,6 +106,7 @@ export interface ServableEntries {
   /** Absolute, existing, but its realpath is not inside the project root's realpath (a forged
    *  entry, a link out of the project, a registry built from another checkout), or no usable root. */
   outside: number;
+  /** Not a plain absolute path (isPlainAbsolutePath): relative, drive-relative, or with a `.`/`..` segment. */
   relative: number;
   /** Absolute but realpath failed: the file is gone (a stale registry) or unreadable. */
   missing: number;
@@ -121,6 +122,17 @@ function isDocEntry(e: unknown): e is DocEntry {
     && typeof o.size === 'number' && Array.isArray(o.headings) && o.headings.every((h) => typeof h === 'string');
 }
 
+/** A path a local-doc "Read <path>" line may print on `platform`: absolute in that platform's own
+ *  form (Windows: a drive path `C:\…`/`C:/…` or a UNC path `\\server\share\…`; elsewhere `/…`) and
+ *  with no `.` or `..` segment. servableEntries checks the REALPATH but the line prints the path as
+ *  registered, so `/proj/link/../../../home/u/.ssh/id_rsa` (an in-project link to a deep directory)
+ *  passed the realpath check while naming a file outside the project once read lexically (review 2,
+ *  P-T1). On Windows `\proj\x.md` is drive-relative and node reads `/c/…` as `C:\c\…` (P-T6). */
+export function isPlainAbsolutePath(p: string, platform: NodeJS.Platform = process.platform): boolean {
+  const absolute = platform === 'win32' ? /^([A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(p) : p.startsWith('/');
+  return absolute && !p.split(/[\\/]/).some((seg) => seg === '.' || seg === '..');
+}
+
 /** realpath with the platform's canonical spelling; compared case-insensitively on Windows. */
 function canonicalReal(p: string): string {
   const r = realpathSync.native(p);
@@ -129,7 +141,7 @@ function canonicalReal(p: string): string {
 
 /** X2 (R3 review): doc-sources.json is plain JSON under BRAIN_DIR with no guard, and its paths
  *  reach every prompt as "Read <path>" lines. An entry is served only when it is a well-formed
- *  DocEntry whose path is absolute (POSIX or Windows form) and whose realpath lies inside the
+ *  DocEntry whose path is plain and absolute (isPlainAbsolutePath) and whose realpath lies inside the
  *  realpath of `projectRoot`, so neither a forged entry (path: ~/.netrc) nor a link inside the
  *  project that leads out of it is offered. No usable root -> nothing is served (fails closed). */
 export function servableEntries(entries: unknown, projectRoot: string | undefined): ServableEntries {
@@ -141,7 +153,7 @@ export function servableEntries(entries: unknown, projectRoot: string | undefine
   const prefix = root.endsWith(sep) ? root : root + sep;
   for (const e of Array.isArray(entries) ? entries : []) {
     if (!isDocEntry(e)) { r.malformed++; continue; }
-    if (!(posix.isAbsolute(e.path) || win32.isAbsolute(e.path))) { r.relative++; continue; }
+    if (!isPlainAbsolutePath(e.path)) { r.relative++; continue; }
     let real: string;
     try { real = canonicalReal(e.path); } catch { r.missing++; continue; }
     if (!r.rootUsable || !real.startsWith(prefix)) { r.outside++; continue; }

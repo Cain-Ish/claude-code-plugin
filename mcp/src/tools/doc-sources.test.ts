@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs, mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
 import {
@@ -14,8 +14,31 @@ import {
   addLocation,
   removeLocation,
   listLocations,
+  servableEntries,
 } from './doc-sources.js';
 import { hashContent } from './content-hash.js';
+
+// Review 2 (P-T1, P-T6): an entry is served by its realpath but printed as registered, so only a
+// plain absolute path in the host's own form qualifies: no `.`/`..` segment (a link inside the
+// project plus `..` prints a path that names a file outside it), and on Windows a drive or UNC path
+// (`\proj\x.md` is drive-relative). Both count as `relative`.
+describe('servableEntries: only a plain absolute path is served (review 2)', () => {
+  const entry = (path: string) => ({ id: 'i', path, rel: 'r', gist: 'g', headings: [], hash: 'h', mtime: 'x', size: 1 });
+  it('refuses a dot segment and, on Windows, a drive-relative path', () => {
+    const root = mkdtempSync(join(tmpdir(), 'se-dots-'));
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    const inside = join(root, 'docs', 'a.md');
+    writeFileSync(inside, '# a\n');
+    const dotted = [root, 'docs', '..', 'docs', 'a.md'].join(sep);   // join() would normalise the `..` away
+    const dotOnly = [root, '.', 'docs', 'a.md'].join(sep);
+    const entries = [entry(inside), entry(dotted), entry(dotOnly)];
+    if (process.platform === 'win32') entries.push(entry(inside.slice(2)));   // "\Users\...\a.md": drive-relative
+    const r = servableEntries(entries, root);
+    expect(r.kept.map(e => e.path)).toEqual([inside]);
+    expect(r.relative).toBe(entries.length - 1);
+    rmSync(root, { recursive: true, force: true });
+  });
+});
 
 describe('doc-sources filterIgnored', () => {
   it('drops junk-dir paths (node_modules) and keeps real docs', async () => {
