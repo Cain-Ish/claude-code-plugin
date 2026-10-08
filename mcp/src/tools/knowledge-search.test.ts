@@ -1229,10 +1229,15 @@ describe('knowledgeSearch: a registered local doc is served only from inside the
     mkdirSync(join(brainDir, 'projects', 'proj'), { recursive: true });
     const entry = (path: unknown) => ({ id: 'i', path, rel: 'r', gist: 'wombat runbook deploy',
       headings: ['## Wombat runbook'], hash: 'h', mtime: '2026-10-07T00:00:00Z', size: 100 });
+    // P-F5: the same doc registered from another checkout of the project
+    const other = join(base, 'other');
+    mkdirSync(join(other, 'docs'), { recursive: true });
+    writeFileSync(join(other, 'docs', 'runbook.md'), '# Wombat runbook\n');
     writeFileSync(join(brainDir, 'projects', 'proj', 'doc-sources.json'), JSON.stringify({
       generated_at: 'x', project: 'proj', entries: [
         entry(inside), entry(secret), entry('docs/runbook.md'), entry(join(root, 'docs', 'gone.md')),
         ...(linked ? [entry(linked)] : []), entry(42), { ...entry(join(root, 'docs', 'x.md')), headings: 'nope' },
+        { ...entry(join(other, 'docs', 'runbook.md')), rel: 'docs/runbook.md' },
       ],
     }));
     const kd = join(base, 'kd');
@@ -1242,7 +1247,9 @@ describe('knowledgeSearch: a registered local doc is served only from inside the
     const rows = readFileSync(join(brainDir, 'audit-log.jsonl'), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
     const drop = rows.filter(x => /^gate=local-doc-drop /.test(x.message));
     expect(drop).toHaveLength(1);
-    expect(drop[0].message).toBe(`gate=local-doc-drop slug=proj kept=1 dropped=${linked ? 6 : 5} outside=${linked ? 2 : 1} relative=1 missing=1 malformed=2`);
+    // P-F5: the row names the root it checked against and counts the other checkout's entry apart
+    expect(drop[0].message).toBe(`gate=local-doc-drop slug=proj kept=1 dropped=${linked ? 7 : 6} outside=${linked ? 2 : 1} `
+      + `other_checkout=1 relative=1 missing=1 malformed=2 root=${JSON.stringify(root)} root_status=ok`);
     rmSync(base, { recursive: true, force: true });
   });
 
@@ -1260,6 +1267,75 @@ describe('knowledgeSearch: a registered local doc is served only from inside the
     mkdirSync(join(kd, 'wiki'), { recursive: true });
     const r = await knowledgeSearch({ query: 'wombat runbook', knowledgeDir: kd, brainDir, projectSlug: 'proj', projectRoot: join(base, 'nope') });
     expect(r.candidates.some(c => c.source === 'local-doc')).toBe(false);
+    const rows = readFileSync(join(brainDir, 'audit-log.jsonl'), 'utf-8').trim().split('\n').map(l => JSON.parse(l).message);
+    expect(rows).toContain(`gate=local-doc-drop slug=proj kept=0 dropped=1 outside=1 other_checkout=0 relative=0 missing=0 malformed=0 `
+      + `root=${JSON.stringify(join(base, 'nope'))} root_status=unusable`);
     rmSync(base, { recursive: true, force: true });
+  });
+});
+
+// P-T4/P-T5 (review 2): with no projectRoot argument the root is activeProjectDir()
+// (CLAUDE_PROJECT_DIR, else cwd), which no test exercised with a registry. A cwd that cannot be
+// read (deleted) threw out of knowledgeSearch and rejected the whole search, registry or not.
+describe('knowledgeSearch: the default project root is CLAUDE_PROJECT_DIR, else cwd (P-T4, P-T5)', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+  function sandbox() {
+    const base = mkdtempSync(join(tmpdir(), 'ks-root-'));
+    const root = join(base, 'proj');
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    const doc = join(root, 'docs', 'runbook.md');
+    writeFileSync(doc, '# Wombat runbook\n');
+    const brainDir = join(base, 'brain');
+    mkdirSync(join(brainDir, 'projects', 'proj'), { recursive: true });
+    const kd = join(base, 'kd');
+    mkdirSync(join(kd, 'wiki', 'concepts'), { recursive: true });
+    writeFileSync(join(kd, 'wiki', 'concepts', 'wombat-runbook.md'),
+      `---\ntitle: Wombat runbook\ndescription: wombat runbook deploy\ntype: concept\n---\n# Wombat runbook\n\n${'wombat runbook deploy steps '.repeat(12)}\n`);
+    const register = () => writeFileSync(join(brainDir, 'projects', 'proj', 'doc-sources.json'), JSON.stringify({
+      generated_at: 'x', project: 'proj', entries: [{ id: 'i', path: doc, rel: 'docs/runbook.md', gist: 'wombat runbook deploy',
+        headings: ['## Wombat runbook'], hash: 'h', mtime: '2026-10-07T00:00:00Z', size: 100 }] }));
+    const search = () => knowledgeSearch({ query: 'wombat runbook', knowledgeDir: kd, brainDir, projectSlug: 'proj' });
+    const localDocs = (r: KnowledgeSearchResult) => r.candidates.filter(c => c.source === 'local-doc').map(c => c.path);
+    const rows = () => (existsSync(join(brainDir, 'audit-log.jsonl'))
+      ? readFileSync(join(brainDir, 'audit-log.jsonl'), 'utf-8').trim().split('\n').map(l => JSON.parse(l).message as string) : []);
+    return { base, root, doc, kd, register, search, localDocs, rows };
+  }
+
+  it('serves a doc under CLAUDE_PROJECT_DIR', async () => {
+    const t = sandbox(); t.register();
+    process.env.CLAUDE_PROJECT_DIR = t.root;
+    expect(t.localDocs(await t.search())).toEqual([t.doc]);
+    rmSync(t.base, { recursive: true, force: true });
+  });
+
+  it('without CLAUDE_PROJECT_DIR, serves by cwd', async () => {
+    const t = sandbox(); t.register();
+    delete process.env.CLAUDE_PROJECT_DIR;
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(t.root);
+    expect(t.localDocs(await t.search())).toEqual([t.doc]);
+    cwd.mockReturnValue(t.kd);   // a cwd outside the project serves nothing
+    expect(t.localDocs(await t.search())).toEqual([]);
+    rmSync(t.base, { recursive: true, force: true });
+  });
+
+  it('a cwd that cannot be read drops the local docs, not the search (P-T5)', async () => {
+    const t = sandbox(); t.register();
+    delete process.env.CLAUDE_PROJECT_DIR;
+    vi.spyOn(process, 'cwd').mockImplementation(() => { throw Object.assign(new Error('uv_cwd'), { code: 'ENOENT' }); });
+    const r = await t.search();
+    expect(t.localDocs(r)).toEqual([]);
+    expect(r.candidates.some(c => c.source === 'wiki')).toBe(true);
+    expect(t.rows().some(m => /^gate=local-doc-drop .* root="" root_status=unusable$/.test(m))).toBe(true);
+    rmSync(t.base, { recursive: true, force: true });
+  });
+
+  it('with no registry the project root is never resolved (P-T5)', async () => {
+    const t = sandbox();
+    delete process.env.CLAUDE_PROJECT_DIR;
+    const cwd = vi.spyOn(process, 'cwd').mockImplementation(() => { throw Object.assign(new Error('uv_cwd'), { code: 'ENOENT' }); });
+    const r = await t.search();
+    expect(r.candidates.some(c => c.source === 'wiki')).toBe(true);
+    expect(cwd).not.toHaveBeenCalled();
+    rmSync(t.base, { recursive: true, force: true });
   });
 });

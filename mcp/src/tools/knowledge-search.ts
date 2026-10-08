@@ -12,7 +12,7 @@ import { stripAiBlock, aiBlockSnippet } from './ai-block.js';
 import { projectFamily } from './project-registry.js';
 import { parseDoc, ParsedDoc } from './frontmatter.js';
 import { walkWiki } from './walk-wiki.js';
-import { assertWithin, validateSlug } from '../path-guard.js';
+import { assertWithin, validateSlug, cleanEnvPath } from '../path-guard.js';
 import { foldServedSnippet } from './episodic-search.js';
 
 // Frontmatter parsing lives in ./frontmatter.ts (single source); re-exported here for back-compat.
@@ -265,16 +265,22 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     }
   }
 
-  if (args.brainDir && args.projectSlug) {
-    const reg = await loadRegistry(args.brainDir, args.projectSlug);
+  const reg = args.brainDir && args.projectSlug ? await loadRegistry(args.brainDir, args.projectSlug) : null;
+  if (reg && args.brainDir && args.projectSlug) {
     // X2: only well-formed entries whose realpath is inside the active project root are ranked
-    // (servableEntries); the rest are dropped before ranking, counted in one audit row per search.
-    const s = servableEntries(reg?.entries, args.projectRoot ?? activeProjectDir());
-    const dropped = s.outside + s.relative + s.missing + s.malformed;
+    // (servableEntries); the rest are dropped before ranking, counted in one audit row per search
+    // that names the root and why it does or does not serve (P-F5). P-T5: the default root is
+    // resolved only when there is a registry, and a cwd that cannot be read (deleted) leaves no
+    // usable root instead of rejecting the whole search.
+    let root = args.projectRoot;
+    if (root === undefined) { try { root = activeProjectDir(); } catch { root = undefined; } }
+    const s = servableEntries(reg.entries, root);
+    const dropped = s.outside + s.otherCheckout + s.relative + s.missing + s.malformed;
     if (dropped > 0) {
       await appendGateTrace(args.brainDir, 'knowledge-search',
         `gate=local-doc-drop slug=${args.projectSlug} kept=${s.kept.length} dropped=${dropped} outside=${s.outside} `
-        + `relative=${s.relative} missing=${s.missing} malformed=${s.malformed}${s.rootUsable ? '' : ' root=unusable'}`);
+        + `other_checkout=${s.otherCheckout} relative=${s.relative} missing=${s.missing} malformed=${s.malformed} `
+        + `root=${JSON.stringify(capCodePoints(cleanEnvPath(root), 300))} root_status=${s.rootStatus}`);
     }
     for (const e of s.kept) {
       const doc: ParsedDoc = {
