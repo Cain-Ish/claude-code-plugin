@@ -56,7 +56,16 @@ fi
 
 RAW=$(cat 2>/dev/null || true)
 [ -n "$RAW" ] || exit 0
-echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
+# jq -e: 1 = parsed but not an object, 4/5 = no value / not JSON (2: jq 1.6's parse error): nothing to
+# capture. Any other status (126 not executable, 128+N killed, 3 a broken jq) is jq failing, not the
+# payload (R3-C P-F4, stop-extract.sh's case): an error row with the status; the result is not archived.
+echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _sc_jq_rc=$?
+case "$_sc_jq_rc" in
+  0) ;;
+  1|2|4|5) exit 0 ;;
+  *) sb_log_error "subagent-capture.sh" "jq exited $_sc_jq_rc checking the SubagentStop payload (jq not executable or killed); this subagent's result is not archived" 1
+     exit 0 ;;
+esac
 
 # The SUBAGENT's own transcript is `.agent_transcript_path`. `.transcript_path` on a
 # SubagentStop payload is the PARENT session's file (verified against the Claude Code 2.1.241
@@ -89,8 +98,10 @@ CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 # extraction queue that the drainer is already starved on. If we cannot name the
 # agent we cannot prove it is not self, so we skip. Covered by test 15.
 if [ -z "$AGENT_TYPE" ]; then
-  # Loud, not silent: one audit row per skipped untyped agent (fail-loud rule).
-  sb_log_audit "subagent-capture.sh" "flag" "no-agent-type" "${AGENT_ID:-?}" "payload carried no agent_type; cannot prove not-self; skipped" "$SESSION_ID" 2>/dev/null || true
+  # Loud, not silent: one audit row per skipped untyped agent (fail-loud rule). A row that cannot be
+  # appended (sb_log_audit returns 1) is said in the error-log instead of vanishing (R3-C P-F4).
+  sb_log_audit "subagent-capture.sh" "flag" "no-agent-type" "${AGENT_ID:-?}" "payload carried no agent_type; cannot prove not-self; skipped" "$SESSION_ID" \
+    || sb_log_error "subagent-capture.sh" "the no-agent-type audit row for agent ${AGENT_ID:-?} could not be written to $SB_AUDIT_FILE (the skip itself stands)" 1
   exit 0
 fi
 
@@ -147,7 +158,8 @@ case "$bare_type" in
   ''|*[[:space:]]*) ;;   # never a self name (and never matches across two list entries)
   *) case " $SELF_AGENTS " in
        *" $bare_type "*)
-         sb_log_audit "subagent-capture.sh" "allow" "self-agent-skip" "$AGENT_ID" "agent_type=$AGENT_TYPE is one of the plugin's own agents: its result is not archived (no mining-self)" "$SESSION_ID" 2>/dev/null || true
+         sb_log_audit "subagent-capture.sh" "allow" "self-agent-skip" "$AGENT_ID" "agent_type=$AGENT_TYPE is one of the plugin's own agents: its result is not archived (no mining-self)" "$SESSION_ID" \
+           || sb_log_error "subagent-capture.sh" "the self-agent-skip audit row for agent $AGENT_ID could not be written to $SB_AUDIT_FILE (the skip itself stands)" 1
          exit 0 ;;
      esac ;;
 esac

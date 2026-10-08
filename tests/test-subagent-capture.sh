@@ -5,7 +5,7 @@
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # pins: SB_SUBAGENT_ARCHIVE_CAP — Test 11 lowers the subagent prune cap to 5 so 7 calls prove the cap
 #   evicts sub-* archives only (the cap is the subject, not a gate bypass)
-# run-all-timeout: 300   (~55 hook runs plus two real episodic-indexer runs; 2026-10-07 R3-B, alone on the MSYS dev box: 120 s (jq 1.8.1) / 94 s (jq 1.7.1), ~12-13 GB free, ~380-415 processes; the round-3 review saw 441-1849 s under heavy parallel load, which no per-file budget covers)
+# run-all-timeout: 300   (~61 hook runs plus two real episodic-indexer runs; 2026-10-07 R3-B, alone on the MSYS dev box: 120 s (jq 1.8.1) / 94 s (jq 1.7.1), ~12-13 GB free, ~380-415 processes; 2026-10-08 R3-C (+3f/3g), alone: 127 s / 144 s; the round-3 review saw 441-1849 s under heavy parallel load, which no per-file budget covers)
 # Tests for scripts/subagent-capture.sh — the SubagentStop hook that archives a
 # substantive, non-self subagent's FINAL RESULT into ~/.second-brain/transcripts/.
 # Each case runs with an isolated BRAIN_DIR sandbox; the script must ALWAYS exit 0
@@ -169,6 +169,43 @@ run_hook "$B" "general-purpose" "aid3e" "$T" >/dev/null 2>&1
 : > "$B/error-log.jsonl"; nojq_hook
 [ "$(grep -c 'subagent-capture.sh.*jq' "$B/error-log.jsonl" | tr -d ' \r')" = 1 ] || fail "3e: a later jq outage (after jq came back) was not reported again"
 pass "no jq: nothing archived, one error row per outage (not per subagent), hook exits 0"
+
+# --- Test 3f (R3-C P-F4): the payload check `jq -e 'type == "object"' || exit 0` read a jq that could
+# not run (126) or was killed (137) as a bad payload: nothing archived, nothing said. stop-extract's
+# exit-status case now applies: 1|2|4|5 = not an object / not JSON (silent, as before); any other
+# status is an exit_code-1 row naming it. The shim fails only that program; every other jq call
+# (the error row's own included) reaches the real jq.
+SC_REAL_JQ=$(command -v jq)
+SC_JQ_SHIM="$TMP/sc-jq-shim"; mkdir -p "$SC_JQ_SHIM"
+printf '#!/bin/bash\ncase "$*" in *"type == \\"object\\""*) exit "${SC_JQ_RC:-137}" ;; esac\nexec "%s" "$@"\n' "$SC_REAL_JQ" > "$SC_JQ_SHIM/jq"
+chmod +x "$SC_JQ_SHIM/jq"
+for sc_rc in 126 137; do
+  B="$TMP/b3f-$sc_rc"; mkdir -p "$B"; T="$TMP/t3f.jsonl"; mk_transcript "$T" 1 "$LONG"
+  run_hook "$B" "general-purpose" "aid3f" "$T" PATH="$SC_JQ_SHIM:$PATH" SC_JQ_RC="$sc_rc" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] || fail "3f: the hook exited $RC when jq exited $sc_rc (must always exit 0)"
+  [ -z "$(arc "$B")" ] || fail "3f: archived a payload jq never read (jq exit $sc_rc)"
+  grep -F "jq exited $sc_rc" "$B/error-log.jsonl" 2>/dev/null | grep -q '"exit_code":1' \
+    || fail "3f: jq exit $sc_rc on the payload check left no exit_code-1 row naming it ($(cat "$B/error-log.jsonl" 2>/dev/null))"
+done
+B="$TMP/b3f-ctl"; mkdir -p "$B"
+for sc_in in 'not json' '[1]'; do
+  printf '%s' "$sc_in" | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$SCRIPT" >/dev/null 2>&1 || fail "3f control: '$sc_in' exited non-zero"
+done
+grep -qF 'jq exited' "$B/error-log.jsonl" 2>/dev/null && fail "3f control: a payload that is not an object was reported as a jq failure"
+pass "a jq that cannot run or was killed on the payload check is an error row (126/137); a non-object payload stays silent"
+
+# --- Test 3g (R3-C P-F4): the self-skip and no-agent-type audit rows were written `2>/dev/null || true`,
+# so a row that could not be appended (audit-log.jsonl unwritable: here a directory) vanished with
+# no trace. sb_log_audit returns 1 then; the hook now says so in the error-log, and still exits 0.
+for sc_at in second-brain:dream-runner ""; do
+  sc_sfx="${sc_at:-untyped}"; B="$TMP/b3g-${sc_sfx//:/_}"; mkdir -p "$B/audit-log.jsonl"; T="$TMP/t3g.jsonl"; mk_transcript "$T" 1 "$LONG"
+  run_hook "$B" "$sc_at" "aid3g" "$T" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] || fail "3g (${sc_at:-no agent_type}): the hook exited $RC"
+  [ -z "$(arc "$B")" ] || fail "3g (${sc_at:-no agent_type}): a skipped agent was archived"
+  grep -F 'audit row' "$B/error-log.jsonl" 2>/dev/null | grep -F 'aid3g' | grep -q '"exit_code":1' \
+    || fail "3g (${sc_at:-no agent_type}): a skip whose audit row could not be written left no error row ($(cat "$B/error-log.jsonl" 2>/dev/null))"
+done
+pass "a self-skip or untyped-skip whose audit row cannot be written leaves an error row (hook exits 0)"
 
 # --- Test 4: below tool-gate (0 tool_use) => skipped ---
 B="$TMP/b4"; mkdir -p "$B"; T="$TMP/t4.jsonl"; mk_transcript "$T" 0 "$LONG"
