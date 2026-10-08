@@ -1054,14 +1054,15 @@ done
 [ "$(grep -c 'ssh:\.ssh' "$SG")" = 1 ] || fail "GT10: symlink-guard spells an entry outside _SG_CRED_H (a copy that can drift)"
 [ "$(grep -c 'ssh:\.ssh' "$SCRIPT")" = 1 ] || fail "GT10: persona-tool-guard spells an entry outside _PTG_CRED_H"
 # P-C2: every entry names its Write tier (tier:label:path, tier deny|ask), and the deny tier is
-# exactly the stores symlink-guard denied at 407fa24 (the 0.56.0 additions ask). The lists above are
-# compared with their tiers, so the two guards agree on each entry's tier as well.
+# exactly the stores symlink-guard denied at 407fa24 plus their two Windows aliases, _netrc (curl's
+# .netrc) and %APPDATA%\GitHub CLI\hosts.yml (gh's ~/.config/gh); the other 0.56.0 additions ask. The
+# lists above are compared with their tiers, so the two guards agree on each entry's tier as well.
 g1_all=$(eval "$(grep -E '^_SG_CRED_H=' "$SG")"; eval "$(grep -E '^_SG_CRED_A=' "$SG")"; printf '%s\n' "${_SG_CRED_H[@]}" "${_SG_CRED_A[@]}")
 g1_bad=$(printf '%s\n' "$g1_all" | grep -vE '^(deny|ask):[a-z0-9-]+:[^:]+$')
 [ -z "$g1_bad" ] || fail "P-C2: credential entries without a deny|ask tier (tier:label:path): $(echo $g1_bad)"
 g1_deny=$(printf '%s\n' "$g1_all" | grep '^deny:' | LC_ALL=C sort | tr '\n' ' ')
-[ "$g1_deny" = "deny:aws:.aws deny:claude-config:.config/claude deny:claude-oauth:.claude/.credentials.json deny:gh-config:.config/gh deny:gnupg:.gnupg deny:netrc:.netrc deny:passwordstore:.password-store deny:ssh:.ssh " ] \
-  || fail "P-C2: the deny tier must be the stores denied at 407fa24, no more, no fewer (have: $g1_deny)"
+[ "$g1_deny" = "deny:aws:.aws deny:claude-config:.config/claude deny:claude-oauth:.claude/.credentials.json deny:gh-config:.config/gh deny:gh-hosts:GitHub CLI/hosts.yml deny:gnupg:.gnupg deny:netrc:.netrc deny:netrc:_netrc deny:passwordstore:.password-store deny:ssh:.ssh " ] \
+  || fail "P-C2: the deny tier must be the stores denied at 407fa24 and their _netrc and gh hosts.yml aliases, no more, no fewer (have: $g1_deny)"
 pass "G1: the Read credential lists mirror symlink-guard's, tiers included, which every one of its credential tests reads"
 
 # GX3 (R3B): credential-read is a floor below the rules, as path-too-long is. Before, its ask exited

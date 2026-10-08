@@ -20,12 +20,13 @@
 #
 # Credential stores (after realpath, case-insensitive; _SG_CRED_H / _SG_CRED_A below), in two tiers:
 #   DENY — under $HOME and $USERPROFILE: .ssh, .gnupg, .aws, .config/claude, .config/gh,
-#   .password-store, and the files .netrc, .claude/.credentials.json (the OAuth token; the ~/.claude
-#   TREE is deliberately not a prefix, it holds legitimate write targets); /etc.
-#   ASK (P-C2: the stores added in 0.56.0) — under $HOME and $USERPROFILE: .config/gcloud, .azure,
-#   and the files .git-credentials, .npmrc, .docker/config.json, .kube/config, .pypirc, _netrc,
+#   .password-store, and the files .netrc, _netrc (curl's Windows spelling of it),
+#   .claude/.credentials.json (the OAuth token; the ~/.claude TREE is deliberately not a prefix, it
+#   holds legitimate write targets); under %APPDATA%: GitHub CLI/hosts.yml (gh's ~/.config/gh); /etc.
+#   ASK (P-C2: the other stores added in 0.56.0) — under $HOME and $USERPROFILE: .config/gcloud,
+#   .azure, and the files .git-credentials, .npmrc, .docker/config.json, .kube/config, .pypirc,
 #   .config/git/credentials, .pgpass, .vault-token, .cargo/credentials(.toml),
-#   .terraform.d/credentials.tfrc.json, .gem/credentials; under %APPDATA%: GitHub CLI/hosts.yml, gcloud.
+#   .terraform.d/credentials.tfrc.json, .gem/credentials; under %APPDATA%: gcloud.
 #
 # Verdict: deny (DENY tier) or ask (ASK tier; the strictest store any spelling names wins). Reason
 # carries which credential store matched (no content leaked).
@@ -612,12 +613,14 @@ _sg_homes() {
 # _SG_H spelling (HOME, USERPROFILE), then under every _SG_HA one (APPDATA). Each entry is the path or
 # anything inside it — a file has nothing inside, and ~/.claude is no entry: plans/, projects/
 # (memory) and settings.json live there and are legitimate write targets. Tiers (P-C2, 0.56.0
-# policy): the stores denied at 407fa24 — and /etc — are DENY; the stores this release added (GX6,
-# P-S8) are ASK: "edit my ~/.npmrc" is routine, and a deny there left no per-call approve. A Read of
+# policy): the stores denied at 407fa24 — and /etc — are DENY, and so are two new entries that are
+# their Windows aliases: _netrc (curl's .netrc) and %APPDATA%\GitHub CLI\hosts.yml (gh's ~/.config/gh).
+# The other stores this release added (GX6, P-S8) are ASK: "edit my ~/.npmrc" is routine, and a deny
+# there left no per-call approve. A Read of
 # either tier asks (persona-tool-guard). P-S8 added _netrc (curl's name on Windows), git's XDG
 # credential file, .pgpass, .vault-token, cargo's two, terraform's and RubyGems'.
-_SG_CRED_H=(deny:ssh:.ssh deny:gnupg:.gnupg deny:aws:.aws deny:claude-config:.config/claude deny:gh-config:.config/gh deny:passwordstore:.password-store deny:netrc:.netrc deny:claude-oauth:.claude/.credentials.json ask:gcloud:.config/gcloud ask:azure:.azure ask:git-credentials:.git-credentials ask:npmrc:.npmrc ask:docker-config:.docker/config.json ask:kube-config:.kube/config ask:pypirc:.pypirc ask:netrc:_netrc ask:git-credentials:.config/git/credentials ask:pgpass:.pgpass ask:vault-token:.vault-token ask:cargo-credentials:.cargo/credentials ask:cargo-credentials:.cargo/credentials.toml ask:terraform-credentials:.terraform.d/credentials.tfrc.json ask:gem-credentials:.gem/credentials)
-_SG_CRED_A=('ask:gh-hosts:GitHub CLI/hosts.yml' ask:gcloud:gcloud)
+_SG_CRED_H=(deny:ssh:.ssh deny:gnupg:.gnupg deny:aws:.aws deny:claude-config:.config/claude deny:gh-config:.config/gh deny:passwordstore:.password-store deny:netrc:.netrc deny:netrc:_netrc deny:claude-oauth:.claude/.credentials.json ask:gcloud:.config/gcloud ask:azure:.azure ask:git-credentials:.git-credentials ask:npmrc:.npmrc ask:docker-config:.docker/config.json ask:kube-config:.kube/config ask:pypirc:.pypirc ask:git-credentials:.config/git/credentials ask:pgpass:.pgpass ask:vault-token:.vault-token ask:cargo-credentials:.cargo/credentials ask:cargo-credentials:.cargo/credentials.toml ask:terraform-credentials:.terraform.d/credentials.tfrc.json ask:gem-credentials:.gem/credentials)
+_SG_CRED_A=('deny:gh-hosts:GitHub CLI/hosts.yml' ask:gcloud:gcloud)
 _SG_LABEL="" _SG_TIER=""
 # _sg_cred_hit ENTRY: a matched store, recorded unless one was already; a deny-tier one replaces an
 # ask-tier one and is true (stop looking).

@@ -777,7 +777,9 @@ fi
 # ~/.cargo/credentials(.toml), ~/.terraform.d/credentials.tfrc.json and ~/.gem/credentials.
 # P-C2 (0.56.0 policy): the stores this release added are an ASK tier on Write — "edit my ~/.npmrc" is
 # routine, and a hard deny left no per-call approve — while the stores denied at 407fa24 (.ssh, .gnupg,
-# .aws, .config/claude, .config/gh, .password-store, .netrc, .claude/.credentials.json, /etc) stay DENY.
+# .aws, .config/claude, .config/gh, .password-store, .netrc, .claude/.credentials.json, /etc) stay DENY,
+# and so do two new entries that are Windows aliases of them (controller decision): _netrc is curl's
+# spelling of .netrc, %APPDATA%\GitHub CLI\hosts.yml gh's token store, the data ~/.config/gh holds.
 assert_ask() {  # assert_ask LABEL OUT NEEDLE: an ask whose reason mentions NEEDLE
   local d r
   d=$(printf '%s' "$2" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null | tr -d '\r')
@@ -787,11 +789,11 @@ assert_ask() {  # assert_ask LABEL OUT NEEDLE: an ask whose reason mentions NEED
   pass "$1 (ask, reason mentions $3)"
 }
 for f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json \
-         _netrc .config/git/credentials .pgpass .vault-token .cargo/credentials .cargo/credentials.toml \
+         .config/git/credentials .pgpass .vault-token .cargo/credentials .cargo/credentials.toml \
          .terraform.d/credentials.tfrc.json .gem/credentials; do
   OUT=$(run_guard Write "$HOME/$f"); assert_ask "GX6/P-S8/P-C2: write to ~/$f asks (the ask tier)" "$OUT" "credential"
 done
-for f in .ssh/authorized_keys .gnupg/gpg.conf .aws/credentials .config/claude/x .config/gh/hosts.yml .password-store/a.gpg .netrc .claude/.credentials.json; do
+for f in .ssh/authorized_keys .gnupg/gpg.conf .aws/credentials .config/claude/x .config/gh/hosts.yml .password-store/a.gpg .netrc .claude/.credentials.json _netrc; do
   OUT=$(run_guard Write "$HOME/$f"); assert_deny "P-C2: write to ~/$f stays a deny (the deny tier)" "$OUT" "credential"
 done
 OUT=$(run_guard Write "$HOME/.docker/daemon.json"); assert_allow "GX6: ~/.docker/daemon.json is no credential store" "$OUT"
@@ -803,7 +805,7 @@ assert_deny "GX6: edit of USERPROFILE's .ssh/authorized_keys (HOME elsewhere)" "
 OUT=$(USERPROFILE="$TMP/profile" run_guard Write "$TMP/profile/.npmrc")
 assert_ask "GX6/P-C2: write to USERPROFILE's .npmrc asks (HOME elsewhere)" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/GitHub CLI/hosts.yml")
-assert_ask "GX6/P-C2: write to %APPDATA%/GitHub CLI/hosts.yml asks" "$OUT" "credential"
+assert_deny "GX6/P-C2: write to %APPDATA%/GitHub CLI/hosts.yml denies (an alias of ~/.config/gh)" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/gcloud/credentials.db")
 assert_ask "GX6/P-C2: write into %APPDATA%/gcloud asks" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/Code/settings.json")

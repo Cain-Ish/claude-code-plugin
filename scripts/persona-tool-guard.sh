@@ -664,8 +664,9 @@ _ptg_proj() {
 # that guards writes into these; tests/test-persona-tool-guard.sh locks the lists together, tiers
 # included): tier:label:path entries under HOME (and USERPROFILE: _ptg_homes), then under APPDATA
 # (Windows: gh keeps its tokens in %APPDATA%\GitHub CLI\hosts.yml, gcloud its in %APPDATA%\gcloud).
-# The tier is symlink-guard's Write verdict (P-C2: deny for the stores denied at 407fa24, ask for those
-# 0.56.0 added); a Read of either tier asks here. Each entry is the path itself or anything inside
+# The tier is symlink-guard's Write verdict (P-C2: deny for the stores denied at 407fa24 and their
+# Windows aliases _netrc and GitHub CLI/hosts.yml, ask for the other ones 0.56.0 added); a Read of
+# either tier asks here. Each entry is the path itself or anything inside
 # it — a file has nothing inside, and ~/.claude is no entry (plans/, projects/ and settings.json live
 # there). GX6 (R3B) added gcloud, azure, .git-credentials, .npmrc, .docker/config.json, .kube/config,
 # .pypirc and the APPDATA list; P-S8 _netrc, .config/git/credentials, .pgpass, .vault-token, cargo's,
@@ -673,8 +674,8 @@ _ptg_proj() {
 # /etc is outside every default scope root already (an out-of-scope ask), and reading /etc/hosts or
 # /etc/os-release is routine — a project kept under /etc would ask on every Read. Case-insensitive
 # (nocasematch), as there: NTFS and default APFS are, and on Linux it only widens toward an ask.
-_PTG_CRED_H=(deny:ssh:.ssh deny:gnupg:.gnupg deny:aws:.aws deny:claude-config:.config/claude deny:gh-config:.config/gh deny:passwordstore:.password-store deny:netrc:.netrc deny:claude-oauth:.claude/.credentials.json ask:gcloud:.config/gcloud ask:azure:.azure ask:git-credentials:.git-credentials ask:npmrc:.npmrc ask:docker-config:.docker/config.json ask:kube-config:.kube/config ask:pypirc:.pypirc ask:netrc:_netrc ask:git-credentials:.config/git/credentials ask:pgpass:.pgpass ask:vault-token:.vault-token ask:cargo-credentials:.cargo/credentials ask:cargo-credentials:.cargo/credentials.toml ask:terraform-credentials:.terraform.d/credentials.tfrc.json ask:gem-credentials:.gem/credentials)
-_PTG_CRED_A=('ask:gh-hosts:GitHub CLI/hosts.yml' ask:gcloud:gcloud)
+_PTG_CRED_H=(deny:ssh:.ssh deny:gnupg:.gnupg deny:aws:.aws deny:claude-config:.config/claude deny:gh-config:.config/gh deny:passwordstore:.password-store deny:netrc:.netrc deny:netrc:_netrc deny:claude-oauth:.claude/.credentials.json ask:gcloud:.config/gcloud ask:azure:.azure ask:git-credentials:.git-credentials ask:npmrc:.npmrc ask:docker-config:.docker/config.json ask:kube-config:.kube/config ask:pypirc:.pypirc ask:git-credentials:.config/git/credentials ask:pgpass:.pgpass ask:vault-token:.vault-token ask:cargo-credentials:.cargo/credentials ask:cargo-credentials:.cargo/credentials.toml ask:terraform-credentials:.terraform.d/credentials.tfrc.json ask:gem-credentials:.gem/credentials)
+_PTG_CRED_A=('deny:gh-hosts:GitHub CLI/hosts.yml' ask:gcloud:gcloud)
 # _ptg_clabel ENTRY: _PTG_CL = ENTRY's label (tier:label:path).
 _ptg_clabel() { local _pk_r="${1#*:}"; _PTG_CL="${_pk_r%%:*}"; }
 # _ptg_homes: _PTG_H = the directories _PTG_CRED_H is spelled under, _PTG_HA those _PTG_CRED_A is,
