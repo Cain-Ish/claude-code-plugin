@@ -72,6 +72,13 @@ var lastLoadError = null;
 function brainDirFromEnv() {
   return resolveBrainDir();
 }
+function installVectorDepsCommand(scriptPath) {
+  const p = (scriptPath ?? "").replace(/\\/g, "/");
+  const cut = p.lastIndexOf("/mcp/dist/");
+  if (cut < 0) return 'bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"';
+  const script = `${p.slice(0, cut)}/bin/install-vector-deps.sh`;
+  return `bash "${script.replace(/(["$`])/g, "\\$1")}"`;
+}
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
     lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
@@ -117,7 +124,7 @@ async function getPipeline() {
     return pipelineInstance;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    const hint = msg.includes("Cannot find package") ? ` \u2014 run: ${installVectorDepsCommand(process.argv[1])}` : "";
     await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
@@ -276,19 +283,88 @@ function peerReportBody(rest) {
   return mark + [report, ...flags].join("\n");
 }
 var cps = (...xs) => String.fromCodePoint(...xs);
+var ZWNJ = cps(8204);
+var ZWJ = cps(8205);
 var FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
-var FOLD_OPEN_RE = new RegExp(`[\\p{Ps}${cps(9121)}-${cps(9123)}]`, "gu");
-var FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}${cps(9124)}-${cps(9126)}]`, "gu");
-var L_E = `[eE${cps(1077, 1045)}]`;
-var L_C = `[cC${cps(1089, 1057)}]`;
-var L_S = `[sS${cps(1109, 1029)}]`;
-var L_D = `[dD${cps(1281)}]`;
-var FRAME_PHRASE_RE = new RegExp(
-  `[uU][nN][tT][rR][uU]${L_S}[tT]${L_E}${L_D}\\s+[rR]${L_E}[fF]${L_E}[rR]${L_E}[nN]${L_C}${L_E}`,
-  "gu"
-);
+var FOLD_OPEN_EXTRA = cps(9121, 9122, 9123, 8988, 8990, 9150, 9151, 9484, 9492, 9500);
+var FOLD_CLOSE_EXTRA = cps(9124, 9125, 9126, 8989, 8991, 9163, 9164, 9488, 9496, 9508);
+var FOLD_OPEN_RE = new RegExp(`[\\p{Ps}\\p{Pi}${FOLD_OPEN_EXTRA}]`, "gu");
+var FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}\\p{Pf}${FOLD_CLOSE_EXTRA}]`, "gu");
+var FOLD_QUOTE_KEEP = new Set(cps(
+  8218,
+  8222,
+  11842,
+  12317,
+  12318,
+  12319,
+  171,
+  187,
+  8216,
+  8217,
+  8219,
+  8220,
+  8221,
+  8223,
+  8249,
+  8250
+));
+var FRAME_PHRASE_SKELETON = "untrustedreference";
+var CONFUSABLE = /* @__PURE__ */ new Map();
+for (const [latin, from] of [
+  ["c", [1089, 962, 963, 7428, 42202]],
+  ["d", [1281, 7429, 42195]],
+  ["e", [1077, 949, 1108, 7431, 42224]],
+  ["f", [989, 42800, 42205]],
+  ["n", [951, 957, 1087, 1400, 628, 42208]],
+  ["r", [1075, 640, 638, 42211]],
+  ["s", [1109, 42801, 42210]],
+  ["t", [964, 1090, 7451, 42196]],
+  ["u", [965, 1405, 7452, 651, 42228]]
+]) {
+  for (const c of from) CONFUSABLE.set(cps(c), latin);
+}
+var LETTER_OR_DIGIT_RE = /^[\p{L}\p{N}]$/u;
+var SKELETON_CACHE = /* @__PURE__ */ new Map();
+function skeletonOf(ch) {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c < 128) {
+    if (c >= 97 && c <= 122 || c >= 48 && c <= 57) return ch;
+    return c >= 65 && c <= 90 ? String.fromCharCode(c + 32) : "";
+  }
+  let s = SKELETON_CACHE.get(c);
+  if (s === void 0) {
+    s = "";
+    for (const d of ch.normalize("NFKD").toLowerCase().normalize("NFKD")) {
+      const m = CONFUSABLE.get(d) ?? d;
+      if (LETTER_OR_DIGIT_RE.test(m)) s += m;
+    }
+    if (SKELETON_CACHE.size < 4096) SKELETON_CACHE.set(c, s);
+  }
+  return s;
+}
+function neutraliseFramePhrase(text) {
+  let skeleton = "";
+  for (const ch of text) skeleton += skeletonOf(ch);
+  if (!skeleton.includes(FRAME_PHRASE_SKELETON)) return text;
+  const start = [], end = [];
+  let i = 0;
+  for (const ch of text) {
+    const n = skeletonOf(ch).length;
+    for (let k = 0; k < n; k++) {
+      start.push(i);
+      end.push(i + ch.length);
+    }
+    i += ch.length;
+  }
+  let out = "", last = 0;
+  for (let j = skeleton.indexOf(FRAME_PHRASE_SKELETON); j >= 0; j = skeleton.indexOf(FRAME_PHRASE_SKELETON, j + FRAME_PHRASE_SKELETON.length)) {
+    out += `${text.slice(last, Math.max(start[j], last))}untrusted-reference`;
+    last = end[j + FRAME_PHRASE_SKELETON.length - 1];
+  }
+  return out + text.slice(last);
+}
 function foldServedSnippet(text) {
-  return text.replace(FOLD_SPACE_RE, " ").replace(FOLD_OPEN_RE, (m) => m === "(" || m === "{" ? m : "(").replace(FOLD_CLOSE_RE, (m) => m === ")" || m === "}" ? m : ")").replace(FRAME_PHRASE_RE, "untrusted-reference");
+  return neutraliseFramePhrase(text.replace(FOLD_SPACE_RE, (m) => m === ZWNJ || m === ZWJ ? m : " ").replace(FOLD_OPEN_RE, (m) => m === "(" || m === "{" || FOLD_QUOTE_KEEP.has(m) ? m : "(").replace(FOLD_CLOSE_RE, (m) => m === ")" || m === "}" || FOLD_QUOTE_KEEP.has(m) ? m : ")"));
 }
 function cleanUserText(text) {
   if (!isMachineTurnText(text)) return text;

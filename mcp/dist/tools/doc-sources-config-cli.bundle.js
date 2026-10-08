@@ -1,6 +1,6 @@
 // src/tools/doc-sources.ts
-import { promises as fs, realpathSync as realpathSync2 } from "fs";
-import { join, relative, resolve, sep as sep2, isAbsolute, posix as posix2, win32 as win322 } from "path";
+import { promises as fs, realpathSync as realpathSync2, existsSync } from "fs";
+import { join, relative, resolve, sep as sep2, isAbsolute, parse, win32 as win322 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6207,12 +6207,12 @@ async function removeLocation(brainDir, slug, location) {
 
 // src/tools/project-dir.ts
 import { basename, dirname, isAbsolute as isAbsolute3, join as join4 } from "path";
-import { readFileSync as readFileSync3, existsSync as existsSync2, statSync as statSync2 } from "fs";
+import { readFileSync as readFileSync3, existsSync as existsSync3, statSync as statSync2 } from "fs";
 
 // src/brain-paths.ts
 import { join as join2, isAbsolute as isAbsolute2 } from "path";
 import { homedir } from "os";
-import { readFileSync, statSync, existsSync } from "fs";
+import { readFileSync, statSync, existsSync as existsSync2 } from "fs";
 function normForCompare(p) {
   let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
   const m = s.match(/^[/]([A-Za-z])([/].*)?$/);
@@ -6258,7 +6258,7 @@ function originRemote(dir) {
       if (!m) return "";
       const gd = m[1];
       configDir = isAbsolute2(gd) ? gd : join2(d, gd);
-      if (!existsSync(join2(configDir, "config"))) {
+      if (!existsSync2(join2(configDir, "config"))) {
         const cd = readFileSync(join2(configDir, "commondir"), "utf-8").trim();
         configDir = isAbsolute2(cd) ? cd : join2(configDir, cd);
       }
@@ -6345,7 +6345,7 @@ function mainWorktreeDir(dir) {
     if (!m) return dir;
     const gd = m[1];
     const gitdirResolved = isAbsolute3(gd) ? gd : join4(d, gd);
-    if (existsSync2(join4(gitdirResolved, "config"))) return dir;
+    if (existsSync3(join4(gitdirResolved, "config"))) return dir;
     const cd = readFileSync3(join4(gitdirResolved, "commondir"), "utf-8").trim();
     const commonDir = isAbsolute3(cd) ? cd : join4(gitdirResolved, cd);
     return basename(commonDir) === ".git" ? dirname(commonDir) : dir;
@@ -6397,10 +6397,10 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
       return byRemote;
     }
   }
-  if (cwdSlug && existsSync2(join4(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  if (cwdSlug && existsSync3(join4(brainDir, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
   try {
     const pin = readFileSync3(join4(brainDir, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync2(join4(brainDir, "projects", pin, "PROJECT.md"))) return pin;
+    if (pin && existsSync3(join4(brainDir, "projects", pin, "PROJECT.md"))) return pin;
   } catch {
   }
   return cwdSlug;
