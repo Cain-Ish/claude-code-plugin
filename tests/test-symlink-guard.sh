@@ -540,6 +540,21 @@ big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | a
 BIG_BOUND=10
 BODY=$(big_body 524288)
 
+# P-C6: _sg_homes spelled USERPROFILE and APPDATA physically with `cd -P`, on every Write. Into an
+# unreachable UNC share that blocks — ~2.7 s per share on Windows (name resolution), longer for a
+# host that resolves and never answers — and two of them put the deny past the hook budget: the
+# Write ran. A //… (or \\…) value is spelled lexically only. Off Windows // is / and nothing blocks.
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$HOME/.ssh/authorized_keys" > "$TMP/c6.json"
+C6H="sb-nohost-$$-$RANDOM"   # unique per run: Windows caches a failed name lookup for a while
+bounded "P-C6 Write into ~/.ssh with UNC USERPROFILE/APPDATA" "$BIG_BOUND" "$TMP/c6.json" USERPROFILE='\\'"${C6H}a"'\share\u' APPDATA="//${C6H}b/share/AppData/Roaming"
+assert_deny "P-C6: a UNC USERPROFILE/APPDATA does not delay the deny (${BD_MS} ms)" "$BD_OUT" ssh
+# One failed lookup took 1.3-2.7 s on the dev box, so the 4 s hook bound alone can miss a regression:
+# this fast-path deny answers in ~0.1 s, bound at 1.5 s. The source lock holds where no lookup blocks.
+within "P-C6 Write with UNC USERPROFILE/APPDATA" 1500
+[ "$(sed -n '/^_sg_homes()/,/^}/p' "$SCRIPT" | grep 'cd -P' | grep -vc '_sg_unc')" = 0 ] \
+  || fail "P-C6 source lock: every cd -P in _sg_homes must be gated by _sg_unc"
+pass "P-C6 source lock: _sg_homes spells no UNC value physically"
+
 # P-H1: a 512 KB Write. The fast path sees only the first 16 KiB, so a file_path AFTER the content
 # is decided by the full logic — which took 144 s (O(n^2) key search and newline strip).
 printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$HOME/work/repo/big.txt" "$BODY" > "$TMP/big1.json"

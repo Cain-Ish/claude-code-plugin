@@ -1489,6 +1489,21 @@ is_ask() { printf '%s' "$1" | grep -q '"permissionDecision":"ask"'; }
 big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
 BIG_BOUND=10
 BODY=$(big_body 524288)
+# P-C6: _ptg_homes spelled HOME, USERPROFILE and APPDATA physically with `cd -P` on every credential
+# check. Into an unreachable UNC share that blocks (~2.7 s per share on Windows; longer for a host
+# that resolves and never answers): two of them put the ask past the hook budget, and the Read ran.
+# A //… (or \\…) value is spelled lexically only. Off Windows // is / and nothing blocks.
+printf '{"session_id":"c6","cwd":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$SZ" "$SZ/c6home/.ssh/id_rsa" > "$SZ/c6.json"
+C6H="sb-nohost-$$-$RANDOM"   # unique per run: Windows caches a failed name lookup for a while
+bounded "P-C6 Read of ~/.ssh with UNC USERPROFILE/APPDATA" "$BIG_BOUND" "$SZ/c6.json" HOME="$SZ/c6home" USERPROFILE='\\'"${C6H}a"'\share\u' APPDATA="//${C6H}b/share/AppData/Roaming"
+printf '%s' "$BD_OUT" | grep -q '"permissionDecision":"ask"' || fail "P-C6: the credential Read must still ask (got: $BD_OUT)"
+# One failed lookup took 1.3-2.7 s on the dev box, so the 4 s hook bound alone can miss a regression:
+# this builtin-only Read answers in ~0.1 s, bound at 1.5 s. The source lock holds where no lookup
+# blocks (off Windows, or a resolver that fails fast).
+within "P-C6 Read with UNC USERPROFILE/APPDATA" 1500
+sed -n '/^_ptg_homes()/,/^}/p' "$SCRIPT" | grep -B1 'cd -P' | grep -qF 'case "$_ph_s" in //*|' \
+  || fail "P-C6 source lock: _ptg_homes must skip a //… or \\\\… value before its cd -P"
+pass "P-C6: a UNC USERPROFILE/APPDATA does not delay the credential ask (${BD_MS} ms)"
 # P-H1: 512 KB payloads reach the full logic (the fast path reads 16 KiB); before, 146-222 s.
 printf '{"session_id":"big","cwd":"%s","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$SZ" "$SZ/src/big.ts" "$BODY" > "$SZ/big1.json"
 bounded "P-H1 512 KB benign in-scope Write" "$BIG_BOUND" "$SZ/big1.json"

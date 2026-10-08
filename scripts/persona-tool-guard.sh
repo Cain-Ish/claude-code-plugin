@@ -664,6 +664,10 @@ _ptg_homes() {
     _ph_s="${!_ph_v:-}"
     [ -n "$_ph_s" ] || continue
     _ptg_hadd "$_ph_v" "$_ph_s"
+    # P-C6: no physical spelling for a UNC value (//… or \\…): `cd -P` into an unreachable share
+    # blocks (~2.7 s per share on Windows, longer for a host that never answers) — past the hook
+    # budget with two of them, and the call ran.
+    case "$_ph_s" in //*|"$_fp_bs$_fp_bs"*) continue ;; esac
     if CDPATH= cd -P -- "$_ph_s" 2>/dev/null; then _ptg_hadd "$_ph_v" "$PWD"; cd -- "$_ph_o" 2>/dev/null; fi
   done
   return 0

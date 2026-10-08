@@ -520,11 +520,15 @@ _sg_norm() {
 # GX6 (R3B): USERPROFILE joins HOME (with HOME pointed elsewhere the native tools keep their stores
 # under the Windows profile still) and _SG_HA spells APPDATA, both lexically and physically only —
 # native Windows paths under no MSYS mount, so no cygpath spawn.
+# P-C6: a UNC value (//… or \\…) gets no physical spelling: `cd -P` into an unreachable share blocks
+# (~2.7 s per share on Windows, longer for a host that resolves and never answers) — two of them put
+# a deny past the hook budget, and the Write ran. Its lexical spelling is still matched.
+_sg_unc() { case "$1" in //*|"$_fp_bs$_fp_bs"*) return 0 ;; esac; return 1; }
 _sg_homes() {
   local _sh_h _sh_p="" _sh_o="$PWD" _sh_v _sh_s _sh_z _sh_q
   if [ "$1" = lex ]; then _fp_path _sh_h "$HOME" lex; else _sg_norm _sh_h "$HOME"; fi
   _sh_h="${_sh_h%/}"
-  if [ -n "${HOME:-}" ] && CDPATH= cd -P -- "$HOME" 2>/dev/null; then
+  if [ -n "${HOME:-}" ] && ! _sg_unc "$HOME" && CDPATH= cd -P -- "$HOME" 2>/dev/null; then
     _sh_p="$PWD"; cd -- "$_sh_o" 2>/dev/null
     if [ "$1" = lex ]; then _fp_path _sh_p "$_sh_p" lex; else _sg_norm _sh_p "$_sh_p"; fi
     _sh_p="${_sh_p%/}"
@@ -554,7 +558,7 @@ _sg_homes() {
     _sh_s="${!_sh_v:-}"
     [ -n "$_sh_s" ] || continue
     _sh_q=""
-    if CDPATH= cd -P -- "$_sh_s" 2>/dev/null; then _sh_q="$PWD"; cd -- "$_sh_o" 2>/dev/null; fi
+    if ! _sg_unc "$_sh_s" && CDPATH= cd -P -- "$_sh_s" 2>/dev/null; then _sh_q="$PWD"; cd -- "$_sh_o" 2>/dev/null; fi
     for _sh_z in "$_sh_s" "$_sh_q"; do
       [ -n "$_sh_z" ] || continue
       _fp_path _sh_z "$_sh_z" lex; _sh_z="${_sh_z%/}"
