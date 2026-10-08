@@ -131,6 +131,16 @@ _defer_step() {
   _restamp_retry
 }
 
+# R3-C P-F7: everything below reads JSON with jq (each dream's status.json, the CLI's stream-json).
+# With no jq the no-stacking check read a well-formed status.json as "unreadable" (S13) and blamed
+# the dream. A missing jq is the host's state, not a lane failure: one exit_code-1 row naming it,
+# no strike, the retry horizon (one row per horizon, not one per drain tick).
+if ! command -v jq >/dev/null 2>&1; then
+  sb_log_error "maintain-llm-drain" "skipped: jq not found on PATH; the lane reads every dream's status.json and the CLI's output with it. Install jq; next check in ${RETRY}s" 1
+  _restamp_retry
+  exit 0
+fi
+
 # Don't stack: if a completed-but-unreviewed (archived_at unset) dream already exists, skip until
 # the user accepts/discards it (the SP-C terminal predicate). K1: this used to be a silent exit 0.
 # A dream that auto-accept refused stays unreviewed, so the lane stopped for good with no trace.

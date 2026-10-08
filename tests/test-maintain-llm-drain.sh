@@ -6,7 +6,8 @@
 #   asserts both spawn sites export it (lib.sh's sb_is_headless_child reads the variable since R1#2)
 # C: the opt-in headless-LLM maintainer. We test the GATING + the QUARANTINE structure and its
 # run-all-timeout: 300   (9 full quarantine-lane runs by design, plus 2 short no-stacking runs (3b, 3c); measured 153s alone on MSYS before 3b/3c — spawn-bound lib.sh, see LC-11;
-#   2026-10-07 after R3-B's 3b-pending/3d/3e/d2 runs, alone on MSYS: 91 s jq 1.8.1 / 97 s jq 1.7.1, 14.4 GB free, 391 processes)
+#   2026-10-07 after R3-B's 3b-pending/3d/3e/d2 runs, alone on MSYS: 91 s jq 1.8.1 / 97 s jq 1.7.1, 14.4 GB free, 391 processes;
+#   2026-10-08 after R3-C's short no-jq run (3f), alone: 75 s jq 1.8.1 / 88 s jq 1.7.1)
 # runtime attestation with a mock `claude` that emits canned stream-json. A real headless run is
 # operator-verified (it can't run from inside a Claude session — the recursive-claude OAuth lock).
 set -u
@@ -224,6 +225,31 @@ jq -c 'select(.script == "maintain-llm-drain" and .exit_code == 1 and ((.message
   && pass "S13: no failure strike, throttle re-stamped to the retry horizon" \
   || fail "S13: strike=$(cat "$B/.llm-maintain-fails" 2>/dev/null || echo none) mark age=$(mark_age_b)s"
 rm -rf "$B"/dreams/drm_*
+
+# 3f. R3-C P-F7: on a host with no jq, S13's check read a well-formed status.json as unreadable and
+#     blamed the dream. jq missing is the host's state: one exit_code-1 row naming jq, no
+#     "unreadable" row, nothing stacked, no strike, the throttle re-stamped. The jq-less host is
+#     simulated as in test-subagent-capture.sh 3e: an exported `command` denies `command -v jq` (it
+#     intercepts only that lookup), and a jq on PATH that exits 127 stands in for the absent binary.
+mkdir -p "$B/dreams/drm_20260106T000000Z"
+jq -nc '{id:"drm_20260106T000000Z",status:"completed",archived_at:"2026-01-06T00:00:00Z"}' > "$B/dreams/drm_20260106T000000Z/status.json"
+NOJQ_BIN="$B/bin-nojq"; mkdir -p "$NOJQ_BIN"
+printf '#!/bin/bash\necho "jq: command not found" >&2\nexit 127\n' > "$NOJQ_BIN/jq"; chmod +x "$NOJQ_BIN/jq"
+rm -f "$B/error-log.jsonl" "$B/audit-log.jsonl" "$B/.llm-maintain-fails" "$B/.llm-maintain-fail-class"; : > "$B/.last-llm-maintain"
+( command() { if [ "${1:-}" = -v ] && [ "${2:-}" = jq ]; then return 1; fi; builtin command "$@"; }
+  export -f command
+  PATH="$NOJQ_BIN:$PATH" SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" ) >/dev/null 2>&1 || true
+[ "$(ndreams)" = "1" ] && pass "P-F7: no jq → nothing stacked" || fail "P-F7: dreams=$(ndreams) with no jq (stacked a new dream)"
+grep -q 'unreadable status.json' "$B/error-log.jsonl" 2>/dev/null \
+  && fail "P-F7: no jq was reported as an unreadable status.json ($(grep 'unreadable' "$B/error-log.jsonl" | head -1))"
+jq -c 'select(.script == "maintain-llm-drain" and .exit_code == 1 and ((.message // "") | test("jq not found")))' \
+  "$B/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  && pass "P-F7: one exit_code-1 row says jq is missing" \
+  || fail "P-F7: no exit_code-1 row naming the missing jq (error-log: $(tail -1 "$B/error-log.jsonl" 2>/dev/null))"
+[ ! -f "$B/.llm-maintain-fails" ] && [ "$(mark_age_b)" -gt 3600 ] \
+  && pass "P-F7: no failure strike, throttle re-stamped to the retry horizon" \
+  || fail "P-F7: strike=$(cat "$B/.llm-maintain-fails" 2>/dev/null || echo none) mark age=$(mark_age_b)s"
+rm -rf "$B"/dreams/drm_* "$NOJQ_BIN"
 
 # The source transcripts dir must still exist here: seed_tx's write is unchecked, so a case above
 # that removed it would turn case 4 into a run with no transcripts that fails for another reason.
