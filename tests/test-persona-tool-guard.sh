@@ -1306,6 +1306,35 @@ out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"sessio
 grep -q 'jq is not on PATH' "$G3/brain/error-log.jsonl" \
   || fail "GC4: the missing jq must be logged (error-log: $(cat "$G3/brain/error-log.jsonl"))"
 pass "GC4: jq missing — the rules cannot be read, the call is logged and passes (jq that ran and failed still asks)"
+# P-F1/P-C1: a missing jq stands the rules down, not the two floors below them. A user layer stands
+# the fast path down (as an unsigned cache, an 8.3 name or an MSYS-mount respelling does), and the
+# full logic's no-jq exit came before the credential-store floor and path-too-long's: a Read of
+# ~/.ssh/id_rsa passed with no verdict. A payload the builtins cannot decode (bash < 4.3 decodes
+# none; here a duplicated key) is scanned by spelling instead; a benign one still passes.
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$G3/brain/persona-rules.json"
+f1() {  # f1 <payload> -> out, f1_rc (stderr in $G3/f1err)
+  : > "$G3/brain/audit-log.jsonl"
+  out=$(printf '%s' "$1" | HOME=/home/f1u PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>"$G3/f1err"); f1_rc=$?
+}
+f1_ask() {  # f1_ask <label> <rule>: out is an ask, audited as <rule>
+  [ "$f1_rc" = 0 ] && printf '%s' "$out" | grep -q '"permissionDecision":"ask"' \
+    || fail "P-F1 $1: with jq missing and a user layer, the call must ask (rc=$f1_rc, got: '$out', stderr: $(head -c 300 "$G3/f1err"))"
+  grep -q "\"rule\":\"$2\"" "$G3/brain/audit-log.jsonl" \
+    || fail "P-F1 $1: the ask must be audited as $2 (audit: $(cat "$G3/brain/audit-log.jsonl"))"
+}
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/home/f1u/.ssh/id_rsa"},"cwd":"/w/proj","session_id":"f1"}'
+f1_ask "credential Read" credential-read
+f1 "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/w/proj/$(printf '%05000d' 0)\"},\"cwd\":\"/w/proj\",\"session_id\":\"f1\"}"
+f1_ask "5000-character target" path-too-long
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/w/proj/a.txt","file_path":"/home/f1u/.ssh/id_rsa"},"cwd":"/w/proj","session_id":"f1"}'
+f1_ask "undecodable payload" credential-read
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/w/proj/a.txt","file_path":"/w/proj/b.txt"},"cwd":"/w/proj","session_id":"f1"}'
+[ -z "$out" ] && [ "$f1_rc" = 0 ] || fail "P-F1: an undecodable benign Read with jq missing is logged and passes (rc=$f1_rc, got: $out)"
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/w/proj/a.txt"},"cwd":"/w/proj","session_id":"f1"}'
+[ -z "$out" ] && [ "$f1_rc" = 0 ] && [ ! -s "$G3/f1err" ] \
+  || fail "P-F1: a benign Read with jq missing is logged and passes (rc=$f1_rc, got: $out, stderr: $(head -c 300 "$G3/f1err"))"
+rm -f "$G3/brain/persona-rules.json"
+pass "P-F1: jq missing — the credential-store Read floor and path-too-long's still ask (decoded or by spelling); benign Reads pass"
 rm -rf "$G3"
 
 # --- G2 (R3, 2026-10-07): a verdict written past the hook deadline says so --------------------

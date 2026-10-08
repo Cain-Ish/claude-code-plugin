@@ -1045,6 +1045,32 @@ _fp_raw_all
 # needs no unescaping either. Garbage stdin → jq fails → TOOL empty → exit 0 (fail-soft).
 # CRs are dropped and trailing newlines trimmed, as the old `jq -r … | tr -d '\r'` + $(…)/read did.
 TOOL="" SESSION_ID="" CWD="" PATH_INPUT="" CMD=""
+# _ptg_rawcred: jq missing and a payload the builtins cannot decode (P-F1/P-C1: on bash < 4.3,
+# _fp_ob, that is every payload; on bash 5 a duplicated key, a \u escape, one past 64 KiB), so no
+# field — no target — was read. The credential-store floor by spelling over the raw payload instead:
+# a payload naming the tool Read that holds a store's path as a path — each '\' read as '/' (JSON's
+# '\\' is then '//'), a separator before it, and after it a separator or a string's closing quote —
+# asks; _PTG_CL = the store. Unanchored (the raw text has no single spelling of HOME), so a project's
+# own .ssh directory asks too: the degraded mode's price. 2 = past 64 KiB, too large to scan (a Read
+# payload is a few hundred bytes): ask. 1 = no Read, or no store. Builtins only.
+_ptg_rawcred() {
+  local _rw_t _rw_e _rw_p _rw_q _rw_o=0
+  _PTG_CL=""
+  case "$RAW" in *'"Read"'*) ;; *) return 1 ;; esac
+  [ "${#RAW}" -le 65536 ] || return 2
+  _fp_split "$_fp_bs" "$RAW"; _fp_joinsl _rw_t
+  shopt -q nocasematch && _rw_o=1
+  shopt -s nocasematch
+  for _rw_e in "${_PTG_CRED_H[@]}" "${_PTG_CRED_A[@]}"; do
+    _rw_p="${_rw_e#*:}"
+    _fp_split / "$_rw_p"; printf -v _rw_q '%s//' "${_FP_A[@]}"; _rw_q="${_rw_q%//}"
+    case "$_rw_t" in
+      *"/$_rw_p/"*|*"/$_rw_p$_fp_q"*|*"/$_rw_q/"*|*"/$_rw_q$_fp_q"*) _PTG_CL="${_rw_e%%:*}"; break ;;
+    esac
+  done
+  [ "$_rw_o" = 1 ] || shopt -u nocasematch
+  [ -n "$_PTG_CL" ]
+}
 _ptg_fields() {
   local v rc
   for v in TOOL:tool_name SESSION_ID:session_id CWD:cwd PATH_INPUT:file_path CMD:command; do
@@ -1073,7 +1099,20 @@ if ! _ptg_fields; then
   fi
   if [ -z "$TOOL" ]; then
     case "$RAW" in *'"tool_name"'*)
-      _fp_jqfail "persona-tool-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain persona-tool-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; } ;;
+      _fp_jqfail "persona-tool-guard.sh" "${#RAW}" && { _fp_emit ask "second-brain persona-tool-guard.sh could not read this call (jq failed on the payload; details in error-log.jsonl), so it cannot check it. Confirm the call."; exit 0; }
+      # jq is missing, so no field was read (P-F1/P-C1): the credential-store floor by spelling.
+      _ptg_rawcred; _ptg_rc=$?
+      if [ "$_ptg_rc" != 1 ]; then
+        if [ "$_ptg_rc" = 0 ]; then
+          _PTG_SR="persona-tool-guard.sh cannot decode this Read call without jq (not on PATH), and its payload names a credential store ($_PTG_CL). Reading a secret is the first step of credential exfiltration, the classic goal of a prompt injection. Confirm intent."
+        else
+          _PTG_SR="persona-tool-guard.sh cannot decode this Read call without jq (not on PATH), and its payload is too large (${#RAW} characters) to scan for a credential store. Confirm the call."
+        fi
+        _fp_emit ask "$_PTG_SR"
+        _fp_audit "persona-tool-guard.sh" "ask" "credential-read" "Read(undecoded)" "$_PTG_SR" "" full
+        _fp_err "persona-tool-guard.sh" "jq is not on PATH: the undecoded Read call above was asked about after all (its raw payload names a credential store, or is too large to scan)"
+        exit 0
+      fi ;;
     esac
   fi
 fi
@@ -1153,6 +1192,49 @@ _ptg_norm() {
   done
   return 0
 }
+
+# Windows git-bash sends 'C:\…' paths; the scope allowlist and self-edit regexes
+# are all forward-slash / $HOME-prefix based, so an un-normalized backslash path
+# matches NOTHING (drive-letter absolutes fall through to the "$CWD/…" relative
+# case and then trivially prefix-match $CWD — the resource-scope fail-open).
+# Normalize the target to the /c/… POSIX form first, and the working dir with it in the same
+# cygpath call when there is a target (only the resource-scope check reads CWD, and only for one).
+# _PTG_LONG: the target is past _ptg_norm's 4096-character bound (G3) — the floor below the rules.
+# _PTG_PROJ: the session's project root, the scope's $PROJECT root (GW), normalized in the same call.
+# This and the credential floor below are decided before the rules are read (P-F1): neither needs a
+# rule, and a rules read that cannot run (no jq: _ptg_rd_fail) still applies both.
+_PTG_LONG=0; [ "${#PATH_INPUT}" -gt 4096 ] && _PTG_LONG=1
+_ptg_proj _PTG_PROJ
+if [ -n "$PATH_INPUT" ]; then
+  if [ -n "$_PTG_PROJ" ]; then _ptg_norm PATH_INPUT CWD _PTG_PROJ; else _ptg_norm PATH_INPUT CWD; fi
+fi
+
+# --- Credential-store Read (G1, R3) -----------------------------------------
+# A Read of ~/.ssh, ~/.aws, ~/.claude/.credentials.json, … asks, whatever the resource scope says
+# (in scope when the session runs in HOME; no scope ask at all under SB_RESOURCE_SCOPE=off). The
+# fast path asks the same; _ptg_cred holds the list (symlink-guard's) and why /etc is not on it.
+# Not past 4096 characters: the path-too-long floor below asks for such a target anyway.
+# A floor below the rules (GX3, R3B), as path-too-long is: decided here, applied after the rule loop
+# unless a rule asked or denied — its ask used to exit ahead of the loop and weaken a user or repo
+# rule that DENIES the Read to an ask. It stands in for the resource-scope ask as well (the fast
+# path's order: the credential ask, then the scope one). Decided before the rules are read (P-F1):
+# with jq missing they cannot be, and _ptg_rd_fail applies this floor and path-too-long's itself.
+_PTG_CR_RULE="" _PTG_CR_TGT="" _PTG_CR_REASON=""
+# The Windows spellings (GS2/GC2/GX2, R3B) are _ptg_credread's; an 8.3 short name is resolved here
+# by identity (_ptg_inode) and asks unless the target exists and neither it nor an existing ancestor
+# is a store.
+if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
+  _ptg_abs "$PATH_INPUT" "$CWD"
+  _ptg_credread "$PATH_INPUT" "$_PTG_ABS"; _ptg_rc=$?
+  if [ "$_ptg_rc" = 2 ]; then
+    if _ptg_inode "$_PTG_ABS"; then
+      _PTG_CRR=credential-read _PTG_CRT="$_PTG_ABS"; _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"; _ptg_rc=0
+    elif [ "$_PTG_INO" != proven ]; then
+      _PTG_CRR=windows-alias:8.3 _PTG_CRT="$_PTG_ABS"; _ptg_alias_reason "$_PTG_ABS" "an NTFS 8.3 short name (NAME~1) that names no existing file"; _ptg_rc=0
+    fi
+  fi
+  [ "$_ptg_rc" = 0 ] && _PTG_CR_RULE="$_PTG_CRR" _PTG_CR_TGT="$_PTG_CRT" _PTG_CR_REASON="$_PTG_SR"
+fi
 
 USER_RULES="$BRAIN_DIR/persona-rules.json"
 DEFAULT_RULES="$PLUGIN_ROOT/scripts/persona-rules.default.json"
@@ -1293,9 +1375,25 @@ _ptg_rules_data() {
 # (a guard that cannot read its rules must not pass the call silently). Builtins only, so it holds
 # with lib.sh unsourceable as well. jq absent from PATH is _fp_jqfail's other case (GC4, R3B): logged,
 # and the call passes — SessionStart's banner reports the missing jq; asking here asked on every call
-# the fast path left undecided, every allow included.
+# the fast path left undecided, every allow included. The two floors below the rules need no rule
+# and still ask (P-F1): a credential-store Read (_PTG_CR_RULE, decided above) and a target past 4096
+# characters (_PTG_LONG). Before, this exit came first — with a user or repo layer standing the fast
+# path down, a Read of ~/.ssh/id_rsa passed with no verdict.
 _ptg_rd_fail() {
   if ! command -v jq >/dev/null 2>&1; then
+    if [ -n "$_PTG_CR_RULE" ]; then
+      _fp_err "persona-tool-guard.sh" "jq is not on PATH: the rules at $1 could not be read; the credential-store Read floor ($_PTG_CR_RULE) asked"
+      _fp_emit ask "$_PTG_CR_REASON"
+      _fp_audit "persona-tool-guard.sh" "ask" "$_PTG_CR_RULE" "$_PTG_CR_TGT" "$_PTG_CR_REASON" "${SESSION_ID:-}" full
+      exit 0
+    fi
+    if [ "$_PTG_LONG" = 1 ]; then
+      _ptg_long_reason "$TOOL" "$PATH_INPUT"
+      _fp_err "persona-tool-guard.sh" "jq is not on PATH: the rules at $1 could not be read; the path-too-long floor asked"
+      _fp_emit ask "$_PTG_SR"
+      _fp_audit "persona-tool-guard.sh" "ask" "path-too-long" "$PATH_INPUT" "$_PTG_SR" "${SESSION_ID:-}" full
+      exit 0
+    fi
     _fp_err "persona-tool-guard.sh" "jq is not on PATH: the rules at $1 could not be read and the call passed unchecked"
     exit 0
   fi
@@ -1403,20 +1501,6 @@ _ptg_pop; TS_ALLOW=${_L//"$_fp_us"/"$_fp_nl"}
 _ptg_pop; RS_ALLOW=${_L//"$_fp_us"/"$_fp_nl"}
 RULE_STREAM="$_RDR"
 
-# Windows git-bash sends 'C:\…' paths; the scope allowlist and self-edit regexes
-# are all forward-slash / $HOME-prefix based, so an un-normalized backslash path
-# matches NOTHING (drive-letter absolutes fall through to the "$CWD/…" relative
-# case and then trivially prefix-match $CWD — the resource-scope fail-open).
-# Normalize the target to the /c/… POSIX form first, and the working dir with it in the same
-# cygpath call when there is a target (only the resource-scope check reads CWD, and only for one).
-# _PTG_LONG: the target is past _ptg_norm's 4096-character bound (G3) — the floor below the rules.
-# _PTG_PROJ: the session's project root, the scope's $PROJECT root (GW), normalized in the same call.
-_PTG_LONG=0; [ "${#PATH_INPUT}" -gt 4096 ] && _PTG_LONG=1
-_ptg_proj _PTG_PROJ
-if [ -n "$PATH_INPUT" ]; then
-  if [ -n "$_PTG_PROJ" ]; then _ptg_norm PATH_INPUT CWD _PTG_PROJ; else _ptg_norm PATH_INPUT CWD; fi
-fi
-
 _ptg_spine
 
 # --- Verdict first, its audit row after (perf, R3 2026-10-07; GS5, R3B) ------------------------
@@ -1456,32 +1540,6 @@ if [ "${SB_TOOL_SCOPE:-on}" != "off" ]; then
       exit 0
     fi
   fi
-fi
-
-# --- Credential-store Read (G1, R3) -----------------------------------------
-# A Read of ~/.ssh, ~/.aws, ~/.claude/.credentials.json, … asks, whatever the resource scope says
-# (in scope when the session runs in HOME; no scope ask at all under SB_RESOURCE_SCOPE=off). The
-# fast path asks the same; _ptg_cred holds the list (symlink-guard's) and why /etc is not on it.
-# Not past 4096 characters: the path-too-long floor below asks for such a target anyway.
-# A floor below the rules (GX3, R3B), as path-too-long is: decided here, applied after the rule loop
-# unless a rule asked or denied — its ask used to exit ahead of the loop and weaken a user or repo
-# rule that DENIES the Read to an ask. It stands in for the resource-scope ask as well (the fast
-# path's order: the credential ask, then the scope one).
-_PTG_CR_RULE="" _PTG_CR_TGT="" _PTG_CR_REASON=""
-# The Windows spellings (GS2/GC2/GX2, R3B) are _ptg_credread's; an 8.3 short name is resolved here
-# by identity (_ptg_inode) and asks unless the target exists and neither it nor an existing ancestor
-# is a store.
-if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
-  _ptg_abs "$PATH_INPUT" "$CWD"
-  _ptg_credread "$PATH_INPUT" "$_PTG_ABS"; _ptg_rc=$?
-  if [ "$_ptg_rc" = 2 ]; then
-    if _ptg_inode "$_PTG_ABS"; then
-      _PTG_CRR=credential-read _PTG_CRT="$_PTG_ABS"; _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL"; _ptg_rc=0
-    elif [ "$_PTG_INO" != proven ]; then
-      _PTG_CRR=windows-alias:8.3 _PTG_CRT="$_PTG_ABS"; _ptg_alias_reason "$_PTG_ABS" "an NTFS 8.3 short name (NAME~1) that names no existing file"; _ptg_rc=0
-    fi
-  fi
-  [ "$_ptg_rc" = 0 ] && _PTG_CR_RULE="$_PTG_CRR" _PTG_CR_TGT="$_PTG_CRT" _PTG_CR_REASON="$_PTG_SR"
 fi
 
 # --- Resource-scope guard -------------------------------------------------
