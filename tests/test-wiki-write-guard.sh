@@ -286,17 +286,29 @@ g18 "$GC6H/kb/wiki/concepts/amp.md" "no frontmatter" HOME="$GC6HV" KNOWLEDGE_DIR
   || fail "GC6: a bare page under ~/kb with '&' in HOME must be denied (got: $out)"
 pass "GC6: '&' in HOME keeps a ~-relative KNOWLEDGE_DIR's wiki recognized"
 # GS8 (R3B): a relative KNOWLEDGE_DIR ("kb") was compared as is, so no absolute page path matched
-# it and frontmatter enforcement was off for that wiki. It is resolved against HOME (where the default
-# ~/knowledge lives), both by the plugin option and by the env variable.
-GS8H="$TMP/gs8 home"; mkdir -p "$GS8H/kb/wiki/concepts"
+# it and frontmatter enforcement was off for that wiki. P-S6/P-C3: it resolves against the working
+# directory, as every writer resolves it — lib.sh's sb_knowledge_dir and brain-paths.ts's
+# resolveKnowledgeDir both return it as is, so it opens against the process's cwd. GS8's join to HOME
+# checked a wiki under HOME no writer used and left the one they used unchecked. Both the plugin
+# option and the env variable, fast path and full logic.
+GS8H="$TMP/gs8 home" GS8W="$TMP/gs8 work"; mkdir -p "$GS8H/kb/wiki/concepts" "$GS8W/kb/wiki/concepts"
 GS8HV="$GS8H"; command -v cygpath >/dev/null 2>&1 && GS8HV=$(cygpath -m "$GS8H")
-g18 "$GS8H/kb/wiki/concepts/rel.md" "no frontmatter" HOME="$GS8HV" KNOWLEDGE_DIR=kb
+g18w() {  # g18w <cwd> <file_path> <content> [VAR=val…] -> out: a Write, the guard started in <cwd>
+  # printf, not jq --arg: MSYS would hand jq.exe the /tmp/… path as C:/…/Temp/…, while the guard's
+  # $PWD there is the /tmp spelling (a mount alias the lexical match does not resolve).
+  local d="$1" p="$2" c="$3"; shift 3
+  out=$(cd "$d" && printf '{"tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$p" "$c" \
+    | env CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR= KNOWLEDGE_DIR= "$@" bash "$SCRIPT")
+}
+g18w "$GS8W" "$GS8W/kb/wiki/concepts/rel.md" "no frontmatter" HOME="$GS8HV" KNOWLEDGE_DIR=kb
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
-  || fail "GS8: a bare page under a relative KNOWLEDGE_DIR (kb = ~/kb) must be denied (got: $out)"
-g18 "$GS8H/kb/wiki/concepts/rel2.md" "-no fence" HOME="$GS8HV" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=./kb
+  || fail "P-S6: a bare page under a relative KNOWLEDGE_DIR (kb = <cwd>/kb) must be denied (got: $out)"
+g18w "$GS8W" "$GS8W/kb/wiki/concepts/rel2.md" "-no fence" HOME="$GS8HV" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=./kb
 [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
-  || fail "GS8: the full logic must deny a bare page under a relative plugin-option KNOWLEDGE_DIR (./kb) too (got: $out)"
-pass "GS8: a relative KNOWLEDGE_DIR resolves against HOME (fast path and full logic)"
+  || fail "P-S6: the full logic must deny a bare page under a relative plugin-option KNOWLEDGE_DIR (./kb) too (got: $out)"
+g18w "$GS8W" "$GS8H/kb/wiki/concepts/rel3.md" "no frontmatter" HOME="$GS8HV" KNOWLEDGE_DIR=kb
+[ -z "$out" ] || fail "P-S6: HOME/kb is not the wiki of a relative KNOWLEDGE_DIR when the cwd is elsewhere (got: $out)"
+pass "P-S6: a relative KNOWLEDGE_DIR resolves against the working directory, as lib.sh and brain-paths.ts do (fast path and full logic)"
 
 # G18: the full logic read a Write's content with one jq and exited 0 when it read nothing — a jq
 # that failed (killed, out of memory) let a bare page through unchecked (Edit/MultiEdit already

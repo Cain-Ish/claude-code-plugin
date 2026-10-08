@@ -524,12 +524,14 @@ _wwg_kdpage() {
   case "$2" in */wiki/*.md) ;; *) return 1 ;; esac
   _wk_d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
   _wk_d=${_wk_d/#\~/"$HOME"}   # quoted (GC6): an unquoted '&' in HOME would be the matched '~' on bash 5.2
-  # A relative one ("kb", "./kb") is HOME's, where the default ~/knowledge lives (GS8, R3B): compared
-  # as is, no absolute page path matched it and its wiki went unchecked.
+  # A relative one ("kb", "./kb") is the working directory's (P-S6/P-C3), as every writer reads it:
+  # lib.sh's sb_knowledge_dir and brain-paths.ts's resolveKnowledgeDir return it as is, so each opens
+  # it against its own cwd. Compared as is, no absolute page path matched it and its wiki went
+  # unchecked (GS8, R3B); GS8 then joined it to HOME, which checked a wiki no writer used.
   case "$_wk_d" in
     /*|"$_fp_bs"*|[A-Za-z]:/*|[A-Za-z]:"$_fp_bs"*|'') ;;
-    ./*) _wk_d="$HOME/${_wk_d#./}" ;;
-    *) _wk_d="$HOME/$_wk_d" ;;
+    ./*) _wk_d="$PWD/${_wk_d#./}" ;;
+    *) _wk_d="$PWD/$_wk_d" ;;
   esac
   _fp_path _wk_d "$_wk_d" lex; _fp_collapse _wk_d "$_wk_d"; _wk_d="${_wk_d%/}"
   [ -n "$_wk_d" ] || return 1
