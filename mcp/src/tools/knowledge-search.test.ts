@@ -1200,6 +1200,14 @@ describe('injectedHitLines — an unprintable candidate does not take a slot (T2
       { path: '/repo/Plan — v2.md', source: 'local-doc', reason: 'path-separator' },
     ]);
   });
+  it('judges each path in the platform it is given, not the host one (review 2, P-T6)', () => {
+    const doc = { path: '/repo/docs/a.md', description: 'x', source: 'local-doc' };
+    expect(injectedHitLines([doc], 1, 'linux').lines).toEqual(['Read /repo/docs/a.md — x']);
+    expect(injectedHitLines([doc], 1, 'win32').drops).toEqual([{ path: '/repo/docs/a.md', source: 'local-doc', reason: 'path-relative' }]);
+    const winDoc = { path: 'C:\\repo\\docs\\a.md', description: 'x', source: 'local-doc' };
+    expect(injectedHitLines([winDoc], 1, 'win32').lines).toEqual(['Read C:\\repo\\docs\\a.md — x']);
+    expect(injectedHitLines([winDoc], 1, 'linux').drops.map(d => d.reason)).toEqual(['path-relative']);
+  });
   it('stops at max and never reports a candidate past it', () => {
     const r = injectedHitLines([w('alpha'), w('beta'), { path: 'rel.md', description: '', source: 'local-doc' }], 2);
     expect(r.lines).toHaveLength(2);
