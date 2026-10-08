@@ -919,6 +919,9 @@ dc_case "MultiEdit of another brain file" deny MultiEdit second-brain:dream-runn
 dc_case ".. out of its dream dir" deny Write second-brain:dream-runner "$DCD/../../config.json"
 dc_case "a dream dir that does not exist" deny Write second-brain:dream-runner "$BRAIN/dreams/drm_nope/staging/wiki/a.md"
 dc_case "the dreams root itself" deny Write second-brain:dream-runner "$BRAIN/dreams/x.md"
+# R3-C P-C4: dream-accept's applied marker sits beside the dream dir so the runner cannot plant it.
+dc_case "dream-accept's applied marker beside its dream dir" deny Write second-brain:dream-runner "$BRAIN/dreams/.applied-drm_20261007T000000Z"
+dc_case "dream-accept's applied marker, Edit" deny Edit dream-runner "$BRAIN/dreams/.applied-drm_20261007T000000Z"
 dc_case "a relative path" deny Write second-brain:dream-runner "staging/wiki/a.md"
 dc_case "another agent writing outside the brain" none Write general-purpose "$SB_HOME/.claude/settings.json"
 dc_case "a name that only ends in dream-runner" none Write my-dream-runner "$SB_HOME/.claude/settings.json"
