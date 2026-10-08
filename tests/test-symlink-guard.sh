@@ -540,6 +540,21 @@ big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | a
 BIG_BOUND=10
 BODY=$(big_body 524288)
 
+# P-C6: _sg_homes spelled USERPROFILE and APPDATA physically with `cd -P`, on every Write. Into an
+# unreachable UNC share that blocks — ~2.7 s per share on Windows (name resolution), longer for a
+# host that resolves and never answers — and two of them put the deny past the hook budget: the
+# Write ran. A //… (or \\…) value is spelled lexically only. Off Windows // is / and nothing blocks.
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$HOME/.ssh/authorized_keys" > "$TMP/c6.json"
+C6H="sb-nohost-$$-$RANDOM"   # unique per run: Windows caches a failed name lookup for a while
+bounded "P-C6 Write into ~/.ssh with UNC USERPROFILE/APPDATA" "$BIG_BOUND" "$TMP/c6.json" USERPROFILE='\\'"${C6H}a"'\share\u' APPDATA="//${C6H}b/share/AppData/Roaming"
+assert_deny "P-C6: a UNC USERPROFILE/APPDATA does not delay the deny (${BD_MS} ms)" "$BD_OUT" ssh
+# One failed lookup took 1.3-2.7 s on the dev box, so the 4 s hook bound alone can miss a regression:
+# this fast-path deny answers in ~0.1 s, bound at 1.5 s. The source lock holds where no lookup blocks.
+within "P-C6 Write with UNC USERPROFILE/APPDATA" 1500
+[ "$(sed -n '/^_sg_homes()/,/^}/p' "$SCRIPT" | grep 'cd -P' | grep -vc '_sg_unc')" = 0 ] \
+  || fail "P-C6 source lock: every cd -P in _sg_homes must be gated by _sg_unc"
+pass "P-C6 source lock: _sg_homes spells no UNC value physically"
+
 # P-H1: a 512 KB Write. The fast path sees only the first 16 KiB, so a file_path AFTER the content
 # is decided by the full logic — which took 144 s (O(n^2) key search and newline strip).
 printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$HOME/work/repo/big.txt" "$BODY" > "$TMP/big1.json"
@@ -758,20 +773,90 @@ fi
 # ~/.git-credentials, ~/.npmrc, ~/.docker/config.json, ~/.kube/config, ~/.pypirc, ~/.config/gcloud
 # and ~/.azure hold tokens as surely as ~/.netrc; on Windows so do %APPDATA%\GitHub CLI\hosts.yml and
 # %APPDATA%\gcloud, and the native tools keep theirs under %USERPROFILE% when HOME points elsewhere.
-for f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json; do
-  OUT=$(run_guard Write "$HOME/$f"); assert_deny "GX6: write to ~/$f" "$OUT" "credential"
+# P-S8 added %HOME%\_netrc (curl on Windows), ~/.config/git/credentials, ~/.pgpass, ~/.vault-token,
+# ~/.cargo/credentials(.toml), ~/.terraform.d/credentials.tfrc.json and ~/.gem/credentials.
+# P-C2 (0.56.0 policy): the stores this release added are an ASK tier on Write — "edit my ~/.npmrc" is
+# routine, and a hard deny left no per-call approve — while the stores denied at 407fa24 (.ssh, .gnupg,
+# .aws, .config/claude, .config/gh, .password-store, .netrc, .claude/.credentials.json, /etc) stay DENY,
+# and so do two new entries that are Windows aliases of them (controller decision): _netrc is curl's
+# spelling of .netrc, %APPDATA%\GitHub CLI\hosts.yml gh's token store, the data ~/.config/gh holds.
+assert_ask() {  # assert_ask LABEL OUT NEEDLE: an ask whose reason mentions NEEDLE
+  local d r
+  d=$(printf '%s' "$2" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null | tr -d '\r')
+  [ "$d" = ask ] || fail "$1 — expected ask, got '$d' (out: $2)"
+  r=$(printf '%s' "$2" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+  printf '%s' "$r" | grep -q "$3" || fail "$1 — reason should mention '$3' (got: $r)"
+  pass "$1 (ask, reason mentions $3)"
+}
+for f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json \
+         .config/git/credentials .pgpass .vault-token .cargo/credentials .cargo/credentials.toml \
+         .terraform.d/credentials.tfrc.json .gem/credentials; do
+  OUT=$(run_guard Write "$HOME/$f"); assert_ask "GX6/P-S8/P-C2: write to ~/$f asks (the ask tier)" "$OUT" "credential"
+done
+for f in .ssh/authorized_keys .gnupg/gpg.conf .aws/credentials .config/claude/x .config/gh/hosts.yml .password-store/a.gpg .netrc .claude/.credentials.json _netrc; do
+  OUT=$(run_guard Write "$HOME/$f"); assert_deny "P-C2: write to ~/$f stays a deny (the deny tier)" "$OUT" "credential"
 done
 OUT=$(run_guard Write "$HOME/.docker/daemon.json"); assert_allow "GX6: ~/.docker/daemon.json is no credential store" "$OUT"
+OUT=$(run_guard Write "$HOME/.cargo/config.toml"); assert_allow "P-S8: ~/.cargo/config.toml is no credential store" "$OUT"
 OUT=$(USERPROFILE="$TMP/profile" run_guard Write "$TMP/profile/.claude/.credentials.json")
 assert_deny "GX6: write to USERPROFILE's .claude/.credentials.json (HOME elsewhere)" "$OUT" "credential"
 OUT=$(USERPROFILE="$TMP/profile" run_guard Edit "$TMP/profile/.ssh/authorized_keys")
 assert_deny "GX6: edit of USERPROFILE's .ssh/authorized_keys (HOME elsewhere)" "$OUT" "credential"
+OUT=$(USERPROFILE="$TMP/profile" run_guard Write "$TMP/profile/.npmrc")
+assert_ask "GX6/P-C2: write to USERPROFILE's .npmrc asks (HOME elsewhere)" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/GitHub CLI/hosts.yml")
-assert_deny "GX6: write to %APPDATA%/GitHub CLI/hosts.yml" "$OUT" "credential"
+assert_deny "GX6/P-C2: write to %APPDATA%/GitHub CLI/hosts.yml denies (an alias of ~/.config/gh)" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/gcloud/credentials.db")
-assert_deny "GX6: write into %APPDATA%/gcloud" "$OUT" "credential"
+assert_ask "GX6/P-C2: write into %APPDATA%/gcloud asks" "$OUT" "credential"
 OUT=$(APPDATA="$TMP/appdata" run_guard Write "$TMP/appdata/Code/settings.json")
 assert_allow "GX6: other %APPDATA% files are no credential store" "$OUT"
+# The strictest store wins: an ask-tier spelling that leads into a deny-tier store denies. ~/.azure as
+# a directory link to ~/.ssh — the literal target is the ask tier, the resolved one the deny tier.
+if dir_link "$HOME/.ssh" "$HOME/.azure"; then
+  OUT=$(run_guard Write "$HOME/.azure/authorized_keys")
+  assert_deny "P-C2: an ask-tier path (~/.azure) linked into ~/.ssh denies" "$OUT" "ssh"
+  # With a '..' the fast path cannot resolve it: the full logic holds the literal ask-tier match until
+  # realpath shows the deny-tier store, and the fast path does not ask on the spelling alone.
+  OUT=$(run_guard Write "$HOME/.azure/../.azure/authorized_keys")
+  assert_deny "P-C2: the same path through '..' (full logic) denies, not asks" "$OUT" "ssh"
+  dir_unlink "$HOME/.azure"
+else
+  echo "SKIP: P-C2 linked ask-tier path — no directory link can be made here"
+fi
+
+# --- P-S1: Windows root-relative targets ----------------------------------------------------------
+# Claude Code hands node a model's /Users/u/.ssh/x as \Users\u\.ssh\x, and node opens a path with one
+# leading separator and no drive on the current drive: C:\Users\u\.ssh\x. The guards read \… and /…
+# as the MSYS root (C:\Program Files\Git\Users\…), so no credential prefix matched and the Write ran
+# (a marker file created and removed through it, RV2-sec). Such a target is spelled on the payload
+# cwd's drive, else CLAUDE_PROJECT_DIR's; a \-rooted one with neither asks. MSYS paths (/tmp, /usr, a
+# drive letter's /c, …) are left as they are: \tmp\x is not asked about. The stubbed cygpath above
+# makes this a "Windows host" on every lane, as tests 20-24 are.
+win_guard_cwd() {  # $1 tool  $2 path  $3 cwd ('' = no cwd field)  [VAR=val…]
+  local et ep ec cw=""
+  et=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  ep=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  if [ -n "$3" ]; then ec=$(printf '%s' "$3" | sed 's/\\/\\\\/g; s/"/\\"/g'); cw=",\"cwd\":\"$ec\""; fi
+  shift 3
+  printf '{"session_id":"t","hook_event_name":"PreToolUse","tool_name":"%s"%s,"tool_input":{"file_path":"%s"}}' "$et" "$cw" "$ep" \
+    | env CLAUDE_PROJECT_DIR= HOME="$WINHOME" SB_TEST_WINHOME="$WINHOME" PATH="$WINBIN:$PATH" "$@" bash "$SCRIPT" 2>/dev/null
+}
+OUT=$(win_guard_cwd Write '\winhome\.ssh\authorized_keys' 'C:\w\proj')
+assert_deny "P-S1: a root-relative \\winhome\\.ssh Write lands on the cwd's drive, C: — deny" "$OUT" ssh
+OUT=$(win_guard_cwd Edit '/winhome/.ssh/authorized_keys' 'C:/w/proj')
+assert_deny "P-S1: the '/'-rooted spelling on a native cwd — deny" "$OUT" ssh
+OUT=$(win_guard_cwd Write '\winhome\.npmrc' 'C:\w\proj')
+assert_ask "P-S1: a root-relative Write into an ask-tier store asks" "$OUT" npmrc
+OUT=$(win_guard_cwd Write '\winhome\.ssh\authorized_keys' '' CLAUDE_PROJECT_DIR='C:\w\proj')
+assert_deny "P-S1: no cwd — CLAUDE_PROJECT_DIR's drive — deny" "$OUT" ssh
+OUT=$(win_guard_cwd Write '\winhome\.ssh\authorized_keys' '')
+assert_ask "P-S1: a \\-rooted target with no drive to put it on asks" "$OUT" "root-relative"
+OUT=$(win_guard_cwd Write '\tmp\sb-p-s1.txt' 'C:\w\proj')
+assert_allow "P-S1: \\tmp\\x (an MSYS path) is not asked about" "$OUT"
+OUT=$(win_guard_cwd Write '\winhome\work\repo\main.py' 'C:\w\proj')
+assert_allow "P-S1: a root-relative project file is not over-blocked" "$OUT"
+OUT=$(win_guard_cwd Write '/winhome/work/repo/main.py' '')
+assert_allow "P-S1: a '/'-rooted target with no drive known keeps its MSYS reading" "$OUT"
 
 # Mutation i (source-scan): the `_sg_segs SG_SEGS` count must stay gated by the length cap. Without the
 # gate, a 300 KB run of '/' spends ~1.6 s splitting into ~300k fields for a count that is moot past the

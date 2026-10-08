@@ -1053,7 +1053,17 @@ for g1_f in _sg_cred_match _sg_inode; do
 done
 [ "$(grep -c 'ssh:\.ssh' "$SG")" = 1 ] || fail "GT10: symlink-guard spells an entry outside _SG_CRED_H (a copy that can drift)"
 [ "$(grep -c 'ssh:\.ssh' "$SCRIPT")" = 1 ] || fail "GT10: persona-tool-guard spells an entry outside _PTG_CRED_H"
-pass "G1: the Read credential lists mirror symlink-guard's, which every one of its credential tests reads"
+# P-C2: every entry names its Write tier (tier:label:path, tier deny|ask), and the deny tier is
+# exactly the stores symlink-guard denied at 407fa24 plus their two Windows aliases, _netrc (curl's
+# .netrc) and %APPDATA%\GitHub CLI\hosts.yml (gh's ~/.config/gh); the other 0.56.0 additions ask. The
+# lists above are compared with their tiers, so the two guards agree on each entry's tier as well.
+g1_all=$(eval "$(grep -E '^_SG_CRED_H=' "$SG")"; eval "$(grep -E '^_SG_CRED_A=' "$SG")"; printf '%s\n' "${_SG_CRED_H[@]}" "${_SG_CRED_A[@]}")
+g1_bad=$(printf '%s\n' "$g1_all" | grep -vE '^(deny|ask):[a-z0-9-]+:[^:]+$')
+[ -z "$g1_bad" ] || fail "P-C2: credential entries without a deny|ask tier (tier:label:path): $(echo $g1_bad)"
+g1_deny=$(printf '%s\n' "$g1_all" | grep '^deny:' | LC_ALL=C sort | tr '\n' ' ')
+[ "$g1_deny" = "deny:aws:.aws deny:claude-config:.config/claude deny:claude-oauth:.claude/.credentials.json deny:gh-config:.config/gh deny:gh-hosts:GitHub CLI/hosts.yml deny:gnupg:.gnupg deny:netrc:.netrc deny:netrc:_netrc deny:passwordstore:.password-store deny:ssh:.ssh " ] \
+  || fail "P-C2: the deny tier must be the stores denied at 407fa24 and their _netrc and gh hosts.yml aliases, no more, no fewer (have: $g1_deny)"
+pass "G1: the Read credential lists mirror symlink-guard's, tiers included, which every one of its credential tests reads"
 
 # GX3 (R3B): credential-read is a floor below the rules, as path-too-long is. Before, its ask exited
 # ahead of the rule loop, so a user or repo rule that DENIES a Read of a credential store was
@@ -1111,11 +1121,16 @@ a2() {  # a2 <rule|-> <file_path> <cwd> <HOME> [VAR=val…]: both paths reach <r
 a2 credential-read '~/.ssh/id_rsa' /w/proj /home/a2u
 a2 credential-read '~/.claude/.credentials.json' /w/proj /home/a2u
 # GX6: the stores beyond the first eight, under HOME, under USERPROFILE when HOME points elsewhere,
-# and under APPDATA (Windows: gh's hosts.yml, gcloud's directory).
-for a2_f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json; do
+# and under APPDATA (Windows: gh's hosts.yml, gcloud's directory). P-S8: _netrc (curl on Windows),
+# git's XDG credential file, .pgpass, .vault-token, cargo's, terraform's and RubyGems' tokens. A Read
+# asks for symlink-guard's ask tier and deny tier alike (P-C2 tiers Writes only).
+for a2_f in .git-credentials .npmrc .docker/config.json .kube/config .pypirc .config/gcloud/credentials.db .azure/msal_token_cache.json \
+            _netrc .config/git/credentials .pgpass .vault-token .cargo/credentials .cargo/credentials.toml \
+            .terraform.d/credentials.tfrc.json .gem/credentials; do
   a2 credential-read "/home/a2u/$a2_f" /w/proj /home/a2u
 done
 a2 - /home/a2u/.docker/daemon.json /w/proj /home/a2u
+a2 - /home/a2u/.cargo/config.toml /w/proj /home/a2u
 a2 credential-read /home/a2p/.claude/.credentials.json /w/proj /home/a2u USERPROFILE=/home/a2p
 a2 credential-read "/home/a2u/AppData/Roaming/GitHub CLI/hosts.yml" /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
 a2 credential-read /home/a2u/AppData/Roaming/gcloud/credentials.db /w/proj /home/a2u APPDATA=/home/a2u/AppData/Roaming
@@ -1131,6 +1146,27 @@ if [ -L "$A2/phys/link" ]; then
 else
   echo "SKIP: GT10 symlinked HOME — ln -s makes no symlink here (MSYS copies)"
 fi
+# P-S2: a link inside the project into a store — a Read of proj/sshlink/id_rsa opens ~/.ssh/id_rsa,
+# and its spelling names no store. The full logic compares the target and its ancestors by identity
+# (_ptg_inode, test -ef) once one of them is a link; the fast path stands down for such a target. A
+# directory link: ln -s where it makes one, else an NTFS junction through node (MSYS copies on ln -s).
+mkdir -p "$A2/lk/home/.ssh" "$A2/lk/proj" "$A2/lk/docs"; : > "$A2/lk/home/.ssh/id_rsa"; : > "$A2/lk/docs/readme.md"
+a2_link() {  # a2_link TARGET LINK: a directory link (a junction on Windows hosts); 0 = made
+  if command -v cygpath >/dev/null 2>&1; then
+    command -v node >/dev/null 2>&1 || return 1
+    node -e 'require("fs").symlinkSync(process.argv[1], process.argv[2], "junction")' "$(cygpath -w "$1")" "$(cygpath -w "$2")" && [ -L "$2" ]
+    return
+  fi
+  ln -s "$1" "$2" && [ -L "$2" ]
+}
+if a2_link "$A2/lk/home/.ssh" "$A2/lk/proj/sshlink" && a2_link "$A2/lk/docs" "$A2/lk/proj/doclink"; then
+  a2 credential-read "$A2/lk/proj/sshlink/id_rsa" "$A2/lk/proj" "$A2/lk/home"
+  grep -q '"fastpath":true' "$A2/fast/audit-log.jsonl" && fail "P-S2: a Read through a link must be left to the full logic"
+  a2 credential-read "$A2/lk/proj/sshlink" "$A2/lk/proj" "$A2/lk/home"
+  a2 - "$A2/lk/proj/doclink/readme.md" "$A2/lk/proj" "$A2/lk/home"
+else
+  echo "SKIP: P-S2 Read through an in-project link — no directory link can be made here"
+fi
 if command -v cygpath >/dev/null 2>&1; then
   a2 credential-read "$(w '||?|UNC|localhost|C$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
   a2 credential-read "$(w '||LOCALHOST|c$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
@@ -1144,6 +1180,16 @@ if command -v cygpath >/dev/null 2>&1; then
   a2 credential-read "$(w 'C:|Users|a2u|.ssh |id_rsa')" 'C:\w\proj' /c/Users/a2u
   a2 credential-read "$(w 'C:|Users|a2u|.claude|.credentials.json.')" 'C:\w\proj' /c/Users/a2u
   a2 - "$(w 'C:|Users|a2u|notes.txt')" 'C:\w\proj' /c/Users/a2u
+  # P-S1: a root-relative target (one leading separator, no drive) — node opens it on the current
+  # drive, the guards read it under the MSYS root: spelled on the payload cwd's drive, else
+  # CLAUDE_PROJECT_DIR's; a \-rooted one with neither asks (windows-alias:root-relative). An MSYS path
+  # such as \tmp\x keeps its MSYS reading (in scope: no ask).
+  a2 credential-read "$(w '|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read '/Users/a2u/.npmrc' 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w '|Users|a2u|.ssh|id_rsa')" '' /c/Users/a2u 'CLAUDE_PROJECT_DIR=C:\w\proj'
+  a2 windows-alias:root-relative "$(w '|Users|a2u|.ssh|id_rsa')" '' /c/Users/a2u CLAUDE_PROJECT_DIR=
+  a2 - "$(w '|Users|a2u|notes.txt')" 'C:\w\proj' /c/Users/a2u
+  a2 - "$(w '|tmp|a2-p-s1.txt')" 'C:\w\proj' /c/Users/a2u SB_RESOURCE_SCOPE=on
   # 8.3 short names (GC2/GX2c), on disk: SSH~1 is .ssh. The fast path cannot resolve one and stands
   # down; the full logic asks unless test -ef shows no credential store among the target and its
   # existing ancestors (a long-named project directory's short name stays silent).
@@ -1286,9 +1332,15 @@ pass "G3: a default rules file that is not JSON denies"
 # A cache that IS bad is rebuilt in place: its .sig is dropped so sb_rules_effective rebuilds (tmp +
 # mv), never deleted first — a concurrent guard that had just been handed the path read a missing file.
 # GT6 (R3B): any spelling of it — rm or unlink with any flags, ${EFF}, an mv away, or a truncation.
-grep -vE '^[[:space:]]*#' "$SCRIPT" \
-  | grep -qE '((^|[^A-Za-z_])(rm|unlink|mv)[[:space:]]+([^;&|#]*[[:space:]])?|>[[:space:]]*)"?\$\{?EFF\}?"?([[:space:];&|)]|$)' \
-  && fail "G3: the guard deletes (or empties) the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
+# P-Q11: the lock proves itself first — every poison spelling must match (a pattern grep cannot
+# compile exits 2, which `grep -q … && fail` read as "no match": a silent pass) — and the scan of the
+# guard must exit exactly 1 (no match), not 2.
+GT6_RE='((^|[^A-Za-z_])(rm|unlink|mv)[[:space:]]+([^;&|#]*[[:space:]])?|>[[:space:]]*)"?\$\{?EFF\}?"?([[:space:];&|)]|$)'
+gt6_hit=$(printf '%s\n' 'rm -f "$EFF"' 'unlink ${EFF}' 'mv "$EFF" "$EFF.old"' ': > "$EFF"' '  rm $EFF; x' | grep -cE "$GT6_RE")
+[ "$gt6_hit" = 5 ] || fail "GT6 self-test: the lock's pattern must match all 5 poison spellings (matched: '$gt6_hit')"
+grep -vE '^[[:space:]]*#' "$SCRIPT" | grep -qE "$GT6_RE"; gt6_rc=$?
+[ "$gt6_rc" = 0 ] && fail "G3: the guard deletes (or empties) the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
+[ "$gt6_rc" = 1 ] || fail "GT6: the cache-deletion scan of the guard failed (grep exit $gt6_rc), so it proved nothing"
 pass "G3: a failed cache is rebuilt in place, not deleted"
 # GC4 (R3B): a missing jq is not a failed rules read. _fp_jqfail's rule — jq ran and failed: ask; jq
 # absent: log and pass (SessionStart's banner reports it) — held for the payload read but not for the
@@ -1301,11 +1353,42 @@ for t in grep sed cat tr date mkdir dirname head tail cut wc awk sort uniq mv rm
 done
 PATH="$G3/nojq" "$BASH" -c 'command -v jq' >/dev/null 2>&1 && fail "GC4 precondition: jq must be off the shim PATH"
 : > "$G3/brain/error-log.jsonl"
-out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>/dev/null)
-[ -z "$out" ] || fail "GC4: with jq missing, a benign call is logged and passes, it does not ask (got: $out)"
+# P-Q9: "passes" is no output, exit 0 and an empty stderr — a guard that crashed prints nothing either.
+out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>"$G3/gc4err"); gc4_rc=$?
+[ -z "$out" ] && [ "$gc4_rc" = 0 ] && [ ! -s "$G3/gc4err" ] \
+  || fail "GC4: with jq missing, a benign call is logged and passes, it does not ask or crash (rc=$gc4_rc, got: $out, stderr: $(head -c 300 "$G3/gc4err"))"
 grep -q 'jq is not on PATH' "$G3/brain/error-log.jsonl" \
   || fail "GC4: the missing jq must be logged (error-log: $(cat "$G3/brain/error-log.jsonl"))"
 pass "GC4: jq missing — the rules cannot be read, the call is logged and passes (jq that ran and failed still asks)"
+# P-F1/P-C1: a missing jq stands the rules down, not the two floors below them. A user layer stands
+# the fast path down (as an unsigned cache, an 8.3 name or an MSYS-mount respelling does), and the
+# full logic's no-jq exit came before the credential-store floor and path-too-long's: a Read of
+# ~/.ssh/id_rsa passed with no verdict. A payload the builtins cannot decode (bash < 4.3 decodes
+# none; here a duplicated key) is scanned by spelling instead; a benign one still passes.
+cp "$(dirname "$SCRIPT")/persona-rules.default.json" "$G3/brain/persona-rules.json"
+f1() {  # f1 <payload> -> out, f1_rc (stderr in $G3/f1err)
+  : > "$G3/brain/audit-log.jsonl"
+  out=$(printf '%s' "$1" | HOME=/home/f1u PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>"$G3/f1err"); f1_rc=$?
+}
+f1_ask() {  # f1_ask <label> <rule>: out is an ask, audited as <rule>
+  [ "$f1_rc" = 0 ] && printf '%s' "$out" | grep -q '"permissionDecision":"ask"' \
+    || fail "P-F1 $1: with jq missing and a user layer, the call must ask (rc=$f1_rc, got: '$out', stderr: $(head -c 300 "$G3/f1err"))"
+  grep -q "\"rule\":\"$2\"" "$G3/brain/audit-log.jsonl" \
+    || fail "P-F1 $1: the ask must be audited as $2 (audit: $(cat "$G3/brain/audit-log.jsonl"))"
+}
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/home/f1u/.ssh/id_rsa"},"cwd":"/w/proj","session_id":"f1"}'
+f1_ask "credential Read" credential-read
+f1 "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/w/proj/$(printf '%05000d' 0)\"},\"cwd\":\"/w/proj\",\"session_id\":\"f1\"}"
+f1_ask "5000-character target" path-too-long
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/w/proj/a.txt","file_path":"/home/f1u/.ssh/id_rsa"},"cwd":"/w/proj","session_id":"f1"}'
+f1_ask "undecodable payload" credential-read
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/w/proj/a.txt","file_path":"/w/proj/b.txt"},"cwd":"/w/proj","session_id":"f1"}'
+[ -z "$out" ] && [ "$f1_rc" = 0 ] || fail "P-F1: an undecodable benign Read with jq missing is logged and passes (rc=$f1_rc, got: $out)"
+f1 '{"tool_name":"Read","tool_input":{"file_path":"/w/proj/a.txt"},"cwd":"/w/proj","session_id":"f1"}'
+[ -z "$out" ] && [ "$f1_rc" = 0 ] && [ ! -s "$G3/f1err" ] \
+  || fail "P-F1: a benign Read with jq missing is logged and passes (rc=$f1_rc, got: $out, stderr: $(head -c 300 "$G3/f1err"))"
+rm -f "$G3/brain/persona-rules.json"
+pass "P-F1: jq missing — the credential-store Read floor and path-too-long's still ask (decoded or by spelling); benign Reads pass"
 rm -rf "$G3"
 
 # --- G2 (R3, 2026-10-07): a verdict written past the hook deadline says so --------------------
@@ -1425,6 +1508,21 @@ is_ask() { printf '%s' "$1" | grep -q '"permissionDecision":"ask"'; }
 big_body() { printf '\303\251'; printf '%*s' "$1" '' | tr ' ' x | fold -w 80 | awk '{printf "%s\\n", $0}'; }
 BIG_BOUND=10
 BODY=$(big_body 524288)
+# P-C6: _ptg_homes spelled HOME, USERPROFILE and APPDATA physically with `cd -P` on every credential
+# check. Into an unreachable UNC share that blocks (~2.7 s per share on Windows; longer for a host
+# that resolves and never answers): two of them put the ask past the hook budget, and the Read ran.
+# A //… (or \\…) value is spelled lexically only. Off Windows // is / and nothing blocks.
+printf '{"session_id":"c6","cwd":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$SZ" "$SZ/c6home/.ssh/id_rsa" > "$SZ/c6.json"
+C6H="sb-nohost-$$-$RANDOM"   # unique per run: Windows caches a failed name lookup for a while
+bounded "P-C6 Read of ~/.ssh with UNC USERPROFILE/APPDATA" "$BIG_BOUND" "$SZ/c6.json" HOME="$SZ/c6home" USERPROFILE='\\'"${C6H}a"'\share\u' APPDATA="//${C6H}b/share/AppData/Roaming"
+printf '%s' "$BD_OUT" | grep -q '"permissionDecision":"ask"' || fail "P-C6: the credential Read must still ask (got: $BD_OUT)"
+# One failed lookup took 1.3-2.7 s on the dev box, so the 4 s hook bound alone can miss a regression:
+# this builtin-only Read answers in ~0.1 s, bound at 1.5 s. The source lock holds where no lookup
+# blocks (off Windows, or a resolver that fails fast).
+within "P-C6 Read with UNC USERPROFILE/APPDATA" 1500
+sed -n '/^_ptg_homes()/,/^}/p' "$SCRIPT" | grep -B1 'cd -P' | grep -qF 'case "$_ph_s" in //*|' \
+  || fail "P-C6 source lock: _ptg_homes must skip a //… or \\\\… value before its cd -P"
+pass "P-C6: a UNC USERPROFILE/APPDATA does not delay the credential ask (${BD_MS} ms)"
 # P-H1: 512 KB payloads reach the full logic (the fast path reads 16 KiB); before, 146-222 s.
 printf '{"session_id":"big","cwd":"%s","tool_name":"Write","tool_input":{"file_path":"%s","content":"%s"}}' "$SZ" "$SZ/src/big.ts" "$BODY" > "$SZ/big1.json"
 bounded "P-H1 512 KB benign in-scope Write" "$BIG_BOUND" "$SZ/big1.json"

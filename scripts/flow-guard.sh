@@ -397,6 +397,35 @@ _fp_joinsl() {
   printf -v "$1" '%s' "${_FP_A[*]-}"
 }
 
+# _fp_rroot VAR PATH CWD (P-S1): VAR = PATH — on a Windows host, spelled on a drive when it is
+# root-relative there: one leading '\' or '/' (not a UNC or device path), no drive, and not an MSYS
+# path (its first name a drive letter, or one of the Git/MSYS root's own: bin cmd dev etc mingw32
+# mingw64 ucrt64 clang32 clang64 clangarm64 proc tmp usr). Claude Code hands node a model's
+# /Users/u/.ssh/x as \Users\u\.ssh\x, and node opens it on the current drive — C:\Users\u\.ssh\x —
+# where these guards read \… and /… under the MSYS root (C:\Program Files\Git\Users\…): no credential
+# prefix matched, and the Write ran. The drive is the payload cwd's (a native X:\… or X:/… form),
+# else CLAUDE_PROJECT_DIR's. 0 = VAR set (respelled or not); 2 = a '\'-rooted PATH with neither
+# drive known — undecidable, the caller asks. A '/'-rooted one keeps its MSYS reading then, as it
+# always had. Builtins only (_fp_path, _fp_lower: _FP_A is overwritten).
+_fp_rroot() {
+  local _fo_p="$2" _fo_d _fo_s
+  printf -v "$1" '%s' "$_fo_p"
+  case "$_fo_p" in
+    "$_fp_bs$_fp_bs"*|"$_fp_bs/"*|"/$_fp_bs"*|//*) return 0 ;;
+    "$_fp_bs"?*|/?*) ;;
+    *) return 0 ;;
+  esac
+  [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1 || return 0
+  _fp_path _fo_s "$_fo_p"; _fo_s="${_fo_s#/}"; _fo_s="${_fo_s%%/*}"
+  _fp_lower _fo_s "$_fo_s"
+  case "$_fo_s" in ?|bin|cmd|dev|etc|mingw32|mingw64|ucrt64|clang32|clang64|clangarm64|proc|tmp|usr) return 0 ;; esac
+  for _fo_d in "$3" "${CLAUDE_PROJECT_DIR:-}"; do
+    case "$_fo_d" in [A-Za-z]:"$_fp_bs"*|[A-Za-z]:/*) printf -v "$1" '%s:%s' "${_fo_d:0:1}" "$_fo_p"; return 0 ;; esac
+  done
+  case "$_fo_p" in "$_fp_bs"*) return 2 ;; esac
+  return 0
+}
+
 # _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
 _fp_esc() {
   local _fe_s="$2"
@@ -601,18 +630,59 @@ if [ "$_FP_JST" = nul ]; then
 fi
 # _fg_nojq: the full logic without jq (GS4/GX4, R3B) — e78111c's: the builtin decode, then the egress
 # gate and FG_RES by grep, line by line. TOOL, SESSION_ID and MATCHED_LABELS for the verdict below;
-# 1 = no verdict. A payload the builtins cannot decode is logged and passes (_fp_jqfail's rule for a
-# missing jq; SessionStart's banner reports it), as it did there.
+# 1 = no verdict. A payload the builtins cannot decode (a \u, \b or \f escape, over 1000 escapes, over
+# 64 KiB, a duplicated key) is logged (_fp_jqfail's rule for a missing jq; SessionStart's banner
+# reports it) and scanned raw (_fg_rawscan, P-F3/P-S5): it used to pass — a 70 KB credentialed
+# heredoc went out unasked.
 _fg_nojq_undecided() {
   case "$RAW" in *'"tool_name"'*) _fp_jqfail "flow-guard.sh" "${#RAW}" ;; esac
-  return 1
+  _fg_rawscan
+}
+# _fg_rawscan: the scan over the RAW payload. Every credential pattern is ASCII, which JSON never
+# escapes, so the tokens stand in the raw text as they do in the decoded one. Each escape (\n, \",
+# \\, \u…) and each quote is read as a space first (one sed), so a token or an egress word that
+# follows a JSON escape or a string's quote is a word of its own. The egress gate (FG_NET) applies
+# unless the call is a WebFetch or WebSearch — by its decoded tool name, else by the one its payload
+# names; JSON keys never match it. TOOL stays as decoded, "(undecoded)" when it was not. Then FG_RES
+# as _fg_nojq applies it. 1 = no verdict.
+_fg_rawscan() {
+  local hay scan p i rc web=0
+  local -a args=()
+  MATCHED_LABELS=""
+  case "$RAW" in *'"tool_name"'*) ;; *) return 1 ;; esac
+  hay=$(_fp_feed "$RAW" sed -e 's/\\./ /g' -e 's/"/ /g')
+  [ -n "$hay" ] || hay="$RAW"
+  # An undecoded tool name (every payload on bash < 4.3, _fp_ob) is read from the payload: one that
+  # names none of the three tools this guard checks is not scanned, as a decoded one is not.
+  case "$TOOL" in
+    Bash) ;;
+    WebFetch|WebSearch) web=1 ;;
+    '') case "$RAW" in
+          *'"WebFetch"'*|*'"WebSearch"'*) web=1 ;;
+          *'"Bash"'*) ;;
+          *) return 1 ;;
+        esac ;;
+    *) return 1 ;;
+  esac
+  if [ "$web" = 0 ]; then _fp_feed "$hay" grep -qE "$FG_NET" || return 1; fi
+  for p in "${FG_RES[@]}"; do args+=(-e "$p"); done
+  scan=$(_fp_feed "$hay" grep -E ${args[@]+"${args[@]}"}); rc=$?
+  [ "$rc" = 1 ] && return 1
+  [ "$rc" = 0 ] || scan="$hay"
+  for ((i = 0; i < ${#FG_RES[@]}; i++)); do
+    _fp_feed "$scan" grep -qE "${FG_RES[$i]}" && MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$i]}"
+  done
+  [ -n "$MATCHED_LABELS" ] || return 1
+  TOOL="${TOOL:-(undecoded)}"
+  _fp_err "flow-guard.sh" "jq is not on PATH: the undecodable call above was scanned raw and asked about after all ($MATCHED_LABELS)"
+  return 0
 }
 _fg_nojq() {
   local rc u="" pr="" hay="" p i scan
   local -a args=()
   MATCHED_LABELS=""
-  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; TOOL="$_FP"
-  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; SESSION_ID="$_FP"
+  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; TOOL="$_FP"
+  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; SESSION_ID="$_FP"
   case "$TOOL" in
     Bash)      _fp_str command; rc=$? ;;
     WebSearch) _fp_str query; rc=$? ;;
@@ -620,7 +690,7 @@ _fg_nojq() {
                if [ "$rc" != 2 ]; then _fp_str prompt; rc=$?; pr="$_FP"; _FP="$u $pr"; fi ;;
     *) return 1 ;;
   esac
-  [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }
+  [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }
   hay="$_FP"
   RAW="" _FP_RAW=""
   _fp_clean TOOL SESSION_ID

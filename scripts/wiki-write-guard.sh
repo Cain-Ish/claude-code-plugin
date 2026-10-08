@@ -380,6 +380,35 @@ _fp_joinsl() {
   printf -v "$1" '%s' "${_FP_A[*]-}"
 }
 
+# _fp_rroot VAR PATH CWD (P-S1): VAR = PATH — on a Windows host, spelled on a drive when it is
+# root-relative there: one leading '\' or '/' (not a UNC or device path), no drive, and not an MSYS
+# path (its first name a drive letter, or one of the Git/MSYS root's own: bin cmd dev etc mingw32
+# mingw64 ucrt64 clang32 clang64 clangarm64 proc tmp usr). Claude Code hands node a model's
+# /Users/u/.ssh/x as \Users\u\.ssh\x, and node opens it on the current drive — C:\Users\u\.ssh\x —
+# where these guards read \… and /… under the MSYS root (C:\Program Files\Git\Users\…): no credential
+# prefix matched, and the Write ran. The drive is the payload cwd's (a native X:\… or X:/… form),
+# else CLAUDE_PROJECT_DIR's. 0 = VAR set (respelled or not); 2 = a '\'-rooted PATH with neither
+# drive known — undecidable, the caller asks. A '/'-rooted one keeps its MSYS reading then, as it
+# always had. Builtins only (_fp_path, _fp_lower: _FP_A is overwritten).
+_fp_rroot() {
+  local _fo_p="$2" _fo_d _fo_s
+  printf -v "$1" '%s' "$_fo_p"
+  case "$_fo_p" in
+    "$_fp_bs$_fp_bs"*|"$_fp_bs/"*|"/$_fp_bs"*|//*) return 0 ;;
+    "$_fp_bs"?*|/?*) ;;
+    *) return 0 ;;
+  esac
+  [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1 || return 0
+  _fp_path _fo_s "$_fo_p"; _fo_s="${_fo_s#/}"; _fo_s="${_fo_s%%/*}"
+  _fp_lower _fo_s "$_fo_s"
+  case "$_fo_s" in ?|bin|cmd|dev|etc|mingw32|mingw64|ucrt64|clang32|clang64|clangarm64|proc|tmp|usr) return 0 ;; esac
+  for _fo_d in "$3" "${CLAUDE_PROJECT_DIR:-}"; do
+    case "$_fo_d" in [A-Za-z]:"$_fp_bs"*|[A-Za-z]:/*) printf -v "$1" '%s:%s' "${_fo_d:0:1}" "$_fo_p"; return 0 ;; esac
+  done
+  case "$_fo_p" in "$_fp_bs"*) return 2 ;; esac
+  return 0
+}
+
 # _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
 _fp_esc() {
   local _fe_s="$2"
@@ -524,12 +553,14 @@ _wwg_kdpage() {
   case "$2" in */wiki/*.md) ;; *) return 1 ;; esac
   _wk_d="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-${KNOWLEDGE_DIR:-$HOME/knowledge}}"
   _wk_d=${_wk_d/#\~/"$HOME"}   # quoted (GC6): an unquoted '&' in HOME would be the matched '~' on bash 5.2
-  # A relative one ("kb", "./kb") is HOME's, where the default ~/knowledge lives (GS8, R3B): compared
-  # as is, no absolute page path matched it and its wiki went unchecked.
+  # A relative one ("kb", "./kb") is the working directory's (P-S6/P-C3), as every writer reads it:
+  # lib.sh's sb_knowledge_dir and brain-paths.ts's resolveKnowledgeDir return it as is, so each opens
+  # it against its own cwd. Compared as is, no absolute page path matched it and its wiki went
+  # unchecked (GS8, R3B); GS8 then joined it to HOME, which checked a wiki no writer used.
   case "$_wk_d" in
     /*|"$_fp_bs"*|[A-Za-z]:/*|[A-Za-z]:"$_fp_bs"*|'') ;;
-    ./*) _wk_d="$HOME/${_wk_d#./}" ;;
-    *) _wk_d="$HOME/$_wk_d" ;;
+    ./*) _wk_d="$PWD/${_wk_d#./}" ;;
+    *) _wk_d="$PWD/$_wk_d" ;;
   esac
   _fp_path _wk_d "$_wk_d" lex; _fp_collapse _wk_d "$_wk_d"; _wk_d="${_wk_d%/}"
   [ -n "$_wk_d" ] || return 1

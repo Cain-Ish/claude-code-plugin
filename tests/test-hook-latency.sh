@@ -91,11 +91,13 @@ read -r g_late g_pid g_ppid <<< "$OUT"   # <<<-bounded: three short fields
 case "$g_late" in ''|unset|*[!0-9]*) fail "(g) the child must get a numeric SB_HOOK_LATE_MS (got: '$OUT')" ;; esac
 [ "$g_pid" = "$g_ppid" ] || fail "(g) SB_HOOK_LATE_PID must name the wrapper, the child's parent (got: '$OUT')"
 # GT2 (R3B): the deadline is the wrapper's start + 5000 - 2000 ms, and the wrapper starts after g_t0 —
-# by at most its own start-up. A window of [3000, 3000 + 1999] around g_t0 fails a margin of 4000
-# (1000 + start-up) and one of 0 (5000 + start-up); the source lock below pins the formula itself.
+# by at most its own start-up. The window [3000, 3000 + 3999] around g_t0 fails a margin of 4000
+# (1000 + start-up) and lets the wrapper take up to 4 s to start: P-Q7, a loaded MSYS box spends
+# seconds on a bash spawn, and the old 1999 ms of headroom failed a correct deadline there. The source
+# lock below pins the formula itself (a margin of 0 lands inside the widened window).
 if [ -n "$g_t0" ]; then
   g_d=$(( g_late - 10#${g_t0//[!0-9]/} / 1000 ))
-  [ "$g_d" -ge 3000 ] && [ "$g_d" -le 4999 ] \
+  [ "$g_d" -ge 3000 ] && [ "$g_d" -le 6999 ] \
     || fail "(g) SB_HOOK_LATE_MS must be hook-timer's start + 5000 - 2000 ms: it came ${g_d} ms after the launch (want 3000 plus the wrapper's start-up)"
 else
   echo "SKIP: (g) deadline window — no EPOCHREALTIME (bash < 5)"

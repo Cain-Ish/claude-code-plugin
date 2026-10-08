@@ -18,14 +18,18 @@
 #   - Bash — uses flow-guard for credential-shaped egress.
 #   - Read — read-only; not a write-escape risk.
 #
-# Credential stores (after realpath, case-insensitive; _SG_CRED_H / _SG_CRED_A below): under $HOME
-#   and $USERPROFILE: .ssh, .gnupg, .aws, .config/claude, .config/gh, .config/gcloud, .azure,
-#   .password-store, and the files .netrc, .claude/.credentials.json (the OAuth token; the ~/.claude
-#   TREE is deliberately not a prefix, it holds legitimate write targets), .git-credentials, .npmrc,
-#   .docker/config.json, .kube/config, .pypirc; under %APPDATA%: GitHub CLI/hosts.yml, gcloud; /etc.
+# Credential stores (after realpath, case-insensitive; _SG_CRED_H / _SG_CRED_A below), in two tiers:
+#   DENY — under $HOME and $USERPROFILE: .ssh, .gnupg, .aws, .config/claude, .config/gh,
+#   .password-store, and the files .netrc, _netrc (curl's Windows spelling of it),
+#   .claude/.credentials.json (the OAuth token; the ~/.claude TREE is deliberately not a prefix, it
+#   holds legitimate write targets); under %APPDATA%: GitHub CLI/hosts.yml (gh's ~/.config/gh); /etc.
+#   ASK (P-C2: the other stores added in 0.56.0) — under $HOME and $USERPROFILE: .config/gcloud,
+#   .azure, and the files .git-credentials, .npmrc, .docker/config.json, .kube/config, .pypirc,
+#   .config/git/credentials, .pgpass, .vault-token, .cargo/credentials(.toml),
+#   .terraform.d/credentials.tfrc.json, .gem/credentials; under %APPDATA%: gcloud.
 #
-# Verdict: deny. Reason carries which credential dir matched (no content
-# leaked).
+# Verdict: deny (DENY tier) or ask (ASK tier; the strictest store any spelling names wins). Reason
+# carries which credential store matched (no content leaked).
 #
 # No lib.sh (B7): it only ever supplied sb_normalize_path and sb_log_audit, which the shared
 # fast-path block below mirrors with builtins; sourcing it cost ~100 ms per Write/Edit on MSYS.
@@ -405,6 +409,35 @@ _fp_joinsl() {
   printf -v "$1" '%s' "${_FP_A[*]-}"
 }
 
+# _fp_rroot VAR PATH CWD (P-S1): VAR = PATH — on a Windows host, spelled on a drive when it is
+# root-relative there: one leading '\' or '/' (not a UNC or device path), no drive, and not an MSYS
+# path (its first name a drive letter, or one of the Git/MSYS root's own: bin cmd dev etc mingw32
+# mingw64 ucrt64 clang32 clang64 clangarm64 proc tmp usr). Claude Code hands node a model's
+# /Users/u/.ssh/x as \Users\u\.ssh\x, and node opens it on the current drive — C:\Users\u\.ssh\x —
+# where these guards read \… and /… under the MSYS root (C:\Program Files\Git\Users\…): no credential
+# prefix matched, and the Write ran. The drive is the payload cwd's (a native X:\… or X:/… form),
+# else CLAUDE_PROJECT_DIR's. 0 = VAR set (respelled or not); 2 = a '\'-rooted PATH with neither
+# drive known — undecidable, the caller asks. A '/'-rooted one keeps its MSYS reading then, as it
+# always had. Builtins only (_fp_path, _fp_lower: _FP_A is overwritten).
+_fp_rroot() {
+  local _fo_p="$2" _fo_d _fo_s
+  printf -v "$1" '%s' "$_fo_p"
+  case "$_fo_p" in
+    "$_fp_bs$_fp_bs"*|"$_fp_bs/"*|"/$_fp_bs"*|//*) return 0 ;;
+    "$_fp_bs"?*|/?*) ;;
+    *) return 0 ;;
+  esac
+  [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1 || return 0
+  _fp_path _fo_s "$_fo_p"; _fo_s="${_fo_s#/}"; _fo_s="${_fo_s%%/*}"
+  _fp_lower _fo_s "$_fo_s"
+  case "$_fo_s" in ?|bin|cmd|dev|etc|mingw32|mingw64|ucrt64|clang32|clang64|clangarm64|proc|tmp|usr) return 0 ;; esac
+  for _fo_d in "$3" "${CLAUDE_PROJECT_DIR:-}"; do
+    case "$_fo_d" in [A-Za-z]:"$_fp_bs"*|[A-Za-z]:/*) printf -v "$1" '%s:%s' "${_fo_d:0:1}" "$_fo_p"; return 0 ;; esac
+  done
+  case "$_fo_p" in "$_fp_bs"*) return 2 ;; esac
+  return 0
+}
+
 # _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
 _fp_esc() {
   local _fe_s="$2"
@@ -517,11 +550,15 @@ _sg_norm() {
 # GX6 (R3B): USERPROFILE joins HOME (with HOME pointed elsewhere the native tools keep their stores
 # under the Windows profile still) and _SG_HA spells APPDATA, both lexically and physically only —
 # native Windows paths under no MSYS mount, so no cygpath spawn.
+# P-C6: a UNC value (//… or \\…) gets no physical spelling: `cd -P` into an unreachable share blocks
+# (~2.7 s per share on Windows, longer for a host that resolves and never answers) — two of them put
+# a deny past the hook budget, and the Write ran. Its lexical spelling is still matched.
+_sg_unc() { case "$1" in //*|"$_fp_bs$_fp_bs"*) return 0 ;; esac; return 1; }
 _sg_homes() {
   local _sh_h _sh_p="" _sh_o="$PWD" _sh_v _sh_s _sh_z _sh_q
   if [ "$1" = lex ]; then _fp_path _sh_h "$HOME" lex; else _sg_norm _sh_h "$HOME"; fi
   _sh_h="${_sh_h%/}"
-  if [ -n "${HOME:-}" ] && CDPATH= cd -P -- "$HOME" 2>/dev/null; then
+  if [ -n "${HOME:-}" ] && ! _sg_unc "$HOME" && CDPATH= cd -P -- "$HOME" 2>/dev/null; then
     _sh_p="$PWD"; cd -- "$_sh_o" 2>/dev/null
     if [ "$1" = lex ]; then _fp_path _sh_p "$_sh_p" lex; else _sg_norm _sh_p "$_sh_p"; fi
     _sh_p="${_sh_p%/}"
@@ -551,7 +588,7 @@ _sg_homes() {
     _sh_s="${!_sh_v:-}"
     [ -n "$_sh_s" ] || continue
     _sh_q=""
-    if CDPATH= cd -P -- "$_sh_s" 2>/dev/null; then _sh_q="$PWD"; cd -- "$_sh_o" 2>/dev/null; fi
+    if ! _sg_unc "$_sh_s" && CDPATH= cd -P -- "$_sh_s" 2>/dev/null; then _sh_q="$PWD"; cd -- "$_sh_o" 2>/dev/null; fi
     for _sh_z in "$_sh_s" "$_sh_q"; do
       [ -n "$_sh_z" ] || continue
       _fp_path _sh_z "$_sh_z" lex; _sh_z="${_sh_z%/}"
@@ -562,40 +599,56 @@ _sg_homes() {
   return 0
 }
 
-# _sg_cred_match PATH…: _SG_LABEL = the credential dir/file the first matching PATH is, or is
-# under. Case-INSENSITIVE (nocasematch, bash 3.1+): NTFS and default APFS are case-insensitive, so
-# /c/Users/me/.SSH/ IS ~/.ssh there — a case-varied path must not slip the check. On
-# case-sensitive Linux this can over-match a literally distinct ~/.SSH dir; acceptable — a rare
-# false deny is fail-safe, a missed credential write is not. (It replaced a `printf | tr` per
+# _sg_cred_match PATH…: _SG_LABEL = the credential dir/file a PATH is, or is under, and _SG_TIER its
+# tier (deny|ask). Case-INSENSITIVE (nocasematch, bash 3.1+): NTFS and default APFS are
+# case-insensitive, so /c/Users/me/.SSH/ IS ~/.ssh there — a case-varied path must not slip the
+# check. On case-sensitive Linux this can over-match a literally distinct ~/.SSH dir; acceptable — a
+# rare false deny is fail-safe, a missed credential write is not. (It replaced a `printf | tr` per
 # prefix per candidate: ~36 processes, ~1 s of this guard's 1.5 s on MSYS.) The directory node
-# itself matches as well as anything under it: a Write to exactly ~/.ssh must not slip past.
+# itself matches as well as anything under it: a Write to exactly ~/.ssh must not slip past. The
+# strictest store any PATH names wins: a deny-tier match ends the search, an ask-tier one is kept
+# while the remaining PATHs are looked at.
 # The stores (GX6, R3B: the list grew; persona-tool-guard's credential Read check holds the same two,
-# tests/test-persona-tool-guard.sh locks them together): label:path under every _SG_H spelling (HOME,
-# USERPROFILE), then under every _SG_HA one (APPDATA). Each entry is the path or anything inside it —
-# a file has nothing inside, and ~/.claude is no entry: plans/, projects/ (memory) and settings.json
-# live there and are legitimate write targets.
-_SG_CRED_H=(ssh:.ssh gnupg:.gnupg aws:.aws claude-config:.config/claude gh-config:.config/gh passwordstore:.password-store gcloud:.config/gcloud azure:.azure netrc:.netrc claude-oauth:.claude/.credentials.json git-credentials:.git-credentials npmrc:.npmrc docker-config:.docker/config.json kube-config:.kube/config pypirc:.pypirc)
-_SG_CRED_A=('gh-hosts:GitHub CLI/hosts.yml' gcloud:gcloud)
-_SG_LABEL=""
+# tests/test-persona-tool-guard.sh locks them together, tiers included): tier:label:path under every
+# _SG_H spelling (HOME, USERPROFILE), then under every _SG_HA one (APPDATA). Each entry is the path or
+# anything inside it — a file has nothing inside, and ~/.claude is no entry: plans/, projects/
+# (memory) and settings.json live there and are legitimate write targets. Tiers (P-C2, 0.56.0
+# policy): the stores denied at 407fa24 — and /etc — are DENY, and so are two new entries that are
+# their Windows aliases: _netrc (curl's .netrc) and %APPDATA%\GitHub CLI\hosts.yml (gh's ~/.config/gh).
+# The other stores this release added (GX6, P-S8) are ASK: "edit my ~/.npmrc" is routine, and a deny
+# there left no per-call approve. A Read of
+# either tier asks (persona-tool-guard). P-S8 added _netrc (curl's name on Windows), git's XDG
+# credential file, .pgpass, .vault-token, cargo's two, terraform's and RubyGems'.
+_SG_CRED_H=(deny:ssh:.ssh deny:gnupg:.gnupg deny:aws:.aws deny:claude-config:.config/claude deny:gh-config:.config/gh deny:passwordstore:.password-store deny:netrc:.netrc deny:netrc:_netrc deny:claude-oauth:.claude/.credentials.json ask:gcloud:.config/gcloud ask:azure:.azure ask:git-credentials:.git-credentials ask:npmrc:.npmrc ask:docker-config:.docker/config.json ask:kube-config:.kube/config ask:pypirc:.pypirc ask:git-credentials:.config/git/credentials ask:pgpass:.pgpass ask:vault-token:.vault-token ask:cargo-credentials:.cargo/credentials ask:cargo-credentials:.cargo/credentials.toml ask:terraform-credentials:.terraform.d/credentials.tfrc.json ask:gem-credentials:.gem/credentials)
+_SG_CRED_A=('deny:gh-hosts:GitHub CLI/hosts.yml' ask:gcloud:gcloud)
+_SG_LABEL="" _SG_TIER=""
+# _sg_cred_hit ENTRY: a matched store, recorded unless one was already; a deny-tier one replaces an
+# ask-tier one and is true (stop looking).
+_sg_cred_hit() {
+  local _sk_r="${1#*:}"
+  if [ "${1%%:*}" = deny ]; then _SG_TIER=deny _SG_LABEL="${_sk_r%%:*}"; return 0; fi
+  [ -n "$_SG_LABEL" ] || _SG_TIER=ask _SG_LABEL="${_sk_r%%:*}"
+  return 1
+}
 _sg_cred_match() {
   local _sc_c _sc_h _sc_e _sc_p
-  _SG_LABEL=""
+  _SG_LABEL="" _SG_TIER=""
   shopt -s nocasematch
   for _sc_c in "$@"; do
     [ -n "$_sc_c" ] || continue
+    case "$_sc_c" in /etc|/etc/*) _SG_TIER=deny _SG_LABEL=etc; break ;; esac
     for _sc_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
       for _sc_e in "${_SG_CRED_H[@]}"; do
-        _sc_p="$_sc_h/${_sc_e#*:}"
-        case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _SG_LABEL="${_sc_e%%:*}"; break 3 ;; esac
+        _sc_p="$_sc_h/${_sc_e#*:*:}"
+        case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _sg_cred_hit "$_sc_e" && break 3 ;; esac
       done
     done
     for _sc_h in ${_SG_HA[@]+"${_SG_HA[@]}"}; do
       for _sc_e in "${_SG_CRED_A[@]}"; do
-        _sc_p="$_sc_h/${_sc_e#*:}"
-        case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _SG_LABEL="${_sc_e%%:*}"; break 3 ;; esac
+        _sc_p="$_sc_h/${_sc_e#*:*:}"
+        case "$_sc_c" in "$_sc_p"|"$_sc_p"/*) _sg_cred_hit "$_sc_e" && break 3 ;; esac
       done
     done
-    case "$_sc_c" in /etc|/etc/*) _SG_LABEL=etc; break ;; esac
   done
   shopt -u nocasematch
   [ -n "$_SG_LABEL" ]
@@ -695,9 +748,17 @@ _sg_resolve() {
   printf -v "$1" '%s' "$_sr_r"
 }
 
-_sg_deny() {  # _sg_deny TOOL FILE_PATH RESOLVED LABEL SESSION
+# _sg_verdict TOOL FILE_PATH RESOLVED LABEL SESSION: the credential-store verdict, by _SG_TIER — a
+# deny for the deny tier, an ask for the ask tier (P-C2).
+_sg_verdict() {
   local _sd_p _sd_x _sd_r
   _sg_short _sd_p "$2"; _sg_short _sd_x "$3"
+  if [ "$_SG_TIER" = ask ]; then
+    _sd_r="Write to '$_sd_p' resolves to '$_sd_x', inside the credential store '$4' (it holds a token or a password). Symlink-guard asks before any write there: confirm that this edit is intended. Suppress: SB_SYMLINK_GUARD=off."
+    _fp_audit "symlink-guard.sh" "ask" "credential-dir:$4" "$1($_sd_p)" "$_sd_r" "$5" "$_SG_FULL"
+    _fp_emit ask "$_sd_r"
+    return 0
+  fi
   _sd_r="Write to '$_sd_p' resolves to '$_sd_x' which is inside the credential directory '$4'. Symlink-guard denies to prevent credential overwrite or exfil. Suppress: SB_SYMLINK_GUARD=off."
   _fp_audit "symlink-guard.sh" "deny" "credential-dir:$4" "$1($_sd_p)" "$_sd_r" "$5" "$_SG_FULL"
   _fp_emit deny "$_sd_r"
@@ -781,35 +842,38 @@ _sg_phys() {
   _SG_PHYS="${_sp_out:-/}"
   return 0
 }
-# _sg_inode LINK: _SG_LABEL when LINK is the same file (device + inode, `test -ef`) as a
-# credential dir, a file directly in one, or /etc and its direct entries — the classic escape
-# (a repo file symlinked to ~/.ssh/authorized_keys) decided with no readlink.
+# _sg_inode LINK: _SG_LABEL (and _SG_TIER) when LINK is the same file (device + inode, `test -ef`)
+# as a credential dir, a file directly in one, or /etc and its direct entries — the classic escape
+# (a repo file symlinked to ~/.ssh/authorized_keys) decided with no readlink. LINK is one file, so
+# the first store it is answers; the deny tier is tried first.
 _sg_inode() {
   local _si_h _si_e
-  _SG_LABEL=""
+  _SG_LABEL="" _SG_TIER=""
   for _si_h in ${_SG_H[@]+"${_SG_H[@]}"}; do
-    for _si_e in "${_SG_CRED_H[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:}" "${_si_e%%:*}" && return 0; done
+    for _si_e in "${_SG_CRED_H[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:*:}" "$_si_e" && return 0; done
   done
+  _sg_inode1 "$1" /etc deny:etc: && return 0
   for _si_h in ${_SG_HA[@]+"${_SG_HA[@]}"}; do
-    for _si_e in "${_SG_CRED_A[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:}" "${_si_e%%:*}" && return 0; done
+    for _si_e in "${_SG_CRED_A[@]}"; do _sg_inode1 "$1" "$_si_h/${_si_e#*:*:}" "$_si_e" && return 0; done
   done
-  _sg_inode1 "$1" /etc etc
+  return 1
 }
-# _sg_inode1 LINK STORE LABEL: LINK is STORE, or (STORE a directory) one of its direct entries.
+# _sg_inode1 LINK STORE ENTRY: LINK is STORE, or (STORE a directory) one of its direct entries;
+# _SG_TIER and _SG_LABEL from ENTRY (tier:label:path).
 _sg_inode1() {
-  local _s1_f
+  local _s1_f _s1_r="${3#*:}"
   [ -e "$2" ] || return 1
   if [ -d "$2" ]; then
     for _s1_f in "$2" "$2"/* "$2"/.[!.]*; do
-      [ -e "$_s1_f" ] && [ "$1" -ef "$_s1_f" ] && { _SG_LABEL="$3"; return 0; }
+      [ -e "$_s1_f" ] && [ "$1" -ef "$_s1_f" ] && { _SG_TIER="${3%%:*}" _SG_LABEL="${_s1_r%%:*}"; return 0; }
     done
   elif [ "$1" -ef "$2" ]; then
-    _SG_LABEL="$3"; return 0
+    _SG_TIER="${3%%:*}" _SG_LABEL="${_s1_r%%:*}"; return 0
   fi
   return 1
 }
 _sg_fast() {
-  local tool fp lit lex sid=""
+  local tool fp lit lex sid="" cwd rc
   _fp_str tool_name || return 1
   tool="$_FP"
   case "$tool" in Write|Edit|MultiEdit) ;; *) return 1 ;; esac
@@ -817,27 +881,33 @@ _sg_fast() {
   _fp_nocr fp "$_FP"
   case "$fp" in ''|*"$_fp_nl"*) return 1 ;; esac
   case "$fp" in '~'*) fp="$HOME${fp#\~}" ;; esac
+  # P-S1: a root-relative target goes on the payload cwd's drive (_fp_rroot); one that cannot be
+  # placed is the full logic's (it asks).
+  _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
+  _fp_nocr cwd "$_FP"
+  _fp_rroot fp "$fp" "$cwd" || return 1
   _fp_str session_id && sid="$_FP"
   _sg_alias "$tool" "$fp" "$sid"
   case $? in 0) return 0 ;; 2) fp="$_SG_MAPPED" ;; esac
   _fp_path lit "$fp" lex
   _sg_homes lex
   if _sg_phys "$lit"; then
-    _sg_cred_match "$_SG_PHYS" "$lit" && { _sg_deny "$tool" "$lit" "$_SG_PHYS" "$_SG_LABEL" "$sid"; return 0; }
+    _sg_cred_match "$_SG_PHYS" "$lit" && { _sg_verdict "$tool" "$lit" "$_SG_PHYS" "$_SG_LABEL" "$sid"; return 0; }
   else
     # Unresolved ('..', a deep path, a leaf symlink): the literal target, and its '..' folded
-    # lexically — a path that names a credential dir outright is denied here, as the full logic's
-    # literal match would; anything else goes to realpath there.
+    # lexically — a path that names a deny-tier store outright is denied here, as the full logic's
+    # literal match would; anything else goes to realpath there. An ask-tier spelling is not decided
+    # here: it may still lead into a deny-tier store (P-C2), which only the resolve can show.
     _fp_collapse lex "$lit"
-    _sg_cred_match "$lit" "$lex" && { _sg_deny "$tool" "$lit" "$lex" "$_SG_LABEL" "$sid"; return 0; }
+    _sg_cred_match "$lit" "$lex" && [ "$_SG_TIER" = deny ] && { _sg_verdict "$tool" "$lit" "$lex" "$_SG_LABEL" "$sid"; return 0; }
     [ -n "$_SG_LEAF" ] && _sg_inode "$_SG_LEAF" \
-      && { _sg_deny "$tool" "$lit" "$_SG_LEAF (a symlink to a $_SG_LABEL entry)" "$_SG_LABEL" "$sid"; return 0; }
+      && { _sg_verdict "$tool" "$lit" "$_SG_LEAF (a symlink to a $_SG_LABEL entry)" "$_SG_LABEL" "$sid"; return 0; }
   fi
   return 1
 }
 _SG_FULL=""
 _sg_fast && exit 0
-# Every row from here on is the full logic's (_sg_deny and _sg_alias are shared with the fast path).
+# Every row from here on is the full logic's (_sg_verdict and _sg_alias are shared with the fast path).
 _SG_FULL=full
 
 # --- Full logic (the fast path could not decide) -----------------------------------------------
@@ -848,11 +918,11 @@ _fp_raw_all
 # jq (NUL-framed; the old form spent four spawns: object check + one per field). A non-object
 # payload → no fields → exit 0 (the old fail-soft). CRs dropped, trailing newlines trimmed, as the
 # old `jq -r … | tr -d '\r'` inside $(…) did.
-TOOL="" FILE_PATH="" SESSION_ID=""
+TOOL="" FILE_PATH="" SESSION_ID="" CWD=""
 _sg_fields() {
   local _sf_obj='^[[:space:]]*[{]' _sf_v _sf_rc
   [[ $RAW =~ $_sf_obj ]] || return 1
-  for _sf_v in TOOL:tool_name FILE_PATH:file_path SESSION_ID:session_id; do
+  for _sf_v in TOOL:tool_name FILE_PATH:file_path SESSION_ID:session_id CWD:cwd; do
     _fp_str "${_sf_v#*:}"; _sf_rc=$?
     [ "$_sf_rc" = 2 ] && return 1
     printf -v "${_sf_v%%:*}" '%s' "$_FP"
@@ -860,10 +930,11 @@ _sg_fields() {
   return 0
 }
 if ! _sg_fields; then
-  TOOL="" FILE_PATH="" SESSION_ID="" _FP_JST=""
+  TOOL="" FILE_PATH="" SESSION_ID="" CWD="" _FP_JST=""
   {
     IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; IFS= read -r -d '' SESSION_ID
-  } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (if ([.tool_name, .tool_input.file_path, .session_id] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' 2>/dev/null)
+    IFS= read -r -d '' CWD
+  } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (if ([.tool_name, .tool_input.file_path, .session_id, .cwd] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000", (.cwd // ""), "\u0000" else empty end' 2>/dev/null)
   if [ "$_FP_JST" = nul ]; then
     _fp_audit "symlink-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain symlink-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
@@ -875,7 +946,7 @@ if ! _sg_fields; then
     esac
   fi
 fi
-_fp_clean TOOL FILE_PATH SESSION_ID
+_fp_clean TOOL FILE_PATH SESSION_ID CWD
 
 case "$TOOL" in
   Write|Edit|MultiEdit) ;;
@@ -888,6 +959,18 @@ esac
 case "$FILE_PATH" in
   '~'*) FILE_PATH="$HOME${FILE_PATH#\~}" ;;
 esac
+
+# P-S1: a Windows root-relative target (\Users\u\.ssh\x) goes on the payload cwd's drive, else
+# CLAUDE_PROJECT_DIR's (_fp_rroot) — node opens it there. A \-rooted one with neither cannot be placed:
+# it may land in any drive's credential directory, so it asks.
+_fp_rroot FILE_PATH "$FILE_PATH" "$CWD"
+if [ $? = 2 ]; then
+  _sg_short _sg_rp "$FILE_PATH"
+  _sg_rr="Write to '$_sg_rp' is root-relative (one leading '\\', no drive): Windows opens it on the current drive, which this call does not name, so symlink-guard cannot tell whether it lands in a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
+  _fp_audit "symlink-guard.sh" "ask" "windows-alias:root-relative" "$TOOL($_sg_rp)" "$_sg_rr" "$SESSION_ID" full
+  _fp_emit ask "$_sg_rr"
+  exit 0
+fi
 
 # Windows alias spellings (UNC, stream syntax), as on the fast path: a big payload whose file_path
 # came after 16 KiB of content reaches only this logic.
@@ -922,8 +1005,15 @@ _SG_H+=(${_SG_HF[@]+"${_SG_HF[@]}"})
 # (F8 item 18): cygpath -u takes seconds once a path holds newlines (4,096 of them: 0.4 s; 16,384:
 # 5 s) and truncates a path longer than 32,767 characters at its input while still exiting 0 — so past
 # the cap the raw target never reaches it, only the short spellings G1 uses below.
-_sg_cred_match "$FILE_PATH" "$SG_LEX" \
-  && { _sg_deny "$TOOL" "$FILE_PATH" "$SG_LEX" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
+# _sg_full_hit TARGET: after a _sg_cred_match hit in the full logic — a deny-tier store denies at once;
+# an ask-tier one is held (SG_ASK_L, SG_ASK_T) until the resolved target is known: an ask-tier
+# spelling can lead into a deny-tier store (~/.azure linked to ~/.ssh), and the strictest wins (P-C2).
+SG_ASK_L="" SG_ASK_T=""
+_sg_full_hit() {
+  if [ "$_SG_TIER" = deny ]; then _sg_verdict "$TOOL" "$FILE_PATH" "$1" "$_SG_LABEL" "$SESSION_ID"; exit 0; fi
+  [ -n "$SG_ASK_L" ] || SG_ASK_L="$_SG_LABEL" SG_ASK_T="$1"
+}
+_sg_cred_match "$FILE_PATH" "$SG_LEX" && _sg_full_hit "$SG_LEX"
 if [ "$SG_LEN" -gt 4096 ] || [ "$SG_SEGS" -gt 256 ]; then
   # G1 (0.54.1 final review): past the cap the target itself reaches no resolver — cygpath truncates a
   # path over 32,767 characters at its input, realpath -m is quadratic in real components. Two spellings stand
@@ -935,7 +1025,7 @@ if [ "$SG_LEN" -gt 4096 ] || [ "$SG_SEGS" -gt 256 ]; then
   # copies the whole heap per fork.
   _FP_A=()
   _sg_drive_homes
-  _sg_cred_match "$SG_LEX" && { _sg_deny "$TOOL" "$FILE_PATH" "$SG_LEX" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
+  _sg_cred_match "$SG_LEX" && _sg_full_hit "$SG_LEX"
   # The drive-kept fold, from SG_LEX (collapsed) in constant time — not a second full-path collapse
   # (DA: that pass cost as much again and pushed the deny past the 5 s timeout). _sg_norm's cygpath -u
   # maps an MSYS mount only from the drive form (C:/…/Temp → /tmp), so the drive letter is taken from
@@ -963,12 +1053,16 @@ if [ "$SG_LEN" -gt 4096 ] || [ "$SG_SEGS" -gt 256 ]; then
   # 256 gate.
   if [ "${#_sg_fp}" -le 4096 ]; then
     _sg_norm _sg_fp "$_sg_fp"
-    _sg_cred_match "$_sg_fp" && { _sg_deny "$TOOL" "$FILE_PATH" "$_sg_fp" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
+    _sg_cred_match "$_sg_fp" && _sg_full_hit "$_sg_fp"
     _sg_segs _sg_fs "$_sg_fp"
     if [ "$_sg_fs" -le 256 ]; then
       _sg_resolve _sg_fr "$_sg_fp"; _sg_norm _sg_fr "$_sg_fr"
-      _sg_cred_match "$_sg_fr" && { _sg_deny "$TOOL" "$FILE_PATH" "$_sg_fr" "$_SG_LABEL" "$SESSION_ID"; exit 0; }
+      _sg_cred_match "$_sg_fr" && _sg_full_hit "$_sg_fr"
     fi
+  fi
+  # A held ask-tier store asks under its own name (no deny-tier store was found on any spelling).
+  if [ -n "$SG_ASK_L" ]; then
+    _SG_TIER=ask; _sg_verdict "$TOOL" "$FILE_PATH" "$SG_ASK_T" "$SG_ASK_L" "$SESSION_ID"; exit 0
   fi
   _sg_short _sg_sp "$FILE_PATH"
   if [ "$SG_LEN" -gt 4096 ]; then _sg_why="$SG_LEN characters"; else _sg_why="$SG_SEGS components"; fi
@@ -1048,7 +1142,12 @@ fi
 # resolver degrades (realpath absent, a HOME spelling pwd -P rewrites), a path that names a
 # credential dir outright must still be denied. Resolved-only let a literal ~/.ssh write through
 # on the GitHub Windows runner. The literal targets were matched before realpath (DA #2); they stay
-# listed here as well, after the resolved one, in case a later edit drops that early check.
-_sg_cred_match "$RESOLVED" "$FILE_PATH" "$SG_LEX" || exit 0
-_sg_deny "$TOOL" "$FILE_PATH" "$RESOLVED" "$_SG_LABEL" "$SESSION_ID"
+# listed here as well, after the resolved one, in case a later edit drops that early check. The
+# strictest store any of them names decides (P-C2): deny for the deny tier, ask for the ask tier; an
+# ask-tier store held from the early match asks even if a later edit drops it from this list.
+if _sg_cred_match "$RESOLVED" "$FILE_PATH" "$SG_LEX"; then
+  _sg_verdict "$TOOL" "$FILE_PATH" "$RESOLVED" "$_SG_LABEL" "$SESSION_ID"
+elif [ -n "$SG_ASK_L" ]; then
+  _SG_TIER=ask; _sg_verdict "$TOOL" "$FILE_PATH" "$SG_ASK_T" "$SG_ASK_L" "$SESSION_ID"
+fi
 exit 0
