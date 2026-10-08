@@ -266,31 +266,108 @@ function peerReportBody(rest: string): string {
 // item fold, so a stored snippet can never close the hook's "[End untrusted reference]" frame or
 // start a line that reads as a new turn:
 //  - every control (C0, DEL, C1), format character (\p{Cf}: bidi controls, zero-width characters,
-//    soft hyphen, BOM), Unicode space (\p{Zs}) and line/paragraph separator becomes a space;
-//  - every opening/closing bracket (\p{Ps}/\p{Pe}, plus the square-bracket pieces U+23A1-23A6, which
-//    Unicode files as math symbols) becomes a parenthesis. A fixed lookalike list missed whole
-//    blocks (X7: U+298B/298C passed). ASCII ( ) { } are left as they are: they cannot pass for the
-//    frame's square brackets, and code in a snippet stays readable;
-//  - the frame's own phrase "untrusted reference" (any case, any run of spaces, the Cyrillic
-//    homoglyphs of e/c/s/d) becomes "untrusted-reference". The bash fold maps those Cyrillic letters
-//    everywhere; here only inside the phrase, so Cyrillic text elsewhere is left intact.
+//    soft hyphen, BOM), Unicode space (\p{Zs}) and line/paragraph separator becomes a space, except
+//    ZWNJ/ZWJ (U+200C/U+200D), which are part of the text in many scripts and in emoji sequences
+//    and break no line (review 2, P-T7);
+//  - every opening/closing bracket becomes a parenthesis: \p{Ps}/\p{Pe}, the bracket-shaped initial
+//    and final punctuation (\p{Pi}/\p{Pf} in U+2E02-2E21), and the look-alikes Unicode files as
+//    symbols (FOLD_OPEN_EXTRA/FOLD_CLOSE_EXTRA). A fixed lookalike list missed whole blocks (X7:
+//    U+298B/298C passed; review 2: U+2E0C/2E0D and the corner pieces passed). Kept as they are:
+//    ASCII ( ) { } (they cannot pass for the frame's square brackets, and code in a snippet stays
+//    readable) and the quotation marks (FOLD_QUOTE_KEEP), which are quotes, not brackets;
+//  - the frame's own phrase "untrusted reference" becomes "untrusted-reference" however it is
+//    spelled (neutraliseFramePhrase: fullwidth, mathematical, accented, confusable, split by spaces,
+//    punctuation or invisible characters). The bash fold maps two Cyrillic letters everywhere; here
+//    only the span that spells the phrase changes, so other text is left intact.
 // No literal non-ASCII character and no escape sequence a tool could decode: the code points are
 // built with String.fromCodePoint, U+2028/2029 are \p{Zl}/\p{Zp}.
 const cps = (...xs: number[]): string => String.fromCodePoint(...xs);
+const ZWNJ = cps(0x200c), ZWJ = cps(0x200d);
 const FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
-const FOLD_OPEN_RE = new RegExp(`[\\p{Ps}${cps(0x23a1)}-${cps(0x23a3)}]`, 'gu');
-const FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}${cps(0x23a4)}-${cps(0x23a6)}]`, 'gu');
-const L_E = `[eE${cps(0x435, 0x415)}]`, L_C = `[cC${cps(0x441, 0x421)}]`;
-const L_S = `[sS${cps(0x455, 0x405)}]`, L_D = `[dD${cps(0x501)}]`;
-const FRAME_PHRASE_RE = new RegExp(
-  `[uU][nN][tT][rR][uU]${L_S}[tT]${L_E}${L_D}\\s+[rR]${L_E}[fF]${L_E}[rR]${L_E}[nN]${L_C}${L_E}`, 'gu');
+// The square-bracket pieces (U+23A1-23A6, math symbols), the corner brackets U+231C-231F, the
+// dentistry bracket pieces U+23BE/23BF/23CB/23CC and the light box-drawing corners and tees, by the
+// side of the bracket each one looks like.
+const FOLD_OPEN_EXTRA = cps(0x23a1, 0x23a2, 0x23a3, 0x231c, 0x231e, 0x23be, 0x23bf, 0x250c, 0x2514, 0x251c);
+const FOLD_CLOSE_EXTRA = cps(0x23a4, 0x23a5, 0x23a6, 0x231d, 0x231f, 0x23cb, 0x23cc, 0x2510, 0x2518, 0x2524);
+const FOLD_OPEN_RE = new RegExp(`[\\p{Ps}\\p{Pi}${FOLD_OPEN_EXTRA}]`, 'gu');
+const FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}\\p{Pf}${FOLD_CLOSE_EXTRA}]`, 'gu');
+// Quotation marks filed as Ps/Pe (U+201A, U+201E, U+2E42, U+301D-301F) and every Pi/Pf below U+2E00
+// (U+00AB/00BB, U+2018-201F, U+2039/203A): folding U+2019 would turn every "don't" into "don)t".
+const FOLD_QUOTE_KEEP = new Set(cps(0x201a, 0x201e, 0x2e42, 0x301d, 0x301e, 0x301f,
+  0xab, 0xbb, 0x2018, 0x2019, 0x201b, 0x201c, 0x201d, 0x201f, 0x2039, 0x203a));
+
+// The phrase test runs on a skeleton of the text, one code point at a time: compatibility
+// decomposition (NFKD: fullwidth and mathematical letters, ligatures, long s, accented letters),
+// lowercase, the confusable letters below mapped to the Latin letter they pass for, and everything
+// that is not a letter or a digit dropped (combining marks, format characters such as the soft
+// hyphen and ZWJ, spaces, punctuation, symbols). Where the skeleton holds "untrustedreference", the
+// span of the text it came from becomes "untrusted-reference" (review 2, P-S3/P-T2).
+// Confusables: only those of the phrase's letters that NFKD leaves alone, as they read after
+// lowercasing (Greek, Cyrillic, Armenian, Latin small capitals, Lisu).
+const FRAME_PHRASE_SKELETON = 'untrustedreference';
+const CONFUSABLE = new Map<string, string>();
+for (const [latin, from] of [
+  ['c', [0x441, 0x3c2, 0x3c3, 0x1d04, 0xa4da]],
+  ['d', [0x501, 0x1d05, 0xa4d3]],
+  ['e', [0x435, 0x3b5, 0x454, 0x1d07, 0xa4f0]],
+  ['f', [0x3dd, 0xa730, 0xa4dd]],
+  ['n', [0x3b7, 0x3bd, 0x43f, 0x578, 0x274, 0xa4e0]],
+  ['r', [0x433, 0x280, 0x27e, 0xa4e3]],
+  ['s', [0x455, 0xa731, 0xa4e2]],
+  ['t', [0x3c4, 0x442, 0x1d1b, 0xa4d4]],
+  ['u', [0x3c5, 0x57d, 0x1d1c, 0x28b, 0xa4f4]],
+] as [string, number[]][]) {
+  for (const c of from) CONFUSABLE.set(cps(c), latin);
+}
+const LETTER_OR_DIGIT_RE = /^[\p{L}\p{N}]$/u;
+const SKELETON_CACHE = new Map<number, string>();
+
+function skeletonOf(ch: string): string {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c < 0x80) {   // ASCII: letters lowercased, digits kept, the rest dropped
+    if ((c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39)) return ch;
+    return c >= 0x41 && c <= 0x5a ? String.fromCharCode(c + 0x20) : '';
+  }
+  let s = SKELETON_CACHE.get(c);
+  if (s === undefined) {
+    s = '';
+    for (const d of ch.normalize('NFKD').toLowerCase().normalize('NFKD')) {
+      const m = CONFUSABLE.get(d) ?? d;
+      if (LETTER_OR_DIGIT_RE.test(m)) s += m;
+    }
+    if (SKELETON_CACHE.size < 4096) SKELETON_CACHE.set(c, s);
+  }
+  return s;
+}
+
+/** The text with every span whose skeleton spells "untrustedreference" replaced by
+ *  "untrusted-reference"; the text itself when there is none (the common case: one pass). */
+function neutraliseFramePhrase(text: string): string {
+  let skeleton = '';
+  for (const ch of text) skeleton += skeletonOf(ch);
+  if (!skeleton.includes(FRAME_PHRASE_SKELETON)) return text;
+  // Second pass: for each skeleton character, the [start, end) of the code point it came from.
+  const start: number[] = [], end: number[] = [];
+  let i = 0;
+  for (const ch of text) {
+    const n = skeletonOf(ch).length;
+    for (let k = 0; k < n; k++) { start.push(i); end.push(i + ch.length); }
+    i += ch.length;
+  }
+  let out = '', last = 0;
+  for (let j = skeleton.indexOf(FRAME_PHRASE_SKELETON); j >= 0;
+    j = skeleton.indexOf(FRAME_PHRASE_SKELETON, j + FRAME_PHRASE_SKELETON.length)) {
+    out += `${text.slice(last, Math.max(start[j], last))}untrusted-reference`;
+    last = end[j + FRAME_PHRASE_SKELETON.length - 1];
+  }
+  return out + text.slice(last);
+}
 
 export function foldServedSnippet(text: string): string {
-  return text
-    .replace(FOLD_SPACE_RE, ' ')
-    .replace(FOLD_OPEN_RE, (m) => (m === '(' || m === '{' ? m : '('))
-    .replace(FOLD_CLOSE_RE, (m) => (m === ')' || m === '}' ? m : ')'))
-    .replace(FRAME_PHRASE_RE, 'untrusted-reference');
+  return neutraliseFramePhrase(text
+    .replace(FOLD_SPACE_RE, (m) => (m === ZWNJ || m === ZWJ ? m : ' '))
+    .replace(FOLD_OPEN_RE, (m) => (m === '(' || m === '{' || FOLD_QUOTE_KEEP.has(m) ? m : '('))
+    .replace(FOLD_CLOSE_RE, (m) => (m === ')' || m === '}' || FOLD_QUOTE_KEEP.has(m) ? m : ')')));
 }
 
 /** The user line of an episodic_search MCP result. A row with no human words is never shown as

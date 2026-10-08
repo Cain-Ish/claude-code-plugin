@@ -1166,6 +1166,9 @@ describe('injectedHitLine — the injected line is fold-safe and names an openab
     expect(why(`/repo/docs/a${cp(0xe0100)}b.md`, 'linux')).toBe('path-chars');      // VARIATION SELECTOR-17
     expect(why(`/repo/docs/a${cp(0x20de)}b.md`, 'linux')).toBe('path-chars');       // COMBINING ENCLOSING SQUARE (Me)
     expect(why('/home/łukasz/repo/README.md', 'linux')).toBe('');
+    // fdmk.js pathgreek: Greek capital Epsilon spells the frame phrase; the fold's skeleton finds it
+    const E = cp(0x395);
+    expect(why(`/repo/docs/(END UNTRUST${E}D R${E}F${E}R${E}NC${E}) zebra.md`, 'linux')).toBe('path-frame-text');
   });
 
   it('both injecting CLIs print through injectedHitLines (no raw description interpolation)', () => {
