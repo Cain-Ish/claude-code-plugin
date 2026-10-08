@@ -383,6 +383,35 @@ _fp_joinsl() {
   printf -v "$1" '%s' "${_FP_A[*]-}"
 }
 
+# _fp_rroot VAR PATH CWD (P-S1): VAR = PATH — on a Windows host, spelled on a drive when it is
+# root-relative there: one leading '\' or '/' (not a UNC or device path), no drive, and not an MSYS
+# path (its first name a drive letter, or one of the Git/MSYS root's own: bin cmd dev etc mingw32
+# mingw64 ucrt64 clang32 clang64 clangarm64 proc tmp usr). Claude Code hands node a model's
+# /Users/u/.ssh/x as \Users\u\.ssh\x, and node opens it on the current drive — C:\Users\u\.ssh\x —
+# where these guards read \… and /… under the MSYS root (C:\Program Files\Git\Users\…): no credential
+# prefix matched, and the Write ran. The drive is the payload cwd's (a native X:\… or X:/… form),
+# else CLAUDE_PROJECT_DIR's. 0 = VAR set (respelled or not); 2 = a '\'-rooted PATH with neither
+# drive known — undecidable, the caller asks. A '/'-rooted one keeps its MSYS reading then, as it
+# always had. Builtins only (_fp_path, _fp_lower: _FP_A is overwritten).
+_fp_rroot() {
+  local _fo_p="$2" _fo_d _fo_s
+  printf -v "$1" '%s' "$_fo_p"
+  case "$_fo_p" in
+    "$_fp_bs$_fp_bs"*|"$_fp_bs/"*|"/$_fp_bs"*|//*) return 0 ;;
+    "$_fp_bs"?*|/?*) ;;
+    *) return 0 ;;
+  esac
+  [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1 || return 0
+  _fp_path _fo_s "$_fo_p"; _fo_s="${_fo_s#/}"; _fo_s="${_fo_s%%/*}"
+  _fp_lower _fo_s "$_fo_s"
+  case "$_fo_s" in ?|bin|cmd|dev|etc|mingw32|mingw64|ucrt64|clang32|clang64|clangarm64|proc|tmp|usr) return 0 ;; esac
+  for _fo_d in "$3" "${CLAUDE_PROJECT_DIR:-}"; do
+    case "$_fo_d" in [A-Za-z]:"$_fp_bs"*|[A-Za-z]:/*) printf -v "$1" '%s:%s' "${_fo_d:0:1}" "$_fo_p"; return 0 ;; esac
+  done
+  case "$_fo_p" in "$_fp_bs"*) return 2 ;; esac
+  return 0
+}
+
 # _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
 _fp_esc() {
   local _fe_s="$2"
@@ -989,6 +1018,13 @@ _ptg_fast() {
     _fp_nocr path "$_FP"
     case "$path" in ''|*"$_fp_nl"*) return 1 ;; esac
     plen=${#path}
+    # The payload cwd before the target is spelled: a root-relative target goes on its drive (P-S1,
+    # _fp_rroot); one that cannot be placed is the full logic's (it asks).
+    _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
+    _fp_nocr cwd "$_FP"
+    _fp_trimnl cwd "$cwd"
+    case "$cwd" in *"$_fp_nl"*) return 1 ;; esac
+    _fp_rroot path "$path" "$cwd" || return 1
     _ptg_fpath path "$path" || amb=1
     if [ "$tool" != Read ]; then
       _fp_lower lc "$path"
@@ -1025,10 +1061,6 @@ _ptg_fast() {
         _PTG_RULE=path-too-long _PTG_REASON="$_PTG_SR"
       fi
     else
-      _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
-      _fp_nocr cwd "$_FP"
-      _fp_trimnl cwd "$cwd"
-      case "$cwd" in *"$_fp_nl"*) return 1 ;; esac
       [ -n "$cwd" ] || cwd="$PWD"
       _ptg_fpath cwd "$cwd" || amb=1
       _ptg_proj proj
@@ -1148,6 +1180,7 @@ _fp_clean TOOL SESSION_ID CWD PATH_INPUT CMD
 # copies the whole heap per fork, ~0.25 s more over this path's forks with a 450 KB payload held.
 RAW="" _FP_RAW="" _FP_A=()
 [ -z "${TOOL:-}" ] && exit 0
+_PTG_CWD0="$CWD"
 [ -z "${CWD:-}" ] && CWD="$PWD"
 
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
@@ -1231,6 +1264,11 @@ _ptg_norm() {
 # This and the credential floor below are decided before the rules are read (P-F1): neither needs a
 # rule, and a rules read that cannot run (no jq: _ptg_rd_fail) still applies both.
 _PTG_LONG=0; [ "${#PATH_INPUT}" -gt 4096 ] && _PTG_LONG=1
+# P-S1: a root-relative target goes on the payload cwd's drive, else CLAUDE_PROJECT_DIR's
+# (_fp_rroot); _PTG_RR=1 when a \-rooted one has neither — the credential floor below asks for a Read.
+# The cwd as the payload gave it: $PWD, the fallback above, names no native drive.
+_PTG_RR=0
+if [ -n "$PATH_INPUT" ]; then _fp_rroot PATH_INPUT "$PATH_INPUT" "$_PTG_CWD0" || _PTG_RR=1; fi
 _ptg_proj _PTG_PROJ
 if [ -n "$PATH_INPUT" ]; then
   if [ -n "$_PTG_PROJ" ]; then _ptg_norm PATH_INPUT CWD _PTG_PROJ; else _ptg_norm PATH_INPUT CWD; fi
@@ -1250,7 +1288,11 @@ _PTG_CR_RULE="" _PTG_CR_TGT="" _PTG_CR_REASON=""
 # The Windows spellings (GS2/GC2/GX2, R3B) are _ptg_credread's; an 8.3 short name is resolved here
 # by identity (_ptg_inode) and asks unless the target exists and neither it nor an existing ancestor
 # is a store.
-if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
+if [ "$TOOL" = Read ] && [ "$_PTG_RR" = 1 ]; then
+  # P-S1: a \-rooted target with no drive to put it on — it may open any drive's credential store.
+  _ptg_alias_reason "$PATH_INPUT" "a root-relative path (one leading '\\', no drive) while the call names no drive to resolve it on"
+  _PTG_CR_RULE=windows-alias:root-relative _PTG_CR_TGT="$PATH_INPUT" _PTG_CR_REASON="$_PTG_SR"
+elif [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
   _ptg_abs "$PATH_INPUT" "$CWD"
   _ptg_credread "$PATH_INPUT" "$_PTG_ABS"; _ptg_rc=$?
   if [ "$_ptg_rc" = 2 ]; then

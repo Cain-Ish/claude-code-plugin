@@ -1179,6 +1179,16 @@ if command -v cygpath >/dev/null 2>&1; then
   a2 credential-read "$(w 'C:|Users|a2u|.ssh |id_rsa')" 'C:\w\proj' /c/Users/a2u
   a2 credential-read "$(w 'C:|Users|a2u|.claude|.credentials.json.')" 'C:\w\proj' /c/Users/a2u
   a2 - "$(w 'C:|Users|a2u|notes.txt')" 'C:\w\proj' /c/Users/a2u
+  # P-S1: a root-relative target (one leading separator, no drive) — node opens it on the current
+  # drive, the guards read it under the MSYS root: spelled on the payload cwd's drive, else
+  # CLAUDE_PROJECT_DIR's; a \-rooted one with neither asks (windows-alias:root-relative). An MSYS path
+  # such as \tmp\x keeps its MSYS reading (in scope: no ask).
+  a2 credential-read "$(w '|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
+  a2 credential-read '/Users/a2u/.npmrc' 'C:\w\proj' /c/Users/a2u
+  a2 credential-read "$(w '|Users|a2u|.ssh|id_rsa')" '' /c/Users/a2u 'CLAUDE_PROJECT_DIR=C:\w\proj'
+  a2 windows-alias:root-relative "$(w '|Users|a2u|.ssh|id_rsa')" '' /c/Users/a2u CLAUDE_PROJECT_DIR=
+  a2 - "$(w '|Users|a2u|notes.txt')" 'C:\w\proj' /c/Users/a2u
+  a2 - "$(w '|tmp|a2-p-s1.txt')" 'C:\w\proj' /c/Users/a2u SB_RESOURCE_SCOPE=on
   # 8.3 short names (GC2/GX2c), on disk: SSH~1 is .ssh. The fast path cannot resolve one and stands
   # down; the full logic asks unless test -ef shows no credential store among the target and its
   # existing ancestors (a long-named project directory's short name stays silent).

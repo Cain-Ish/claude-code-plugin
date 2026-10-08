@@ -408,6 +408,35 @@ _fp_joinsl() {
   printf -v "$1" '%s' "${_FP_A[*]-}"
 }
 
+# _fp_rroot VAR PATH CWD (P-S1): VAR = PATH — on a Windows host, spelled on a drive when it is
+# root-relative there: one leading '\' or '/' (not a UNC or device path), no drive, and not an MSYS
+# path (its first name a drive letter, or one of the Git/MSYS root's own: bin cmd dev etc mingw32
+# mingw64 ucrt64 clang32 clang64 clangarm64 proc tmp usr). Claude Code hands node a model's
+# /Users/u/.ssh/x as \Users\u\.ssh\x, and node opens it on the current drive — C:\Users\u\.ssh\x —
+# where these guards read \… and /… under the MSYS root (C:\Program Files\Git\Users\…): no credential
+# prefix matched, and the Write ran. The drive is the payload cwd's (a native X:\… or X:/… form),
+# else CLAUDE_PROJECT_DIR's. 0 = VAR set (respelled or not); 2 = a '\'-rooted PATH with neither
+# drive known — undecidable, the caller asks. A '/'-rooted one keeps its MSYS reading then, as it
+# always had. Builtins only (_fp_path, _fp_lower: _FP_A is overwritten).
+_fp_rroot() {
+  local _fo_p="$2" _fo_d _fo_s
+  printf -v "$1" '%s' "$_fo_p"
+  case "$_fo_p" in
+    "$_fp_bs$_fp_bs"*|"$_fp_bs/"*|"/$_fp_bs"*|//*) return 0 ;;
+    "$_fp_bs"?*|/?*) ;;
+    *) return 0 ;;
+  esac
+  [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1 || return 0
+  _fp_path _fo_s "$_fo_p"; _fo_s="${_fo_s#/}"; _fo_s="${_fo_s%%/*}"
+  _fp_lower _fo_s "$_fo_s"
+  case "$_fo_s" in ?|bin|cmd|dev|etc|mingw32|mingw64|ucrt64|clang32|clang64|clangarm64|proc|tmp|usr) return 0 ;; esac
+  for _fo_d in "$3" "${CLAUDE_PROJECT_DIR:-}"; do
+    case "$_fo_d" in [A-Za-z]:"$_fp_bs"*|[A-Za-z]:/*) printf -v "$1" '%s:%s' "${_fo_d:0:1}" "$_fo_p"; return 0 ;; esac
+  done
+  case "$_fo_p" in "$_fp_bs"*) return 2 ;; esac
+  return 0
+}
+
 # _fp_esc VAR TEXT: TEXT as a JSON string body (\ " \n \r \t escaped, other control chars dropped).
 _fp_esc() {
   local _fe_s="$2"
@@ -841,7 +870,7 @@ _sg_inode1() {
   return 1
 }
 _sg_fast() {
-  local tool fp lit lex sid=""
+  local tool fp lit lex sid="" cwd rc
   _fp_str tool_name || return 1
   tool="$_FP"
   case "$tool" in Write|Edit|MultiEdit) ;; *) return 1 ;; esac
@@ -849,6 +878,11 @@ _sg_fast() {
   _fp_nocr fp "$_FP"
   case "$fp" in ''|*"$_fp_nl"*) return 1 ;; esac
   case "$fp" in '~'*) fp="$HOME${fp#\~}" ;; esac
+  # P-S1: a root-relative target goes on the payload cwd's drive (_fp_rroot); one that cannot be
+  # placed is the full logic's (it asks).
+  _fp_str cwd; rc=$?; [ "$rc" = 2 ] && return 1
+  _fp_nocr cwd "$_FP"
+  _fp_rroot fp "$fp" "$cwd" || return 1
   _fp_str session_id && sid="$_FP"
   _sg_alias "$tool" "$fp" "$sid"
   case $? in 0) return 0 ;; 2) fp="$_SG_MAPPED" ;; esac
@@ -881,11 +915,11 @@ _fp_raw_all
 # jq (NUL-framed; the old form spent four spawns: object check + one per field). A non-object
 # payload → no fields → exit 0 (the old fail-soft). CRs dropped, trailing newlines trimmed, as the
 # old `jq -r … | tr -d '\r'` inside $(…) did.
-TOOL="" FILE_PATH="" SESSION_ID=""
+TOOL="" FILE_PATH="" SESSION_ID="" CWD=""
 _sg_fields() {
   local _sf_obj='^[[:space:]]*[{]' _sf_v _sf_rc
   [[ $RAW =~ $_sf_obj ]] || return 1
-  for _sf_v in TOOL:tool_name FILE_PATH:file_path SESSION_ID:session_id; do
+  for _sf_v in TOOL:tool_name FILE_PATH:file_path SESSION_ID:session_id CWD:cwd; do
     _fp_str "${_sf_v#*:}"; _sf_rc=$?
     [ "$_sf_rc" = 2 ] && return 1
     printf -v "${_sf_v%%:*}" '%s' "$_FP"
@@ -893,10 +927,11 @@ _sg_fields() {
   return 0
 }
 if ! _sg_fields; then
-  TOOL="" FILE_PATH="" SESSION_ID="" _FP_JST=""
+  TOOL="" FILE_PATH="" SESSION_ID="" CWD="" _FP_JST=""
   {
     IFS= read -r -d '' _FP_JST; IFS= read -r -d '' TOOL; IFS= read -r -d '' FILE_PATH; IFS= read -r -d '' SESSION_ID
-  } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (if ([.tool_name, .tool_input.file_path, .session_id] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000" else empty end' 2>/dev/null)
+    IFS= read -r -d '' CWD
+  } < <(_fp_feed "$RAW" jq -j 'if type == "object" then (if ([.tool_name, .tool_input.file_path, .session_id, .cwd] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end), "\u0000", (.tool_name // ""), "\u0000", (.tool_input.file_path // ""), "\u0000", (.session_id // ""), "\u0000", (.cwd // ""), "\u0000" else empty end' 2>/dev/null)
   if [ "$_FP_JST" = nul ]; then
     _fp_audit "symlink-guard.sh" "ask" "nul-field" "$TOOL" "field holds a NUL character" "${SESSION_ID:-}" full
     _fp_emit ask "second-brain symlink-guard.sh cannot check this call: a field it reads holds a NUL character, which bash cannot represent. Confirm the call."
@@ -908,7 +943,7 @@ if ! _sg_fields; then
     esac
   fi
 fi
-_fp_clean TOOL FILE_PATH SESSION_ID
+_fp_clean TOOL FILE_PATH SESSION_ID CWD
 
 case "$TOOL" in
   Write|Edit|MultiEdit) ;;
@@ -921,6 +956,18 @@ esac
 case "$FILE_PATH" in
   '~'*) FILE_PATH="$HOME${FILE_PATH#\~}" ;;
 esac
+
+# P-S1: a Windows root-relative target (\Users\u\.ssh\x) goes on the payload cwd's drive, else
+# CLAUDE_PROJECT_DIR's (_fp_rroot) — node opens it there. A \-rooted one with neither cannot be placed:
+# it may land in any drive's credential directory, so it asks.
+_fp_rroot FILE_PATH "$FILE_PATH" "$CWD"
+if [ $? = 2 ]; then
+  _sg_short _sg_rp "$FILE_PATH"
+  _sg_rr="Write to '$_sg_rp' is root-relative (one leading '\\', no drive): Windows opens it on the current drive, which this call does not name, so symlink-guard cannot tell whether it lands in a credential directory. Confirm the target. Suppress: SB_SYMLINK_GUARD=off."
+  _fp_audit "symlink-guard.sh" "ask" "windows-alias:root-relative" "$TOOL($_sg_rp)" "$_sg_rr" "$SESSION_ID" full
+  _fp_emit ask "$_sg_rr"
+  exit 0
+fi
 
 # Windows alias spellings (UNC, stream syntax), as on the fast path: a big payload whose file_path
 # came after 16 KiB of content reaches only this logic.

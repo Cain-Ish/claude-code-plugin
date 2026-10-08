@@ -822,6 +822,40 @@ else
   echo "SKIP: P-C2 linked ask-tier path — no directory link can be made here"
 fi
 
+# --- P-S1: Windows root-relative targets ----------------------------------------------------------
+# Claude Code hands node a model's /Users/u/.ssh/x as \Users\u\.ssh\x, and node opens a path with one
+# leading separator and no drive on the current drive: C:\Users\u\.ssh\x. The guards read \… and /…
+# as the MSYS root (C:\Program Files\Git\Users\…), so no credential prefix matched and the Write ran
+# (a marker file created and removed through it, RV2-sec). Such a target is spelled on the payload
+# cwd's drive, else CLAUDE_PROJECT_DIR's; a \-rooted one with neither asks. MSYS paths (/tmp, /usr, a
+# drive letter's /c, …) are left as they are: \tmp\x is not asked about. The stubbed cygpath above
+# makes this a "Windows host" on every lane, as tests 20-24 are.
+win_guard_cwd() {  # $1 tool  $2 path  $3 cwd ('' = no cwd field)  [VAR=val…]
+  local et ep ec cw=""
+  et=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  ep=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  if [ -n "$3" ]; then ec=$(printf '%s' "$3" | sed 's/\\/\\\\/g; s/"/\\"/g'); cw=",\"cwd\":\"$ec\""; fi
+  shift 3
+  printf '{"session_id":"t","hook_event_name":"PreToolUse","tool_name":"%s"%s,"tool_input":{"file_path":"%s"}}' "$et" "$cw" "$ep" \
+    | env CLAUDE_PROJECT_DIR= HOME="$WINHOME" SB_TEST_WINHOME="$WINHOME" PATH="$WINBIN:$PATH" "$@" bash "$SCRIPT" 2>/dev/null
+}
+OUT=$(win_guard_cwd Write '\winhome\.ssh\authorized_keys' 'C:\w\proj')
+assert_deny "P-S1: a root-relative \\winhome\\.ssh Write lands on the cwd's drive, C: — deny" "$OUT" ssh
+OUT=$(win_guard_cwd Edit '/winhome/.ssh/authorized_keys' 'C:/w/proj')
+assert_deny "P-S1: the '/'-rooted spelling on a native cwd — deny" "$OUT" ssh
+OUT=$(win_guard_cwd Write '\winhome\.npmrc' 'C:\w\proj')
+assert_ask "P-S1: a root-relative Write into an ask-tier store asks" "$OUT" npmrc
+OUT=$(win_guard_cwd Write '\winhome\.ssh\authorized_keys' '' CLAUDE_PROJECT_DIR='C:\w\proj')
+assert_deny "P-S1: no cwd — CLAUDE_PROJECT_DIR's drive — deny" "$OUT" ssh
+OUT=$(win_guard_cwd Write '\winhome\.ssh\authorized_keys' '')
+assert_ask "P-S1: a \\-rooted target with no drive to put it on asks" "$OUT" "root-relative"
+OUT=$(win_guard_cwd Write '\tmp\sb-p-s1.txt' 'C:\w\proj')
+assert_allow "P-S1: \\tmp\\x (an MSYS path) is not asked about" "$OUT"
+OUT=$(win_guard_cwd Write '\winhome\work\repo\main.py' 'C:\w\proj')
+assert_allow "P-S1: a root-relative project file is not over-blocked" "$OUT"
+OUT=$(win_guard_cwd Write '/winhome/work/repo/main.py' '')
+assert_allow "P-S1: a '/'-rooted target with no drive known keeps its MSYS reading" "$OUT"
+
 # Mutation i (source-scan): the `_sg_segs SG_SEGS` count must stay gated by the length cap. Without the
 # gate, a 300 KB run of '/' spends ~1.6 s splitting into ~300k fields for a count that is moot past the
 # character cap. The whole guard still answers over the 4 s bound on that input with or without the
