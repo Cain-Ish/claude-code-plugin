@@ -652,10 +652,16 @@ _fg_rawscan() {
   case "$RAW" in *'"tool_name"'*) ;; *) return 1 ;; esac
   hay=$(_fp_feed "$RAW" sed -e 's/\\./ /g' -e 's/"/ /g')
   [ -n "$hay" ] || hay="$RAW"
+  # An undecoded tool name (every payload on bash < 4.3, _fp_ob) is read from the payload: one that
+  # names none of the three tools this guard checks is not scanned, as a decoded one is not.
   case "$TOOL" in
     Bash) ;;
     WebFetch|WebSearch) web=1 ;;
-    '') case "$RAW" in *'"WebFetch"'*|*'"WebSearch"'*) web=1 ;; esac ;;
+    '') case "$RAW" in
+          *'"WebFetch"'*|*'"WebSearch"'*) web=1 ;;
+          *'"Bash"'*) ;;
+          *) return 1 ;;
+        esac ;;
     *) return 1 ;;
   esac
   if [ "$web" = 0 ]; then _fp_feed "$hay" grep -qE "$FG_NET" || return 1; fi

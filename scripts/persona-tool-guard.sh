@@ -1110,8 +1110,10 @@ TOOL="" SESSION_ID="" CWD="" PATH_INPUT="" CMD=""
 # a payload naming the tool Read that holds a store's path as a path — each '\' read as '/' (JSON's
 # '\\' is then '//'), a separator before it, and after it a separator or a string's closing quote —
 # asks; _PTG_CL = the store. Unanchored (the raw text has no single spelling of HOME), so a project's
-# own .ssh directory asks too: the degraded mode's price. 2 = past 64 KiB, too large to scan (a Read
-# payload is a few hundred bytes): ask. 1 = no Read, or no store. Builtins only.
+# own .ssh directory asks too: the degraded mode's price. 1 = no Read, or no store. 2 = no store in a
+# Read payload past 4096 characters: its target may be past path-too-long's bound, which cannot be
+# measured without a decode, so it asks as path-too-long's floor would (a Read payload is a few
+# hundred bytes); past 64 KiB it is not scanned at all. Builtins only.
 _ptg_rawcred() {
   local _rw_t _rw_e _rw_p _rw_q _rw_o=0
   _PTG_CL=""
@@ -1122,13 +1124,15 @@ _ptg_rawcred() {
   shopt -s nocasematch
   for _rw_e in "${_PTG_CRED_H[@]}" "${_PTG_CRED_A[@]}"; do
     _rw_p="${_rw_e#*:*:}"
-    _fp_split / "$_rw_p"; printf -v _rw_q '%s//' "${_FP_A[@]}"; _rw_q="${_rw_q%//}"
+    _fp_split / "$_rw_p"; printf -v _rw_q '%s//' ${_FP_A[@]+"${_FP_A[@]}"}; _rw_q="${_rw_q%//}"
     case "$_rw_t" in
       *"/$_rw_p/"*|*"/$_rw_p$_fp_q"*|*"/$_rw_q/"*|*"/$_rw_q$_fp_q"*) _ptg_clabel "$_rw_e"; break ;;
     esac
   done
   [ "$_rw_o" = 1 ] || shopt -u nocasematch
-  [ -n "$_PTG_CL" ]
+  [ -n "$_PTG_CL" ] && return 0
+  [ "${#RAW}" -gt 4096 ] && return 2
+  return 1
 }
 _ptg_fields() {
   local v rc
@@ -1163,13 +1167,15 @@ if ! _ptg_fields; then
       _ptg_rawcred; _ptg_rc=$?
       if [ "$_ptg_rc" != 1 ]; then
         if [ "$_ptg_rc" = 0 ]; then
+          _ptg_rr=credential-read
           _PTG_SR="persona-tool-guard.sh cannot decode this Read call without jq (not on PATH), and its payload names a credential store ($_PTG_CL). Reading a secret is the first step of credential exfiltration, the classic goal of a prompt injection. Confirm intent."
         else
-          _PTG_SR="persona-tool-guard.sh cannot decode this Read call without jq (not on PATH), and its payload is too large (${#RAW} characters) to scan for a credential store. Confirm the call."
+          _ptg_rr=path-too-long
+          _PTG_SR="persona-tool-guard.sh cannot decode this Read call without jq (not on PATH), and its payload (${#RAW} characters) may hold a target past 4096 characters, which it cannot measure or match safely. Confirm the call."
         fi
         _fp_emit ask "$_PTG_SR"
-        _fp_audit "persona-tool-guard.sh" "ask" "credential-read" "Read(undecoded)" "$_PTG_SR" "" full
-        _fp_err "persona-tool-guard.sh" "jq is not on PATH: the undecoded Read call above was asked about after all (its raw payload names a credential store, or is too large to scan)"
+        _fp_audit "persona-tool-guard.sh" "ask" "$_ptg_rr" "Read(undecoded)" "$_PTG_SR" "" full
+        _fp_err "persona-tool-guard.sh" "jq is not on PATH: the undecoded Read call above was asked about after all ($_ptg_rr: its raw payload names a credential store, or is too long to measure)"
         exit 0
       fi ;;
     esac
