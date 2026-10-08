@@ -601,18 +601,53 @@ if [ "$_FP_JST" = nul ]; then
 fi
 # _fg_nojq: the full logic without jq (GS4/GX4, R3B) — e78111c's: the builtin decode, then the egress
 # gate and FG_RES by grep, line by line. TOOL, SESSION_ID and MATCHED_LABELS for the verdict below;
-# 1 = no verdict. A payload the builtins cannot decode is logged and passes (_fp_jqfail's rule for a
-# missing jq; SessionStart's banner reports it), as it did there.
+# 1 = no verdict. A payload the builtins cannot decode (a \u, \b or \f escape, over 1000 escapes, over
+# 64 KiB, a duplicated key) is logged (_fp_jqfail's rule for a missing jq; SessionStart's banner
+# reports it) and scanned raw (_fg_rawscan, P-F3/P-S5): it used to pass — a 70 KB credentialed
+# heredoc went out unasked.
 _fg_nojq_undecided() {
   case "$RAW" in *'"tool_name"'*) _fp_jqfail "flow-guard.sh" "${#RAW}" ;; esac
-  return 1
+  _fg_rawscan
+}
+# _fg_rawscan: the scan over the RAW payload. Every credential pattern is ASCII, which JSON never
+# escapes, so the tokens stand in the raw text as they do in the decoded one. Each escape (\n, \",
+# \\, \u…) and each quote is read as a space first (one sed), so a token or an egress word that
+# follows a JSON escape or a string's quote is a word of its own. The egress gate (FG_NET) applies
+# unless the call is a WebFetch or WebSearch — by its decoded tool name, else by the one its payload
+# names; JSON keys never match it. TOOL stays as decoded, "(undecoded)" when it was not. Then FG_RES
+# as _fg_nojq applies it. 1 = no verdict.
+_fg_rawscan() {
+  local hay scan p i rc web=0
+  local -a args=()
+  MATCHED_LABELS=""
+  case "$RAW" in *'"tool_name"'*) ;; *) return 1 ;; esac
+  hay=$(_fp_feed "$RAW" sed -e 's/\\./ /g' -e 's/"/ /g')
+  [ -n "$hay" ] || hay="$RAW"
+  case "$TOOL" in
+    Bash) ;;
+    WebFetch|WebSearch) web=1 ;;
+    '') case "$RAW" in *'"WebFetch"'*|*'"WebSearch"'*) web=1 ;; esac ;;
+    *) return 1 ;;
+  esac
+  if [ "$web" = 0 ]; then _fp_feed "$hay" grep -qE "$FG_NET" || return 1; fi
+  for p in "${FG_RES[@]}"; do args+=(-e "$p"); done
+  scan=$(_fp_feed "$hay" grep -E ${args[@]+"${args[@]}"}); rc=$?
+  [ "$rc" = 1 ] && return 1
+  [ "$rc" = 0 ] || scan="$hay"
+  for ((i = 0; i < ${#FG_RES[@]}; i++)); do
+    _fp_feed "$scan" grep -qE "${FG_RES[$i]}" && MATCHED_LABELS="${MATCHED_LABELS:+$MATCHED_LABELS,}${FG_LABELS[$i]}"
+  done
+  [ -n "$MATCHED_LABELS" ] || return 1
+  TOOL="${TOOL:-(undecoded)}"
+  _fp_err "flow-guard.sh" "jq is not on PATH: the undecodable call above was scanned raw and asked about after all ($MATCHED_LABELS)"
+  return 0
 }
 _fg_nojq() {
   local rc u="" pr="" hay="" p i scan
   local -a args=()
   MATCHED_LABELS=""
-  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; TOOL="$_FP"
-  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }; SESSION_ID="$_FP"
+  _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; TOOL="$_FP"
+  _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; SESSION_ID="$_FP"
   case "$TOOL" in
     Bash)      _fp_str command; rc=$? ;;
     WebSearch) _fp_str query; rc=$? ;;
@@ -620,7 +655,7 @@ _fg_nojq() {
                if [ "$rc" != 2 ]; then _fp_str prompt; rc=$?; pr="$_FP"; _FP="$u $pr"; fi ;;
     *) return 1 ;;
   esac
-  [ "$rc" = 2 ] && { _fg_nojq_undecided; return 1; }
+  [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }
   hay="$_FP"
   RAW="" _FP_RAW=""
   _fp_clean TOOL SESSION_ID
