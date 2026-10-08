@@ -997,8 +997,11 @@ sb_strip_invisible_copy() {
   fi
 }
 
-# Regenerate wiki/index.md catalog after wiki writes.
+# Regenerate wiki/index.md catalog after wiki writes. Returns node's exit status. A skip (no node,
+# or no reindex bundle) is not a failure: it returns 0 and sets SB_REINDEX_SKIPPED=1 (0 otherwise),
+# for a caller that must tell the user the index was not rebuilt (wiki-history.sh restore).
 sb_reindex_wiki() {
+  SB_REINDEX_SKIPPED=0
   local knowledge_dir="${1:-$(sb_knowledge_dir)}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
   local plugin_root; plugin_root=$(sb_plugin_root)
@@ -1028,7 +1031,11 @@ sb_reindex_wiki() {
     return "$_reindex_rc"
   else
     # No node or no bundle: the index stays stale, so say so (the sb_strip_invisible_copy pattern).
+    # Explicit 0 (R3-C, S10 remainder): falling off the end returned sb_log_error's own status, so
+    # an error-log that could not be appended turned the skip into a failure.
+    SB_REINDEX_SKIPPED=1
     sb_log_error "sb_reindex_wiki" "reindex skipped: $(command -v node >/dev/null 2>&1 || printf 'node not on PATH ')$([ -f "$reindex_js" ] || printf 'bundle missing at %s' "$reindex_js") — wiki/index.md for $knowledge_dir not regenerated" 0
+    return 0
   fi
 }
 

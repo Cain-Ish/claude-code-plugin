@@ -46,6 +46,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# jq exit 127 (not found) on a payload check is a host state that lasts: ONE error row per outage,
+# not one per PreCompact/PostCompact (R3-C P-F6; subagent-capture.sh's marker pattern). Both modes
+# share the marker, so a compaction's PostCompact stays quiet once its PreCompact said it. The
+# first run whose jq runs, whatever the payload, ends the outage (_pc_jq_seen).
+_pc_nojq="$BRAIN_DIR/.pre-compact-no-jq"
+_pc_jq_seen() { [ -e "$_pc_nojq" ] && rm -f "$_pc_nojq"; return 0; }
+_pc_jq_missing() {  # $1 payload name, $2 what is lost
+  [ -e "$_pc_nojq" ] && return 0
+  : > "$_pc_nojq" 2>/dev/null
+  sb_log_error "pre-compact.sh" "jq exited 127 checking the $1 payload (jq not found on PATH): $2 until jq is installed (reported once per outage)" 1
+}
+
 # --- PostCompact mode (C2/C3, Slice 1 §4.3): Pending Tasks -> ## Plan, add-only ---------------
 if [ "${1:-}" = "post" ]; then
   [ "${SB_COMPACT_CAPTURE:-on}" = "off" ] && { SB_GATE="postcompact-capture reason=off"; exit 0; }
@@ -54,10 +66,12 @@ if [ "${1:-}" = "post" ]; then
   [ -n "$P_RAW" ] || { SB_GATE="postcompact-capture reason=bad-stdin"; exit 0; }
   # Same jq status classes as the PreCompact check below: only 1/2/4/5 are the payload's.
   echo "$P_RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _pc_jq_rc=$?
+  case "$_pc_jq_rc" in 0|1|2|4|5) _pc_jq_seen ;; esac
   case "$_pc_jq_rc" in
     0) ;;
     1|2|4|5) SB_GATE="postcompact-capture reason=bad-stdin"; exit 0 ;;
-    *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PostCompact payload (jq missing, not executable or killed); its Pending Tasks are not captured" 1
+    127) _pc_jq_missing PostCompact "no Pending Tasks are captured"; exit 0 ;;
+    *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PostCompact payload (jq not executable, or killed); its Pending Tasks are not captured" 1
        exit 0 ;;
   esac
 
@@ -234,11 +248,14 @@ if [ -z "$RAW" ]; then SB_GATE="empty-stdin"; exit 0; fi
 # status is jq itself failing (126/127 not runnable, 128+N killed): an error row with the status,
 # never the routine gate (stop-extract.sh does the same). The window is not archived; a later hook
 # retries it. The field reads below check jq's status for the same reason.
+# 127 (jq not found) is one row per outage (_pc_jq_missing above, R3-C P-F6).
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _pc_jq_rc=$?
+case "$_pc_jq_rc" in 0|1|2|4|5) _pc_jq_seen ;; esac
 case "$_pc_jq_rc" in
   0) ;;
   1|2|4|5) SB_GATE="stdin-not-json-object"; exit 0 ;;
-  *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PreCompact payload (jq missing, not executable or killed); the window is neither archived nor extracted, a later hook retries it" 1
+  127) _pc_jq_missing PreCompact "no window is archived or extracted (a later hook retries it)"; exit 0 ;;
+  *) sb_log_error "pre-compact.sh" "jq exited $_pc_jq_rc checking the PreCompact payload (jq not executable, or killed); the window is neither archived nor extracted, a later hook retries it" 1
      exit 0 ;;
 esac
 

@@ -2,9 +2,10 @@
 # pins: SB_DREAM_ACCEPT_MIN_RATIO — opens the unrelated deletion-ratio gate to 0 to isolate the NO_DELETE/SKIP_BACKUP guards this file actually tests
 # pins: SB_DREAM_ACCEPT_NO_DELETE — the flag itself is the subject of this subtest (dry-run no-delete mode)
 # pins: SB_DREAM_ACCEPT_SKIP_BACKUP — the flag itself is the subject of subtest B3 (skip-backup auto path)
-# run-all-timeout: 240   (~30 dream-accept.sh runs; measured alone on MSYS 2026-10-07 after R3-B's
+# run-all-timeout: 240   (~31 dream-accept.sh runs; measured alone on MSYS 2026-10-07 after R3-B's
 #   C1/F3c cases and the first real run of the D084 follow-up: 79 s jq 1.8.1 / 83 s jq 1.7.1,
-#   15.1 GB free, 377 processes; the 120 s default was under 2x that)
+#   15.1 GB free, 377 processes; the 120 s default was under 2x that. 2026-10-08 after R3-C's P-C4
+#   case, alone: 75 s jq 1.8.1 / 88 s jq 1.7.1)
 # Premise-review fixes (0.25.0 autonomy): dream-accept must never let a broken/
 # truncated dream destroy the LIVE wiki, and auto_accept=safe must truly forbid
 # deletions. ORACLE: the real live-wiki page count on disk BEFORE vs AFTER a
@@ -487,18 +488,47 @@ PATH="$JQSHIM:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 ba
   || fail "C1: precondition — the first run did not archive p1"
 E1=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl" 2>/dev/null); E1=${E1:-0}
 [ "$E1" -ge 1 ] || fail "C1: precondition — the first run landed no edge (edges.jsonl has $E1 lines)"
-[ -f "$D/.applied" ] || fail "C1: the applied-but-unstamped dream carries no .applied marker"
+# The applied marker lives beside the dream dir, outside what the dream-runner may write (P-C4). Its
+# presence is read now (the re-accept removes it) and asserted LAST (R3-C P-Q4): the behaviour
+# checks come first, so a build without the marker fails on what the user would see.
+C1_MARK="$BRAIN_DIR/dreams/.applied-drm_test"
+C1_MARKED=0; [ -f "$C1_MARK" ] && C1_MARKED=1
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
 A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
-{ [ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ] && [ ! -d "$D/staging" ] && [ ! -f "$D/.applied" ]; } \
-  || fail "C1: the re-accept did not finish (rc=$rc archived_at='$A' staging=$([ -d "$D/staging" ] && echo kept || echo gone) marker=$([ -f "$D/.applied" ] && echo kept || echo gone)): $OUT"
+{ [ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ] && [ ! -d "$D/staging" ]; } \
+  || fail "C1: the re-accept did not finish (rc=$rc archived_at='$A' staging=$([ -d "$D/staging" ] && echo kept || echo gone)): $OUT"
 [ ! -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "C1: the re-accept brought archived p1 back to the live wiki"
 [ -f "$KNOWLEDGE_DIR/wiki/entities/p9.md" ] || fail "C1: p9 (applied by the first run) is not live"
 P1ROWS=$(grep -c '"slug":"p1"' "$BRAIN_DIR/wiki-archive-log.jsonl" 2>/dev/null); P1ROWS=${P1ROWS:-0}
 [ "$P1ROWS" = 1 ] || fail "C1: wiki-archive-log has $P1ROWS p1 rows (want 1)"
 E2=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl" 2>/dev/null); E2=${E2:-0}
 [ "$E2" = "$E1" ] || fail "C1: the re-accept appended edges again ($E1 -> $E2 lines)"
+[ "$C1_MARKED" = 1 ] || fail "C1: the applied-but-unstamped dream carried no marker at $C1_MARK"
+[ ! -e "$C1_MARK" ] || fail "C1: the finished re-accept left its marker at $C1_MARK"
 pass "C1: the re-accept after a failed stamp only finishes (p1 stays archived, 1 archive row, edges $E1 -> $E2, marker cleaned)"
+rm -rf "$SB"
+
+# === P-C4 (R3-C): the applied marker sat INSIDE the dream dir ($D/.applied), which the dream-runner
+# may write (K12 confines its Write/Edit to that dir). An injected runner that planted one made
+# dream_accept skip the apply, stamp archived_at, delete staging and print a success built from its
+# own status.json: the dream's output was lost under a success message. The marker now lives at
+# $BRAIN_DIR/dreams/.applied-<id> (pg_dream_confine denies the runner there; tests/test-protocol-guard.sh
+# locks that); a .applied found inside the dream dir is ignored, with one error row.
+setup 4 "p1 p2 p3 p4 p9"   # p9 is new
+D="$BRAIN_DIR/dreams/drm_test"
+jq -nc '{id:"drm_test",status:"completed",archived_at:null,outputs:{pages_added:7,pages_modified:0,pages_removed:0}}' > "$D/status.json"
+printf '2026-10-08T00:00:00Z\n' > "$D/.applied"   # planted by the runner
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1); rc=$?
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p9.md" ] \
+  || fail "P-C4: a .applied planted in the dream dir skipped the apply: p9 is not live (rc=$rc): $OUT"
+{ [ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ] && [ ! -d "$D/staging" ]; } \
+  || fail "P-C4: the accept with a planted .applied did not finish (rc=$rc archived_at='$A'): $OUT"
+jq -c 'select(.script == "dream-accept" and .exit_code == 1 and ((.message // "") | test("\\.applied")))' \
+  "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  || fail "P-C4: the planted .applied left no error row (error-log: $(tail -1 "$BRAIN_DIR/error-log.jsonl" 2>/dev/null))"
+[ ! -e "$BRAIN_DIR/dreams/.applied-drm_test" ] || fail "P-C4: the finished accept left its own marker behind"
+pass "P-C4: a .applied planted in the dream dir does not short-circuit the accept (p9 applied, archived, one error row)"
 rm -rf "$SB"
 
 echo "ALL PASS"

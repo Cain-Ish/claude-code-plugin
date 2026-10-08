@@ -165,7 +165,8 @@ done
 [ -e "$B9D/.obs-sess-mk.mkdir-failed.flag" ] || fail "mkdir-fail: the fallback flag under BRAIN_DIR was not created"
 pass "a ledger directory that cannot be created is loud once per session (fallback flag under BRAIN_DIR)"
 # (b) observations/ unwritable (chmod 555): the append AND the in-directory flag fail. Needs a
-#     filesystem where chmod restricts (not Windows, not root); the macOS lane runs it.
+#     filesystem where chmod restricts (not Windows, not root); CI's Linux lane (run-all, as a
+#     non-root user) runs it. The macOS lane does not run this file.
 supports_chmod_restrict() {
   local d; d=$(mktemp -d); chmod 555 "$d" 2>/dev/null; touch "$d/probe" 2>/dev/null; local rc=$?
   chmod 755 "$d" 2>/dev/null; rm -rf "$d"; [ "$rc" -ne 0 ]
@@ -181,7 +182,7 @@ if supports_chmod_restrict; then
   [ -e "$B9E/.obs-sess-ro.append-failed.flag" ] || fail "ro-dir: the fallback flag under BRAIN_DIR was not created"
   pass "an unwritable observations/ is loud once per session (the flag falls back to BRAIN_DIR)"
 else
-  echo "SKIP: 9d(b) chmod 555 does not restrict on this filesystem (Windows or root); the macOS lane runs it"
+  echo "SKIP: 9d(b) chmod 555 does not restrict on this filesystem (Windows or root); CI's Linux lane runs it"
 fi
 # (c) the record's jq fails (killed, missing): the observation is lost, said once per session.
 OBS_JQ_SHIM="$TMP/obs-jq-shim"; mkdir -p "$OBS_JQ_SHIM"

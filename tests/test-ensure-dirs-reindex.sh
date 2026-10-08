@@ -38,7 +38,16 @@ K21ROW=$(jq -c 'select(.script == "sb_reindex_wiki" and ((.message // "") | test
   "$K21B/error-log.jsonl" 2>/dev/null | tr -d '\r')
 [ -n "$K21ROW" ] || fail "K21: sb_reindex_wiki with no reindex bundle returned silently (no error-log row; log: $(tail -2 "$K21B/error-log.jsonl" 2>/dev/null))"
 pass "K21: a missing reindex bundle leaves an error-log row instead of a silent no-op"
-rm -rf "$K21B" "$K21P" "$K21K"
+# S10 remainder (R3-C): a skip is not a failure, so sb_reindex_wiki returns 0 for it, and says it
+# skipped through SB_REINDEX_SKIPPED=1 (wiki-history.sh's restore reads it; tests/test-wiki-history.sh
+# H9). The skip branch used to return sb_log_error's own status, so an error-log that could not be
+# appended (here a directory) turned the skip into a "failure" (rc 1).
+K21B2=$(mktemp -d); mkdir -p "$K21B2/error-log.jsonl"
+( export HOME="$K21B2" BRAIN_DIR="$K21B2" CLAUDE_PLUGIN_ROOT="$K21P"
+  . "$ROOT/scripts/lib.sh" && { sb_reindex_wiki "$K21K"; k21rc=$?; [ "$k21rc" = 0 ] && [ "${SB_REINDEX_SKIPPED:-}" = 1 ]; } ) >/dev/null 2>&1 \
+  || fail "K21: a skipped reindex with an unwritable error-log did not return 0 with SB_REINDEX_SKIPPED=1"
+pass "K21: a skipped reindex returns 0 and sets SB_REINDEX_SKIPPED=1, whatever the error-log write did"
+rm -rf "$K21B" "$K21P" "$K21K" "$K21B2"
 
 # 0b. S10 (R3-B): sb_reindex_wiki discarded node's exit status (`|| true`) and always returned 0,
 # so a reindex that died without stderr left no trace, its rows said exit_code 0, and
@@ -54,8 +63,12 @@ for s10 in silent loud; do
     printf '#!%s\nexit 3\n' "$BASH" > "$S10BIN/node"
   fi
   chmod +x "$S10BIN/node"; rm -f "$S10B/error-log.jsonl"
+  # SB_REINDEX_SKIPPED starts at 1 (a skip earlier in the same shell): a run that reached node must
+  # reset it to 0 (rc 97 here when it does not).
   ( export HOME="$S10B" BRAIN_DIR="$S10B" CLAUDE_PLUGIN_ROOT="$S10P" PATH="$S10BIN:$PATH"
-    . "$ROOT/scripts/lib.sh" && sb_reindex_wiki "$S10K" ) >/dev/null 2>&1; s10rc=$?
+    . "$ROOT/scripts/lib.sh" && SB_REINDEX_SKIPPED=1 && sb_reindex_wiki "$S10K"; s10r=$?
+    [ "${SB_REINDEX_SKIPPED:-}" = 0 ] || exit 97
+    exit "$s10r" ) >/dev/null 2>&1; s10rc=$?
   S10ROW=$(jq -c 'select(.script == "sb_reindex_wiki" and .exit_code == 1 and ((.message // "") | test("reindex-failed \\(node exit 3\\)")))' \
     "$S10B/error-log.jsonl" 2>/dev/null | tr -d '\r')
   [ "$s10rc" = 3 ] && [ -n "$S10ROW" ] \

@@ -889,11 +889,17 @@ dc_payload() {  # $1 tool, $2 agent_type ("" = main thread), $3 file_path
      + (if $a == "" then {} else {agent_id:"agdc",agent_type:$a} end)' | tr -d '\r'
 }
 dc_check() {  # $1 label, $2 want (deny|ask|none), $3 payload, [$4…] extra env for run (e.g. PATH=…)
-  local label="$1" want="$2" payload="$3" out got; shift 3
-  out=$(run pre "$payload" "$@")
+  local label="$1" want="$2" payload="$3" out got rc; shift 3
+  out=$(run pre "$payload" "$@" 2>"$SANDBOX/dc.err"); rc=$?
   # A malformed envelope does not parse, so it reads as `none` and a deny/ask case fails.
   got=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null | tr -d '\r')
   [ -n "$got" ] || got=none
+  # P-Q8 (R3-C): a guard that crashed also prints no verdict, so `none` holds only for a run that
+  # exited 0 and wrote nothing to stderr.
+  if [ "$want" = none ] && { [ "$rc" -ne 0 ] || [ -s "$SANDBOX/dc.err" ]; }; then
+    fail "dream-confine: $label -> no verdict, but the guard exited $rc with stderr (a crash is not a pass)" "$(head -c 400 "$SANDBOX/dc.err")"
+    return
+  fi
   [ "$got" = "$want" ] && pass "dream-confine: $label -> $want" || fail "dream-confine: $label -> got $got, want $want" "$out"
 }
 dc_case() {  # $1 label, $2 want (deny|ask|none), $3 tool, $4 agent_type, $5 file_path, [$6…] extra env
@@ -913,6 +919,9 @@ dc_case "MultiEdit of another brain file" deny MultiEdit second-brain:dream-runn
 dc_case ".. out of its dream dir" deny Write second-brain:dream-runner "$DCD/../../config.json"
 dc_case "a dream dir that does not exist" deny Write second-brain:dream-runner "$BRAIN/dreams/drm_nope/staging/wiki/a.md"
 dc_case "the dreams root itself" deny Write second-brain:dream-runner "$BRAIN/dreams/x.md"
+# R3-C P-C4: dream-accept's applied marker sits beside the dream dir so the runner cannot plant it.
+dc_case "dream-accept's applied marker beside its dream dir" deny Write second-brain:dream-runner "$BRAIN/dreams/.applied-drm_20261007T000000Z"
+dc_case "dream-accept's applied marker, Edit" deny Edit dream-runner "$BRAIN/dreams/.applied-drm_20261007T000000Z"
 dc_case "a relative path" deny Write second-brain:dream-runner "staging/wiki/a.md"
 dc_case "another agent writing outside the brain" none Write general-purpose "$SB_HOME/.claude/settings.json"
 dc_case "a name that only ends in dream-runner" none Write my-dream-runner "$SB_HOME/.claude/settings.json"
@@ -923,16 +932,8 @@ dc_case "a Read outside its dream dir (reads are not confined)" none Read second
 # must not be denied; the same path with SB_BRAIN_DIR unset is outside every root.
 ALTB="$SANDBOX/altbrain"; mkdir -p "$ALTB/dreams/drm_20261007T000001Z/staging/wiki"
 ALT_PAYLOAD=$(dc_payload Write second-brain:dream-runner "$ALTB/dreams/drm_20261007T000001Z/staging/wiki/a.md")
-for alt in set unset; do
-  if [ "$alt" = set ]; then
-    want=none; OUT_ALT=$(run pre "$ALT_PAYLOAD" SB_BRAIN_DIR="$ALTB")
-  else
-    want=deny; OUT_ALT=$(run pre "$ALT_PAYLOAD")
-  fi
-  got=$(printf '%s' "$OUT_ALT" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null | tr -d '\r'); [ -n "$got" ] || got=none
-  [ "$got" = "$want" ] && pass "dream-confine: a dream dir under SB_BRAIN_DIR ($alt) -> $want" \
-    || fail "dream-confine: a dream dir under SB_BRAIN_DIR ($alt) -> got $got, want $want" "$OUT_ALT"
-done
+dc_check "a dream dir under SB_BRAIN_DIR (set)" none "$ALT_PAYLOAD" SB_BRAIN_DIR="$ALTB"
+dc_check "a dream dir under SB_BRAIN_DIR (unset)" deny "$ALT_PAYLOAD"
 # A symlink inside the dream dir would carry the write out of it (its Bash grant has `cp *`, and
 # `cp -s` makes links). Only where ln -s makes a real link (git-bash deep-copies instead).
 mkdir -p "$SB_HOME/.claude"; : > "$SB_HOME/.claude/target"

@@ -17,7 +17,9 @@
 #   2026-10-07 R3-B (+JQ1/TC2/HD1, ~14 more hook runs), alone on the MSYS dev box: 519 s before
 #   them (jq 1.8.1 and 1.7.1), 561 s (jq 1.8.1) / 530 s (jq 1.7.1) after, ~12-13 GB free, ~390
 #   processes. 2x would be ~1120 s, past run-all's 900 s hard ceiling: 900 is the most a header
-#   can declare, so this file now holds ~1.6x alone; splitting it is the remaining fix)
+#   can declare, so this file now holds ~1.6x alone; splitting it is the remaining fix.
+#   2026-10-08 R3-C (+NJ1: ~16 short hook runs that stop at the payload check): 392 s alone on jq
+#   1.8.1 before NJ1's PostCompact cases, on a quieter box than R3-B's)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #
@@ -703,6 +705,38 @@ for jq1c in '[1]' 'not json'; do
 done
 pass "JQ1: a jq exec failure (126/137) before the archive step is an error row with jq's exit status, not a routine gate (Stop, PreCompact, PostCompact); a non-object payload keeps its gate"
 
+# NJ1 (R3-C P-F6): jq missing (exit 127) is a host state that lasts, and JQ1's error row then came
+# on EVERY Stop, PreCompact and PostCompact. It is one row per outage now (subagent-capture.sh's
+# pattern; one outage per script, so a compaction's PostCompact stays quiet after its PreCompact
+# said it): the first run whose jq runs again, whatever the payload, ends the outage, so the next
+# one is reported again. 126/137 keep their row per hook (JQ1).
+nj_rows() { grep -F 'jq exited 127' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep -c '"exit_code":1' | tr -d ' \r'; }
+for nj in "stop|$SCRIPT|" "pc|$REPO_ROOT/scripts/pre-compact.sh|" "pc-post|$REPO_ROOT/scripts/pre-compact.sh|post"; do
+  IFS='|' read -r NJ_NAME NJ_HOOK NJ_ARG <<< "$nj"
+  init_sandbox "nj1-$NJ_NAME"
+  seed_transcript_long_with_edit
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  [ "$(nj_rows)" = 1 ] || fail "NJ1 ($NJ_NAME): want 1 error row for 2 hooks with jq missing, got $(nj_rows)"
+  [ -z "$(ls "$SANDBOX/.second-brain/transcripts/" 2>/dev/null)" ] || fail "NJ1 ($NJ_NAME): archived a window with jq missing"
+  # jq back on a payload that is not JSON (jq status 5: the routine gate), then a new outage
+  printf 'not json' | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$NJ_HOOK" ${NJ_ARG:+"$NJ_ARG"} >/dev/null 2>"$SANDBOX/hook.err"
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  [ "$(nj_rows)" = 2 ] || fail "NJ1 ($NJ_NAME): an outage after jq ran on a non-JSON payload was not reported (rows $(nj_rows), want 2)"
+  # jq back on an object payload (status 0; the transcript is gone, so it stops at its gate), then another
+  rm -f "$SANDBOX/transcript/session.jsonl"
+  stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$NJ_HOOK" ${NJ_ARG:+"$NJ_ARG"} >/dev/null 2>"$SANDBOX/hook.err"
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  [ "$(nj_rows)" = 3 ] || fail "NJ1 ($NJ_NAME): an outage after jq ran on an object payload was not reported (rows $(nj_rows), want 3)"
+done
+# One compaction with jq missing: PreCompact reports the outage, its PostCompact does not again.
+init_sandbox "nj1-compaction"
+seed_transcript_long_with_edit
+run_jqfail "$REPO_ROOT/scripts/pre-compact.sh" 'type == "object"' 127
+run_jqfail "$REPO_ROOT/scripts/pre-compact.sh" 'type == "object"' 127 post
+[ "$(nj_rows)" = 1 ] || fail "NJ1 (compaction): want 1 error row for a PreCompact + PostCompact pair with jq missing, got $(nj_rows)"
+pass "NJ1: jq missing (127) is one error row per outage on Stop, PreCompact and PostCompact; any run whose jq runs ends the outage"
+
 # TC2 (R3-B, S1): sb_window_tool_count returned 0 when its jq failed (killed, missing): the hooks
 # logged a routine tool-count-zero and ADVANCED the marker past a window the archive kept, so it was
 # never extracted. A failed count is now an error row and the marker stays; the next run extracts.
@@ -743,9 +777,12 @@ for hd in stop pre-compact; do
   grep -q 'render pipe status 0 0' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "HD1 ($hd): a header failure was reported as a render failure with status 0 0"
   grep 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep 'PROJECT.md header' | grep -q '"exit_code":1' \
     || fail "HD1 ($hd): no error row says the extractor input's PROJECT.md header could not be written"
+  # R3-C (claimed, untested until now): the window is not lost, the deterministic floor still merges.
+  grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" \
+    || fail "HD1 ($hd): no deterministic floor was merged after the header failure"
   restore_path
 done
-pass "HD1: a failed PROJECT.md header of the extractor input is reported as such, not as a render with status 0 0 (Stop and PreCompact)"
+pass "HD1: a failed PROJECT.md header of the extractor input is reported as such, not as a render with status 0 0, and the floor still merges (Stop and PreCompact)"
 
 # === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
 # Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.

@@ -124,6 +124,45 @@ grep -q 'DIRTY-BEFORE-RESTORE' "$KNOWLEDGE_DIR/wiki/learnings/a.md" 2>/dev/null 
 rm -f "$BRAIN_DIR/wiki-history.git/hooks/pre-commit"
 rm -rf "$SB"
 
+echo "=== H9/H10: S10 caller — a restore whose reindex was skipped or failed says the index is stale ==="
+# The restore rebuilds wiki/index.md last. `sb_reindex_wiki || sb_log_error` could not see a skip (no
+# node, or no reindex bundle: sb_reindex_wiki returns 0 for it, it is not a failure), so such a
+# restore printed its success and nothing about the index. It now reads SB_REINDEX_SKIPPED and warns
+# on stderr (H9); a failed reindex (node exits 3) keeps its exit_code-1 row and warns too (H10). The
+# restore itself succeeded either way: exit 0, the page is back.
+for h in 9 10; do
+  setup
+  bash "$WH" snapshot "h$h base" >/dev/null 2>&1
+  HREF=$(bash "$WH" list 1 | awk '{print $1}')
+  printf -- '---\ntitle: a\ntype: learnings\nrelated: []\n---\n\nCHANGED-H%s\n' "$h" > "$KNOWLEDGE_DIR/wiki/learnings/a.md"
+  bash "$WH" snapshot "h$h changed" >/dev/null 2>&1
+  mkdir -p "$SB/root/mcp/dist/tools" "$SB/nodebin"
+  if [ "$h" = 9 ]; then
+    HERR=$(CLAUDE_PLUGIN_ROOT="$SB/root" bash "$WH" restore "$HREF" 2>&1 >/dev/null); rc=$?
+  else
+    : > "$SB/root/mcp/dist/tools/knowledge-reindex.bundle.js"
+    printf '#!%s\nexit 3\n' "$BASH" > "$SB/nodebin/node"; chmod +x "$SB/nodebin/node"
+    HERR=$(PATH="$SB/nodebin:$PATH" CLAUDE_PLUGIN_ROOT="$SB/root" bash "$WH" restore "$HREF" 2>&1 >/dev/null); rc=$?
+  fi
+  { [ "$rc" -eq 0 ] && grep -q 'ORIGINAL' "$KNOWLEDGE_DIR/wiki/learnings/a.md"; } \
+    && pass "H$h: the restore itself succeeds (rc 0, page back)" || fail "H$h: restore rc=$rc or the page was not restored"
+  case "$HERR" in
+    *"index was not rebuilt"*) pass "H$h: the restore says on stderr that the index was not rebuilt" ;;
+    *) fail "H$h: the restore said nothing about the stale index (stderr: ${HERR:-<empty>})" ;;
+  esac
+  FAILROW=$(jq -c 'select(.script == "wiki-history" and .exit_code == 1 and ((.message // "") | test("reindex after restore")))' \
+    "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r')
+  if [ "$h" = 9 ]; then
+    [ -z "$FAILROW" ] && pass "H9: a skipped reindex is not logged as a failed one" || fail "H9: a skip was logged as a failure: $FAILROW"
+    jq -c 'select(.script == "sb_reindex_wiki" and ((.message // "") | test("reindex skipped")))' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+      | tr -d '\r' | grep -q . && pass "H9: the skip row names the skipped reindex" || fail "H9: no 'reindex skipped' row"
+  else
+    [ -n "$FAILROW" ] && pass "H10: a failed reindex after the restore is an exit_code-1 row" \
+      || fail "H10: no exit_code-1 'reindex after restore' row (log: $(tail -2 "$BRAIN_DIR/error-log.jsonl" 2>/dev/null))"
+  fi
+  rm -rf "$SB"
+done
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
