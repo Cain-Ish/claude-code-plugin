@@ -1145,6 +1145,27 @@ if [ -L "$A2/phys/link" ]; then
 else
   echo "SKIP: GT10 symlinked HOME — ln -s makes no symlink here (MSYS copies)"
 fi
+# P-S2: a link inside the project into a store — a Read of proj/sshlink/id_rsa opens ~/.ssh/id_rsa,
+# and its spelling names no store. The full logic compares the target and its ancestors by identity
+# (_ptg_inode, test -ef) once one of them is a link; the fast path stands down for such a target. A
+# directory link: ln -s where it makes one, else an NTFS junction through node (MSYS copies on ln -s).
+mkdir -p "$A2/lk/home/.ssh" "$A2/lk/proj" "$A2/lk/docs"; : > "$A2/lk/home/.ssh/id_rsa"; : > "$A2/lk/docs/readme.md"
+a2_link() {  # a2_link TARGET LINK: a directory link (a junction on Windows hosts); 0 = made
+  if command -v cygpath >/dev/null 2>&1; then
+    command -v node >/dev/null 2>&1 || return 1
+    node -e 'require("fs").symlinkSync(process.argv[1], process.argv[2], "junction")' "$(cygpath -w "$1")" "$(cygpath -w "$2")" && [ -L "$2" ]
+    return
+  fi
+  ln -s "$1" "$2" && [ -L "$2" ]
+}
+if a2_link "$A2/lk/home/.ssh" "$A2/lk/proj/sshlink" && a2_link "$A2/lk/docs" "$A2/lk/proj/doclink"; then
+  a2 credential-read "$A2/lk/proj/sshlink/id_rsa" "$A2/lk/proj" "$A2/lk/home"
+  grep -q '"fastpath":true' "$A2/fast/audit-log.jsonl" && fail "P-S2: a Read through a link must be left to the full logic"
+  a2 credential-read "$A2/lk/proj/sshlink" "$A2/lk/proj" "$A2/lk/home"
+  a2 - "$A2/lk/proj/doclink/readme.md" "$A2/lk/proj" "$A2/lk/home"
+else
+  echo "SKIP: P-S2 Read through an in-project link — no directory link can be made here"
+fi
 if command -v cygpath >/dev/null 2>&1; then
   a2 credential-read "$(w '||?|UNC|localhost|C$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u
   a2 credential-read "$(w '||LOCALHOST|c$|Users|a2u|.ssh|id_rsa')" 'C:\w\proj' /c/Users/a2u

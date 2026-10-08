@@ -793,6 +793,22 @@ _ptg_inode() {
   return 1
 }
 
+# _ptg_linked ABS: true when ABS or one of its ancestors is a symbolic link or a junction ([ -L ]:
+# builtins, at most 128 steps). P-S2: the credential match reads spellings, and a link inside the
+# project into a store (proj/sshlink -> ~/.ssh) spells none — such a target goes to _ptg_inode, which
+# compares it and its existing ancestors with the stores by identity. A //… target (UNC: a stat
+# there can block for seconds) is never walked.
+_ptg_linked() {
+  local _pz_p="$1" _pz_n=0
+  case "$_pz_p" in //*) return 1 ;; esac
+  while [ "$_pz_n" -lt 128 ]; do
+    [ -L "$_pz_p" ] && return 0
+    case "$_pz_p" in /*/*) _pz_p="${_pz_p%/*}" ;; *) return 1 ;; esac
+    _pz_n=$((_pz_n + 1))
+  done
+  return 1
+}
+
 # _ptg_mnt PATH: true when the drive path PATH (X:/…, '/'-separated) may not be spelled /x/… by
 # cygpath -u — it lies under an MSYS/Cygwin mount other than its drive's own /x one (Git-Bash
 # mounts %TEMP% at /tmp and its install dir at /), or the mount table cannot be read. The full logic
@@ -1017,9 +1033,11 @@ _ptg_fast() {
       if [ "$tool" = Read ]; then
         [ "$amb" = 0 ] || return 1
         _ptg_abs "$path" "$cwd"
-        # An 8.3 short name (2) takes test -ef: the full logic's.
+        # An 8.3 short name (2) takes test -ef: the full logic's. So does a target reached through a
+        # link (P-S2: _ptg_linked) that no store's spelling names.
         _ptg_credread "$path" "$_PTG_ABS"; rc=$?
         [ "$rc" = 2 ] && return 1
+        [ "$rc" = 1 ] && _ptg_linked "$_PTG_ABS" && return 1
         [ "$rc" = 0 ] && { _PTG_RULE="$_PTG_CRR" _PTG_REASON="$_PTG_SR" tgt="$_PTG_CRT"; cr=1; }
       fi
       if [ "$cr" = 0 ] && [ "${SB_RESOURCE_SCOPE:-on}" != off ] \
@@ -1237,6 +1255,9 @@ if [ "$TOOL" = Read ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_LONG" = 0 ]; then
     elif [ "$_PTG_INO" != proven ]; then
       _PTG_CRR=windows-alias:8.3 _PTG_CRT="$_PTG_ABS"; _ptg_alias_reason "$_PTG_ABS" "an NTFS 8.3 short name (NAME~1) that names no existing file"; _ptg_rc=0
     fi
+  elif [ "$_ptg_rc" = 1 ] && _ptg_linked "$_PTG_ABS" && _ptg_inode "$_PTG_ABS"; then
+    # P-S2: through a link (proj/sshlink -> ~/.ssh) — the target or an existing ancestor IS a store.
+    _PTG_CRR=credential-read _PTG_CRT="$_PTG_ABS"; _ptg_cred_reason "$_PTG_ABS" "$_PTG_CL, reached through a link"; _ptg_rc=0
   fi
   [ "$_ptg_rc" = 0 ] && _PTG_CR_RULE="$_PTG_CRR" _PTG_CR_TGT="$_PTG_CRT" _PTG_CR_REASON="$_PTG_SR"
 fi
