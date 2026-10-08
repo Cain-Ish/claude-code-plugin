@@ -153,6 +153,36 @@ sb_card_unframe() {
   CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa3'/)}"   # U+2E23 TOP RIGHT HALF BRACKET
   CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa4'/(}"   # U+2E24 BOTTOM LEFT HALF BRACKET
   CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa5'/)}"   # U+2E25 BOTTOM RIGHT HALF BRACKET
+  # Review 2 (P-S3/P-T3): look-alikes outside \p{Ps}/\p{Pe}, as the TS fold now folds them: the
+  # bracket-shaped initial/final punctuation (\p{Pi}/\p{Pf} U+2E02-2E21; the Pi/Pf quotation marks
+  # stay), the corner brackets, the dentistry bracket pieces and the light box-drawing corners and
+  # tees, each by the side it looks like. Bytes computed, not typed.
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x82'/(}"   # U+2E02 LEFT SUBSTITUTION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x83'/)}"   # U+2E03 RIGHT SUBSTITUTION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x84'/(}"   # U+2E04 LEFT DOTTED SUBSTITUTION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x85'/)}"   # U+2E05 RIGHT DOTTED SUBSTITUTION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x89'/(}"   # U+2E09 LEFT TRANSPOSITION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x8a'/)}"   # U+2E0A RIGHT TRANSPOSITION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x8c'/(}"   # U+2E0C LEFT RAISED OMISSION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x8d'/)}"   # U+2E0D RIGHT RAISED OMISSION BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x9c'/(}"   # U+2E1C LEFT LOW PARAPHRASE BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\x9d'/)}"   # U+2E1D RIGHT LOW PARAPHRASE BRACKET
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa0'/(}"   # U+2E20 LEFT VERTICAL BAR WITH QUILL
+  CARD_LINE="${CARD_LINE//$'\xe2\xb8\xa1'/)}"   # U+2E21 RIGHT VERTICAL BAR WITH QUILL
+  CARD_LINE="${CARD_LINE//$'\xe2\x8c\x9c'/(}"   # U+231C TOP LEFT CORNER
+  CARD_LINE="${CARD_LINE//$'\xe2\x8c\x9d'/)}"   # U+231D TOP RIGHT CORNER
+  CARD_LINE="${CARD_LINE//$'\xe2\x8c\x9e'/(}"   # U+231E BOTTOM LEFT CORNER
+  CARD_LINE="${CARD_LINE//$'\xe2\x8c\x9f'/)}"   # U+231F BOTTOM RIGHT CORNER
+  CARD_LINE="${CARD_LINE//$'\xe2\x8e\xbe'/(}"   # U+23BE DENTISTRY SYMBOL LIGHT VERTICAL AND TOP RIGHT
+  CARD_LINE="${CARD_LINE//$'\xe2\x8e\xbf'/(}"   # U+23BF DENTISTRY SYMBOL LIGHT VERTICAL AND BOTTOM RIGHT
+  CARD_LINE="${CARD_LINE//$'\xe2\x8f\x8b'/)}"   # U+23CB DENTISTRY SYMBOL LIGHT VERTICAL AND TOP LEFT
+  CARD_LINE="${CARD_LINE//$'\xe2\x8f\x8c'/)}"   # U+23CC DENTISTRY SYMBOL LIGHT VERTICAL AND BOTTOM LEFT
+  CARD_LINE="${CARD_LINE//$'\xe2\x94\x8c'/(}"   # U+250C BOX DRAWINGS LIGHT DOWN AND RIGHT
+  CARD_LINE="${CARD_LINE//$'\xe2\x94\x90'/)}"   # U+2510 BOX DRAWINGS LIGHT DOWN AND LEFT
+  CARD_LINE="${CARD_LINE//$'\xe2\x94\x94'/(}"   # U+2514 BOX DRAWINGS LIGHT UP AND RIGHT
+  CARD_LINE="${CARD_LINE//$'\xe2\x94\x98'/)}"   # U+2518 BOX DRAWINGS LIGHT UP AND LEFT
+  CARD_LINE="${CARD_LINE//$'\xe2\x94\x9c'/(}"   # U+251C BOX DRAWINGS LIGHT VERTICAL AND RIGHT
+  CARD_LINE="${CARD_LINE//$'\xe2\x94\xa4'/)}"   # U+2524 BOX DRAWINGS LIGHT VERTICAL AND LEFT
 }
 
 # Truncate a single already-selected bullet LINE to <=max chars (default 160) at a word

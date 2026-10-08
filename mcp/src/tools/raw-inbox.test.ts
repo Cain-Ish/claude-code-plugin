@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed, stripInvisible, rawCaptureCliCommand, shellWord } from './raw-inbox.js';
 import type { RawItem } from './raw-inbox.js';
+import { installVectorDepsCommand } from './embeddings.js';
 
 // T6 (R3-B): the CLI hints named `node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"`,
 // but $CLAUDE_PLUGIN_ROOT is not set in a Bash tool's environment, so the pasted hint resolved to
@@ -31,6 +32,28 @@ describe('rawCaptureCliCommand / shellWord (CLI hints)', () => {
     expect(shellWord('my proj')).toBe("'my proj'");
     expect(shellWord("it's")).toBe("'it'\\''s'");
     expect(shellWord('')).toBe("''");
+  });
+});
+
+// P-T10 (review 2, the T6 sibling): the embeddings load-error row told the user to run
+// `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh`, which a Bash tool's environment does not
+// resolve. The hint names the plugin root the running bundle sits in (<root>/mcp/dist/...).
+describe('installVectorDepsCommand (the embeddings load-error hint, P-T10)', () => {
+  it('names install-vector-deps.sh under the plugin root of the running bundle', () => {
+    expect(installVectorDepsCommand('/opt/plug/mcp/dist/server.bundle.js')).toBe('bash "/opt/plug/bin/install-vector-deps.sh"');
+    expect(installVectorDepsCommand('C:\\Users\\u\\plug\\mcp\\dist\\tools\\knowledge-search-cli.bundle.js'))
+      .toBe('bash "C:/Users/u/plug/bin/install-vector-deps.sh"');
+    expect(installVectorDepsCommand('/a/$HOME/`x`/"q"/mcp/dist/server.bundle.js'))
+      .toBe('bash "/a/\\$HOME/\\`x\\`/\\"q\\"/bin/install-vector-deps.sh"');
+  });
+  it('falls back to the documented plugin-root form only when the script path does not name one', () => {
+    expect(installVectorDepsCommand(undefined)).toBe('bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"');
+    expect(installVectorDepsCommand('/usr/lib/node_modules/vitest/vitest.mjs')).toBe('bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"');
+  });
+  it('the load-error hint is built from it', () => {
+    const src = readFileSync(new URL('./embeddings.ts', import.meta.url), 'utf-8');
+    expect(src).not.toMatch(/run: bash \$CLAUDE_PLUGIN_ROOT/);
+    expect(src).toMatch(/installVectorDepsCommand\(process\.argv\[1\]\)/);
   });
 });
 

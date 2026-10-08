@@ -20,6 +20,20 @@ function brainDirFromEnv(): string {
   return resolveBrainDir();
 }
 
+/** The command that installs the vector dependencies, for the load-error hint (review 2, P-T10;
+ *  rawCaptureCliCommand's T6 rule). Built from the running bundle's path (pass process.argv[1]):
+ *  every bundle sits under <plugin root>/mcp/dist/, and bin/install-vector-deps.sh under the root.
+ *  `$CLAUDE_PLUGIN_ROOT` is not set in a Bash tool's environment, so the old hint resolved to
+ *  /bin/install-vector-deps.sh. Forward slashes; the characters a double-quoted shell word would
+ *  expand are escaped. Only when the path names no plugin root does the documented form come back. */
+export function installVectorDepsCommand(scriptPath: string | undefined): string {
+  const p = (scriptPath ?? '').replace(/\\/g, '/');
+  const cut = p.lastIndexOf('/mcp/dist/');
+  if (cut < 0) return 'bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"';
+  const script = `${p.slice(0, cut)}/bin/install-vector-deps.sh`;
+  return `bash "${script.replace(/(["$`])/g, '\\$1')}"`;
+}
+
 async function logLoadError(message: string, brainDir: string): Promise<void> {
   // Track which brain dirs have already received this error message to keep the log small,
   // but ensure each unique destination still gets one entry (matters for tests + multi-tenant).
@@ -95,9 +109,7 @@ async function getPipeline(): Promise<any> {
     return pipelineInstance;
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e));
-    const hint = msg.includes('Cannot find package')
-      ? ' — run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh'
-      : '';
+    const hint = msg.includes('Cannot find package') ? ` — run: ${installVectorDepsCommand(process.argv[1])}` : '';
     await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir);
     return null;
   }
