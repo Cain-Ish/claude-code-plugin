@@ -594,11 +594,13 @@ pass "GS4/P-F3: jq missing — the builtin decode + grep scan asks; an undecodab
 # so no detached job outlives this test: GT4).
 mkdir -p "$BRAIN/slow" "$BRAIN/det"
 printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = l ] && sleep 3 && break; done\nexec "%s" "$@"\n' "$(command -v jq)" > "$BRAIN/slow/jq"; chmod +x "$BRAIN/slow/jq"
-fg_s=$SECONDS
+# P-Q6: timed in milliseconds (now_ms), not whole $SECONDS — the difference of two truncated second
+# counts reads a 2.1 s run as 3 and failed it, and a 2.9 s one as 2.
+fg_t0=$(now_ms)
 out=$(SB_GUARD_LOG_SYNC=off BRAIN_DIR="$BRAIN/det" PATH="$BRAIN/slow:$PATH" bash "$(dirname "$SCRIPT")/hook-timer.sh" 2 "$SCRIPT" < "$BRAIN/cr1w.json")
-fg_s=$(( SECONDS - fg_s ))
+fg_ms=$(( $(now_ms) - fg_t0 ))
 is_ask "$out" || fail "#110 (detached): the verdict must arrive (got: $out)"
-[ "$fg_s" -lt 3 ] || fail "#110 (detached): the guard waited ${fg_s}s for its buddy line (its jq sleeps 3 s)"
+[ "$fg_ms" -lt 2500 ] || fail "#110 (detached): the guard took ${fg_ms} ms — it waited for its buddy line (its jq sleeps 3 s); bound 2500 ms"
 fg_row=$(grep '"verdict":"ask"' "$BRAIN/det/audit-log.jsonl" 2>/dev/null)
 [ -n "$fg_row" ] || fail "GS5: the ask's audit row must be on disk when the guard returns (audit: $(cat "$BRAIN/det/audit-log.jsonl" 2>/dev/null))"
 [ -n "$fg_row" ] && printf '%s' "$fg_row" | jq -e '.rule == "info-flow:jwt" and .target == "WebSearch:(jwt)" and .session_id == "cr1w" and (.extra.fastpath | not)' >/dev/null \
@@ -611,7 +613,7 @@ fi
 fg_w=0
 until grep -q 'credential-shaped data' "$BRAIN/det/.buddy/cr1w.log.jsonl" 2>/dev/null || [ "$fg_w" -ge 20 ]; do sleep 0.5; fg_w=$((fg_w + 1)); done
 grep -q 'credential-shaped data' "$BRAIN/det/.buddy/cr1w.log.jsonl" 2>/dev/null || fail "GS5: the detached buddy line never landed (10 s)"
-pass "#110/GS5: the verdict comes first; the row is written before exit (late, full logic), the buddy line follows detached (guard returned in ${fg_s}s)"
+pass "#110/GS5: the verdict comes first; the row is written before exit (late, full logic), the buddy line follows detached (guard returned in ${fg_ms} ms)"
 # GS6/GC5/GX5 (R3B): flow-guard, symlink-guard and wiki-write-guard run unwrapped (no hook-timer), so
 # no deadline reached them and none of their verdicts was ever stamped late. Each now takes its own
 # start + 3000 ms (the 5 s hook timeout less hook-timer's 2000 ms head start) unless it is

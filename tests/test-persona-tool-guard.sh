@@ -1331,9 +1331,15 @@ pass "G3: a default rules file that is not JSON denies"
 # A cache that IS bad is rebuilt in place: its .sig is dropped so sb_rules_effective rebuilds (tmp +
 # mv), never deleted first — a concurrent guard that had just been handed the path read a missing file.
 # GT6 (R3B): any spelling of it — rm or unlink with any flags, ${EFF}, an mv away, or a truncation.
-grep -vE '^[[:space:]]*#' "$SCRIPT" \
-  | grep -qE '((^|[^A-Za-z_])(rm|unlink|mv)[[:space:]]+([^;&|#]*[[:space:]])?|>[[:space:]]*)"?\$\{?EFF\}?"?([[:space:];&|)]|$)' \
-  && fail "G3: the guard deletes (or empties) the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
+# P-Q11: the lock proves itself first — every poison spelling must match (a pattern grep cannot
+# compile exits 2, which `grep -q … && fail` read as "no match": a silent pass) — and the scan of the
+# guard must exit exactly 1 (no match), not 2.
+GT6_RE='((^|[^A-Za-z_])(rm|unlink|mv)[[:space:]]+([^;&|#]*[[:space:]])?|>[[:space:]]*)"?\$\{?EFF\}?"?([[:space:];&|)]|$)'
+gt6_hit=$(printf '%s\n' 'rm -f "$EFF"' 'unlink ${EFF}' 'mv "$EFF" "$EFF.old"' ': > "$EFF"' '  rm $EFF; x' | grep -cE "$GT6_RE")
+[ "$gt6_hit" = 5 ] || fail "GT6 self-test: the lock's pattern must match all 5 poison spellings (matched: '$gt6_hit')"
+grep -vE '^[[:space:]]*#' "$SCRIPT" | grep -qE "$GT6_RE"; gt6_rc=$?
+[ "$gt6_rc" = 0 ] && fail "G3: the guard deletes (or empties) the effective-rules cache before rebuilding it (a concurrent reader gets no file)"
+[ "$gt6_rc" = 1 ] || fail "GT6: the cache-deletion scan of the guard failed (grep exit $gt6_rc), so it proved nothing"
 pass "G3: a failed cache is rebuilt in place, not deleted"
 # GC4 (R3B): a missing jq is not a failed rules read. _fp_jqfail's rule — jq ran and failed: ask; jq
 # absent: log and pass (SessionStart's banner reports it) — held for the payload read but not for the
@@ -1346,8 +1352,10 @@ for t in grep sed cat tr date mkdir dirname head tail cut wc awk sort uniq mv rm
 done
 PATH="$G3/nojq" "$BASH" -c 'command -v jq' >/dev/null 2>&1 && fail "GC4 precondition: jq must be off the shim PATH"
 : > "$G3/brain/error-log.jsonl"
-out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>/dev/null)
-[ -z "$out" ] || fail "GC4: with jq missing, a benign call is logged and passes, it does not ask (got: $out)"
+# P-Q9: "passes" is no output, exit 0 and an empty stderr — a guard that crashed prints nothing either.
+out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"g3"}' | PATH="$G3/nojq" BRAIN_DIR="$G3/brain" "$BASH" "$SCRIPT" 2>"$G3/gc4err"); gc4_rc=$?
+[ -z "$out" ] && [ "$gc4_rc" = 0 ] && [ ! -s "$G3/gc4err" ] \
+  || fail "GC4: with jq missing, a benign call is logged and passes, it does not ask or crash (rc=$gc4_rc, got: $out, stderr: $(head -c 300 "$G3/gc4err"))"
 grep -q 'jq is not on PATH' "$G3/brain/error-log.jsonl" \
   || fail "GC4: the missing jq must be logged (error-log: $(cat "$G3/brain/error-log.jsonl"))"
 pass "GC4: jq missing — the rules cannot be read, the call is logged and passes (jq that ran and failed still asks)"
