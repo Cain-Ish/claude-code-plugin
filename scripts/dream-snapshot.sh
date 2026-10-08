@@ -155,6 +155,28 @@ _page_list() {   # sorted relative page paths under $1; non-zero when find itsel
   _out=$(cd "$1" && find . -type f -name '*.md' ! -name 'index.md') || return 1
   printf '%s\n' "$_out" | LC_ALL=C sort
 }
+# _cp_err_vanished_only <cp stderr file>: 0 when every line is a SOURCE-side "No such file or
+# directory" (an entry renamed away mid-copy). GNU cp names the side: "cannot stat '…'" and
+# "cannot open '…' for reading" are the source; "cannot create regular file '…'" is the
+# destination. BSD cp (macOS) prints only "cp: <path>: No such file or directory", so the path
+# decides (R3-C P-F2): one under "$WIKI_DIR/" (cp's own "<wiki>/./…" spelling) is the source, and
+# one under the dream dir is the staging copy. The paths match as literal strings in `case`, never
+# as a regex, so metacharacters in them cannot widen the match. Builtins only, no spawn.
+_cp_err_vanished_only() {
+  local _l _n=0
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    _l="${_l%$'\r'}"
+    case "$_l" in
+      "cp: $DREAM_DIR/"*) return 1 ;;
+      "cp: cannot stat '"*"': No such file or directory") ;;
+      "cp: cannot open '"*"' for reading: No such file or directory") ;;
+      "cp: $WIKI_DIR/"*": No such file or directory") ;;
+      *) return 1 ;;
+    esac
+    _n=$((_n + 1))
+  done < "$1"
+  [ "$_n" -gt 0 ]
+}
 SNAPSHOT_ATTEMPTS=3
 SNAPSHOT_FAIL_REASON=""
 CP_RC=0; LIST_RC=0; LIVE_RC=0; WIKI_PAGE_COUNT=0; LIVE_PAGE_COUNT=0
@@ -174,13 +196,11 @@ while :; do
   # A cp error made only of vanished entries (ENOENT) is a race, not a fault: the embeddings cache
   # and index.md are rewritten through tmp+rename by every search, so their temp file can disappear
   # between cp's readdir and its copy while the page lists stay identical. Any other error — ENOSPC,
-  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once. Only GNU cp's two
-  # SOURCE-side ENOENT forms count (R3-B S11): a destination ENOENT ("cannot create regular file
-  # …: No such file or directory", the staging dir gone under cp) is a fault. BSD cp's message
-  # names no side, so a vanish there fails the attempt (fail-safe; the retry loop still runs).
+  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once. Only SOURCE-side
+  # ENOENT counts (R3-B S11): a destination ENOENT (the staging dir gone under cp) is a fault.
+  # See _cp_err_vanished_only for the GNU and BSD forms.
   _vanished=0
-  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] \
-     && ! grep -qvE "^cp: (cannot stat '.*'|cannot open '.*' for reading): No such file or directory\$" "$_cperr"; then
+  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && _cp_err_vanished_only "$_cperr"; then
     _vanished=1
   fi
   [ -s "$_cperr" ] && cat "$_cperr" >&2   # cp's own diagnostics stay visible

@@ -9,8 +9,9 @@
 # ORACLE: the page's REAL mtime (a filesystem fact, not a re-read of the
 # implementation's own output). A genuinely-old page must keep its old mtime
 # through the snapshot.
-# run-all-timeout: 180   (~16 dream-snapshot.sh runs, several with 2 s retry sleeps; measured alone
-#   on MSYS 2026-10-07 after R3-B's S11 case: 55 s jq 1.8.1 / 55 s jq 1.7.1, 14.4 GB free, 400 processes)
+# run-all-timeout: 180   (~19 dream-snapshot.sh runs, several with 2 s retry sleeps; measured alone
+#   on MSYS 2026-10-07 after R3-B's S11 case: 55 s jq 1.8.1 / 55 s jq 1.7.1, 14.4 GB free, 400 processes;
+#   2026-10-08 after R3-C's three cp-message cases, alone: 53 s jq 1.8.1 / 66 s jq 1.7.1)
 set -u
 unset CLAUDECODE ANTHROPIC_API_KEY SB_EXTRACTOR_LOCAL_URL 2>/dev/null || true
 
@@ -159,6 +160,7 @@ case " \$* " in *"/wiki/. "*) ;; *) exec "$REAL_CP" "\$@" ;; esac
 date -u +%Y-%m-%dT%H:%M:%SZ >> "$1/starts"
 "$REAL_CP" "\$@"; rc=\$?
 for dest; do :; done
+src=""; for a; do case "\$a" in */wiki/.) src="\$a" ;; esac; done   # the script's own "\$WIKI_DIR/."
 n=\$(( \$(cat "$1/calls" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$1/calls"
 case "$3:\$n" in
   always:*|once:1) printf -- '---\ntitle: late\ntype: entities\nrelated: []\n---\n\nbody\n' > "$2/entities/late-\$n.md" ;;
@@ -170,6 +172,9 @@ case "$3:\$n" in
   ioerr:*) echo "cp: error reading '$2/entities/p.md': Input/output error" >&2; rc=1 ;;
   statio:*) echo "cp: cannot stat '$2/entities/p.md': Input/output error" >&2; rc=1 ;;
   destenoent:*) echo "cp: cannot create regular file '\${dest%/}/.embeddings-cache.json': No such file or directory" >&2; rc=1 ;;
+  gnuopen:*) echo "cp: cannot open '\$src/.embeddings-cache.json.tmp.4242' for reading: No such file or directory" >&2; rc=1 ;;
+  bsdvanish:*) echo "cp: \$src/.embeddings-cache.json.tmp.4242: No such file or directory" >&2; rc=1 ;;
+  bsddestenoent:*) echo "cp: \${dest%/}/.embeddings-cache.json: No such file or directory" >&2; rc=1 ;;
 esac
 [ "$3" = once ] && sleep 2
 exit \$rc
@@ -350,6 +355,37 @@ if [ "$RC" -ne 0 ] && [ "$ST" = "failed" ] && [ "$CALLS" = 1 ]; then
 else
   fail "destination ENOENT: rc=$RC status='$ST' copies=$CALLS (expected failed, 1 copy)"
 fi
+
+# GNU cp's other source-side ENOENT form, "cannot open '…' for reading", is a vanish too (a file
+# renamed away between cp's stat and its open). Claimed by S11, untested until R3-C.
+# R3-C P-F2: BSD cp (macOS) names the path and no side: "cp: <path>: No such file or directory".
+# A path under the wiki being copied is a vanished source entry (the message carries cp's own
+# "<wiki>/./…" spelling, which the shim echoes from its argument); the same form naming the
+# staging copy is a destination fault. The BSD vanish used to fail the dream: no GNU form matched,
+# the page lists held still, so there was no retry either.
+# The shim repeats the error on every attempt, like a search rewriting the cache through the copy.
+for snapmode in gnuopen:17:accept bsdvanish:18:accept bsddestenoent:19:fail; do
+  IFS=: read -r SM SN SW <<< "$snapmode"
+  SB="$SANDBOX/brain$SN"; SK="$SANDBOX/knowledge$SN"
+  race_fixture "$SB" "$SK"
+  make_race_cp "$SANDBOX/fakebin-race-$SM" "$SK/wiki" "$SM"
+  run_race "$SANDBOX/fakebin-race-$SM" "$SB" "$SK"; RC=$?
+  ST=$(find "$SB/dreams" -name status.json -exec jq -r '.status' {} \; | tr -d '\r' | head -1)
+  CALLS=$(cat "$SANDBOX/fakebin-race-$SM/calls" 2>/dev/null || echo 0)
+  if [ "$SW" = accept ]; then
+    if [ "$RC" -eq 0 ] && [ "$ST" = "pending" ] && [ "$CALLS" = 1 ]; then
+      pass "$SM: a source-side 'No such file or directory' with matching page lists is a complete snapshot (1 copy)"
+    else
+      fail "$SM: rc=$RC status='$ST' copies=$CALLS (expected rc=0, pending, 1 copy)"
+    fi
+    jq -c 'select(.script == "dream-snapshot.sh" and ((.message // "") | test("vanished")))' "$SB/error-log.jsonl" 2>/dev/null \
+      | tr -d '\r' | grep -q . || fail "$SM: the accepted vanish left no error-log row"
+  elif [ "$RC" -ne 0 ] && [ "$ST" = "failed" ] && [ "$CALLS" = 1 ]; then
+    pass "$SM: a BSD-form 'No such file or directory' naming the staging copy fails at once (not a vanish)"
+  else
+    fail "$SM: rc=$RC status='$ST' copies=$CALLS (expected failed, 1 copy)"
+  fi
+done
 
 # A find that cannot list the staged tree leaves the snapshot unverified — fail, never pass.
 REAL_FIND=$(command -v find)
