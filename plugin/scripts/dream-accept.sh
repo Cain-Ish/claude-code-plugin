@@ -115,7 +115,13 @@ STAGING_WIKI="$DREAM_DIR/staging/wiki"
 # manifest and moved pages out of live that staging still holds, and merge-edges appends without
 # a dedupe, so a second apply put the archived pages back and appended the edges twice. It only
 # finishes: reindex, stamp, reset the write counters, clean up.
-APPLIED_MARK="$DREAM_DIR/.applied"
+# R3-C P-C4: the marker lives BESIDE the dream dir, not in it. The dream-runner may write anything
+# inside its dream dir (pg_dream_confine, K12), so a .applied planted there by an injected runner
+# made this script skip the apply, stamp archived_at, delete staging and report a success built from
+# the runner's own status.json. pg_dream_confine denies the runner $BRAIN_DIR/dreams/.applied-<id>
+# (no drm_ dir in that path). Its Bash grants (mv, a jq redirect) are not path-confined: the residual
+# agents/dream-runner.md states, which reaches the live wiki as well.
+APPLIED_MARK="$BRAIN_DIR/dreams/.applied-$DREAM_ID"
 _finish_accept() {
   # Reindex
   sb_reindex_wiki "$KNOWLEDGE_DIR"
@@ -163,6 +169,10 @@ _finish_accept() {
   [ -f "$(dirname "$0")/wiki-history.sh" ] && \
     bash "$(dirname "$0")/wiki-history.sh" snapshot "dream $DREAM_ID accepted (+$ADDED ~$MODIFIED -$REMOVED)" >/dev/null 2>&1 || true
 }
+if [ -e "$DREAM_DIR/.applied" ]; then
+  echo "warn: dream $DREAM_ID holds a .applied file inside its dream dir; dream-accept never writes one there, so it is ignored and the dream is applied normally" >&2
+  sb_log_error "dream-accept" "dream $DREAM_ID holds $DREAM_DIR/.applied, which dream-accept never writes there (its marker is $APPLIED_MARK); ignored, the dream is applied normally. The dream-runner may have written it" 1
+fi
 if [ -f "$APPLIED_MARK" ]; then
   echo "note: dream $DREAM_ID was already applied to the live wiki (marker $APPLIED_MARK); finishing the accept without applying it again." >&2
   _finish_accept

@@ -73,11 +73,22 @@ if [ -z "$RAW" ]; then log_gate "empty-stdin"; exit 0; fi
 # jq -e: 1 = parsed but not an object, 4/5 = no value / not JSON (2: jq 1.6's parse error). Any other
 # status (126/127 jq not runnable, 128+N killed, 3 broken jq) is jq failing, not the payload: an error
 # row with its status, never the routine gate row (the window is not archived; the next Stop retries).
+# 127 (jq not found) is a host state that lasts: ONE row per outage, not one per Stop (R3-C P-F6;
+# subagent-capture.sh's marker pattern). The first Stop whose jq runs ends the outage.
+_se_nojq="$BRAIN_DIR/.stop-extract-no-jq"
 echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _se_jq_rc=$?
+case "$_se_jq_rc" in
+  0|1|2|4|5) [ -e "$_se_nojq" ] && rm -f "$_se_nojq" ;;
+esac
 case "$_se_jq_rc" in
   0) ;;
   1|2|4|5) log_gate "stdin-not-json-object"; exit 0 ;;
-  *) sb_log_error "stop-extract.sh" "jq exited $_se_jq_rc checking the Stop payload (jq missing, not executable or killed); this Stop's window is neither archived nor extracted, the next Stop retries it" 1
+  127) if [ ! -e "$_se_nojq" ]; then
+         : > "$_se_nojq" 2>/dev/null
+         sb_log_error "stop-extract.sh" "jq exited 127 checking the Stop payload (jq not found on PATH): no Stop window is archived or extracted until jq is installed, then the next Stop retries them (reported once per outage)" 1
+       fi
+       exit 0 ;;
+  *) sb_log_error "stop-extract.sh" "jq exited $_se_jq_rc checking the Stop payload (jq not executable, or killed); this Stop's window is neither archived nor extracted, the next Stop retries it" 1
      exit 0 ;;
 esac
 
