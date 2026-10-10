@@ -186,12 +186,6 @@ if [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ]; then
   unset _sb_kd
 fi
 
-# KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
-# / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
-# Sourced here so every lib.sh consumer has them. Fail-soft (no-op if jq/manifest absent).
-# shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
-
 # Echo $1 if it parses as a JSON array; otherwise echo "[]". Used to harden
 # --argjson against non-JSON or non-array handoff values. Requires jq.
 sb_safe_json_array() {
@@ -1044,10 +1038,7 @@ sb_reindex_wiki() {
 sb_validate_wiki() {
   local knowledge_dir="${1:-$(sb_knowledge_dir)}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
-  local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
-  if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
-    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || plugin_root=""
-  fi
+  local plugin_root; plugin_root=$(sb_plugin_root)
   local validate_js="$plugin_root/mcp/dist/tools/knowledge-validate.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$validate_js" ]; then
     local _val_err _verr
@@ -3206,7 +3197,7 @@ sb_call_extractor() {
   #
   # SB_USE_BWRAP=1 (opt-in): wrap the claude invocation in
   # bubblewrap so the extractor sees a read-only root with only
-  # ~/.second-brain writable. Requires bwrap binary;
+  # $BRAIN_DIR writable. Requires bwrap binary;
   # falls back to direct invocation if absent. Network stays enabled
   # (extractor needs the API).
   # One retry, and only for a tier spec: a model-unavailable verdict on attempt 1 blocklists
@@ -3223,10 +3214,11 @@ sb_call_extractor() {
       fi
       local -a WRAP_PREFIX=()
       if [ "${SB_USE_BWRAP:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
+        [ -d "$BRAIN_DIR" ] || mkdir -p "$BRAIN_DIR"   # bwrap refuses to bind a missing source
         WRAP_PREFIX=(
           bwrap
           --ro-bind / /
-          --bind "$HOME/.second-brain" "$HOME/.second-brain"
+          --bind "$BRAIN_DIR" "$BRAIN_DIR"
           --tmpfs /tmp
           --proc /proc
           --dev /dev

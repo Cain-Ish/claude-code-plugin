@@ -314,4 +314,25 @@ echo "$result_i" | grep -q "status=fail" \
   || { echo "FAIL I: concatenated stream must record status=fail (got: $result_i)"; exit 1; }
 echo "PASS I: concatenated multi-value JSON stream rejected (review follow-up: jq -es length==1)"
 
+# --- Case J (audit L10): SB_USE_BWRAP binds the resolved BRAIN_DIR, not a hardcoded $HOME/.second-brain ---
+cat > "$TMP/bin/bwrap" <<'EOF2'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$BWRAP_ARGS"
+exit 1
+EOF2
+chmod +x "$TMP/bin/bwrap"
+export BWRAP_ARGS="$TMP/bwrap.args"; rm -f "$BWRAP_ARGS"
+J_BRAIN="$TMP/custom-brain"
+env -u CLAUDECODE -u ANTHROPIC_API_KEY SB_USE_BWRAP=1 BRAIN_DIR="$J_BRAIN" HOME="$TMP/home-j" PATH="$PATH" bash -c '
+  source "'"$SCRIPT_DIR"'/scripts/lib.sh"
+  input=$(mktemp); out=$(mktemp); printf hello > "$input"
+  sb_call_extractor "$input" "$out" "claude-sonnet-4-6" "test-system" 5 || true
+  rm -f "$input" "$out"
+' >/dev/null 2>&1
+[ -f "$BWRAP_ARGS" ] || { echo "FAIL J: bwrap stub was never invoked"; exit 1; }
+grep -qxF "$J_BRAIN" "$BWRAP_ARGS" || { echo "FAIL J: bwrap did not bind BRAIN_DIR ($(tr '\n' ' ' < "$BWRAP_ARGS"))"; exit 1; }
+grep -q "home-j/.second-brain" "$BWRAP_ARGS" && { echo "FAIL J: bwrap still binds \$HOME/.second-brain"; exit 1; }
+[ -d "$J_BRAIN" ] || { echo "FAIL J: BRAIN_DIR was not created for the bind"; exit 1; }
+echo "PASS J: SB_USE_BWRAP binds BRAIN_DIR (created if missing)"
+
 echo "ALL PASS"
