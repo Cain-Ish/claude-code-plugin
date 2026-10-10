@@ -423,7 +423,8 @@ printf '%s\r\n' "  key=\"[redacted:openai]\"" >> "$SD/oaiproj.want"
 # Fix round formats (items 5/C, saboteur S9), one row each, assembled at run time: GitHub gh[opsur]_
 # (36 or more), AWS ASIA, Google AIza, Stripe sk_live_/rk_live_, JWT, OpenRouter, npm, GitLab,
 # Hugging Face, Slack app-level, lowercase bearer, HTTP Basic (keyword-gated), AWS secret access
-# key (keyword-gated: the value only, the keyword and its separator stay)
+# key (keyword-gated: the value only, the keyword and its separator stay). X2: both keyword
+# spellings on one line (mawk 1.3.4 split on their alternation left the first value in clear)
 K_S40="$(rep wJal 9)/K+="   # a 40-char [A-Za-z0-9/+=] AWS secret
 printf '%s\n' "a gho_$(rep a1B2 9) b" "ghu_$(rep a1B2 9),ghs_$(rep a1B2 9);ghr_$(rep a1B2 9)" "long ghp_$(rep a1B2 10) end" \
   "sts ASIA$(rep Q7 8) x" "key=AIza$(rep Sy_- 8)abc" "stripe sk_live_$(rep aB3 8) rk_live_$(rep Zq9 9)" \
@@ -431,14 +432,20 @@ printf '%s\n' "a gho_$(rep a1B2 9) b" "ghu_$(rep a1B2 9),ghs_$(rep a1B2 9);ghr_$
   "//registry.npmjs.org/:_authToken=npm_$(rep n1N 12)" "gl glpat-$(rep g_1- 5) x" "hf hf_$(rep h1H 11)h x" \
   "app xapp-1-$(rep A9 15) x" "  -H \"authorization: bearer $(rep Zz.9 6)\"" "Authorization: Basic $(rep QmFz 7)= x" \
   "AUTHORIZATION:basic $(rep dXNl 3)" "aws_secret_access_key = $K_S40" "export AWS_SECRET_ACCESS_KEY=$K_S40" \
-  "  \"aws_secret_access_key\": \"$K_S40\"," > "$SD/formats.in"
+  "  \"aws_secret_access_key\": \"$K_S40\"," \
+  "export AWS_SECRET_ACCESS_KEY=$K_S40 ; \"aws_secret_access_key\": \"$K_S40\"," \
+  "\"AWS_SECRET_ACCESS_KEY\": \"$K_S40\" \"aws_secret_access_key\": \"$K_S40\"" \
+  "\"aws_secret_access_key\": \"$K_S40\", export AWS_SECRET_ACCESS_KEY=$K_S40" > "$SD/formats.in"
 printf '%s\n' "a [redacted:github] b" "[redacted:github],[redacted:github];[redacted:github]" "long [redacted:github] end" \
   "sts [redacted:aws] x" "key=[redacted:google]" "stripe [redacted:stripe] [redacted:stripe]" \
   "jwt [redacted:jwt]." "or [redacted:openrouter] ok" \
   "//registry.npmjs.org/:_authToken=[redacted:npm]" "gl [redacted:gitlab] x" "hf [redacted:huggingface] x" \
   "app [redacted:slack] x" "  -H \"authorization: [redacted:bearer]\"" "Authorization: Basic [redacted:basic-auth] x" \
   "AUTHORIZATION:basic [redacted:basic-auth]" "aws_secret_access_key = [redacted:aws]" "export AWS_SECRET_ACCESS_KEY=[redacted:aws]" \
-  "  \"aws_secret_access_key\": \"[redacted:aws]\"," > "$SD/formats.want"
+  "  \"aws_secret_access_key\": \"[redacted:aws]\"," \
+  "export AWS_SECRET_ACCESS_KEY=[redacted:aws] ; \"aws_secret_access_key\": \"[redacted:aws]\"," \
+  "\"AWS_SECRET_ACCESS_KEY\": \"[redacted:aws]\" \"aws_secret_access_key\": \"[redacted:aws]\"" \
+  "\"aws_secret_access_key\": \"[redacted:aws]\", export AWS_SECRET_ACCESS_KEY=[redacted:aws]" > "$SD/formats.want"
 # PGP armored private keys (C): like PEM, line by line, armor headers and the checksum line included
 printf '%s\n' "USER: my key -----BEGIN PGP PRIV""ATE KEY BLOCK-----" "Version: GnuPG v2" "" "lQOYBF$(rep Ab 20)" \
   "=Ab12" "-----END PGP PRIV""ATE KEY BLOCK-----" "ASSISTANT:" > "$SD/pgp.in"
