@@ -219,6 +219,8 @@ const SINGLE_LETTER_RE = /^[a-z]$/;
 // alphanumerics (d154, v2, 627m) still ground. Grounding only; BM25 still scores digits.
 const PURE_DIGITS_RE = /^[0-9]+$/;
 
+let embedFailLogged = false;
+
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
   const wikiRoot = join(knowledgeDir, 'wiki');
@@ -451,7 +453,13 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
           : 0;
       }
     }
-  } catch { /* ONNX unavailable — continue with BM25 + graph scores */ }
+  } catch (e) {
+    // ONNX failed mid-run — keep the BM25 + graph scores, but say why once (audit M9).
+    if (!embedFailLogged) {
+      embedFailLogged = true;
+      console.error(`knowledge-search: embeddings failed, falling back to BM25: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   // Stub penalty: auto-extracted skeletons and very short pages rank below real content
   for (let i = 0; i < scored.length; i++) {
@@ -469,7 +477,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     const updated = new Date(dateStr).getTime();
     if (isNaN(updated)) continue;
     const daysSince = (now - updated) / (86400000);
-    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
+    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.min(1, Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS));
   }
 
   // --- SP-1 project-scoped serving (scoped-first, auto-broaden). Pure reorder + filter. ---
