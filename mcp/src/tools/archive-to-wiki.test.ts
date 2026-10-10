@@ -89,4 +89,29 @@ describe('archive_to_wiki', () => {
     expect(decisionsWindow.some(l => l.includes('→ wiki/decisions/test-slug/'))).toBe(true);
     expect(decisionsWindow.some(l => l === '- [resolved] shared text')).toBe(false);
   });
+
+  // M6 (audit 2026-10): a non-ASCII entryText slugs to "-", so a second same-day archive of a
+  // DIFFERENT entry overwrote the first page; and "" matched the first [resolved] line.
+  it('two same-day archives whose text slugs alike never overwrite each other', async () => {
+    writeFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'),
+      '# PROJECT: test\n## Open blockers\n- [resolved] 日本語のテスト\n- [resolved] Ελληνικά δοκιμή\n', 'utf-8');
+    const a = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: '日本語のテスト', targetCategory: 'issues', brainDir, knowledgeDir });
+    const b = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'Ελληνικά δοκιμή', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(a.ok && b.ok).toBe(true);
+    expect(b.archived_path).not.toBe(a.archived_path);
+    expect(readFileSync(a.archived_path, 'utf-8')).toContain('日本語のテスト');
+    expect(readFileSync(b.archived_path, 'utf-8')).toContain('Ελληνικά δοκιμή');
+    const proj = readFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8');
+    expect(proj).toContain(a.archived_path.split(/[\\/]/).pop());
+    expect(proj).toContain(b.archived_path.split(/[\\/]/).pop());
+  });
+
+  it('rejects an empty or blank entryText (it matched the first [resolved] entry)', async () => {
+    for (const entryText of ['', '   ']) {
+      const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText, targetCategory: 'issues', brainDir, knowledgeDir });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toMatch(/empty/);
+    }
+    expect(readFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8')).toBe(tpl);
+  });
 });
