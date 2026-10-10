@@ -53,7 +53,11 @@ if [ -s "$QF" ] && [ -f "$SDIR/merge-edges.sh" ] && command -v jq >/dev/null 2>&
   QTTL="${SB_EDGE_QUARANTINE_TTL_DAYS:-30}"; case "$QTTL" in ''|*[!0-9]*) QTTL=30 ;; esac
   _q_cut=$(date -u -d "-${QTTL} days" +%Y-%m-%dT%H:%M:%SZ          || date -u -v-"${QTTL}"d +%Y-%m-%dT%H:%M:%SZ  || echo "")
   _q_keep=$(mktemp); _q_ship=$(mktemp)
+  # D5: count the bytes this loop consumes (C locale: ${#} counts bytes), so lines merge-edges
+  # appends after it (the replay below takes seconds) are carried into the rewrite, not lost.
+  _q_n=0; _q_lc=${LC_ALL-unset}; LC_ALL=C
   while IFS= read -r _qline; do
+    _q_n=$((_q_n + ${#_qline} + 1))
     [ -n "$_qline" ] || continue
     _qf=$(printf '%s' "$_qline" | jq -r '.from // empty'  | tr -d '')
     _qt=$(printf '%s' "$_qline" | jq -r '.to // empty'  | tr -d '')
@@ -67,6 +71,7 @@ if [ -s "$QF" ] && [ -f "$SDIR/merge-edges.sh" ] && command -v jq >/dev/null 2>&
     printf '%s
 ' "$_qline" >> "$_q_keep"
   done < "$QF"
+  if [ "$_q_lc" = unset ]; then unset LC_ALL; else LC_ALL=$_q_lc; fi
   if [ -s "$_q_ship" ]; then
     # One merge-edges call per SOURCE cohort so replayed edges keep their original attribution
     # (cohort tags are what make a bad batch bulk-invalidatable).
@@ -76,6 +81,9 @@ if [ -s "$QF" ] && [ -f "$SDIR/merge-edges.sh" ] && command -v jq >/dev/null 2>&
     sb_log_error "maintain-deterministic" "graph quarantine: replayed $(grep -c . "$_q_ship") edge(s) whose endpoints now resolve" 0
   fi
   # Atomic rewrite (tmp+mv): a torn quarantine file would lose edges outright.
+  # shortcut: an append landing between this tail and the mv is still lost; a lock shared with
+  # merge-edges.sh closes that if it ever shows up.
+  tail -c +"$((_q_n + 1))" "$QF" >> "$_q_keep"
   if ! cmp -s "$_q_keep" "$QF"; then
     mv "$_q_keep" "$QF"  || rm -f "$_q_keep" 
   else

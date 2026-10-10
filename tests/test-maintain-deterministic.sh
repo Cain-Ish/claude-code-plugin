@@ -69,4 +69,27 @@ else
   echo "SKIP: D128 precedence check — node/reindex bundle absent"
 fi
 
+# --- D5 (audit): the graph-quarantine replay rewrote edges-quarantine.jsonl with `mv keep QF`, so an
+# edge merge-edges appended while the replay ran (after the read loop) was lost. A jq shim appends
+# one such line exactly when the replay batch is built. ORACLE: the late line survives the rewrite,
+# the resolvable edge leaves quarantine, the still-unresolvable one stays.
+Q=$(mktemp -d); QF="$Q/knowledge/graph/edges-quarantine.jsonl"
+mkdir -p "$Q/knowledge/wiki/concepts" "$Q/knowledge/graph" "$Q/brain" "$Q/jqshim"
+for s in qa qb; do printf -- '---\ntitle: %s\n---\n# %s\n' "$s" "$s" > "$Q/knowledge/wiki/concepts/$s.md"; done
+QNOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+qline() { printf '{"op":"assert","from":"%s","to":"%s","type":"relates","recorded_at":"%s","source":"extractor"}\n' "$1" "$2" "$QNOW"; }
+{ qline qa qb; qline qx qy; } > "$QF"
+qline late edge > "$Q/late.jsonl"
+printf '#!%s\ncase "$*" in *"--slurpfile all "*) [ -e %q ] || { cat %q >> %q; : > %q; } ;; esac\nexec %q "$@"\n' \
+  "$BASH" "$Q/late.done" "$Q/late.jsonl" "$QF" "$Q/late.done" "$(command -v jq)" > "$Q/jqshim/jq"
+chmod +x "$Q/jqshim/jq"
+( export BRAIN_DIR="$Q/brain" KNOWLEDGE_DIR="$Q/knowledge" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$Q/knowledge"
+  PATH="$Q/jqshim:$PATH" SB_MAINTAIN_FORCE=1 bash "$MD" >/dev/null 2>&1 )
+[ -e "$Q/late.done" ] || fail "D5: precondition — the jq shim never saw the replay batch"
+grep -q '"from":"late"' "$QF" || fail "D5: an edge appended during the replay was lost by the quarantine rewrite"
+grep -q '"from":"qx"' "$QF" || fail "D5: the still-unresolvable edge was dropped from quarantine"
+grep -q '"from":"qa"' "$QF" && fail "D5: the resolvable edge was not replayed out of quarantine"
+pass "D5: the quarantine rewrite keeps an edge appended during the replay"
+rm -rf "$Q"
+
 rm -rf "$B" "$G"; echo; echo "ALL PASS"
