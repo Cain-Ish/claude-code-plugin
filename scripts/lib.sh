@@ -203,25 +203,26 @@ sb_safe_json_array() {
 # POSIX-anchor-only: a Windows path (C:/Users/<u>/AppData/Local/Temp/...) or macOS $TMPDIR
 # (/var/folders/xx/yy/T/...) never starts with '/tmp/' etc, so ephemeral scratch files on
 # those platforms passed straight through into PROJECT.md as "[auto-captured]" decisions.
-# We run sb_normalize_path (backslash + drive-letter -> POSIX /c/... form) on a COPY of
-# each candidate purely to decide membership, then emit the ORIGINAL string unchanged so
-# kept paths keep their existing forward-slash-but-drive-letter display form (the Windows
-# boundary test above pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/...").
+# One jq pass: the candidate is compared in a copy with \ -> / (codepoint 92 -> 47; CR dropped, as
+# jq.exe emits CRLF) and any //?/ or //./ prefix removed; the ORIGINAL string is emitted unchanged
+# so kept paths keep their forward-slash-but-drive-letter display form (the Windows boundary test
+# pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/..."). Paths travel on stdin, never
+# as --arg (jq.exe drops a >~32 KB argv and rewrites a leading-slash arg into a Windows path).
+# shortcut: no cygpath, so a drive path that only cygpath maps into /tmp (MSYS2-standalone
+# C:/msys64/tmp/x) is kept; the AppData/Local/Temp rule covers Git-for-Windows. Upgrade if a
+# non-default MSYS root ever shows scratch files in PROJECT.md.
 #   sb_filter_scratch_paths '["a.ts","/tmp/x"]' -> '["a.ts"]'
 sb_filter_scratch_paths() {
-  local arr="${1:-[]}" out="[]" p np
-  while IFS= read -r p; do
-    [ -z "$p" ] && continue
-    np=$(sb_normalize_path "$p")
-    case "$np" in
-      /tmp/*|/var/tmp/*|/proc/*|/dev/*|/run/*) continue ;;
-      */[Aa][Pp][Pp][Dd][Aa][Tt][Aa]/[Ll][Oo][Cc][Aa][Ll]/[Tt][Ee][Mm][Pp]/*) continue ;;
-      /var/folders/*) continue ;;
-    esac
-    sb_cap_arg p 4096   # jq.exe drops a >~32 KB argv whole; no real path is this long
-    out=$(printf '%s' "$out" | jq -c --arg p "$p" '. + [$p]' 2>/dev/null) || out="$out"
-  done < <(printf '%s' "$arr" | jq -r '.[]?' 2>/dev/null | tr -d '\r')
-  printf '%s' "$out"
+  local out
+  out=$(printf '%s' "${1:-[]}" | jq -c '
+    def cap: if length > 4096 then .[0:4096] + "…(+\(length - 4096) chars)" else . end;
+    def scratch:
+      (explode | map(select(. != 13) | if . == 92 then 47 else . end) | implode
+        | ltrimstr("//?/") | ltrimstr("//./")) as $n
+      | ($n | test("^/(tmp|var/tmp|proc|dev|run)/|^/var/folders/"))
+        or ($n | ascii_downcase | contains("/appdata/local/temp/"));
+    [.[]? | tostring | select(length > 0 and (scratch | not)) | cap]' 2>/dev/null) || out="[]"
+  printf '%s' "${out//$'\r'/}"
 }
 
 # sb_window_tool_count <transcript> <start_line> <end_line>: the tool_use calls in raw transcript
