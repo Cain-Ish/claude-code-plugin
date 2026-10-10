@@ -1140,6 +1140,9 @@ a2 - /home/a2u/AppData/Roaming/Code/settings.json /w/proj /home/a2u APPDATA=/hom
 # symlink-guard's _sg_homes. A HOME spelled through '..', and a symlinked one where ln -s makes links.
 mkdir -p "$A2/phys/home/.ssh" "$A2/phys/x"; : > "$A2/phys/home/.ssh/id_rsa"
 a2 credential-read "$A2/phys/home/.ssh/id_rsa" /w/proj "$A2/phys/x/../home"
+# ...and its lexical spelling folds '..' as the target's does, without cd -P: on a runner whose /tmp
+# mount names an 8.3 path (C:\Users\RUNNER~1\…), cd -P respells the HOME above /c/Users/runneradmin/…
+a2 credential-read /home/a2u/.ssh/id_rsa /w/proj /home/a2x/../a2u
 ln -s "$A2/phys/home" "$A2/phys/link" 2>/dev/null
 if [ -L "$A2/phys/link" ]; then
   a2 credential-read "$A2/phys/home/.ssh/id_rsa" /w/proj "$A2/phys/link"
