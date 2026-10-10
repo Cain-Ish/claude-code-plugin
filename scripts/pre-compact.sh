@@ -216,11 +216,19 @@ if [ "${1:-}" = "post" ]; then
   P_KNOWLEDGE_DIR="$(sb_knowledge_dir)"
   P_MERGE_ERR=$(mktemp)
   P_MERGE_STATUS="ok"
-  if ! jq -nc --argjson b "$P_BULLETS" '{compact_pending: $b}' \
+  # Exit 3 = PROJECT.md busy (its lock still held after ~5 s) or a refused read: "retry later".
+  # Stop retries on its next run; PostCompact has none, so it retries once here, and only while a
+  # second lock wait plus a merge still fit the 30 s hook budget.
+  for P_MERGE_TRY in 1 2; do
+    P_MERGE_RC=0
+    jq -nc --argjson b "$P_BULLETS" '{compact_pending: $b}' \
       | bash "$(dirname "$0")/merge-project-update.sh" --project-md "$P_PROJECT_MD" \
-          --knowledge-dir "$P_KNOWLEDGE_DIR" --session "$P_SID" >/dev/null 2>"$P_MERGE_ERR"; then
+          --knowledge-dir "$P_KNOWLEDGE_DIR" --session "$P_SID" >/dev/null 2>"$P_MERGE_ERR" || P_MERGE_RC=$?
+    [ "$P_MERGE_RC" -eq 3 ] && [ "$SECONDS" -lt 15 ] || break
+  done
+  if [ "$P_MERGE_RC" -ne 0 ]; then
     P_ERR_TAIL=$(tr '\n' ' ' < "$P_MERGE_ERR" | head -c 300)
-    sb_log_error "pre-compact.sh" "postcompact-capture merge-failed err=$P_ERR_TAIL" 1
+    sb_log_error "pre-compact.sh" "postcompact-capture merge-failed rc=$P_MERGE_RC tries=$P_MERGE_TRY: this compaction's Pending Tasks are NOT in PROJECT.md and no later hook retries them err=$P_ERR_TAIL" 1
     P_MERGE_STATUS="failed"
   fi
   rm -f "$P_MERGE_ERR"
@@ -229,7 +237,7 @@ if [ "${1:-}" = "post" ]; then
   # looked identical whether those N bullets landed in PROJECT.md or the merge call itself
   # failed outright.
   P_COUNT=$(printf '%s' "$P_BULLETS" | jq 'length' 2>/dev/null); case "$P_COUNT" in ''|*[!0-9]*) P_COUNT=0 ;; esac
-  SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC source=$P_SRC pending=$P_COUNT merge=$P_MERGE_STATUS"
+  SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC source=$P_SRC pending=$P_COUNT merge=$P_MERGE_STATUS tries=$P_MERGE_TRY"
   exit 0
 fi
 

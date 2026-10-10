@@ -1309,6 +1309,49 @@ grep -q "date -u -j -f" "$PC_SRC" \
   || fail "C2-17: pre-compact.sh's BSD freshness fallback no longer runs 'date -u -j -f' -- a non-UTC host will reject fresh isCompactSummary records as stale"
 pass "C2-17: static lock -- pre-compact.sh's BSD date fallback carries -u"
 
+# C2-18: a PostCompact merge that meets a busy PROJECT.md lock retries once. merge-project-update.sh
+# waits ~5 s for the lock, then exits 3; Stop retries on its next run, but PostCompact has no next
+# run, so its Pending Tasks were dropped. The holder is this shell ($$: alive, never stolen as stale);
+# a background releaser drops the lock once the first attempt has logged that it gave up.
+c218_hold() {  # c218_hold <release: 1 after the first give-up | 0 never>: lock PROJECT.md, start the releaser
+  C218_LOCK="${PROJ%/*}/.PROJECT.md.lock"; printf '%s\n' "$$.c218" > "$C218_LOCK"
+  ( i=0
+    while [ "$1" = 1 ] && [ "$i" -lt 300 ]; do
+      grep -q 'still held after' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && break
+      sleep 0.1; i=$((i + 1))
+    done
+    [ "$1" = 1 ] && rm -f "$C218_LOCK" ) </dev/null >/dev/null 2>&1 &
+  C218_REL=$!
+}
+init_sandbox "c2-18-lock-retry"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+c218_hold 1
+compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Retry past a busy lock
+' | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+wait "$C218_REL"
+grep -q 'Retry past a busy lock' "$PROJ" \
+  || fail "C2-18: the Pending Task was dropped after one busy-lock attempt (no retry): $(grep -h 'merge-failed\|still held' "$SANDBOX/.second-brain/error-log.jsonl" | head -3)"
+grep -q 'gate=postcompact-capture.*pending=1 merge=ok tries=2' "$SANDBOX/.second-brain/audit-log.jsonl" \
+  || fail "C2-18: expected merge=ok tries=2 on the hook's row: $(grep postcompact "$SANDBOX/.second-brain/audit-log.jsonl")"
+pass "C2-18: a PostCompact merge that meets a busy PROJECT.md lock retries once and lands"
+# Still busy on the retry: the loss is logged loudly (ec 1), the row says merge=failed tries=2.
+init_sandbox "c2-18b-lock-still-busy"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+c218_hold 0
+compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Lost to a lock that never frees
+' | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+rm -f "$C218_LOCK"
+grep -q 'Lost to a lock' "$PROJ" && fail "C2-18b: the merge wrote PROJECT.md while another writer held its lock"
+grep 'postcompact-capture merge-failed rc=3 tries=2' "$SANDBOX/.second-brain/error-log.jsonl" | grep -q '"exit_code":1' \
+  || fail "C2-18b: a merge still locked out after its retry must log loudly (ec 1, rc=3 tries=2): $(grep -h merge-failed "$SANDBOX/.second-brain/error-log.jsonl")"
+grep -q 'gate=postcompact-capture.*pending=1 merge=failed tries=2' "$SANDBOX/.second-brain/audit-log.jsonl" \
+  || fail "C2-18b: expected merge=failed tries=2 on the hook's row: $(grep postcompact "$SANDBOX/.second-brain/audit-log.jsonl")"
+pass "C2-18b: a lock still held on the retry drops the tasks loudly (error row ec 1, merge=failed tries=2)"
+
 # R1 (S0 B7 ruler, docs/concepts/2026-09-27-repo-brain-concept.md sec 5 S0): a
 # hook_cancelled attachment already sitting in the transcript this Stop reads is
 # counted and logged as gate=hook-cancelled, one row per (hookName, script), with

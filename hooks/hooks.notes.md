@@ -145,6 +145,9 @@ whose in-session extraction always queues. Never blocks; nothing waits on
 Stop (Stop does not fire on user interrupts). Wrapped in `hook-timer.sh 30`
 (A7: heavy hooks are timed) — timeout raised 15s -> 30s in 0.54.0 (measured
 31-54s on a loaded box: the gate spawns node plus the injection scanner).
+A merge that finds PROJECT.md locked (exit 3 after its ~5 s wait) is retried
+once, while the run is under 15 s: no later hook retries a PostCompact. Still
+locked: one error row (ec 1) says the Pending Tasks were dropped.
 Kill switch `SB_COMPACT_CAPTURE=off`.
 
 ## PreToolUse
