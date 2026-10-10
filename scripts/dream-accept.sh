@@ -51,7 +51,9 @@ _release_holds() {
       echo "RELEASE: skipping '$_rel' — a live page now exists at that slug (held copy kept, not applied)" >&2
       RSKIP=$((RSKIP + 1)); continue
     fi
-    if mkdir -p "$RKD/wiki/$(dirname "$_rel")" && cp -p "$_hf" "$_dest"; then
+    # Plain cp (D2): the page must carry a fresh mtime, or a dream snapshotted before this release
+    # does not protect it and its rsync --delete removes it.
+    if mkdir -p "$RKD/wiki/$(dirname "$_rel")" && cp "$_hf" "$_dest"; then
       rm -f "$_hf" 2>/dev/null; RN=$((RN + 1))
     else
       echo "RELEASE: FAILED to write '$_rel' (held copy kept)" >&2

@@ -1563,6 +1563,7 @@ if [ -n "$REFS" ]; then
       if [ -n "$arch" ]; then
         acat=$(basename "$(dirname "$arch")"); mkdir -p "$KNOWLEDGE_WIKI/$acat"
         if mv "$arch" "$KNOWLEDGE_WIKI/$acat/$safe_ref.md" 2>/dev/null; then
+          touch "$KNOWLEDGE_WIKI/$acat/$safe_ref.md"   # D2: fresh mtime, so dream-accept protects it
           printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
             "$safe_ref" "$acat" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BRAIN_DIR/wiki-archive-log.jsonl" 2>/dev/null || true
           WIKI_WRITES=1; CHANGED=1; restored=1
@@ -1652,6 +1653,7 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       if [ -n "$arch" ]; then
         acat=$(basename "$(dirname "$arch")"); mkdir -p "$KNOWLEDGE_WIKI/$acat"
         if mv "$arch" "$KNOWLEDGE_WIKI/$acat/$slug.md" 2>/dev/null; then
+          touch "$KNOWLEDGE_WIKI/$acat/$slug.md"   # D2: fresh mtime, so dream-accept protects it
           printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
             "$slug" "$acat" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BRAIN_DIR/wiki-archive-log.jsonl" 2>/dev/null || true
           existing="$KNOWLEDGE_WIKI/$acat/$slug.md"; target_file="$existing"; action="update"
