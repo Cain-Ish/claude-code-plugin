@@ -30,6 +30,18 @@ check symlink-guard.sh       Write Edit MultiEdit
 check flow-guard.sh          Bash PowerShell WebFetch WebSearch
 check persona-tool-guard.sh  Bash PowerShell Write Edit MultiEdit Read
 
+# The after-the-call side reads a PowerShell call as it reads a Bash one: the injection scan of its
+# output and the observation ledger, success and failure.
+# ev_covers <event> <script> <tool>: registered under <event>, its matcher matches <tool> exactly.
+ev_covers(){ local m; m=$(jq -r --arg e "$1" --arg g "$2" '.hooks[$e][]? | select([.hooks[]?.command]|join(" ")|test($g)) | .matcher' "$HJ" | head -1 | tr -d '\r')
+  [ -n "$m" ] && printf '%s' "$3" | grep -Eq "^(${m})\$"; }
+for t in Bash PowerShell; do
+  for eg in "PostToolUse tool-return-scanner.sh" "PostToolUse observe-tool-use.sh" "PostToolUseFailure observe-tool-use.sh"; do
+    ev_covers ${eg% *} ${eg#* } "$t" || fail "${eg#* } is not wired under ${eg% *} for tool '$t'"
+  done
+done
+pass "tool-return-scanner.sh (PostToolUse) and observe-tool-use.sh (PostToolUse + PostToolUseFailure) cover Bash and PowerShell"
+
 # --- persona-tool-guard tool-scope REACHABILITY (the guard inspects per-tool inputs) ---
 # The persona-tool-guard's matcher in the REAL hooks.json must be a SUPERSET of every
 # file/command-bearing tool the guard actually reads input from. Grounded in the SOURCE

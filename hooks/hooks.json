@@ -203,7 +203,7 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent",
+        "matcher": "Bash|PowerShell|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent",
         "hooks": [
           {
             "type": "command",
@@ -225,7 +225,7 @@
         ]
       },
       {
-        "matcher": "Read|WebFetch|Bash|Grep|Glob",
+        "matcher": "Read|WebFetch|Bash|PowerShell|Grep|Glob",
         "hooks": [
           {
             "type": "command",
@@ -235,7 +235,7 @@
         ]
       },
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent",
+        "matcher": "Bash|PowerShell|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent",
         "hooks": [
           {
             "type": "command",

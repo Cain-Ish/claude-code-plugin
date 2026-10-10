@@ -1,6 +1,6 @@
 #!/bin/bash
 # tool-return-scanner.sh — PostToolUse hook (HarnessAudit Layer 3:
-# System Stability). Scans the output of Read / WebFetch / Bash / Grep for
+# System Stability). Scans the output of Read / WebFetch / Bash / PowerShell / Grep for
 # indirect prompt-injection patterns. On match, emits a warning via
 # hookSpecificOutput.additionalContext so Claude treats the content as
 # untrusted, and appends a flag entry to audit-log.jsonl.
@@ -38,7 +38,7 @@ RAW=$(cat 2>/dev/null || true)
 
 # Only scan tools that ingest external/runtime content into context.
 case "$TOOL" in
-  Read|WebFetch|Bash|Grep|Glob) : ;;
+  Read|WebFetch|Bash|PowerShell|Grep|Glob) : ;;
   *) exit 0 ;;
 esac
 

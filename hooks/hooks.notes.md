@@ -261,8 +261,9 @@ SB_QUALITY_GATE=off (D077).
 
 ### PostToolUse — tool-return-scanner.sh
 
-HarnessAudit Layer 3 — scans Read/WebFetch/Bash/Grep/Glob output for
-indirect-prompt-injection patterns. Flags via additionalContext; never blocks.
+HarnessAudit Layer 3 — scans Read/WebFetch/Bash/PowerShell/Grep/Glob output for
+indirect-prompt-injection patterns (PowerShell: Claude Code's Windows shell tool, its
+output read like Bash's). Flags via additionalContext; never blocks.
 Kill switch SB_INJECTION_SCAN=off.
 
 ### PostToolUse — observe-tool-use.sh
@@ -272,7 +273,8 @@ JSONL line {ts, tool, target, ok, err} per tool use to
 ~/.second-brain/observations/<session>.jsonl. Survives Stop/PreCompact extraction
 loss (the single-LLM-call SPOF) and records the ok|error dimension the
 preprocessed transcript lacks; mined by the out-of-band drainer as extraction
-input, swept by its 7-day GC. Grep/Glob deliberately excluded (high volume, low
+input, swept by its 7-day GC. PowerShell is matched like Bash (here and on
+PostToolUseFailure). Grep/Glob deliberately excluded (high volume, low
 mining value). Pure jq/bash, no output, never blocks. Kill switch
 SB_OBSERVATION_LEDGER=off; per-session cap SB_OBSERVATION_MAX_BYTES (default
 1 MiB).
