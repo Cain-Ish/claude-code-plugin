@@ -79,4 +79,33 @@ for s in aliased pathed anchored; do
     || bad "D6: $s not counted as linked ($(echo "$out6" | awk -F'\t' -v s="$s" '$2==s'))"
 done
 rm -rf "$T6"
+
+# D7 (audit): pages are scored in one batch (created: dates converted once per distinct date).
+# Lock the created:-first age rule and its mtime fallback: every mtime here is fresh, so only a
+# parsed created: (plain or quoted ISO) can make a page old.
+T7=$(mktemp -d); mkdir -p "$T7/wiki/entities"
+printf -- '---\ntitle: a\ncreated: 2020-01-01\n---\nbody.\n' > "$T7/wiki/entities/old-plain.md"
+printf -- '---\ntitle: b\ncreated: "2020-01-01T10:00:00Z"\n---\nbody.\n' > "$T7/wiki/entities/old-iso.md"
+printf -- '---\ntitle: c\n---\nbody.\n' > "$T7/wiki/entities/no-created.md"
+# Access counts are read in one jq listing: a legacy flat-number entry (it errors on .count) must
+# not end the listing before the nested entries after it.
+mkdir -p "$T7/brain"; printf '%s' '{"old-plain":4,"old-iso":{"count":7}}' > "$T7/brain/access-counts.json"
+out7=$(KNOWLEDGE_DIR="$T7" BRAIN_DIR="$T7/brain" bash "$SC")
+echo "$out7" | awk -F'\t' '$2=="old-iso"{print $4}' | grep -q 'acc=7 ' \
+  && ok "D7: a flat-number access-count entry does not cut off the ones after it" \
+  || bad "D7: old-iso lost its access count after a flat-number entry ($(echo "$out7" | awk -F'\t' '$2=="old-iso"'))"
+for s in old-plain old-iso; do
+  r=$(echo "$out7" | awk -F'\t' -v s="$s" '$2==s{print $4"|"$5}')
+  a=$(printf '%s' "$r" | sed -E 's/.*age=([0-9-]+)d.*/\1/')
+  case "$r" in *PROTECT:age*) bad "D7: $s aged by mtime, not created: ($r)" ;;
+    *) [ "${a:-0}" -gt 2000 ] 2>/dev/null && ok "D7: $s aged from created: (${a}d)" || bad "D7: $s age wrong ($r)" ;; esac
+done
+echo "$out7" | awk -F'\t' '$2=="no-created"{print $5}' | grep -q 'PROTECT:age' \
+  && ok "D7: a page without created: falls back to its (fresh) mtime" || bad "D7: no-created page not aged by mtime ($out7)"
+# Scale guard: the old loop spent ~0.3-0.7 s per page on Windows (~950 pages overran the 600 s
+# dream_accept timeout); the batch scores 300 pages in about a second there.
+i=0; while [ "$i" -lt 300 ]; do i=$((i + 1)); printf -- '---\ntitle: s%s\ncreated: 2026-0%s-1%s\n---\nsee [[s%s]]\n' "$i" $((i % 9 + 1)) $((i % 10)) $((i / 2 + 1)) > "$T7/wiki/entities/s$i.md"; done
+s0=$SECONDS; n7=$(KNOWLEDGE_DIR="$T7" BRAIN_DIR="$T7/brain" bash "$SC" | grep -c .); dt=$((SECONDS - s0))
+[ "$n7" -eq 303 ] && [ "$dt" -lt 30 ] && ok "D7: 303 pages scored in ${dt}s" || bad "D7: 303 pages -> $n7 rows in ${dt}s (want 303 rows in < 30 s)"
+rm -rf "$T7"
 echo "PASS:$P FAIL:$F"; [ "$F" -eq 0 ]
