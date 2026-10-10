@@ -462,7 +462,7 @@ WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0}"
 # hint. Delegate to lib.sh sb_resolve_slug (single source: CLAUDE_PROJECT_DIR > cwd-if-known-project
 # > pin > cwd) so per-prompt scoping matches the hook + MCP resolver and a CONCURRENT session's
 # stale .active-session-slug pin can't hijack it. Sourced lazily HERE (not at file top) so early-exit
-# prompts don't pay the lib.sh load (it sources kb-schema.sh, which can spawn jq).
+# prompts don't pay the lib.sh load (it is a heavy source).
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" 2>/dev/null || true
 SB_ACTIVE_SLUG_VAL=$(sb_resolve_slug)

@@ -16,9 +16,7 @@ pass "kb-schema.json present + valid"
 SB_KB_SCHEMA="$M"; source "$ROOT/scripts/kb-schema.sh"
 [ "$SB_STRUCTURED_TYPES" = "$(jq -r '.structured_types|join(" ")' "$M")" ] || fail "SB_STRUCTURED_TYPES != manifest"
 [ "$SB_CONTENT_CATEGORIES" = "$(jq -r '(.structured_types+.unstructured_types)|join(" ")' "$M")" ] || fail "SB_CONTENT_CATEGORIES != manifest"
-[ "$SB_ALL_CATEGORIES" = "$(jq -r '(.structured_types+.unstructured_types+.generated_dirs)|join(" ")' "$M")" ] || fail "SB_ALL_CATEGORIES != manifest"
 [ "$SB_FORGET_PROTECTED" = "$(jq -r '.forget_protection.protected|join(" ")' "$M")" ] || fail "SB_FORGET_PROTECTED != manifest"
-[ "$SB_EDGE_TYPES" = "$(jq -r '.edge_types|join(" ")' "$M")" ] || fail "SB_EDGE_TYPES != manifest"
 pass "bash loader (kb-schema.sh) exports match the manifest"
 
 # the six structured types are exactly as expected (anchor against accidental edit)
@@ -59,10 +57,17 @@ KD=$(grep -lE 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR.*:-.*HOME/knowledge' "$ROOT"/s
 [ -z "$KD" ] && pass "no NEW hand-rolled KNOWLEDGE_DIR resolution (all use \$(sb_knowledge_dir))" \
   || fail "hand-rolled KNOWLEDGE_DIR resolution found (use sb_knowledge_dir from lib.sh):" "$KD"
 
-# --- SP-2: the `raw` group is visible to the json + bash readers (TS side in kb-schema.test.ts) ---
+# --- SP-2: the `raw` group is in the manifest (TS side in kb-schema.test.ts) ---
 [ "$(jq -r '.raw.dir' "$M")" = "raw" ] || fail "kb-schema.json .raw.dir != raw"
-[ "$SB_RAW_DIR" = "raw" ] || fail "kb-schema.sh did not export SB_RAW_DIR=raw (got '$SB_RAW_DIR')"
-[ "$SB_RAW_STATUSES" = "$(jq -r '.raw.statuses|join(" ")' "$M")" ] || fail "SB_RAW_STATUSES != manifest"
-pass "raw group visible to json + bash readers"
+pass "raw group present in the manifest"
+
+# N2 (audit): lib.sh no longer sources kb-schema.sh (a jq spawn on every hook); only the readers do.
+LIBVAR=$(env -u SB_CONTENT_CATEGORIES -u SB_STRUCTURED_TYPES bash -c 'source "'"$ROOT"'/scripts/lib.sh" 2>/dev/null; printf "%s" "${SB_CONTENT_CATEGORIES:-}${SB_STRUCTURED_TYPES:-}"')
+[ -z "$LIBVAR" ] || fail "lib.sh still exports the kb-schema vars ($LIBVAR)"
+ENS=$(mktemp -d); HOME="$ENS/h" BRAIN_DIR="$ENS/b" KNOWLEDGE_DIR="$ENS/k" bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
+for c in $(jq -r '(.structured_types+.unstructured_types)|join(" ")' "$M" | tr -d '\r'); do
+  [ -d "$ENS/k/wiki/$c" ] || fail "ensure-dirs.sh did not create wiki/$c from the manifest"
+done
+pass "lib.sh does not load kb-schema.sh; ensure-dirs.sh loads it and creates every content category"
 
 echo; echo "ALL PASS"

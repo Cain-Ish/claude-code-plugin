@@ -137,4 +137,35 @@ grep -F 'trimming' "$ERRLOG" 2>/dev/null | grep -q '"exit_code":1' \
   || fail "S8: a failed 50-line trim left no error row ($(cat "$ERRLOG" 2>/dev/null))"
 pass "S8: a breadcrumb or trim that fails is an error row; the delta is still returned"
 
+
+# L1 (audit): sb_floor_transcript keyed the project dir on sb_sanitize_slug (lowercase, charset
+# rewrite) while the capture funnel and sb_extract_transcript use sb_slug_from_dir, so a slug with
+# upper case or '_' landed in a second, unregistered project dir.
+L1_TXT="$TMP/l1.txt"; printf '  [Edit] src/real.ts\n' > "$L1_TXT"
+export KNOWLEDGE_DIR="$TMP/l1-knowledge"; mkdir -p "$KNOWLEDGE_DIR/wiki"
+sb_floor_transcript "$L1_TXT" "Mono__Api" >/dev/null 2>&1
+[ -f "$BRAIN_DIR/projects/Mono__Api/PROJECT.md" ] || fail "L1: floor merge did not land in projects/Mono__Api ($(ls "$BRAIN_DIR/projects" 2>/dev/null | tr '\n' ' '))"
+[ ! -e "$BRAIN_DIR/projects/mono-api" ] || fail "L1: floor merge created the sanitized ghost dir projects/mono-api"
+pass "L1: sb_floor_transcript keeps the funnel's slug form (no sanitized ghost project)"
+
+
+# L2 (audit): sb_filter_scratch_paths is ONE jq pass (it spawned a subshell + cygpath + jq per path).
+# Output stays byte-identical for the D111 cases: scratch forms dropped, kept paths unchanged.
+BS2=$(printf '\134\134')   # two backslashes: one JSON-escaped backslash
+L2_IN="[\"src/a.ts\",\"/tmp/x\",\"/var/tmp/y\",\"C:${BS2}Users${BS2}bob${BS2}AppData${BS2}Local${BS2}Temp${BS2}claude${BS2}s.js\",\"C:/Users/Bob/APPDATA/local/TEMP/z\",\"/var/folders/zz/ab/T/s.ts\",\"/proc/1\",\"/dev/null\",\"/run/u\",\"C:/Work/proj/tests/thing.ts\",\"/home/u/tmp/keep.ts\",\"\"]"
+L2_WANT='["src/a.ts","C:/Work/proj/tests/thing.ts","/home/u/tmp/keep.ts"]'
+L2_GOT=$(sb_filter_scratch_paths "$L2_IN")
+[ "$L2_GOT" = "$L2_WANT" ] || fail "L2: filter output changed: got $L2_GOT want $L2_WANT"
+[ "$(sb_filter_scratch_paths 'not json')" = "[]" ] || fail "L2: a non-JSON input must yield []"
+[ "$(sb_filter_scratch_paths '[]')" = "[]" ] || fail "L2: an empty array must yield []"
+L2_BIN="$TMP/l2bin"; mkdir -p "$L2_BIN"
+for t in jq cygpath; do
+  printf '#!/bin/bash\necho x >> "%s/%s.calls"\nexec "%s" "$@"\n' "$TMP" "$t" "$(command -v "$t" || echo /bin/true)" > "$L2_BIN/$t"; chmod +x "$L2_BIN/$t"
+done
+rm -f "$TMP/jq.calls" "$TMP/cygpath.calls"
+( PATH="$L2_BIN:$PATH"; hash -r; sb_filter_scratch_paths "$L2_IN" >/dev/null )
+[ "$(wc -l < "$TMP/jq.calls" | tr -d ' ')" -le 1 ] || fail "L2: more than one jq spawn for 12 paths"
+[ ! -e "$TMP/cygpath.calls" ] || fail "L2: cygpath still spawned per path"
+pass "L2: sb_filter_scratch_paths is one jq pass with the D111 output"
+
 echo "ALL PASS"

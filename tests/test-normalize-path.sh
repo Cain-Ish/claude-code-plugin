@@ -84,6 +84,19 @@ aeq "/c/Users/me/.ssh/id_rsa" "$got" "\\\\localhost\\c\$ admin share -> /c POSIX
 got=$(sb_normalize_path '\\127.0.0.1\c$\Users\me\x')
 aeq "/c/Users/me/x" "$got" "\\\\127.0.0.1\\c\$ admin share -> /c POSIX"
 
+# 8b (audit G3): the loopback host is case-insensitive on Windows, and the
+# \\?\UNC\<host>\… long-path spelling of the same share must reach the same drive.
+got=$(sb_normalize_path '\\LOCALHOST\C$\Users\me\.ssh\id_rsa')
+aeq "/c/Users/me/.ssh/id_rsa" "$got" "\\\\LOCALHOST\\C\$ (upper-case host) -> /c POSIX (G3)"
+got=$(sb_normalize_path '//LocalHost/c$/Users/me/x')
+aeq "/c/Users/me/x" "$got" "//LocalHost/c\$ (mixed-case host) -> /c POSIX (G3)"
+got=$(sb_normalize_path '\\?\UNC\localhost\c$\Users\me\.ssh\id_rsa')
+aeq "/c/Users/me/.ssh/id_rsa" "$got" "\\\\?\\UNC\\localhost\\c\$ -> /c POSIX (G3)"
+got=$(sb_normalize_path '\\?\unc\127.0.0.1\d$\x')
+aeq "/d/x" "$got" "\\\\?\\unc\\127.0.0.1\\d\$ -> /d POSIX (G3)"
+got=$(sb_normalize_path '\\?\UNC\fileserver\share\doc.md')
+aeq "//fileserver/share/doc.md" "$got" "\\\\?\\UNC\\other-host stays UNC (G3)"
+
 # 9. Non-loopback UNC passes through unchanged (documented limit — cannot be
 # resolved locally; must NOT be mangled into something that looks local).
 got=$(sb_normalize_path '\\fileserver\share\doc.md')

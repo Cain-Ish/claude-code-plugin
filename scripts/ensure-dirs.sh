@@ -3,8 +3,10 @@
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 source "$(dirname "$0")/lib.sh"
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
 
-# Wiki content-category dirs from the KB source of truth (kb-schema.json, via lib.sh -> kb-schema.sh).
+# Wiki content-category dirs from the KB source of truth (kb-schema.json, via kb-schema.sh).
 # Creates ALL content categories. ONE mkdir for every dir (was 12 spawns, one per dir, on every
 # SessionStart under a 5s timeout; S0 B7: cancelled in 7 of 25 sessions). mkdir -p still creates
 # each operand independently and reports each failure.

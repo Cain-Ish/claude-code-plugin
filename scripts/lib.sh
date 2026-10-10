@@ -53,14 +53,16 @@ sb_normalize_path() {
   # ways to spell the same local drive path. D182: only //?/ was stripped, so
   # //./C:/… never matched the drive-letter case below, cygpath never ran, and
   # every credential/scope prefix compare silently missed it (fail-open).
+  # \\?\UNC\host\share\… (→ //?/UNC/host/…) is the long-path spelling of \\host\share\…
+  case "$p" in //"?"/[Uu][Nn][Cc]/*) p="//${p#//"?"/???/}" ;; esac
   p="${p#"//?/"}"
   p="${p#"//./"}"
-  # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…) is the same
-  # local drive in disguise — rewrite to drive form. Other-host UNC paths are
+  # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…; host is case-insensitive)
+  # is the same local drive in disguise — rewrite to drive form. Other-host UNC paths are
   # not locally resolvable and pass through unchanged (documented limit).
   case "$p" in
-    //localhost/[A-Za-z]\$/*)  d="${p#//localhost/}";  d="${d%%\$*}"; p="$d:${p#//localhost/[A-Za-z]\$}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  d="${p#//127.0.0.1/}";  d="${d%%\$*}"; p="$d:${p#//127.0.0.1/[A-Za-z]\$}" ;;
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$/*)
+      d="${p#//*/}"; d="${d%%\$*}"; p="$d:${p#//*/?\$}" ;;
   esac
   case "$p" in
     [A-Za-z]:/*)
@@ -184,20 +186,6 @@ if [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ]; then
   unset _sb_kd
 fi
 
-# KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
-# / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
-# Sourced here so every lib.sh consumer has them. Fail-soft (no-op if jq/manifest absent).
-# shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
-
-# Parse hook input from stdin. Sets: SB_INPUT, SB_SESSION_ID, SB_TRANSCRIPT_PATH, SB_TIMESTAMP
-sb_parse_input() {
-  SB_INPUT=$(cat)
-  SB_SESSION_ID=$(echo "$SB_INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
-  SB_TRANSCRIPT_PATH=$(echo "$SB_INPUT" | jq -r '.transcript_path // ""' 2>/dev/null | tr -d '\r')
-  SB_TIMESTAMP=$(date +"%Y-%m-%d")
-}
-
 # Echo $1 if it parses as a JSON array; otherwise echo "[]". Used to harden
 # --argjson against non-JSON or non-array handoff values. Requires jq.
 sb_safe_json_array() {
@@ -215,25 +203,26 @@ sb_safe_json_array() {
 # POSIX-anchor-only: a Windows path (C:/Users/<u>/AppData/Local/Temp/...) or macOS $TMPDIR
 # (/var/folders/xx/yy/T/...) never starts with '/tmp/' etc, so ephemeral scratch files on
 # those platforms passed straight through into PROJECT.md as "[auto-captured]" decisions.
-# We run sb_normalize_path (backslash + drive-letter -> POSIX /c/... form) on a COPY of
-# each candidate purely to decide membership, then emit the ORIGINAL string unchanged so
-# kept paths keep their existing forward-slash-but-drive-letter display form (the Windows
-# boundary test above pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/...").
+# One jq pass: the candidate is compared in a copy with \ -> / (codepoint 92 -> 47; CR dropped, as
+# jq.exe emits CRLF) and any //?/ or //./ prefix removed; the ORIGINAL string is emitted unchanged
+# so kept paths keep their forward-slash-but-drive-letter display form (the Windows boundary test
+# pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/..."). Paths travel on stdin, never
+# as --arg (jq.exe drops a >~32 KB argv and rewrites a leading-slash arg into a Windows path).
+# shortcut: no cygpath, so a drive path that only cygpath maps into /tmp (MSYS2-standalone
+# C:/msys64/tmp/x) is kept; the AppData/Local/Temp rule covers Git-for-Windows. Upgrade if a
+# non-default MSYS root ever shows scratch files in PROJECT.md.
 #   sb_filter_scratch_paths '["a.ts","/tmp/x"]' -> '["a.ts"]'
 sb_filter_scratch_paths() {
-  local arr="${1:-[]}" out="[]" p np
-  while IFS= read -r p; do
-    [ -z "$p" ] && continue
-    np=$(sb_normalize_path "$p")
-    case "$np" in
-      /tmp/*|/var/tmp/*|/proc/*|/dev/*|/run/*) continue ;;
-      */[Aa][Pp][Pp][Dd][Aa][Tt][Aa]/[Ll][Oo][Cc][Aa][Ll]/[Tt][Ee][Mm][Pp]/*) continue ;;
-      /var/folders/*) continue ;;
-    esac
-    sb_cap_arg p 4096   # jq.exe drops a >~32 KB argv whole; no real path is this long
-    out=$(printf '%s' "$out" | jq -c --arg p "$p" '. + [$p]' 2>/dev/null) || out="$out"
-  done < <(printf '%s' "$arr" | jq -r '.[]?' 2>/dev/null | tr -d '\r')
-  printf '%s' "$out"
+  local out
+  out=$(printf '%s' "${1:-[]}" | jq -c '
+    def cap: if length > 4096 then .[0:4096] + "…(+\(length - 4096) chars)" else . end;
+    def scratch:
+      (explode | map(select(. != 13) | if . == 92 then 47 else . end) | implode
+        | ltrimstr("//?/") | ltrimstr("//./")) as $n
+      | ($n | test("^/(tmp|var/tmp|proc|dev|run)/|^/var/folders/"))
+        or ($n | ascii_downcase | contains("/appdata/local/temp/"));
+    [.[]? | tostring | select(length > 0 and (scratch | not)) | cap]' 2>/dev/null) || out="[]"
+  printf '%s' "${out//$'\r'/}"
 }
 
 # sb_window_tool_count <transcript> <start_line> <end_line>: the tool_use calls in raw transcript
@@ -374,7 +363,8 @@ sb_extract_archived_deterministic() {
 sb_floor_transcript() {
   local txt="$1" slug="$2"
   [ -f "$txt" ] || return 1
-  slug=$(sb_sanitize_slug "$slug") || slug="unknown"
+  slug=$(sb_slug_from_dir "$slug")   # the funnel's slug form, as sb_extract_transcript (audit L1)
+  case "$slug" in .|..) slug="unknown" ;; esac
   local delta; delta=$(sb_extract_archived_deterministic "$txt")
   [ -n "$delta" ] || return 1
   local nfiles; nfiles=$(printf '%s' "$delta" | jq '.files_touched | length' 2>/dev/null || echo 0)
@@ -419,7 +409,7 @@ sb_floor_transcript() {
 sb_rotate_log() {
   local f="$1" sz
   [ -f "$f" ] || return 0
-  sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+  sz=$(wc -c < "$f" 2>/dev/null); sz="${sz//[!0-9]/}"
   case "$sz" in ''|*[!0-9]*) return 0 ;; esac
   [ "$sz" -gt 524288 ] || return 0
   tail -n 1000 "$f" > "$f.tmp.$$" 2>/dev/null \
@@ -896,9 +886,7 @@ sb_log_audit() {
 # awk pass: the file is read once (buffered, decided in END{}).
 sb_rotate_audit_log() {
   [ -f "$SB_AUDIT_FILE" ] || return 0
-  local lines bytes
-  lines=$(wc -l < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
-  bytes=$(wc -c < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
+  local lines bytes; read -r lines bytes < <(wc -lc < "$SB_AUDIT_FILE" 2>/dev/null)   # one wc, no tr (audit L7)
   [[ "$lines" =~ ^[0-9]+$ ]] || lines=0
   [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
   if [ "$lines" -gt "$SB_AUDIT_MAX_LINES" ] || [ "$bytes" -gt "$SB_AUDIT_MAX_BYTES" ]; then
@@ -1049,10 +1037,7 @@ sb_reindex_wiki() {
 sb_validate_wiki() {
   local knowledge_dir="${1:-$(sb_knowledge_dir)}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
-  local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
-  if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
-    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || plugin_root=""
-  fi
+  local plugin_root; plugin_root=$(sb_plugin_root)
   local validate_js="$plugin_root/mcp/dist/tools/knowledge-validate.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$validate_js" ]; then
     local _val_err _verr
@@ -1551,7 +1536,7 @@ sb_project_identity() {
   local reg="$1" slug="$2" rp="$3" gr="$4"
   [ -f "$reg" ] || { echo "new"; return 0; }
   command -v jq >/dev/null 2>&1 || { echo "new"; return 0; }
-  local rec; rec=$(jq -c --arg s "$slug" 'select(.slug==$s)' "$reg" 2>/dev/null | head -1)
+  local rec; rec=$(jq -cR --arg s "$slug" 'fromjson? | select(type=="object" and .slug==$s)' "$reg" 2>/dev/null | head -1)
   [ -n "$rec" ] || { echo "new"; return 0; }
   local ex_rp ex_gr
   ex_rp=$(printf '%s' "$rec" | jq -r '.root_path // ""')
@@ -2941,21 +2926,6 @@ sb_generate_dream_id() {
 # inline as "$BRAIN_DIR/dreams/<id>" and status reads are inline jq — the
 # canonical pattern across the scripts.
 
-sb_dream_set_status() {
-  local dream_id="$1" field="$2" value="$3"
-  local status_file="$BRAIN_DIR/dreams/$dream_id/status.json"
-  [ -f "$status_file" ] || return 1
-  local tmp
-  tmp=$(mktemp)
-  if [ "$value" = "null" ]; then
-    jq --arg f "$field" '.[$f] = null' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  elif echo "$value" | jq -e 'type == "number"' >/dev/null 2>&1; then
-    jq --arg f "$field" --argjson v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  else
-    jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  fi
-}
-
 # Single source of truth for "is this dream wedged?" — the one staleness policy
 # shared by dream-snapshot.sh (deadlock-break before staging a new dream),
 # dream-autostage.sh (reclaim a never-started pending), verify.sh (health
@@ -3245,7 +3215,7 @@ sb_call_extractor() {
   #
   # SB_USE_BWRAP=1 (opt-in): wrap the claude invocation in
   # bubblewrap so the extractor sees a read-only root with only
-  # ~/.second-brain writable. Requires bwrap binary;
+  # $BRAIN_DIR writable. Requires bwrap binary;
   # falls back to direct invocation if absent. Network stays enabled
   # (extractor needs the API).
   # One retry, and only for a tier spec: a model-unavailable verdict on attempt 1 blocklists
@@ -3262,10 +3232,11 @@ sb_call_extractor() {
       fi
       local -a WRAP_PREFIX=()
       if [ "${SB_USE_BWRAP:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
+        [ -d "$BRAIN_DIR" ] || mkdir -p "$BRAIN_DIR"   # bwrap refuses to bind a missing source
         WRAP_PREFIX=(
           bwrap
           --ro-bind / /
-          --bind "$HOME/.second-brain" "$HOME/.second-brain"
+          --bind "$BRAIN_DIR" "$BRAIN_DIR"
           --tmpfs /tmp
           --proc /proc
           --dev /dev

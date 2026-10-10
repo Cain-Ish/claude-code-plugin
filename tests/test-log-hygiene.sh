@@ -206,4 +206,20 @@ printf 'some transcript text\n' > "$SANDBOX/local-in.txt"; OUT_I="$SANDBOX/local
 jq -e '.decisions[0] == "ok"' "$OUT_I" >/dev/null || fail "(i) local call produced no output object"
 pass "(i) a 40 KB pin candidate / session-digest goal / local-call system prompt each still produce their result under a 30 KB-argv jq"
 
+# --- (j) audit L7: the size gates are spawn-lean (no `| tr` pipeline, one wc for lines+bytes) ---
+# A recording `tr` shim on PATH: neither gate may run it, and both must still decide correctly.
+J_BIN="$SANDBOX/trshim"; mkdir -p "$J_BIN"
+printf '#!/bin/bash\necho x >> "%s/tr.calls"\nexec "%s" "$@"\n' "$SANDBOX" "$(command -v tr)" > "$J_BIN/tr"
+chmod +x "$J_BIN/tr"
+J_LOG="$SANDBOX/j.jsonl"; : > "$J_LOG"
+for i in $(seq 1 3000); do printf '%0200d\n' "$i" >> "$J_LOG"; done   # ~600 KB, 3000 lines
+rm -f "$SANDBOX/tr.calls"
+( PATH="$J_BIN:$PATH"; hash -r; sb_rotate_log "$J_LOG" )
+[ "$(wc -l < "$J_LOG" | tr -d ' ')" -le 1000 ] || fail "(j) sb_rotate_log did not trim the 600 KB log"
+J_AUD="$SANDBOX/j-audit.jsonl"; for i in $(seq 1 40); do printf '{"timestamp":"2026-01-01T00:00:00Z","message":"m%s"}\n' "$i" >> "$J_AUD"; done
+( PATH="$J_BIN:$PATH"; hash -r; SB_AUDIT_FILE="$J_AUD"; SB_AUDIT_MAX_LINES=10; sb_rotate_audit_log )
+[ "$(wc -l < "$J_AUD" | tr -d ' ')" -lt 40 ] || fail "(j) sb_rotate_audit_log did not rotate a 40-line file over a 10-line cap"
+[ ! -e "$SANDBOX/tr.calls" ] || fail "(j) a size gate still spawns tr ($(wc -l < "$SANDBOX/tr.calls" | tr -d ' ') calls)"
+pass "(j) rotation size gates decide correctly without spawning tr"
+
 echo "ALL PASS"

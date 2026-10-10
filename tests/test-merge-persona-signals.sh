@@ -19,7 +19,6 @@ pass() { echo "PASS: $1"; }
 mkdir -p "$TMP/stub-scripts"
 cat > "$TMP/stub-scripts/lib.sh" <<'EOF'
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
-sb_parse_input() { :; }
 sb_safe_json_array() { echo "${1:-[]}"; }
 sb_log_error() { printf 'ERR %s %s\n' "$1" "$2" >> "$BRAIN_DIR/err-log"; }
 sb_log_audit() { printf 'AUDIT %s %s %s %s\n' "$1" "$2" "$3" "$4" >> "$BRAIN_DIR/audit-stub-log"; }
