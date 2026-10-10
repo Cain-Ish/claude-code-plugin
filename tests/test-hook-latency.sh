@@ -148,4 +148,19 @@ grep '"rule":"r3"' "$AUD" | grep -q '"late":true' \
   || fail "(h) GX8: without jq, the caller's extra late flag must reach the row: $(cat "$AUD")"
 pass "(h) sb_log_audit: the deadline is the direct child's only; a caller's late flag survives a missing jq"
 
+# --- (i) audit H7: a hook that outlives its budget is killed at budget-1 s and leaves a timeout row ---
+HANG="$SANDBOX/hang.sh"
+printf '#!/bin/bash\ncat >/dev/null\nsleep 30\ntouch "%s/survived"\n' "$SANDBOX" > "$HANG"; chmod +x "$HANG"
+: > "$AUD"
+i_t0=$SECONDS
+printf 'in' | bash "$TIMER" 3 "$HANG" >/dev/null 2>&1; i_rc=$?
+i_dt=$(( SECONDS - i_t0 ))
+[ "$i_dt" -le 6 ] || fail "(i) the wrapper did not cut a hung child at budget-1 s (took ${i_dt}s)"
+[ "$i_rc" -eq 124 ] || fail "(i) a timed-out child must exit 124 (got $i_rc)"
+grep '"kind":"latency"' "$AUD" | grep '"hook":"hang.sh"' | grep -q '"timeout":true' \
+  || fail "(i) no timeout latency row for the killed hook: $(cat "$AUD")"
+sleep 1
+[ ! -e "$SANDBOX/survived" ] || fail "(i) the hung child kept running after the wrapper gave up"
+pass "(i) a hook past its budget is killed, a timeout row is written, the child does not survive"
+
 echo "ALL PASS"

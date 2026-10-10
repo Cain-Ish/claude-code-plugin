@@ -59,8 +59,39 @@ case "$BUDGET_S" in
   ''|*[!0-9]*|0) unset SB_HOOK_LATE_MS SB_HOOK_LATE_PID ;;
   *) export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 )) SB_HOOK_LATE_PID=$$ ;;
 esac
-bash "$SCRIPT" "$@"
+# Watchdog (audit H7): the CLI SIGKILLs a hook at its budget and this wrapper dies with it, writing no
+# row while the child runs on. So the child runs in the background and a watchdog fires 1 s early:
+# it flags the timeout, then kills the child and the child's direct children (a node under the hook
+# script survives a bare kill, MSYS included). shortcut: grandchildren deeper than that are not
+# reached; switch to a process group (set -m) if one is ever seen surviving.
+# Stdin passes through (<&0); the watchdog's fds are detached so an orphaned sleep cannot hold a
+# caller's output pipe open.
+bash "$SCRIPT" "$@" <&0 &
+CHILD=$!
+WD=""
+TO_FLAG="$BRAIN_DIR/.hook-timer-$$.timeout"
+case "$BUDGET_S" in
+  ''|*[!0-9]*|0|1) : ;;
+  *)
+    ( sleep $(( BUDGET_S - 1 ))
+      kill -0 "$CHILD" 2>/dev/null || exit 0
+      : > "$TO_FLAG"
+      command -v pkill >/dev/null 2>&1 && pkill -TERM -P "$CHILD" 2>/dev/null
+      kill "$CHILD" 2>/dev/null
+      sleep 1
+      command -v pkill >/dev/null 2>&1 && pkill -KILL -P "$CHILD" 2>/dev/null
+      kill -KILL "$CHILD" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+    WD=$!
+    ;;
+esac
+wait "$CHILD"
 EC=$?
+[ -n "$WD" ] && kill "$WD" 2>/dev/null
+TIMEOUT=""
+if [ -e "$TO_FLAG" ]; then
+  TIMEOUT=',"timeout":true'; EC=124
+  rm -f "$TO_FLAG" 2>/dev/null
+fi
 _now_ms; T1=$_MS
 
 {
@@ -89,8 +120,8 @@ _now_ms; T1=$_MS
   else
     TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   fi
-  printf '{"ts":"%s","kind":"latency","hook":"%s","duration_ms":%s,"exit_code":%s%s%s}\n' \
-    "$TS" "$HOOK" "$DUR" "$EC" "$WARN" "$PV" >> "$BRAIN_DIR/audit-log.jsonl"
+  printf '{"ts":"%s","kind":"latency","hook":"%s","duration_ms":%s,"exit_code":%s%s%s%s}\n' \
+    "$TS" "$HOOK" "$DUR" "$EC" "$WARN" "$PV" "$TIMEOUT" >> "$BRAIN_DIR/audit-log.jsonl"
 } 2>/dev/null || true
 
 exit "$EC"
