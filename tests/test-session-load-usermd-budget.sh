@@ -63,5 +63,19 @@ pass "H9: uncapped banner ends with a newline"
 grep -rlE 'sb_(increment|get|reset)_session_count|dream-cadence-banner|SB_DREAM_CADENCE' "$ROOT/scripts" "$ROOT/hooks" \
   && fail "N1: session-counter / dream-cadence code still present"
 pass "N1: session counter and cadence banner removed"
+# 5. audit H5: rules-gap banner compares USER.md with $BRAIN_DIR/persona-rules.json (not the shipped default).
+GB=$(mktemp -d); BRAIN_DIR="$GB"; USER_FILE="$GB/USER.md"
+printf '## Never\n- a\n- b\n## Always\n- c\n' > "$USER_FILE"
+RGBLOCK=$(awk '/^if \[ "\$\{SB_RULES_GAP_BANNER/{f=1} f{print} f&&/^fi$/{exit}' "$SL")
+[ -n "$RGBLOCK" ] || fail "H5: could not extract rules-gap block"
+sb_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
+sb_append() { printf '%s' "$1" >> "$GB/out"; }
+run_rg() { : > "$GB/out"; eval "$RGBLOCK"; cat "$GB/out"; }
+run_rg | grep -q "$GB/persona-rules.json" || fail "H5: missing rules file must fire the banner naming it"
+touch -d '2001-01-01' "$USER_FILE"; echo '{"rules":[]}' > "$GB/persona-rules.json"
+[ -z "$(run_rg)" ] || fail "H5: rules file newer than USER.md must stay quiet"
+touch -d '2002-01-01' "$USER_FILE"; touch -d '2001-01-01' "$GB/persona-rules.json"
+run_rg | grep -q "persona-rules.json" || fail "H5: rules file older than USER.md must fire"
+pass "H5: rules-gap compares against the brain dir's persona-rules.json"
 rm -f "$TMP" "$OUT" "$LOGF"
 echo; echo "ALL PASS"
