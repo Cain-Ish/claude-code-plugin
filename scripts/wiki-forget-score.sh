@@ -47,7 +47,7 @@ grep -rhoE '\[\[[^]]+\]\]' "$WIKI" 2>/dev/null | sed -E 's/\[\[|\]\]//g; s/[|#].
 # per-slug lookup did; `try` keeps that one entry from ending the whole listing.
 [ -s "$AC" ] && jq -r 'to_entries[] | "\(.key)\t\(try (.value.count // .value // 0) catch 0)"' "$AC" 2>/dev/null | tr -d '\r' > "$_t/acc"
 # Size, mtime and path of every page in one stat run.
-if stat -c %Y "$WIKI" >/dev/null 2>&1; then _so=-c; _sf='%s %Y %n'; else _so=-f; _sf='%z %m %N'; fi   # GNU || BSD/macOS
+if stat -c %Y "$WIKI" >/dev/null 2>&1; then _so=-c; _sf='%s %Y %n'; else _so=-f; _sf='%z %m %N'; fi   # GNU stat -c || BSD/macOS stat -f
 find "$WIKI" -type f -name '*.md' ! -name 'index.md' -not -path '*/.*' -exec stat "$_so" "$_sf" {} + > "$_t/stat"
 
 # Pass 1, per page: path, size, mtime, created: date, body bytes.
