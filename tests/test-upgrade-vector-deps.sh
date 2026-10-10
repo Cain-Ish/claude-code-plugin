@@ -45,6 +45,7 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/npm" <<'EOF'
 #!/usr/bin/env bash
 echo x >> "$NPM_CALLS"
+echo "$*" >> "$NPM_CALLS.args"
 [ "${NPM_FAIL:-0}" = "1" ] && { echo "npm: simulated failure" >&2; exit 1; }
 # NPM_BREAK=1 installs all dep DIRS (so deps_ok passes) but a transformers entry
 # that THROWS on import — simulates an ABI-broken tree that must not be trusted.
@@ -190,5 +191,16 @@ fi
 grep -q 'symlinkSync' "$INST" && grep -q '"junction"' "$INST" && grep -q 'cygpath -w' "$INST" \
   || { echo "FAIL T11: junction mechanism (node fs.symlinkSync ... \"junction\" + cygpath -w) missing"; exit 1; }
 echo "PASS T11: link_version wired to the junction helper; no deep-copying ln -s of the shared tree"
+
+# T12 (audit B7): with a shipped package-lock.json the install is lockfile-exact (npm ci);
+# without one it falls back to npm install.
+rm -rf "$TMP/shared/node_modules" "$TMP/shared/.deps-key"; rm -f "$TMP/plugin/mcp/node_modules"; : > "$NPM_CALLS.args"
+echo '{}' > "$TMP/plugin/mcp/package-lock.json"
+run || { echo "FAIL T12: non-zero with lockfile"; exit 1; }
+grep -q '^ci ' "$NPM_CALLS.args" || { echo "FAIL T12: lockfile shipped but npm ci not used ($(cat "$NPM_CALLS.args"))"; exit 1; }
+rm -rf "$TMP/shared/node_modules" "$TMP/shared/.deps-key"; rm -f "$TMP/plugin/mcp/node_modules" "$TMP/plugin/mcp/package-lock.json"; : > "$NPM_CALLS.args"
+run || { echo "FAIL T12: non-zero without lockfile"; exit 1; }
+grep -q '^install ' "$NPM_CALLS.args" || { echo "FAIL T12: no lockfile but npm install not used"; exit 1; }
+echo "PASS T12: lockfile-exact npm ci when a lockfile ships; npm install otherwise"
 
 echo "ALL PASS"
