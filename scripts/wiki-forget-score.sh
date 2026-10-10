@@ -34,7 +34,8 @@ WC="${SB_FORGET_W_CONNECTIVITY:-0.25}"; WG="${SB_FORGET_W_CATEGORY:-0.20}"
 command -v jq >/dev/null 2>&1 || { echo "forget-score: jq missing" >&2; exit 2; }
 [ -d "$WIKI" ] || { echo "forget-score: no wiki at $WIKI" >&2; exit 2; }
 now=$(date +%s)
-links=$(grep -rhoE '\[\[[^]]+\]\]' "$WIKI" 2>/dev/null | sed -E 's/\[\[|\]\]//g' | sort | uniq -c)
+# D6: a link target is its slug: drop |alias and #heading, a cat/ path prefix, and padding.
+links=$(grep -rhoE '\[\[[^]]+\]\]' "$WIKI" 2>/dev/null | sed -E 's/\[\[|\]\]//g; s/[|#].*//; s#.*/##; s/^[[:space:]]+//; s/[[:space:]]+$//' | sort | uniq -c)
 inbound(){ printf '%s\n' "$links" | awk -v s="$1" '$2==s{print $1; f=1} END{if(!f)print 0}' | head -1; }
 # access-counts.json stores {slug: {count, last_accessed}} (older builds used a flat
 # number); read .count first, fall back to a bare number, else 0.

@@ -64,4 +64,19 @@ echo "$out" | awk -F'\t' '$2=="session-load-emits-plain-text-banners-be"{print $
 echo "$out" | awk -F'\t' '$2=="session-digest-2026-06-17"{print $5}' | grep -q "PROTECT:category" \
   && bad "D190: generated session-digest-* page wrongly kept PROTECT:category (exclusion no longer matches its real target)" \
   || ok "D190: generated session-digest-* page correctly loses category protection"
+
+# D6 (audit): [[slug|alias]], [[cat/slug]] and [[slug#heading]] all link to slug, but the inbound
+# count read them as the literal "slug|alias" etc., so a page linked only that way looked orphaned
+# and lost PROTECT:linked (FORGET could archive it).
+T6=$(mktemp -d)
+mkdir -p "$T6/wiki/entities"
+for s in aliased pathed anchored; do printf -- '---\ntitle: %s\n---\nbody text for %s.\n' "$s" "$s" > "$T6/wiki/entities/$s.md"; done
+printf -- '---\ntitle: L\n---\nsee [[aliased|Alias Text]], [[entities/pathed]] and [[anchored#Some section]].\n' > "$T6/wiki/entities/linker6.md"
+out6=$(KNOWLEDGE_DIR="$T6" BRAIN_DIR="$T6/brain" bash "$SC")
+for s in aliased pathed anchored; do
+  echo "$out6" | awk -F'\t' -v s="$s" '$2==s{print $4" "$5}' | grep -q 'inb=1 .*PROTECT:linked' \
+    && ok "D6: the $s link form counts as inbound (PROTECT:linked)" \
+    || bad "D6: $s not counted as linked ($(echo "$out6" | awk -F'\t' -v s="$s" '$2==s'))"
+done
+rm -rf "$T6"
 echo "PASS:$P FAIL:$F"; [ "$F" -eq 0 ]
