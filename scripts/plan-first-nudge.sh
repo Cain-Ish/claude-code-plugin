@@ -14,7 +14,7 @@
 #   ONE deny quoting the frozen goal + declared scope; after that, drift is dampened —
 #   the scope change is queued in the memo, never silently merged into the goal.
 #   Spine off (SB_INTENT_SPINE=off): the original SOFT once-per-session advisory nudge —
-#   additionalContext with permissionDecision "allow", never blocks.
+#   additionalContext only (no permissionDecision), never blocks.
 #
 # Both gates fail OPEN: any internal error (missing memo, unwritable state) allows the
 # call. Every gate verdict is audit-logged via sb_log_audit (lib.sh loaded lazily — the
@@ -152,13 +152,13 @@ COUNT=$(grep -c . "$SEEN" 2>/dev/null || echo 0)
 
 if [ ! -f "$DONE" ] && [ "${COUNT:-0}" -ge "$THRESH" ] 2>/dev/null; then
   if [ "$SPINE_ON" = "0" ]; then
-    # Legacy advisory nudge (spine off): one-time, never blocks, never asks.
+    # Legacy advisory nudge (spine off): one-time, never blocks, never asks — and no
+    # permissionDecision (G10): an "allow" here auto-approved the edit past the user's own prompt.
     : > "$DONE" 2>/dev/null || true
     CTX="[Plan-first — think before multi-file work] This session has now made substantive edits to ${COUNT} code files. If you haven't already sketched a plan, consider pausing to plan the change (plan mode, or the brainstorming skill) so the pieces fit before more edits — it reduces code→re-code churn. One-time, advisory nudge; nothing was blocked. Silence: SB_PLAN_FIRST_NUDGE=off."
     jq -nc --arg ctx "$CTX" '{
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
         additionalContext: $ctx
       }
     }' 2>/dev/null || true

@@ -190,7 +190,8 @@ auto-pass retry) and B (drift re-ground, warn once then deny once) on multi-file
 substantive code work (>=SB_PLAN_FIRST_FILES files, default 2; drift at
 >=SB_DRIFT_FILES zero-goal-overlap files, default 4), plus the plan->implement
 phase flip. Fail-open; every verdict audit-logged. With SB_INTENT_SPINE=off it
-degrades to the original soft once-per-session advisory (allow — never blocks).
+degrades to the original soft once-per-session advisory (additionalContext only, no
+permissionDecision — never blocks, never auto-approves).
 Silent on single-file work and one-line diffs. Kill switches
 SB_PLAN_FIRST_NUDGE=off, SB_INTENT_SPINE=off.
 
