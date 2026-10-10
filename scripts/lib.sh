@@ -408,7 +408,7 @@ sb_floor_transcript() {
 sb_rotate_log() {
   local f="$1" sz
   [ -f "$f" ] || return 0
-  sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+  sz=$(wc -c < "$f" 2>/dev/null); sz="${sz//[!0-9]/}"
   case "$sz" in ''|*[!0-9]*) return 0 ;; esac
   [ "$sz" -gt 524288 ] || return 0
   tail -n 1000 "$f" > "$f.tmp.$$" 2>/dev/null \
@@ -885,9 +885,7 @@ sb_log_audit() {
 # awk pass: the file is read once (buffered, decided in END{}).
 sb_rotate_audit_log() {
   [ -f "$SB_AUDIT_FILE" ] || return 0
-  local lines bytes
-  lines=$(wc -l < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
-  bytes=$(wc -c < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
+  local lines bytes; read -r lines bytes < <(wc -lc < "$SB_AUDIT_FILE" 2>/dev/null)   # one wc, no tr (audit L7)
   [[ "$lines" =~ ^[0-9]+$ ]] || lines=0
   [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
   if [ "$lines" -gt "$SB_AUDIT_MAX_LINES" ] || [ "$bytes" -gt "$SB_AUDIT_MAX_BYTES" ]; then
