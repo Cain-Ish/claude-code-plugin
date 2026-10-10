@@ -182,7 +182,7 @@ writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws,
 
 outbound info-flow guard (sar_flow channel) — asks when an egress tool call (Bash
 or PowerShell with a network tool — Invoke-WebRequest/iwr/Invoke-RestMethod/irm
-count — or WebFetch/WebSearch) carries credential-shaped content.
+count, in any case — or WebFetch/WebSearch) carries credential-shaped content.
 Defense-in-depth against the agent helpfully pasting session secrets into a curl
 request. Kill switch SB_FLOW_GUARD=off.
 
