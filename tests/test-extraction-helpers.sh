@@ -527,6 +527,12 @@ TM0=$(BRAIN_DIR="$PB" sb_drain_cursor_map "$PS" "$PT")
 grep -q '"ts":"2026-10-01T00:00:00Z"' "$PS" && no "tombstone: compaction kept the stale row" || ok "tombstone: compaction drops the pre-eviction rows"
 [ ! -e "$PT/.sA.txt.evicted" ] && ok "tombstone: consumed by the compaction" || no "tombstone: still there after the compaction"
 eq "tombstone: the map is identical after the consumption" "$(BRAIN_DIR="$PB" sb_drain_cursor_map "$PS" "$PT")" "$TM0"
+# On BSD stat (macOS) the GNU `stat -c` probe fails. A set -e caller reading _sb_mtimes through a
+# process substitution (the consumption pass above) hands it errexit, and the failed probe killed
+# that subshell before the `stat -f` fallback: the tombstone was never consumed. BSD-shaped stub:
+bsdstat() { [ "$1" != -c ] || return 1; shift 2; [ "$1" != -- ] || shift; printf '7 %s\n' "$@"; }
+eq "mtimes: the BSD fallback survives errexit in a process substitution" \
+  "$(stat() { bsdstat "$@"; }; set -e; cat < <(_sb_mtimes a.txt b.txt); echo end)" "7 a.txt"$'\n'"7 b.txt"$'\n'"end"
 # a compaction that fails keeps the tombstone (and the ledger)
 preset; pfour; ( BRAIN_DIR="$PB" SB_TRANSCRIPT_CAP=3 sb_prune_transcripts ); pmk sA.txt 15 202610030000
 ( BRAIN_DIR="$PB"; jq() { case " $* " in *" --rawfile "*) return 5 ;; esac; command jq "$@"; }; sb_compact_done_set "$PS" "$PT" ) >/dev/null 2>&1 || :
@@ -563,7 +569,7 @@ grep -q 'gate=transcript-cap evicted 1 archive(s) holding dead-lettered windows 
 # S4: the sub-cap protects un-extracted sub-*.txt: done ones go past SB_SUBAGENT_ARCHIVE_CAP, pending
 # ones only past 3x that, loudly
 preset
-for s in a b c; do pmk "sub-$s.txt" 3 "20261001000$( case $s in a) echo 1;; b) echo 2;; c) echo 3;; esac)"; done
+n=1; for s in a b c; do pmk "sub-$s.txt" 3 "20261001000$n"; n=$((n + 1)); done   # no `case` in $(...): bash 3.2 cannot parse it
 ( BRAIN_DIR="$PB" SB_SUBAGENT_ARCHIVE_CAP=2 sb_prune_transcripts )
 eq "sub-cap: un-extracted sub archives over the soft sub-cap are kept" "$(ls "$PT" | grep -c '^sub-')" "3"
 pok sub-a.txt 3; pok sub-b.txt 3                      # a and b extracted: they may go

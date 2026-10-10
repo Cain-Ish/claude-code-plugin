@@ -3580,9 +3580,11 @@ sb_line_count() {
 
 # _sb_mtimes FILE...: "<epoch> <name>" per file in ONE spawn (GNU stat; BSD stat when the GNU
 # form printed nothing). A file that vanished between the caller's glob and this call is skipped.
+# `|| :` inside each probe: a process-substitution caller inherits a set -e caller's errexit, and
+# the failing GNU probe on BSD stat would kill it before the fallback (partial output is kept).
 _sb_mtimes() {
   local o
-  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null); case "$o" in [0-9]*) ;; *) o=$(stat -f '%m %N' -- "$@" 2>/dev/null) ;; esac
+  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null || :); case "$o" in [0-9]*) ;; *) o=$(stat -f '%m %N' -- "$@" 2>/dev/null || :) ;; esac
   [ -z "$o" ] || printf '%s\n' "$o"
   return 0
 }
@@ -3697,13 +3699,15 @@ sb_drain_cursor_map() {
   fi
   out="${out//$'\r'/}"
   # X2#6: an archive `wc -l` cannot read gets no row (its error is not fatal to the others), and
-  # used to vanish from every counter, cap and drain in silence. Rows vs archives on disk, by a
-  # builtin count; only on a shortfall one awk names the missing ones (the ones still on disk:
-  # one deleted meanwhile is not missing).
+  # used to vanish from every counter, cap and drain in silence. Rows vs archives on disk, by one
+  # wc -l (the builtin ${out//[!$'\n']/} count is super-linear on bash 3.2, the macOS /bin/bash:
+  # 186 s at 400 rows); only on a shortfall one awk names the missing ones (the ones still on
+  # disk: one deleted meanwhile is not missing).
   local -a all=("$txd"/*.txt)
-  local nl="${out//[!$'\n']/}" nrows=0 miss
-  [ -n "$out" ] && nrows=$(( ${#nl} + 1 ))
-  if [ -e "${all[0]}" ] && [ "$nrows" -lt "${#all[@]}" ]; then
+  local nrows=0 miss
+  [ -z "$out" ] || nrows=$(printf '%s\n' "$out" | wc -l)
+  nrows="${nrows//[!0-9]/}"
+  if [ -e "${all[0]}" ] && [ "${nrows:-0}" -lt "${#all[@]}" ]; then
     miss=$({ printf '%s\n' "$out"; printf '%s\n' '--disk--'; printf '%s\n' "${all[@]##*/}"; } \
       | LC_ALL=C awk -F'\t' '$0 == "--disk--" { d = 1; next } !d { r[$1] = 1; next } $0 != "" && !($0 in r)')
     local m kept="" nk=0
