@@ -3580,9 +3580,11 @@ sb_line_count() {
 
 # _sb_mtimes FILE...: "<epoch> <name>" per file in ONE spawn (GNU stat; BSD stat when the GNU
 # form printed nothing). A file that vanished between the caller's glob and this call is skipped.
+# `|| :` inside each probe: a process-substitution caller inherits a set -e caller's errexit, and
+# the failing GNU probe on BSD stat would kill it before the fallback (partial output is kept).
 _sb_mtimes() {
   local o
-  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null); case "$o" in [0-9]*) ;; *) o=$(stat -f '%m %N' -- "$@" 2>/dev/null) ;; esac
+  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null || :); case "$o" in [0-9]*) ;; *) o=$(stat -f '%m %N' -- "$@" 2>/dev/null || :) ;; esac
   [ -z "$o" ] || printf '%s\n' "$o"
   return 0
 }
