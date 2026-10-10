@@ -217,6 +217,11 @@ fi
 if dir_link "$HOME/.ssh" "$HOME/work/repo/foo2"; then
   OUT=$(gen Write "$HOME/work/repo/foo2/new_key" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
   assert_deny "realpath absent + symlinked parent → cd/pwd -P fallback denies (macOS path)" "$OUT" "ssh"
+  # T4 (audit 2026-10-10): the target above is decided by the builtin fast path (_sg_phys, cd -P) before
+  # the walk runs — a walk that stopped following links (pwd -L) still passed. A '..' after the link
+  # stands the fast path down, so this one reaches the walk itself.
+  OUT=$(gen Write "$HOME/work/repo/foo2/sub/../new_key" | PATH="$STUB:$PATH" bash "$SCRIPT" 2>/dev/null)
+  assert_deny "realpath absent + symlinked parent + '..' → the cd/pwd -P walk itself denies (macOS path)" "$OUT" "ssh"
   dir_unlink "$HOME/work/repo/foo2"
 else
   echo "SKIP: test 18 — symlinked-parent escape requires real symlink support (Windows without Developer Mode)"
