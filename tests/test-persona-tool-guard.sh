@@ -82,6 +82,19 @@ grep -q '"rule":"warn-direct-write-hot-tier"' "$T27_BRAIN/audit-log.jsonl" \
   || fail "write-USER.md should ask via warn-direct-write-hot-tier specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
 pass "write-USER.md asks via warn-direct-write-hot-tier"
 
+# G8 (audit 2026-10-10, D153): the hot-tier rule was Write-only — an Edit or MultiEdit of USER.md /
+# PROJECT.md went through with no ask. Its locked -edit / -multiedit twins catch both.
+for _g8 in Edit:USER.md:warn-direct-write-hot-tier-edit MultiEdit:PROJECT.md:warn-direct-write-hot-tier-multiedit; do
+  rm -f "$T27_BRAIN/audit-log.jsonl"
+  out=$(printf '{"tool_name":"%s","tool_input":{"file_path":"/x/.second-brain/projects/p/%s","old_string":"a","new_string":"b"},"session_id":"g8"}' "${_g8%%:*}" "$(printf '%s' "$_g8" | cut -d: -f2)" \
+    | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    || fail "G8: ${_g8%%:*} of a hot-tier file should ask (got: $out)"
+  grep -q "\"rule\":\"${_g8##*:}\"" "$T27_BRAIN/audit-log.jsonl" \
+    || fail "G8: ${_g8%%:*} of a hot-tier file should ask via ${_g8##*:} (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+done
+pass "G8: Edit/MultiEdit of a hot-tier file ask via the -edit/-multiedit twins"
+
 # Test 4: harmless ls → silent
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"t4"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -z "$out" ] || fail "harmless Bash should be silent (got: $out)"
@@ -797,6 +810,7 @@ b7_ask "force-push (upper case, 2nd line)" warn-force-push-main '{"tool_name":"B
 b7_ask "Edit plugin script" warn-self-edit-plugin-scripts-edit '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh","old_string":"a","new_string":"b"},"session_id":"b7c"}'
 b7_ask "Windows-form hooks.json Write" warn-self-edit-plugin-scripts '{"tool_name":"Write","tool_input":{"file_path":"C:\\Users\\x\\.claude\\plugins\\cache\\second-brain\\second-brain\\0.54.0\\hooks\\hooks.json","content":"{}"},"session_id":"b7d"}'
 b7_ask "Write hot-tier file" warn-direct-write-hot-tier '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/persona-rules.json","content":"{}"},"session_id":"b7e"}'
+b7_ask "Edit hot-tier file (G8)" warn-direct-write-hot-tier-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/.second-brain/USER.md","old_string":"a","new_string":"b"},"session_id":"b7e2"}'
 b7_ask "MultiEdit repo rules" warn-self-edit-repo-rules-multiedit '{"tool_name":"MultiEdit","tool_input":{"file_path":"/x/.second-brain/projects/demo/rules.json","edits":[{"old_string":"a","new_string":"b"}]},"session_id":"b7f"}'
 b7_ask "Edit rules cache" warn-self-edit-rules-cache-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/.second-brain/projects/demo/.rules-effective.json","old_string":"a","new_string":"b"},"session_id":"b7g"}'
 # hook-timer.sh wraps this guard in hooks.json: the wrapper must add no dependency either.

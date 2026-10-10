@@ -49,6 +49,22 @@
       "lock": true
     },
     {
+      "name": "warn-direct-write-hot-tier-edit",
+      "tool": "Edit",
+      "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "action": "ask",
+      "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
+      "lock": true
+    },
+    {
+      "name": "warn-direct-write-hot-tier-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "action": "ask",
+      "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
+      "lock": true
+    },
+    {
       "name": "warn-rm-rf",
       "tool": "Bash",
       "match_command": "\\brm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\b",
