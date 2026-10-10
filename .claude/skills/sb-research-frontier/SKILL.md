@@ -77,7 +77,7 @@ maintainer 2026-07-04; ecosystem comparison wording → sb-external-positioning.
 **This repo's asset.** A working enforcement point plus a working signal pipeline — the two
 halves SOTA lacks, already running autonomously:
 
-- `scripts/persona-tool-guard.sh` — PreToolUse guard over `Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent`,
+- `scripts/persona-tool-guard.sh` — PreToolUse guard over `Bash|PowerShell|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent`,
   rules from `scripts/persona-rules.default.json`, every verdict audit-logged via
   `sb_log_audit`, kill switch `SB_PERSONA_GATE=off`. Re-armed on Windows path forms in 0.33.31
   (`sb_normalize_path` funnel — archive/docs:CHANGELOG.md, 0.33.31 entry).
