@@ -44,7 +44,10 @@ if [ -e "$dest" ]; then
   echo "restore: refusing to overwrite live page at $dest — a live page now exists at that slug (archived copy kept at $src, not applied)" >&2
   exit 1
 fi
-mv "$src" "$dest"
+mv "$src" "$dest" || { echo "restore: could not move $src to $dest" >&2; exit 1; }
+# D2: mv keeps the archive's old mtime; a fresh one makes dream-accept protect the page as
+# post-snapshot instead of deleting it with rsync --delete.
+touch "$dest"
 if command -v jq >/dev/null 2>&1; then
   printf '{"event":"restored","slug":%s,"category":%s,"date":%s}\n' \
     "$(jq -Rn --arg v "$name" '$v')" "$(jq -Rn --arg v "$cat" '$v')" \
