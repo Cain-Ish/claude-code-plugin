@@ -162,7 +162,14 @@ if [ ! -f "$STAGE_NM/@huggingface/transformers/package.json" ] || ! deps_ok "$ST
   echo "install-vector-deps: this needs network access and downloads ~70MB of native"
   echo "                     deps (onnxruntime-node, sharp). One-time; shared across versions."
   cp "$PKG" "$STAGE/package.json"
-  ( cd "$STAGE" && npm install --omit=dev --no-audit --no-fund )
+  # Lockfile-exact when the plugin ships one (npm ci also fails loud on a lock/package.json drift);
+  # a bare npm install re-resolves ranges and can pull versions nobody tested.
+  if [ -f "$MCP_DIR/package-lock.json" ]; then
+    cp "$MCP_DIR/package-lock.json" "$STAGE/package-lock.json"
+    ( cd "$STAGE" && npm ci --omit=dev --no-audit --no-fund )
+  else
+    ( cd "$STAGE" && npm install --omit=dev --no-audit --no-fund )
+  fi
 fi
 
 # 4. Validate staging BEFORE swapping: complete deps AND a working import. If it fails,

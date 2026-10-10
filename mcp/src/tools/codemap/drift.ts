@@ -41,7 +41,7 @@ export async function isDirty(
   runGit: GitRunner = defaultRunGit,
 ): Promise<boolean> {
   try {
-    const out = await runGit(['status', '--porcelain'], repoRoot);
+    const out = await runGit(['status', '--porcelain', '--untracked-files=no'], repoRoot);
     return out.trim().length > 0;
   } catch {
     return false;

@@ -86,6 +86,12 @@ describe('drift', () => {
       expect(await isDirty('/repo', gitAt(REV_A, ' M src/a.ts\n'))).toBe(true);
     });
 
+    it('ignores untracked files (audit B9)', async () => {
+      let seen: string[] = [];
+      await isDirty('/repo', async (args) => { seen = args; return ''; });
+      expect(seen).toContain('--untracked-files=no');
+    });
+
     it('false when status --porcelain is empty', async () => {
       expect(await isDirty('/repo', gitAt(REV_A))).toBe(false);
     });

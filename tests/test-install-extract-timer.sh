@@ -290,6 +290,46 @@ printf '%s' "$OUT21" | grep -qi 'Power: could not update' \
   && ok "D105: honestly reports when battery power settings could not be updated (never silently claims success)" \
   || no "D105: no honest fallback message when the power round trip has nothing to work with"
 
+
+# Test 22 (audit B1): systemctl / launchctl failures are NOT masked -- exit 1, no "applied", half-installed files removed.
+FS22="$SANDBOX/failstub22"; mkdir -p "$FS22"
+for tool in systemctl launchctl; do printf '#!/bin/sh\nexit 1\n' > "$FS22/$tool"; chmod +x "$FS22/$tool"; done
+BR22="$SANDBOX/brain22"
+if OUT22=$(PATH="$FS22:$PATH" SB_INSTALL_OS_OVERRIDE=systemd BRAIN_DIR="$BR22" bash "$INSTALL" --apply 2>&1); then RC22=0; else RC22=$?; fi
+{ [ "$RC22" -ne 0 ] && printf '%s' "$OUT22" | grep -qi 'NOT installed' && ! printf '%s' "$OUT22" | grep -q '^applied'; } \
+  && ok "systemd: --apply fails loud when systemctl enable fails" || no "systemd: masked a systemctl failure (rc=$RC22)"
+{ [ ! -e "$XDG_CONFIG_HOME/systemd/user/sb-extract-drain.timer" ] && [ ! -e "$BR22/bin/sb-extract-drain.sh" ]; } \
+  && ok "systemd: failed apply leaves no half-installed unit/shim" || no "systemd: half-installed files left behind"
+if OUT22L=$(PATH="$FS22:$PATH" SB_INSTALL_OS_OVERRIDE=launchd BRAIN_DIR="$BR22" bash "$INSTALL" --apply 2>&1); then RC22L=0; else RC22L=$?; fi
+{ [ "$RC22L" -ne 0 ] && printf '%s' "$OUT22L" | grep -qi 'NOT installed' && [ ! -e "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ]; } \
+  && ok "launchd: --apply fails loud and removes the plist when launchctl fails" || no "launchd: masked a launchctl failure (rc=$RC22L)"
+
+# Test 23 (audit B2): a space in the shim path stays ONE argument (systemd ExecStart + VBS bash -lc).
+BR23="$SANDBOX/brain 23"
+SYS23=$(SB_INSTALL_OS_OVERRIDE=systemd BRAIN_DIR="$BR23" bash "$INSTALL" 2>&1)
+printf '%s' "$SYS23" | grep -qF "ExecStart=bash \"$BR23/bin/sb-extract-drain.sh\"" && ok "systemd: ExecStart quotes the shim path" || no "systemd: ExecStart shim path unquoted"
+SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR23" bash "$INSTALL" --apply >/dev/null 2>&1 || true
+grep -aqF "exec '$BR23/bin/sb-extract-drain.sh'" "$BR23/bin/sb-extract-drain-hidden.vbs" 2>/dev/null \
+  && ok "vbs: shim path single-quoted inside bash -lc" || no "vbs: shim path unquoted in the launcher"
+BR23Q="$SANDBOX/brain'23"
+if OUT23Q=$(SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR23Q" bash "$INSTALL" --apply 2>&1); then RC23Q=0; else RC23Q=$?; fi
+{ [ "$RC23Q" -ne 0 ] && printf '%s' "$OUT23Q" | grep -qi 'single quote'; } && ok "vbs: refuses a single quote in the shim path" || no "vbs: accepted a single quote (rc=$RC23Q)"
+
+# Test 24 (audit B8): BRAIN_DIR + CLAUDE_CONFIG_DIR reach the scheduler env; shim globs CLAUDE_CONFIG_DIR and logs a miss.
+BR24="$SANDBOX/brain24"
+SB_INSTALL_OS_OVERRIDE=windows BRAIN_DIR="$BR24" CLAUDE_CONFIG_DIR="$SANDBOX/cc24" bash "$INSTALL" --apply >/dev/null 2>&1 || true
+{ grep -q 'CLAUDE_CONFIG_DIR' "$BR24/.extract-timer-env" && grep -q 'BRAIN_DIR' "$BR24/.extract-timer-env"; } \
+  && ok "env-file forwards BRAIN_DIR + CLAUDE_CONFIG_DIR" || no "env-file dropped BRAIN_DIR/CLAUDE_CONFIG_DIR"
+LA24=$(BRAIN_DIR="$BR24" CLAUDE_CONFIG_DIR="$SANDBOX/cc24" SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>/dev/null)
+printf '%s' "$LA24" | grep -q '<key>CLAUDE_CONFIG_DIR</key>' && ok "launchd env_snapshot forwards CLAUDE_CONFIG_DIR" || no "launchd env_snapshot dropped CLAUDE_CONFIG_DIR"
+mkdir -p "$SANDBOX/cc24/plugins/cache/plug/second-brain/9.9.9/scripts" "$SANDBOX/emptyhome24"
+printf '#!/bin/bash\necho "RAN 9.9.9"\n' > "$SANDBOX/cc24/plugins/cache/plug/second-brain/9.9.9/scripts/extract-drain.sh"
+RAN24=$(HOME="$SANDBOX/emptyhome24" CLAUDE_CONFIG_DIR="$SANDBOX/cc24" bash "$BR24/bin/sb-extract-drain.sh" 2>/dev/null)
+[ "$RAN24" = "RAN 9.9.9" ] && ok "shim: resolves under CLAUDE_CONFIG_DIR" || no "shim: ignored CLAUDE_CONFIG_DIR [got: '$RAN24']"
+rm -f "$BR24/.extract-timer-env"
+HOME="$SANDBOX/emptyhome24" BRAIN_DIR="$BR24" CLAUDE_CONFIG_DIR="$SANDBOX/nocache24" bash "$BR24/bin/sb-extract-drain.sh" >/dev/null 2>&1
+grep -q 'sb-extract-drain-shim' "$BR24/error-log.jsonl" 2>/dev/null && ok "shim: logs an error-log row when no drainer is found" || no "shim: not-found left no error-log row"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

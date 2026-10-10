@@ -63,7 +63,16 @@ describe('candidateIds', () => {
   });
 
   it('returns only the literal path for an unknown extension', () => {
-    expect(candidateIds('./styles.css', 'src/a.ts')).toEqual(['src/styles.css']);
+    const c = candidateIds('./styles.css', 'src/a.ts');
+    expect(c[0]).toBe('src/styles.css'); // literal wins
+    expect(c).toContain('src/styles.css.ts');
+  });
+
+  it('dotted basename resolves to a known extension (audit B4)', () => {
+    const c = candidateIds('./user.service', 'src/a.ts');
+    expect(c[0]).toBe('src/user.service');
+    expect(c).toContain('src/user.service.ts');
+    expect(c).toContain('src/user.service/index.ts');
   });
 
   it('resolves "." to the importing dir index variants', () => {
