@@ -3699,13 +3699,15 @@ sb_drain_cursor_map() {
   fi
   out="${out//$'\r'/}"
   # X2#6: an archive `wc -l` cannot read gets no row (its error is not fatal to the others), and
-  # used to vanish from every counter, cap and drain in silence. Rows vs archives on disk, by a
-  # builtin count; only on a shortfall one awk names the missing ones (the ones still on disk:
-  # one deleted meanwhile is not missing).
+  # used to vanish from every counter, cap and drain in silence. Rows vs archives on disk, by one
+  # wc -l (the builtin ${out//[!$'\n']/} count is super-linear on bash 3.2, the macOS /bin/bash:
+  # 186 s at 400 rows); only on a shortfall one awk names the missing ones (the ones still on
+  # disk: one deleted meanwhile is not missing).
   local -a all=("$txd"/*.txt)
-  local nl="${out//[!$'\n']/}" nrows=0 miss
-  [ -n "$out" ] && nrows=$(( ${#nl} + 1 ))
-  if [ -e "${all[0]}" ] && [ "$nrows" -lt "${#all[@]}" ]; then
+  local nrows=0 miss
+  [ -z "$out" ] || nrows=$(printf '%s\n' "$out" | wc -l)
+  nrows="${nrows//[!0-9]/}"
+  if [ -e "${all[0]}" ] && [ "${nrows:-0}" -lt "${#all[@]}" ]; then
     miss=$({ printf '%s\n' "$out"; printf '%s\n' '--disk--'; printf '%s\n' "${all[@]##*/}"; } \
       | LC_ALL=C awk -F'\t' '$0 == "--disk--" { d = 1; next } !d { r[$1] = 1; next } $0 != "" && !($0 in r)')
     local m kept="" nk=0
