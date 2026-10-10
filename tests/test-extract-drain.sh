@@ -626,6 +626,7 @@ mk_lines "ev1_proj_2026-05-24.txt" 3                       # the evicted incarna
 printf '{"basename":"ev1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":10}\n' > "$STATE"
 rm -f "$BRAIN_DIR/transcripts/ev1_proj_2026-05-24.txt"
 printf 'ev1_proj_2026-05-24.txt\n' > "$BRAIN_DIR/transcripts/.ev1_proj_2026-05-24.txt.evicted"
+sleep 1   # the eviction is a past second: a row stamped in the tombstone's own second is stale by design (lib.sh), and a fast host ticks within it
 mk_lines "ev1_proj_2026-05-24.txt" 13                      # re-created: 20 lines, past the old cursor
 rdrain
 eq "evicted+recreated: extracted from 0, not from the stale cursor" "$(rlast)" "ev1_proj_2026-05-24.txt 0 20"
