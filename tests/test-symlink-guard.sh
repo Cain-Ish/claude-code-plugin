@@ -10,6 +10,8 @@ trap 'rm -rf "$TMP"' EXIT
 
 # Isolate HOME so credential-dir prefix checks evaluate against a sandbox.
 export HOME="$TMP/home"
+# X1: pinned, so a BRAIN_DIR inherited from the caller's environment cannot route audit rows out of the sandbox.
+export BRAIN_DIR="$HOME/.second-brain"
 mkdir -p "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.aws" "$HOME/.config/claude" \
          "$HOME/.password-store" "$HOME/work/repo" "$HOME/.config/gh"
 

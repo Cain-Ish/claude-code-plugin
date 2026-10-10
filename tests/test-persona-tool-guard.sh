@@ -19,6 +19,13 @@ pass() { echo "PASS: $1"; }
 PTG_TMP=$(mktemp -d); export TMPDIR="$PTG_TMP"
 trap 'rm -rf "$PTG_TMP"' EXIT
 
+# X1 (audit 2026-10-10): a guard run with no BRAIN_DIR writes its verdict rows into the maintainer's
+# REAL ~/.second-brain/audit-log.jsonl (the case-insensitivity block's gv() did, session caseT). Every
+# `bash "$SCRIPT"` line in this file names its own sandbox BRAIN_DIR.
+_x1=$(grep -n 'bash "\$SCRIPT"' "$0" | grep -v 'BRAIN_DIR=' | grep -vE '^[0-9]+:[[:space:]]*#')
+[ -z "$_x1" ] || fail "X1: guard runs without a sandbox BRAIN_DIR (they write into the real ~/.second-brain): $_x1"
+pass "X1: every guard run in this file names a sandbox BRAIN_DIR"
+
 # Test 1 (INVERTED 2026-08-23): 2>/dev/null is ADVISORY, never rewritten, never auto-allowed.
 # The old oracle asserted the shipped default REWROTE the command and emitted "allow". That
 # rewrite was a blind sed over the whole string (it turned `grep -rn "2>/dev/null" x` into
@@ -535,7 +542,8 @@ rm -rf "$SPINE_BRAIN"
 # out as "claude-code-plugin-repo-brain" has no `/claude-code-plugin/` segment at all) — build
 # a throwaway root that is always literally named claude-code-plugin/ instead.
 RRT="$(mktemp -d)/claude-code-plugin"; mkdir -p "$RRT/scripts" "$RRT/hooks"
-gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"file_path":"%s/%s","content":"y"}}' "$1" "$RRT" "$RRT" "$2" | bash "$SCRIPT"; }
+RRT_BRAIN="$(dirname "$RRT")/brain"; mkdir -p "$RRT_BRAIN"
+gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"file_path":"%s/%s","content":"y"}}' "$1" "$RRT" "$RRT" "$2" | BRAIN_DIR="$RRT_BRAIN" bash "$SCRIPT"; }
 
 for variant in "persona-rules.json" "Persona-Rules.json" "PERSONA-RULES.JSON" "PeRsOnA-RuLeS.jSoN"; do
   out=$(gv Write "$variant")
@@ -553,7 +561,7 @@ pass "case-varied plugin-script writes all ask"
 
 # Command rules run through the same loop.
 for cmd in "git push --force origin main" "git push --FORCE origin MAIN"; do
-  out=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd" | bash "$SCRIPT")
+  out=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd" | BRAIN_DIR="$RRT_BRAIN" bash "$SCRIPT")
   [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
     || fail "case-varied command '$cmd' must ask (got: $out)"
 done
