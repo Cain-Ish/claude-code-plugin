@@ -3,8 +3,12 @@ import { promises as fs3 } from "fs";
 
 // src/tools/atomic-write.ts
 import { promises as fs } from "fs";
+var writeCounter = 0;
+function uniqueTmp(filePath) {
+  return `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter++}`;
+}
 async function atomicWriteJson(filePath, value) {
-  const tmp = `${filePath}.tmp.${process.pid}`;
+  const tmp = uniqueTmp(filePath);
   try {
     await fs.writeFile(tmp, JSON.stringify(value));
     await fs.rename(tmp, filePath);
@@ -18,9 +22,8 @@ async function atomicWriteJson(filePath, value) {
     }
   }
 }
-var strictWriteCounter = 0;
 async function atomicWriteJsonStrict(filePath, value) {
-  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
+  const tmp = uniqueTmp(filePath);
   try {
     await fs.writeFile(tmp, JSON.stringify(value));
     await fs.rename(tmp, filePath);

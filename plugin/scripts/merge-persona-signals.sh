@@ -15,9 +15,11 @@ source "$(dirname "$0")/lib.sh"
 # behavior byte-for-byte. The caller (sb_extract_transcript, lib.sh) passes the project slug it
 # already resolved for this extraction — never args from the transcript itself.
 SLUG=""
+SESSION_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --slug) shift; SLUG="${1:-}"; shift || true ;;
+    --session) shift; SESSION_ARG="${1:-}"; shift || true ;;
     *) shift ;;
   esac
 done
@@ -32,7 +34,12 @@ touch "$SIGNALS_FILE"
 
 PRUNE_DAYS=90
 TODAY=$(date -u +%Y-%m-%d)
-SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+# E1: the session these signals came from, the unit graduation counts. Callers pass --session (the
+# hook payload's id; the archive header's for the drainer); CLAUDE_CODE_SESSION_ID is what Claude
+# Code exports. CLAUDE_SESSION_ID alone was never set, so every sighting read "unknown".
+SESSION_ID="${SESSION_ARG:-${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}}"
+case "$SESSION_ID" in *[!A-Za-z0-9_-]*) SESSION_ID="unknown" ;; esac
+SESSION_ID="${SESSION_ID:0:64}"
 
 RAW_INPUT=$(cat)
 if printf '%s' "$RAW_INPUT" | jq -e 'type == "object"' >/dev/null 2>&1; then
@@ -176,18 +183,29 @@ if [ "$PRUNED_N" -gt 0 ]; then
 fi
 MERGED=$(echo "$SCORED" | jq -c '.keep')
 
-# --- Auto-graduate high-confidence signals with 2+ observations ---
+# --- Auto-graduate high-confidence signals seen in 2+ DISTINCT sessions ---
 # Threshold was count>=3, but field data showed cross-session paraphrase
 # divergence + the old strict dedup kept nearly everything at count=1. After
-# loosening the dedup above, count>=2 is the natural floor: a behavior seen
+# loosening the dedup above, two sessions are the natural floor: a behavior seen
 # in two distinct sessions with high LLM confidence is genuine signal.
-GRAD_CANDIDATES=$(echo "$MERGED" | jq -c '[.[] | select(.count >= 2 and .confidence == "high" and .graduated == false)]')
+# E1: distinct sessions, not count. count is extraction runs, and one window is
+# extracted more than once (a Stop retry, Stop plus the drainer); "unknown" never counts.
+GRAD_CANDIDATES=$(echo "$MERGED" | jq -c '[.[] | select(.confidence == "high" and .graduated == false
+  and ([.evidence[]?.session | select(type == "string" and . != "" and . != "unknown")] | unique | length) >= 2)]')
 GRAD_COUNT=$(echo "$GRAD_CANDIDATES" | jq 'length')
 
 if [ "$GRAD_COUNT" -gt 0 ]; then
   GRADUATED_INDICES=""
   for i in $(seq 0 $((GRAD_COUNT - 1))); do
     SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal" | tr -d '\r')
+    # E1: USER.md is trusted priority-1 context and this text is transcript-derived, so it passes
+    # the injection classifier first. A hit (or a classifier failure) is refused, logged, and the
+    # record dropped, so it does not re-fire on every later merge.
+    if ! SIG_CLASS=$(sb_text_injection_class "$SIG_TEXT") || [ -n "$SIG_CLASS" ]; then
+      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=${SIG_CLASS:-classifier-failed}, signal dropped: ${SIG_TEXT:0:160}" 1
+      MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT" 'map(select(.signal != $sig))')
+      continue
+    fi
     if sb_pin_to_user "$SIG_TEXT"; then
       GRADUATED_INDICES="$GRADUATED_INDICES $i"
     fi

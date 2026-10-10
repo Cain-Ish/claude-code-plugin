@@ -1,6 +1,6 @@
 // src/cli/sb.ts
-import { promises as fs12, constants as fsConstants } from "fs";
-import { join as join11, delimiter as pathDelimiter } from "path";
+import { promises as fs14, constants as fsConstants } from "fs";
+import { join as join13, delimiter as pathDelimiter } from "path";
 import { execFile as execFile2 } from "child_process";
 
 // src/path-guard.ts
@@ -84,12 +84,16 @@ function validateSlug(slug) {
 }
 
 // src/tools/knowledge-search.ts
-import { promises as fs7 } from "fs";
+import { promises as fs8 } from "fs";
 
 // src/tools/atomic-write.ts
 import { promises as fs } from "fs";
+var writeCounter = 0;
+function uniqueTmp(filePath) {
+  return `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter++}`;
+}
 async function atomicWriteJson(filePath, value) {
-  const tmp = `${filePath}.tmp.${process.pid}`;
+  const tmp = uniqueTmp(filePath);
   try {
     await fs.writeFile(tmp, JSON.stringify(value));
     await fs.rename(tmp, filePath);
@@ -105,7 +109,7 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 
 // src/brain-paths.ts
 import { join, isAbsolute as isAbsolute2 } from "path";
@@ -294,9 +298,9 @@ function estimateTokens(text) {
 }
 
 // src/tools/doc-sources.ts
-import { promises as fs3, realpathSync as realpathSync3, existsSync } from "fs";
+import { promises as fs4, realpathSync as realpathSync3, existsSync } from "fs";
 import { homedir as homedir2 } from "os";
-import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3, parse, win32 as win322 } from "path";
+import { join as join4, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3, parse, win32 as win322 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -4692,8 +4696,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs13 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs13);
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs15 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs15);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -5251,8 +5255,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs13) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs13 });
+  newRoot(fs15) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs15 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -5280,8 +5284,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs13) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs13 });
+  newRoot(fs15) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs15 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -6359,6 +6363,21 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/tools/doc-registry.ts
+import { promises as fs3 } from "fs";
+import { join as join3 } from "path";
+function registryPath(brainDir2, slug) {
+  return join3(brainDir2, "projects", slug, "doc-sources.json");
+}
+async function loadRegistry(brainDir2, slug) {
+  try {
+    assertSafeSlug(slug);
+    return JSON.parse(await fs3.readFile(registryPath(brainDir2, slug), "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
 // ../kb-schema.json
 var kb_schema_default = {
   _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
@@ -6428,12 +6447,6 @@ var kb_schema_default = {
 var STRUCTURED_TYPES = kb_schema_default.structured_types;
 var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
 var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
-var PROJECT_SECTIONS = kb_schema_default.project_sections;
-var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-var RAW_DIR = kb_schema_default.raw.dir;
-var RAW_STATUSES = kb_schema_default.raw.statuses;
 var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
 var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
 var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;
@@ -6573,17 +6586,6 @@ function parseDoc(content, filePath) {
 }
 
 // src/tools/doc-sources.ts
-function registryPath(brainDir2, slug) {
-  return join3(brainDir2, "projects", slug, "doc-sources.json");
-}
-async function loadRegistry(brainDir2, slug) {
-  try {
-    assertSafeSlug(slug);
-    return JSON.parse(await fs3.readFile(registryPath(brainDir2, slug), "utf-8"));
-  } catch {
-    return null;
-  }
-}
 function isDocEntry(e) {
   if (!e || typeof e !== "object") return false;
   const o = e;
@@ -6617,7 +6619,7 @@ function fromOtherCheckout(e, root) {
     path2 = path2.toLowerCase();
     tail = tail.toLowerCase();
   }
-  return path2.endsWith(tail) && existsSync(join3(root, rel));
+  return path2.endsWith(tail) && existsSync(join4(root, rel));
 }
 function servableEntries(entries, projectRoot, home = homedir2()) {
   const r = {
@@ -6668,11 +6670,11 @@ function servableEntries(entries, projectRoot, home = homedir2()) {
 
 // src/tools/project-registry.ts
 import { readFileSync } from "fs";
-import { join as join4 } from "path";
+import { join as join5 } from "path";
 function loadRegistry2(brainDir2) {
   let text;
   try {
-    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
+    text = readFileSync(join5(brainDir2, "projects.jsonl"), "utf-8");
   } catch {
     return [];
   }
@@ -6709,8 +6711,8 @@ function stripInvisible(s) {
 }
 
 // src/tools/graph-store.ts
-import { promises as fs4 } from "fs";
-var EDGE_TYPES2 = ["requires", "affects", "relates", "part_of", "supersedes"];
+import { promises as fs5 } from "fs";
+var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
 function cmpTime(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -6722,7 +6724,7 @@ function isValidRecord(r) {
   if (r.op !== "assert" && r.op !== "invalidate") return false;
   if (typeof r.from !== "string" || r.from.length === 0) return false;
   if (typeof r.to !== "string" || r.to.length === 0) return false;
-  if (!EDGE_TYPES2.includes(r.type)) return false;
+  if (!EDGE_TYPES.includes(r.type)) return false;
   if (typeof r.recorded_at !== "string" || r.recorded_at.length < 10) return false;
   for (const k of ["valid_from", "valid_to"]) {
     const v = r[k];
@@ -6733,7 +6735,7 @@ function isValidRecord(r) {
 async function loadEdges(path2) {
   let raw;
   try {
-    raw = await fs4.readFile(path2, "utf-8");
+    raw = await fs5.readFile(path2, "utf-8");
   } catch {
     return [];
   }
@@ -6788,18 +6790,18 @@ function validAt(e, t) {
 }
 
 // src/tools/walk-wiki.ts
-import { promises as fs5 } from "fs";
-import { join as join5 } from "path";
+import { promises as fs6 } from "fs";
+import { join as join6 } from "path";
 async function walkWiki(dir, opts = {}, acc = []) {
   let entries;
   try {
-    entries = await fs5.readdir(dir, { withFileTypes: true });
+    entries = await fs6.readdir(dir, { withFileTypes: true });
   } catch {
     return acc;
   }
   for (const e of entries) {
     if (opts.skipHidden && e.name.startsWith(".")) continue;
-    const p = join5(dir, e.name);
+    const p = join6(dir, e.name);
     if (e.isDirectory()) {
       if (opts.skipDirs?.includes(e.name)) continue;
       await walkWiki(p, opts, acc);
@@ -6811,8 +6813,8 @@ async function walkWiki(dir, opts = {}, acc = []) {
 }
 
 // src/tools/episodic-search.ts
-import { promises as fs6 } from "fs";
-import { join as join6, basename, relative as relative2, isAbsolute as isAbsolute4 } from "path";
+import { promises as fs7 } from "fs";
+import { join as join7, basename, relative as relative2, isAbsolute as isAbsolute4 } from "path";
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
@@ -7026,11 +7028,11 @@ function isStoredRow(v) {
   return ROW_STRING_FIELDS.every((k) => typeof o[k] === "string");
 }
 async function loadIndex(brainDir2) {
-  const indexPath = join6(brainDir2, INDEX_FILE);
+  const indexPath = join7(brainDir2, INDEX_FILE);
   const reset = { index: emptyIndex(), dropped: 0, malformed: 0 };
   let data;
   try {
-    data = await fs6.readFile(indexPath, "utf-8");
+    data = await fs7.readFile(indexPath, "utf-8");
   } catch (e) {
     if (e.code === "ENOENT") return reset;
     await appendErrorLog(
@@ -7155,7 +7157,7 @@ async function vectorSearch(query, index, limit, filters, brainDir2) {
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query],
-    join6(brainDir2, "transcripts"),
+    join7(brainDir2, "transcripts"),
     [""]
   );
   if (!queryEmbedding) return { hits: [], unavailable: true };
@@ -7198,7 +7200,7 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   }
   const conceptEmbeddings = await embedTexts(
     concepts,
-    join6(brainDir2, "transcripts"),
+    join7(brainDir2, "transcripts"),
     concepts.map((_, i) => `concept-${i}`)
   );
   if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
@@ -7289,12 +7291,12 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile(brainDir2) {
-  return join7(resolveBrainDir(brainDir2), "access-counts.json");
+  return join8(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts(file) {
   try {
-    return JSON.parse(await fs7.readFile(file, "utf-8"));
+    return JSON.parse(await fs8.readFile(file, "utf-8"));
   } catch {
     return {};
   }
@@ -7480,9 +7482,10 @@ var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 var STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
 var SINGLE_LETTER_RE = /^[a-z]$/;
 var PURE_DIGITS_RE = /^[0-9]+$/;
+var embedFailLogged = false;
 async function knowledgeSearch(args) {
   const knowledgeDir2 = resolveKnowledgeDir(args.knowledgeDir);
-  const wikiRoot = join7(knowledgeDir2, "wiki");
+  const wikiRoot = join8(knowledgeDir2, "wiki");
   const accessFile = accessCountsFile(args.brainDir);
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
@@ -7494,8 +7497,8 @@ async function knowledgeSearch(args) {
     scopeDirs = [assertWithin(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs7.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join7(wikiRoot, d.name));
+      const entries = await fs8.readdir(wikiRoot, { withFileTypes: true });
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join8(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -7507,7 +7510,7 @@ async function knowledgeSearch(args) {
     const paths = await walkWiki(dir, { posix: true });
     for (const filePath of paths) {
       try {
-        const content = await fs7.readFile(filePath, "utf-8");
+        const content = await fs8.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
@@ -7583,7 +7586,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   });
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join7(knowledgeDir2, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join8(knowledgeDir2, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -7670,7 +7673,11 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
         scored[i].score = bm25Only[i] > 0 ? Math.round(rrfScores[i] * 1e4) / 1e4 : 0;
       }
     }
-  } catch {
+  } catch (e) {
+    if (!embedFailLogged) {
+      embedFailLogged = true;
+      console.error(`knowledge-search: embeddings failed, falling back to BM25: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
   for (let i = 0; i < scored.length; i++) {
     if (shortStub[i]) scored[i].score *= STUB_PENALTY;
@@ -7685,7 +7692,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const updated = new Date(dateStr).getTime();
     if (isNaN(updated)) continue;
     const daysSince = (now - updated) / 864e5;
-    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
+    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.min(1, Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS));
   }
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
   let anchorCount = 0;
@@ -7857,8 +7864,97 @@ function slugFromPath(p) {
 }
 
 // src/tools/pin-to-user.ts
-import { promises as fs8 } from "fs";
-import { join as join8 } from "path";
+import { promises as fs10 } from "fs";
+import { join as join10 } from "path";
+
+// src/tools/hot-file-lock.ts
+import { promises as fs9 } from "fs";
+import { randomInt } from "crypto";
+import { basename as basename2, dirname, join as join9 } from "path";
+var STALE_MS = 6e4;
+var HUNG_MS = 6e5;
+var LOCK_WAIT_MS = 15e3;
+function lockPathFor(file) {
+  return join9(dirname(file), `.${basename2(file)}.lock`);
+}
+var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+var firstLine = async (f) => (await fs9.readFile(f, "utf-8")).split(/\r?\n/)[0];
+function holderGone(token) {
+  const pid = token.split(".")[0];
+  if (!/^\d+$/.test(pid)) return true;
+  try {
+    process.kill(Number(pid), 0);
+    return false;
+  } catch (e) {
+    return e.code === "ESRCH";
+  }
+}
+async function stealIfStale(lf) {
+  let age, holder;
+  try {
+    age = Date.now() - (await fs9.stat(lf)).mtimeMs;
+    holder = await firstLine(lf);
+  } catch {
+    return;
+  }
+  if (age <= STALE_MS || age <= HUNG_MS && !holderGone(holder)) return;
+  const grab = join9(dirname(lf), `.steal-${process.pid}-${randomInt(1e9)}${basename2(lf)}`);
+  try {
+    await fs9.rename(lf, grab);
+  } catch {
+    return;
+  }
+  const got = await firstLine(grab).catch(() => "");
+  if (got !== holder) {
+    await fs9.writeFile(lf, `${got}
+`, { flag: "wx" }).catch(() => console.error(`[hot-file-lock] took a fresh lock by mistake (holder ${got}) on ${lf} and could not put it back; two writers may overlap`));
+  } else {
+    console.error(`[hot-file-lock] stealing a stale lock (${Math.round(age / 1e3)} s old, holder ${holder || "?"}) on ${lf}`);
+  }
+  await fs9.rm(grab, { force: true });
+}
+async function withFileLock(file, busy, fn, waitMs = LOCK_WAIT_MS) {
+  const lf = lockPathFor(file);
+  const token = `${process.pid}.${randomInt(1e9)}`;
+  const end = Date.now() + waitMs;
+  let lastCode = "EEXIST";
+  for (; ; ) {
+    try {
+      await fs9.writeFile(lf, `${token}
+`, { flag: "wx" });
+      break;
+    } catch (e) {
+      lastCode = e.code ?? String(e);
+      if (lastCode !== "EEXIST" && lastCode !== "EPERM" && lastCode !== "EACCES") throw e;
+    }
+    await stealIfStale(lf);
+    if (Date.now() >= end) {
+      const holder = await firstLine(lf).catch(() => "none");
+      return busy(`${basename2(file)} lock not taken within ${Math.round(waitMs / 1e3)} s (${lastCode}, holder ${holder}); nothing written, retry`);
+    }
+    await sleep(100);
+  }
+  try {
+    return await fn();
+  } finally {
+    const held = await firstLine(lf).catch(() => "");
+    if (held === token) await fs9.rm(lf, { force: true });
+    else console.error(`[hot-file-lock] the lock on ${basename2(file)} is no longer ours (ours ${token}, now ${held || "none"}: stolen while held); left as it is`);
+  }
+}
+var seq = 0;
+async function writeFileAtomic(file, data) {
+  const tmp = `${file}.${process.pid}.${Date.now()}.${seq++}.tmp`;
+  try {
+    await fs9.writeFile(tmp, data, "utf-8");
+    await fs9.rename(tmp, file);
+  } catch (e) {
+    await fs9.rm(tmp, { force: true });
+    throw e;
+  }
+}
+
+// src/tools/pin-to-user.ts
 var MAX_PINS = 15;
 var PIN_RE = /^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/;
 var PIN_SECTION = "## Pinned";
@@ -7868,17 +7964,27 @@ function flattenField(s, cap) {
 }
 async function pinToUser(args) {
   const dir = resolveBrainDir(args.brainDir);
-  const file = join8(dir, "USER.md");
+  const file = join10(dir, "USER.md");
   const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const trimmed = flattenField(args.text, PIN_TEXT_CAP);
   if (!trimmed) {
     return { ok: false, line_added: "", reason: "empty text after sanitization" };
   }
   const newLine = `- [${date}] ${trimmed}`;
+  await fs10.mkdir(dir, { recursive: true });
+  return withFileLock(
+    file,
+    (reason) => ({ ok: false, line_added: "", reason }),
+    () => pinUserLocked(file, trimmed, newLine)
+  );
+}
+async function pinUserLocked(file, trimmed, newLine) {
   let content = "";
   try {
-    content = await fs8.readFile(file, "utf-8");
-  } catch {
+    content = await fs10.readFile(file, "utf-8");
+  } catch (e) {
+    const code = e.code;
+    if (code !== "ENOENT") return { ok: false, line_added: "", reason: `cannot read USER.md (${code ?? String(e)}); nothing written` };
     content = `# USER preferences
 
 ${PIN_SECTION}
@@ -7907,13 +8013,12 @@ ${PIN_SECTION}
   }
   out.splice(insertAt, 0, newLine);
   const projected = out.join("\n").replace(/\n*$/, "\n");
-  await fs8.mkdir(dir, { recursive: true });
-  await fs8.writeFile(file, projected, "utf-8");
+  await writeFileAtomic(file, projected);
   return { ok: true, line_added: newLine };
 }
 
 // src/tools/pin-to-project.ts
-import { promises as fs9 } from "fs";
+import { promises as fs11 } from "fs";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions", conventions: "## Conventions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] ", conventions: "- " };
 function flattenField2(s, cap) {
@@ -7952,7 +8057,14 @@ async function pinToProject(args) {
     }
     throw e;
   }
-  const content = await fs9.readFile(file, "utf-8");
+  return withFileLock(
+    file,
+    (reason) => ({ ok: false, line_added: "", project_slug: args.slug, reason }),
+    () => pinLocked(args, file)
+  );
+}
+async function pinLocked(args, file) {
+  const content = await fs11.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
   const trimmed = flattenField2(args.text, 400);
   if (!trimmed) {
@@ -8012,14 +8124,14 @@ async function pinToProject(args) {
     if (!lines[i].startsWith("- ")) continue;
     if (lines[i].startsWith("- [superseded] ") || lines[i].startsWith("- [stale] ")) continue;
     if (bulletCore(lines[i]) === newCore) {
-      if (marked) await fs9.writeFile(file, lines.join("\n"), "utf-8");
+      if (marked) await writeFileAtomic(file, lines.join("\n"));
       const dup = { ok: true, line_added: lines[i], project_slug: args.slug, reason: "already present" };
       if (supersedesRequested) dup.superseded = marked;
       return dup;
     }
   }
   lines.splice(endIdx, 0, newEntry);
-  await fs9.writeFile(file, lines.join("\n"), "utf-8");
+  await writeFileAtomic(file, lines.join("\n"));
   const res = { ok: true, line_added: newEntry, project_slug: args.slug };
   if (reason) res.reason = reason;
   if (supersedesRequested) res.superseded = marked;
@@ -8027,8 +8139,8 @@ async function pinToProject(args) {
 }
 
 // src/tools/raw-inbox.ts
-import { promises as fs10 } from "fs";
-import { join as join9, basename as basename2, extname } from "path";
+import { promises as fs12 } from "fs";
+import { join as join11, basename as basename3, extname } from "path";
 
 // src/tools/minhash.ts
 var NUM_HASHES = 128;
@@ -8048,7 +8160,7 @@ var B = new Uint32Array(NUM_HASHES);
 
 // src/tools/raw-inbox.ts
 function rawDir(brainDir2, slug) {
-  return join9(brainDir2, "projects", slug, "raw");
+  return join11(brainDir2, "projects", slug, "raw");
 }
 function parse2(content, id) {
   const m = matchFrontmatter(content);
@@ -8096,14 +8208,14 @@ async function readItems(brainDir2, slug) {
   const dir = rawDir(brainDir2, slug);
   let names = [];
   try {
-    names = (await fs10.readdir(dir)).filter((n) => n.endsWith(".md"));
+    names = (await fs12.readdir(dir)).filter((n) => n.endsWith(".md"));
   } catch {
     return [];
   }
   const items = [];
   for (const name of names.sort()) {
     try {
-      const content = await fs10.readFile(join9(dir, name), "utf-8");
+      const content = await fs12.readFile(join11(dir, name), "utf-8");
       items.push(parse2(content, name.replace(/\.md$/, "")));
     } catch {
     }
@@ -8146,8 +8258,8 @@ function resolveBashExe() {
 }
 
 // src/tools/buddy-config.ts
-import { promises as fs11 } from "fs";
-import { join as join10, dirname } from "path";
+import { promises as fs13 } from "fs";
+import { join as join12, dirname as dirname2 } from "path";
 import { homedir as homedir3 } from "os";
 var DEFAULT_NAME = "Kapi";
 var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -8161,10 +8273,10 @@ function renderCard(name) {
   return ["\u{1F9E0}", " o", `  ${dotB} ${TL}${rule}${TR}`, `    ${V} ${name} ${V}`, `    ${BL}${rule}${BR}`].join("\n");
 }
 async function readConfigStrict(brainDir2) {
-  const file = join10(brainDir2, "buddy.json");
+  const file = join12(brainDir2, "buddy.json");
   let raw;
   try {
-    raw = await fs11.readFile(file, "utf-8");
+    raw = await fs13.readFile(file, "utf-8");
   } catch (e) {
     if (errCode(e) === "ENOENT") return {};
     throw new Error(`cannot read ${file} (${errCode(e) ?? e})`);
@@ -8192,14 +8304,14 @@ async function patchConfig(brainDir2, patch) {
     if (v === null) delete cfg[k];
     else cfg[k] = v;
   }
-  await fs11.mkdir(brainDir2, { recursive: true });
-  const file = join10(brainDir2, "buddy.json");
+  await fs13.mkdir(brainDir2, { recursive: true });
+  const file = join12(brainDir2, "buddy.json");
   const tmp = `${file}.tmp.${process.pid}`;
   try {
-    await fs11.writeFile(tmp, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-    await fs11.rename(tmp, file);
+    await fs13.writeFile(tmp, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+    await fs13.rename(tmp, file);
   } catch (e) {
-    await fs11.rm(tmp, { force: true }).catch(() => void 0);
+    await fs13.rm(tmp, { force: true }).catch(() => void 0);
     throw e;
   }
   return cfg;
@@ -8218,16 +8330,16 @@ async function dropStaleIdentity(brainDir2) {
   return true;
 }
 function claudeConfigDir() {
-  return cleanEnvPath(process.env.CLAUDE_CONFIG_DIR) || join10(homedir3(), ".claude");
+  return cleanEnvPath(process.env.CLAUDE_CONFIG_DIR) || join12(homedir3(), ".claude");
 }
 function settingsPath() {
-  return join10(claudeConfigDir(), "settings.json");
+  return join12(claudeConfigDir(), "settings.json");
 }
 var posix2 = (p) => p.replace(/\\/g, "/");
 var shq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
 var unshq = (s) => s.replace(/'\\''/g, `'`);
 function shimPath(brainDir2) {
-  return join10(brainDir2, "bin", "buddy-statusline.sh");
+  return join12(brainDir2, "bin", "buddy-statusline.sh");
 }
 function statuslineCommand(brainDir2, chain) {
   return `SB_BUDDY_CHAIN=${shq(chain ?? "")} bash ${shq(posix2(shimPath(brainDir2)))}`;
@@ -8269,7 +8381,7 @@ var REFRESH_S = 1;
 async function readSettings(file) {
   let raw;
   try {
-    raw = await fs11.readFile(file, "utf-8");
+    raw = await fs13.readFile(file, "utf-8");
   } catch (e) {
     if (errCode(e) === "ENOENT") return { raw: "", settings: {} };
     throw new Error(`cannot read ${file} (${errCode(e) ?? e}) \u2014 nothing changed`);
@@ -8283,33 +8395,33 @@ async function writeSettings(file, settings, expectedRaw) {
   let target = file;
   let mode;
   try {
-    target = await fs11.realpath(file);
-    mode = (await fs11.stat(target)).mode & 511;
+    target = await fs13.realpath(file);
+    mode = (await fs13.stat(target)).mode & 511;
   } catch (e) {
     if (errCode(e) !== "ENOENT") throw e;
   }
-  await fs11.mkdir(dirname(target), { recursive: true });
+  await fs13.mkdir(dirname2(target), { recursive: true });
   const tmp = `${target}.tmp.${process.pid}`;
   try {
-    await fs11.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", { encoding: "utf-8", mode: mode ?? 438 });
-    if (mode !== void 0) await fs11.chmod(tmp, mode);
+    await fs13.writeFile(tmp, JSON.stringify(settings, null, 2) + "\n", { encoding: "utf-8", mode: mode ?? 438 });
+    if (mode !== void 0) await fs13.chmod(tmp, mode);
     let now = "";
     try {
-      now = await fs11.readFile(target, "utf-8");
+      now = await fs13.readFile(target, "utf-8");
     } catch (e) {
       if (errCode(e) !== "ENOENT") throw e;
     }
     if (now !== expectedRaw) throw new Error(`${file} changed while sb buddy was editing it \u2014 nothing written; re-run`);
-    await fs11.rename(tmp, target);
+    await fs13.rename(tmp, target);
   } catch (e) {
-    await fs11.rm(tmp, { force: true }).catch(() => void 0);
+    await fs13.rm(tmp, { force: true }).catch(() => void 0);
     throw e;
   }
 }
 async function backupSettings(file, raw) {
   const backup = `${file}.bak-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}`;
-  await fs11.writeFile(backup, raw, { encoding: "utf-8", mode: 384 });
-  await fs11.chmod(backup, 384);
+  await fs13.writeFile(backup, raw, { encoding: "utf-8", mode: 384 });
+  await fs13.chmod(backup, 384);
   return backup;
 }
 async function installStatusline(brainDir2, pluginRoot) {
@@ -8324,8 +8436,8 @@ async function installStatusline(brainDir2, pluginRoot) {
   }
   const cacheBase = cacheBaseOf(pluginRoot);
   const shim = shimPath(brainDir2);
-  await fs11.mkdir(join10(brainDir2, "bin"), { recursive: true });
-  await fs11.writeFile(shim, shimBody(cacheBase ? null : pluginRoot, cacheBase), { encoding: "utf-8", mode: 493 });
+  await fs13.mkdir(join12(brainDir2, "bin"), { recursive: true });
+  await fs13.writeFile(shim, shimBody(cacheBase ? null : pluginRoot, cacheBase), { encoding: "utf-8", mode: 493 });
   const chained = parsed ? parsed.chain : prevCmd || null;
   const command = statuslineCommand(brainDir2, chained);
   const keep = parsed && typeof prev?.refreshInterval === "number" && prev.refreshInterval >= 1;
@@ -8366,7 +8478,7 @@ async function uninstallStatusline(brainDir2) {
   }
   await patchConfig(brainDir2, { react: null, chain: null, prev_statusline: null });
   try {
-    await fs11.unlink(shimPath(brainDir2));
+    await fs13.unlink(shimPath(brainDir2));
   } catch (e) {
     if (errCode(e) !== "ENOENT") throw e;
   }
@@ -8438,7 +8550,7 @@ async function hasClaudeOnPath() {
     if (!dir) continue;
     for (const name of names) {
       try {
-        await fs12.access(join11(dir, name), fsConstants.X_OK);
+        await fs14.access(join13(dir, name), fsConstants.X_OK);
         return true;
       } catch {
       }
@@ -8564,27 +8676,27 @@ async function runSb(args, deps) {
     return { stdout: "", stderr: err.join("\n"), exitCode: 2 };
   }
   if (cmd === "status") {
-    const userFile = join11(deps.brainDir, "USER.md");
-    const projectsFile = join11(deps.brainDir, "projects.jsonl");
+    const userFile = join13(deps.brainDir, "USER.md");
+    const projectsFile = join13(deps.brainDir, "projects.jsonl");
     let userBytes = 0, projectsCount = 0;
     try {
-      userBytes = (await fs12.stat(userFile)).size;
+      userBytes = (await fs14.stat(userFile)).size;
     } catch {
     }
     try {
-      const txt = await fs12.readFile(projectsFile, "utf-8");
+      const txt = await fs14.readFile(projectsFile, "utf-8");
       projectsCount = txt.split("\n").filter((l) => l.includes('"slug"')).length;
     } catch {
     }
     push(`USER.md:             ${userBytes} bytes`);
     push(`Registered projects: ${projectsCount}`);
     try {
-      const projectDirs = await fs12.readdir(join11(deps.brainDir, "projects"), { withFileTypes: true });
+      const projectDirs = await fs14.readdir(join13(deps.brainDir, "projects"), { withFileTypes: true });
       for (const d of projectDirs) {
         if (!d.isDirectory()) continue;
-        const pf = join11(deps.brainDir, "projects", d.name, "PROJECT.md");
+        const pf = join13(deps.brainDir, "projects", d.name, "PROJECT.md");
         try {
-          const size = (await fs12.stat(pf)).size;
+          const size = (await fs14.stat(pf)).size;
           push(`  ${d.name}/PROJECT.md: ${size} bytes`);
         } catch {
         }
@@ -8592,11 +8704,11 @@ async function runSb(args, deps) {
     } catch {
     }
     try {
-      const wikiDirs = await fs12.readdir(join11(deps.knowledgeDir, "wiki"), { withFileTypes: true });
+      const wikiDirs = await fs14.readdir(join13(deps.knowledgeDir, "wiki"), { withFileTypes: true });
       push("Wiki pages:");
       for (const d of wikiDirs) {
         if (!d.isDirectory()) continue;
-        const files = await fs12.readdir(join11(deps.knowledgeDir, "wiki", d.name));
+        const files = await fs14.readdir(join13(deps.knowledgeDir, "wiki", d.name));
         const count = files.filter((f) => f.endsWith(".md") && f !== "index.md").length;
         push(`  ${d.name}: ${count}`);
       }
@@ -8610,15 +8722,15 @@ async function runSb(args, deps) {
       return `${Math.round(h / 24)}d ago`;
     };
     try {
-      const hf = join11(deps.brainDir, ".extractor-health.json");
-      const st = await fs12.stat(hf);
-      const h = JSON.parse(await fs12.readFile(hf, "utf-8"));
+      const hf = join13(deps.brainDir, ".extractor-health.json");
+      const st = await fs14.stat(hf);
+      const h = JSON.parse(await fs14.readFile(hf, "utf-8"));
       push(`  drainer last ran:    ${age(st.mtimeMs)} (${sanitizeField(h.status ?? "?")}: ${sanitizeField(h.reason ?? "?")})`);
     } catch {
       push("  drainer last ran:    never (no .extractor-health.json)");
     }
     try {
-      const stateRaw = await fs12.readFile(join11(deps.brainDir, ".extraction-state.jsonl"), "utf-8");
+      const stateRaw = await fs14.readFile(join13(deps.brainDir, ".extraction-state.jsonl"), "utf-8");
       let newestTs = "";
       for (const l of stateRaw.split("\n").filter(Boolean)) {
         try {
@@ -8632,7 +8744,7 @@ async function runSb(args, deps) {
       push("  last extraction:     never (no .extraction-state.jsonl)");
     }
     try {
-      await fs12.access(join11(deps.brainDir, "transcripts"));
+      await fs14.access(join13(deps.brainDir, "transcripts"));
       const root = deps.pluginRoot ?? fileURLToPath3(new URL("../../../", import.meta.url));
       const map = await drainCursorMap(deps.brainDir, root, deps.drainMapTimeoutMs ?? DRAIN_MAP_TIMEOUT_MS);
       if (typeof map === "string") {
@@ -8656,11 +8768,11 @@ async function runSb(args, deps) {
       push("  transcript backlog:  no transcripts dir");
     }
     try {
-      await fs12.stat(join11(deps.brainDir, SCRUB_MARK));
+      await fs14.stat(join13(deps.brainDir, SCRUB_MARK));
       push("  archive scrub:       done");
     } catch {
       try {
-        const todo = parseScrubTodo(await fs12.readFile(join11(deps.brainDir, SCRUB_TODO), "utf-8"));
+        const todo = parseScrubTodo(await fs14.readFile(join13(deps.brainDir, SCRUB_TODO), "utf-8"));
         const stuck = todo.filter((e) => e.fails >= 3).length;
         push(`  archive scrub:       ${todo.length} to scrub (${stuck} with failed attempts >= 3)`);
       } catch (e) {
@@ -8668,28 +8780,28 @@ async function runSb(args, deps) {
       }
     }
     try {
-      await fs12.access(join11(deps.brainDir, "bin", "sb-extract-drain.sh"));
+      await fs14.access(join13(deps.brainDir, "bin", "sb-extract-drain.sh"));
       push("  scheduler shim:      present");
     } catch {
       push("  scheduler shim:      ABSENT (out-of-band drain cannot run)");
     }
     try {
-      const dreamsDir = join11(deps.brainDir, "dreams");
-      const ids = (await fs12.readdir(dreamsDir)).filter((d) => d.startsWith("drm_")).sort();
+      const dreamsDir = join13(deps.brainDir, "dreams");
+      const ids = (await fs14.readdir(dreamsDir)).filter((d) => d.startsWith("drm_")).sort();
       if (ids.length === 0) {
         push("  newest dream:        none");
       } else {
         const id = ids[ids.length - 1];
-        const sf = join11(dreamsDir, id, "status.json");
-        const st = await fs12.stat(sf);
-        const s = JSON.parse(await fs12.readFile(sf, "utf-8"));
+        const sf = join13(dreamsDir, id, "status.json");
+        const st = await fs14.stat(sf);
+        const s = JSON.parse(await fs14.readFile(sf, "utf-8"));
         push(`  newest dream:        ${sanitizeField(id)} ${sanitizeField(s.status ?? "?")} (heartbeat ${age(st.mtimeMs)})`);
       }
     } catch {
       push("  newest dream:        none");
     }
     try {
-      const projectDirs = await fs12.readdir(join11(deps.brainDir, "projects"), { withFileTypes: true });
+      const projectDirs = await fs14.readdir(join13(deps.brainDir, "projects"), { withFileTypes: true });
       let raw = 0;
       for (const d of projectDirs) {
         if (!d.isDirectory()) continue;
@@ -8705,7 +8817,7 @@ async function runSb(args, deps) {
     push("Utilization:");
     let util = {};
     try {
-      util = JSON.parse(await fs12.readFile(join11(deps.brainDir, "utilization-counts.json"), "utf-8"));
+      util = JSON.parse(await fs14.readFile(join13(deps.brainDir, "utilization-counts.json"), "utf-8"));
       if (util === null || typeof util !== "object" || Array.isArray(util)) util = {};
     } catch {
     }
@@ -8721,8 +8833,8 @@ async function runSb(args, deps) {
       const pluginRoot = new URL("../../../", import.meta.url);
       const { fileURLToPath: fileURLToPath4 } = await import("url");
       const root = fileURLToPath4(pluginRoot);
-      const skills = (await fs12.readdir(join11(root, "skills"), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => `skill!${d.name}`);
-      const agents = (await fs12.readdir(join11(root, "agents"))).filter((f) => f.endsWith(".md")).map((f) => `agent!${f.replace(/\.md$/, "")}`);
+      const skills = (await fs14.readdir(join13(root, "skills"), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => `skill!${d.name}`);
+      const agents = (await fs14.readdir(join13(root, "agents"))).filter((f) => f.endsWith(".md")).map((f) => `agent!${f.replace(/\.md$/, "")}`);
       const used = new Set(Object.keys(util));
       const isUsed = (kind, name) => {
         for (const k of used) {
@@ -8772,7 +8884,7 @@ async function runSb(args, deps) {
     }
     if (sub === "install" || sub === "uninstall") {
       const here = fileURLToPath3(import.meta.url);
-      const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || join11(here, "..", "..", "..", "..");
+      const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || join13(here, "..", "..", "..", "..");
       try {
         if (sub === "install") {
           await dropStaleIdentity(deps.brainDir);
