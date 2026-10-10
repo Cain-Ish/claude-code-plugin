@@ -1546,7 +1546,7 @@ sb_project_identity() {
   local reg="$1" slug="$2" rp="$3" gr="$4"
   [ -f "$reg" ] || { echo "new"; return 0; }
   command -v jq >/dev/null 2>&1 || { echo "new"; return 0; }
-  local rec; rec=$(jq -c --arg s "$slug" 'select(.slug==$s)' "$reg" 2>/dev/null | head -1)
+  local rec; rec=$(jq -cR --arg s "$slug" 'fromjson? | select(type=="object" and .slug==$s)' "$reg" 2>/dev/null | head -1)
   [ -n "$rec" ] || { echo "new"; return 0; }
   local ex_rp ex_gr
   ex_rp=$(printf '%s' "$rec" | jq -r '.root_path // ""')
