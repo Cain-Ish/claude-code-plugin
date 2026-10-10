@@ -2274,7 +2274,9 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
     f && /\[\[/ {
       line=$0
       while (match(line, /\[\[[^]]+\]\]/)) {
-        s=substr(line, RSTART+2, RLENGTH-4); print s
+        s=substr(line, RSTART+2, RLENGTH-4)
+        sub(/[|#].*/, "", s); sub(/.*\//, "", s); sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)   # [[cat/slug#h|alias]] -> slug
+        if (s != "") print s
         line=substr(line, RSTART+RLENGTH)
       }
     }
@@ -2412,9 +2414,9 @@ fi
 # knowledge just accumulates unreleased forever. Count it here (cheap: one find) and say how
 # to release. Kill switch: SB_HELD_BANNER=off.
 if [ "${SB_HELD_BANNER:-on}" != "off" ] && [ -d "$BRAIN_DIR/held-untrusted" ]; then
-  HELD_TOTAL=$(find "$BRAIN_DIR/held-untrusted" -name '*.md' -type f  | grep -c . || echo 0)
+  HELD_TOTAL=$(find "$BRAIN_DIR/held-untrusted" -name '*.md' -type f  | grep -c .)
   if [ "${HELD_TOTAL:-0}" -gt 0 ]; then
-    HELD_DREAMS=$(find "$BRAIN_DIR/held-untrusted" -mindepth 1 -maxdepth 1 -type d  | grep -c . || echo 0)
+    HELD_DREAMS=$(find "$BRAIN_DIR/held-untrusted" -mindepth 1 -maxdepth 1 -type d  | grep -c .)
     HELD_ONE=$(find "$BRAIN_DIR/held-untrusted" -mindepth 1 -maxdepth 1 -type d  | head -1)
     HELD_ONE=$(basename "${HELD_ONE:-}" )
     sb_append "$(printf '

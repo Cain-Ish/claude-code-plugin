@@ -524,7 +524,9 @@ _fp_jqfail() {
 # anything else — no match, or a payload field _fp_str cannot decode — falls through to the full
 # logic. A fast-path ask skips sb_buddy_event (lib.sh's): the verdict and its audit row are what
 # must arrive before the hook timeout.
-FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl|Invoke-WebRequest|iwr|Invoke-RestMethod|irm)([^A-Za-z_]|$)'
+# PowerShell names its cmdlets and aliases in any case (IWR, invoke-restmethod): spelled as classes,
+# since the same string feeds bash =~, grep -E and jq test(), and none of them shares a case flag.
+FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl|[Ii][Nn][Vv][Oo][Kk][Ee]-[Ww][Ee][Bb][Rr][Ee][Qq][Uu][Ee][Ss][Tt]|[Ii][Ww][Rr]|[Ii][Nn][Vv][Oo][Kk][Ee]-[Rr][Ee][Ss][Tt][Mm][Ee][Tt][Hh][Oo][Dd]|[Ii][Rr][Mm])([^A-Za-z_]|$)'
 FG_LABELS=(jwt aws-access-key github-pat anthropic-key openai-key slack-token pem-private bearer-blob credential-file-upload)
 FG_RES=(
   'ey[A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'

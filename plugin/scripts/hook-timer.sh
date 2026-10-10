@@ -60,10 +60,13 @@ case "$BUDGET_S" in
   *) export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 )) SB_HOOK_LATE_PID=$$ ;;
 esac
 # Watchdog (audit H7): the CLI SIGKILLs a hook at its budget and this wrapper dies with it, writing no
-# row while the child runs on. So the child runs in the background and a watchdog fires 1 s early:
-# it flags the timeout, then kills the child and the child's direct children (a node under the hook
-# script survives a bare kill, MSYS included). shortcut: grandchildren deeper than that are not
-# reached; switch to a process group (set -m) if one is ever seen surviving.
+# row while the child runs on. So the child runs in the background and a watchdog fires 0.3 s early
+# (a whole second cost the 5 s PreToolUse guards a fifth of their budget, so more of them failed open
+# under load; GNU, BSD and MSYS sleep all take the fraction): it flags the timeout, TERMs the child and
+# the child's direct children (a node under the hook script survives a bare kill, MSYS included), and
+# KILLs them 0.2 s later, so the row is written before the CLI's own kill at the budget. shortcut:
+# grandchildren deeper than that are not reached; switch to a process group (set -m) if one is ever
+# seen surviving.
 # Stdin passes through (<&0); the watchdog's fds are detached so an orphaned sleep cannot hold a
 # caller's output pipe open.
 bash "$SCRIPT" "$@" <&0 &
@@ -73,12 +76,12 @@ TO_FLAG="$BRAIN_DIR/.hook-timer-$$.timeout"
 case "$BUDGET_S" in
   ''|*[!0-9]*|0|1) : ;;
   *)
-    ( sleep $(( BUDGET_S - 1 ))
+    ( sleep "$(( BUDGET_S - 1 )).7"
       kill -0 "$CHILD" 2>/dev/null || exit 0
       : > "$TO_FLAG"
       command -v pkill >/dev/null 2>&1 && pkill -TERM -P "$CHILD" 2>/dev/null
       kill "$CHILD" 2>/dev/null
-      sleep 1
+      sleep 0.2
       command -v pkill >/dev/null 2>&1 && pkill -KILL -P "$CHILD" 2>/dev/null
       kill -KILL "$CHILD" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
     WD=$!

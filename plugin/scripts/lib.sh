@@ -1973,8 +1973,12 @@ sb_scrub_secrets() {
       n++; lit[n] = "authorization"; kind[n] = "basic-auth"; lc[n] = 1; md[n] = "k"
            kp[n] = ci("authorization") ":[ \t]?[ \t]?[ \t]?" ci("basic") "[ \t][ \t]?[ \t]?"
            re[n] = kp[n] rep(b64, 8) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
-      n++; lit[n] = "_secret_access_key"; kind[n] = "aws"; lc[n] = 1; md[n] = "k"
-           kp[n] = "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\"\047]?[ \t]?[ \t]?[ \t]?[=:][ \t]?[ \t]?[ \t]?[\"\047]?"
+      # One entry per keyword spelling, never their alternation: on a line holding both, mawk 1.3.4
+      # split() on "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)..." missed the first match (X2).
+      ks = "[\"\047]?[ \t]?[ \t]?[ \t]?[=:][ \t]?[ \t]?[ \t]?[\"\047]?"
+      n++; lit[n] = "aws_secret_access_key"; kind[n] = "aws"; md[n] = "k"; kp[n] = lit[n] ks
+           re[n] = kp[n] rep(b64, 40) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "AWS_SECRET_ACCESS_KEY"; kind[n] = "aws"; md[n] = "k"; kp[n] = lit[n] ks
            re[n] = kp[n] rep(b64, 40) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
       n++; lit[n] = "sk-";          kind[n] = "openai";      md[n] = "b"
            re[n] = "([^A-Za-z0-9]|\\\\[A-Za-z])sk-" rep(an, 20) an "*"; vr[n] = "^" an "*"
