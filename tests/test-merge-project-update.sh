@@ -975,4 +975,66 @@ grep -qF 'chose redis for the caching layer' "$P_DA3" || fail "DA-3: the older d
 grep -q 'gate=supersede-failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null || fail "DA-3: no supersede-failed row: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
 pass "DA-3: a failed detect_supersede rewrite marks nothing and logs ec1"
 
+# === audit 2026-10 package P1 (E10, E9, T10, E6, E3/E5). Each block failed at 10d3321. ===
+P1_TODAY=$(date +%Y-%m-%d)
+
+# E10: wiki page rewrites used ONE fixed temp name, "<page>.md.tmp", so two merges editing the same
+# page clobbered each other's temp file. Each rewrite now takes its own mktemp next to the page.
+# Discriminator: a temp file the merge does not own must survive it.
+E10_KD="$TMP/e10k"; mkdir -p "$E10_KD/wiki/learnings"
+E10_PAGE="$E10_KD/wiki/learnings/e10-page.md"
+printf -- '---\ntitle: "E10"\ntype: learnings\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:00:00Z\n---\n\n# E10\n\nbody\n\n## History\n- [2026-01-01] first\n' > "$E10_PAGE"
+printf 'FOREIGN TEMP SENTINEL\n' > "$E10_PAGE.tmp"
+PROJ="$TMP/e10.md"; seed_project "$PROJ"
+jq -nc '{wiki_updates:[{category:"learnings", slug:"e10-page", action:"update", content:"E10 NEW HISTORY LINE"}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$E10_KD" >/dev/null 2>&1 || fail "E10: merge exited non-zero"
+grep -qF 'E10 NEW HISTORY LINE' "$E10_PAGE" || fail "E10: the update did not land: $(cat "$E10_PAGE")"
+[ "$(cat "$E10_PAGE.tmp" 2>/dev/null)" = "FOREIGN TEMP SENTINEL" ] || fail "E10: the merge clobbered a temp file it does not own"
+[ "$(ls -A "$E10_KD/wiki/learnings" | grep -c '^e10-page\.md\.')" -eq 1 ] || fail "E10: a merge temp file was left behind: $(ls -A "$E10_KD/wiki/learnings")"
+[ "$(grep -cF '$target_file.tmp' "$SCRIPT")" -eq 0 ] || fail "E10: a fixed \$target_file.tmp name is still in the script"
+pass "E10: wiki page rewrites use a private temp file next to the page"
+
+# E9: only the FOOTER comments end the ## Plan region. Any "<!--" used to end it, so checklist
+# lines below a human comment were never reconciled or aged (zombie items).
+PROJ="$TMP/e9.md"
+printf '# PROJECT: e9\n\n## Plan\n\n- [ ] e9 alpha step\n<!-- human note: keep this comment -->\n- [ ] e9 beta step\n- [ ] [carried 2020-01-01] e9 ancient step\n\n## Recent decisions\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n' > "$PROJ"
+printf '%s' '{"plan":["e9 alpha step"]}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$TMP/e9k" >/dev/null 2>&1 || fail "E9: merge exited non-zero"
+grep -qxF -- "- [ ] [carried $P1_TODAY] e9 beta step" "$PROJ" || fail "E9: an omitted item below a comment was not carried: $(cat "$PROJ")"
+grep -qxF -- '- [stale] [ ] [carried 2020-01-01] e9 ancient step' "$PROJ" || fail "E9: an old carried item below a comment was not aged: $(cat "$PROJ")"
+grep -qxF -- '<!-- human note: keep this comment -->' "$PROJ" || fail "E9: the human comment was lost"
+pass "E9: a human <!-- comment --> inside ## Plan no longer ends the managed region"
+
+# T10: a wiki_update into a GENERATED dir (kb-schema.json generated_dirs: projects, themes) was
+# written, then unlinked by the next reindex (MOC prune). It is now refused with a log row.
+PROJ="$TMP/t10.md"; seed_project "$PROJ"; T10_KD="$TMP/t10k"; mkdir -p "$T10_KD/wiki"
+: > "$BRAIN_DIR/error-log.jsonl"
+jq -nc '{wiki_updates:[
+  {category:"projects", slug:"t10-moc-clash", action:"create", title:"T", content:"T10 PROJECTS BODY"},
+  {category:"Themes", slug:"t10-theme-clash", action:"create", title:"T", content:"T10 THEMES BODY"},
+  {category:"learnings", slug:"t10-kept", action:"create", title:"T", content:"T10 KEPT BODY"}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$T10_KD" >/dev/null 2>&1 || fail "T10: merge exited non-zero"
+[ ! -e "$T10_KD/wiki/projects/t10-moc-clash.md" ] || fail "T10: a page was written into the generated projects/ dir"
+[ ! -e "$T10_KD/wiki/themes/t10-theme-clash.md" ] || fail "T10: a page was written into the generated themes/ dir"
+[ -f "$T10_KD/wiki/learnings/t10-kept.md" ] || fail "T10: an ordinary-category update was dropped too"
+[ "$(grep -c 'gate=wiki-update-generated-dir' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)" -eq 2 ] \
+  || fail "T10: want one error row per refused update: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+pass "T10: extractor wiki_updates into generated dirs are refused and logged"
+
+# E6: a missing or trailing-space section heading silently dropped every decision/blocker
+# (insert_bullet's awk never matched, yet the merge exited 0). Trailing whitespace on a heading is
+# normalized at ingest; a missing section is re-created before the footer comments and logged.
+PROJ="$TMP/e6.md"
+printf '# PROJECT: e6\n\n## Recent decisions \n- [2026-01-01] e6 older decision kept\n\n## Cross-references\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n<!-- last_queried_wiki: -->\n' > "$PROJ"
+: > "$BRAIN_DIR/audit-log.jsonl"
+printf '%s' '{"recent_decisions":["e6 decision under a trailing-space heading"],"open_blockers":["[active] e6 blocker without a heading"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$TMP/e6k" >/dev/null 2>&1 || fail "E6: merge exited non-zero"
+grep -qF 'e6 decision under a trailing-space heading' "$PROJ" || fail "E6: decision dropped under a trailing-space heading: $(cat "$PROJ")"
+[ "$(grep -c '^## Recent decisions' "$PROJ")" -eq 1 ] || fail "E6: the trailing-space heading was duplicated: $(cat "$PROJ")"
+grep -qF 'e6 blocker without a heading' "$PROJ" || fail "E6: blocker dropped when ## Open blockers is missing: $(cat "$PROJ")"
+[ "$(grep -c '^## Open blockers$' "$PROJ")" -eq 1 ] || fail "E6: ## Open blockers not re-created exactly once"
+awk '/^## Open blockers$/ { h = NR } /^<!-- last_updated:/ { f = NR } END { exit !(h && f && h < f) }' "$PROJ" \
+  || fail "E6: the re-created section landed after the footer comments: $(cat "$PROJ")"
+grep -q 'gate=section-scaffolded section=## Open blockers' "$BRAIN_DIR/audit-log.jsonl" || fail "E6: re-creating a section left no log row"
+pass "E6: missing / trailing-space section headings no longer drop decisions and blockers"
+
 echo "ALL PASS"
