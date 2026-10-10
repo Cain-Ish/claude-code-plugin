@@ -24,7 +24,7 @@ export interface PersonaThinkDeps {
 // Resolved per call, not at module load: a demotion recorded mid-session must take effect
 // without restarting the MCP server. SB_PERSONA_MODEL is a DEEP pin in model-ladder.json.
 const advisorModel = (): string => resolveModel('deep', 'headless');
-const THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? '30000');
+const THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? '20000');
 
 const SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
@@ -37,6 +37,11 @@ Given the user's prompt plus optional context hints, return ONLY a JSON object w
 Be terse. Default silent on questions/specialists/risks — only populate when the value is concrete.
 Output ONLY the JSON object, no prose around it.`;
 
+// --bare skips OAuth/keychain, so it only works with an API key (same rule as lib.sh's extractor).
+export function personaSpawnArgs(model: string, system: string, apiKey = process.env.ANTHROPIC_API_KEY): string[] {
+  return ['-p', ...(apiKey ? ['--bare'] : []), '--model', model, '--system-prompt', system];
+}
+
 function defaultRunner(system: string, user: string, model: string): Promise<string> {
   // G2: a test that forgets to inject a runner must not spawn a REAL `claude -p` (account
   // usage + a nondeterministic suite). Vitest sets VITEST; fail loud instead of spawning.
@@ -44,8 +49,9 @@ function defaultRunner(system: string, user: string, model: string): Promise<str
     return Promise.reject(new Error('persona-think defaultRunner: refusing to spawn a real claude under VITEST; inject deps.runner'));
   }
   return new Promise((resolve, reject) => {
-    const p = spawn('claude', ['-p', '--bare', '--model', model, '--system-prompt', system], {
+    const p = spawn('claude', personaSpawnArgs(model, system), {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, SB_NESTED_SPAWN: '1' },
     });
     let out = '';
     let err = '';
@@ -53,7 +59,7 @@ function defaultRunner(system: string, user: string, model: string): Promise<str
     const timer = setTimeout(() => {
       killed = true;
       p.kill('SIGTERM');
-      setTimeout(() => { if (!p.killed) p.kill('SIGKILL'); }, 2000);
+      setTimeout(() => { if (p.exitCode === null && p.signalCode === null) p.kill('SIGKILL'); }, 2000);
       reject(new Error(`timeout after ${THINK_TIMEOUT_MS}ms`));
     }, THINK_TIMEOUT_MS);
     p.stdout.on('data', (d) => { out += d.toString(); });
@@ -63,7 +69,7 @@ function defaultRunner(system: string, user: string, model: string): Promise<str
       clearTimeout(timer);
       if (killed) return;
       if (code === 0) resolve(out);
-      else reject(new Error(err || `claude -p exited ${code}`));
+      else reject(new Error(err || out.trim() || `claude -p exited ${code}`));
     });
     p.stdin.write(user);
     p.stdin.end();

@@ -68,6 +68,9 @@ export function labelPropagate(adj: Map<string, Set<string>>, opts: LabelOpts = 
   const nodes = [...adj.keys()].sort();
   let labels = new Map<string, string>(nodes.map(n => [n, n]));
 
+  // Synchronous rounds oscillate on a pair / star (every node flips each round); when they do
+  // not converge, finish with in-place sorted-order (asynchronous) rounds, which do settle.
+  let converged = false;
   for (let iter = 0; iter < maxIter; iter++) {
     const next = new Map<string, string>();
     let changed = false;
@@ -87,6 +90,21 @@ export function labelPropagate(adj: Map<string, Set<string>>, opts: LabelOpts = 
       if (chosen !== own) changed = true;
     }
     labels = next;
+    if (!changed) { converged = true; break; }
+  }
+  for (let iter = 0; !converged && iter < maxIter; iter++) {
+    let changed = false;
+    for (const node of nodes) {
+      const nbrs = adj.get(node)!;
+      if (nbrs.size === 0) continue;
+      const own = labels.get(node)!;
+      const tally = new Map<string, number>();
+      for (const nb of nbrs) tally.set(labels.get(nb)!, (tally.get(labels.get(nb)!) ?? 0) + 1);
+      const max = Math.max(...tally.values());
+      const tied = [...tally.entries()].filter(([, c]) => c === max).map(([l]) => l);
+      const chosen = tied.includes(own) ? own : tied.sort()[0];
+      if (chosen !== own) { labels.set(node, chosen); changed = true; }
+    }
     if (!changed) break;
   }
   return normalize(labels);

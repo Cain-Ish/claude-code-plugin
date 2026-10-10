@@ -74,3 +74,12 @@ describe('persona_think', () => {
     expect(r.error).toMatch(/refusing to spawn a real claude under VITEST/);
   });
 });
+
+describe('personaSpawnArgs (audit B3)', () => {
+  it('adds --bare only when an API key is set', async () => {
+    const { personaSpawnArgs } = await import('./persona-think.js');
+    expect(personaSpawnArgs('m', 's', 'sk-x')).toContain('--bare');
+    expect(personaSpawnArgs('m', 's', undefined)).not.toContain('--bare');
+    expect(personaSpawnArgs('m', 's', '')).not.toContain('--bare');
+  });
+});
