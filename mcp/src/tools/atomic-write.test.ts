@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -24,6 +24,21 @@ describe('atomicWriteJson', () => {
     await atomicWriteJson(f, { v: 1 });
     await atomicWriteJson(f, { v: 2 });
     expect(JSON.parse(await fs.readFile(f, 'utf-8'))).toEqual({ v: 2 });
+  });
+
+  it('concurrent in-process writes never tear the JSON (audit M2)', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'aw3-'));
+    const f = join(dir, 'state.json');
+    const big = (c: string) => ({ d: c.repeat(2_000_000) });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (let i = 0; i < 20; i++) {
+      await Promise.all([atomicWriteJson(f, big('a')), atomicWriteJson(f, big('b'))]);
+      JSON.parse(await fs.readFile(f, 'utf-8'));
+    }
+    // Shared tmp name => the loser's rename finds its tmp already consumed (ENOENT). Windows may still
+    // EPERM a rename racing an open target; that is an OS limit and leaves valid JSON.
+    expect(err.mock.calls.filter(c => String(c[0]).includes('ENOENT'))).toEqual([]);
+    err.mockRestore();
   });
 
   it('fails SOFT on an unwritable target (no throw — must never break a hook)', async () => {

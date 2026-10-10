@@ -14,8 +14,15 @@ import { promises as fs } from 'fs';
 // wrong diagnosis when the real cause is a swallowed ENOSPC/EACCES one layer down.
 // The no-throw contract stays (hooks must not break); the error now reaches stderr,
 // which for the MCP server is a real, captured channel.
+let writeCounter = 0;
+
+// pid alone collides for two writes racing in one process (torn JSON, audit M2): add timestamp + counter.
+function uniqueTmp(filePath: string): string {
+  return `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter++}`;
+}
+
 export async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-  const tmp = `${filePath}.tmp.${process.pid}`;
+  const tmp = uniqueTmp(filePath);
   try {
     await fs.writeFile(tmp, JSON.stringify(value));
     await fs.rename(tmp, filePath);   // atomic replace — reader never sees a torn file
@@ -27,7 +34,6 @@ export async function atomicWriteJson(filePath: string, value: unknown): Promise
   }
 }
 
-let strictWriteCounter = 0;
 
 // jit-index.ts's rebuildJitIndex needs the OPPOSITE contract from atomicWriteJson above: a
 // failed write must REJECT, not be swallowed to a console.error and a clean exit 0. Its own
@@ -37,7 +43,7 @@ let strictWriteCounter = 0;
 // (or two processes sharing a pid on a platform that recycles them fast) never collide on the
 // same tmp path.
 export async function atomicWriteJsonStrict(filePath: string, value: unknown): Promise<void> {
-  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
+  const tmp = uniqueTmp(filePath);
   try {
     await fs.writeFile(tmp, JSON.stringify(value));
     await fs.rename(tmp, filePath);   // atomic replace — reader never sees a torn file
