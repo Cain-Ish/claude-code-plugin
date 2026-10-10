@@ -1037,4 +1037,58 @@ awk '/^## Open blockers$/ { h = NR } /^<!-- last_updated:/ { f = NR } END { exit
 grep -q 'gate=section-scaffolded section=## Open blockers' "$BRAIN_DIR/audit-log.jsonl" || fail "E6: re-creating a section left no log row"
 pass "E6: missing / trailing-space section headings no longer drop decisions and blockers"
 
+# E3/E5: the PROJECT.md read-modify-write holds the same .PROJECT.md.lock pin_to_project and
+# archive_to_wiki take (lib.sh sb_archive_lock), stages next to PROJECT.md, and refuses an empty
+# read. Merge alpha is held inside its window (a mv shim sleeps before its final PROJECT.md
+# replace) while merge beta starts: unlocked, beta read the pre-alpha file and one decision was lost.
+E3D="$TMP/e3"; mkdir -p "$E3D/projects/e3p" "$E3D/kd/wiki" "$E3D/bin"
+E3P="$E3D/projects/e3p/PROJECT.md"; seed_project "$E3P"
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v mv)"
+  cat <<'EOF'
+for a in "$@"; do last="$a"; done
+case "$last" in */PROJECT.md)
+  printf '%s\n' "$*" >> "$E3_MVLOG"
+  if [ -n "${E3_HOLD:-}" ]; then : > "$E3_HOLD"; sleep 4; fi ;;
+esac
+exec "$REAL" "$@"
+EOF
+} > "$E3D/bin/mv"; chmod +x "$E3D/bin/mv"
+e3_merge() {   # $1 decision, $2 hold-marker path or ""; exit 3 (lock busy) is retried, as the callers do
+  local rc n=0
+  while :; do
+    printf '{"recent_decisions":["%s"]}' "$1" | PATH="$E3D/bin:$PATH" E3_MVLOG="$E3D/mv.log" E3_HOLD="$2" BRAIN_DIR="$E3D" \
+      bash "$SCRIPT" --project-md "$E3P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1; rc=$?
+    [ "$rc" -eq 3 ] && [ "$n" -lt 4 ] && { n=$((n + 1)); continue; }
+    return "$rc"
+  done
+}
+e3_merge "e3 decision from merge alpha" "$E3D/alpha-holds" & E3_PA=$!
+i=0; while [ ! -e "$E3D/alpha-holds" ] && [ "$i" -lt 900 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$E3D/alpha-holds" ] || fail "E3 harness: merge alpha never reached its final PROJECT.md write"
+e3_merge "e3 decision from merge beta" ""; E3_RB=$?
+wait "$E3_PA"; E3_RA=$?
+[ "$E3_RA" -eq 0 ] && [ "$E3_RB" -eq 0 ] || fail "E3: merges exited alpha=$E3_RA beta=$E3_RB: $(cat "$E3D/error-log.jsonl" 2>/dev/null)"
+grep -qF 'e3 decision from merge alpha' "$E3P" || fail "E3: lost update, merge alpha's decision is gone: $(cat "$E3P")"
+grep -qF 'e3 decision from merge beta' "$E3P" || fail "E3: lost update, merge beta's decision is gone: $(cat "$E3P")"
+[ ! -e "$E3D/projects/e3p/.PROJECT.md.lock" ] || fail "E3: the PROJECT.md lock was left behind"
+pass "E3: two racing merges keep both decisions (shared PROJECT.md lock)"
+[ -s "$E3D/mv.log" ] || fail "E5 harness: no final PROJECT.md mv was recorded"
+while IFS= read -r l; do
+  case "$l" in "$E3P".*" $E3P") ;; *) fail "E5: the final PROJECT.md mv did not come from a temp file next to it: $l" ;; esac
+done < "$E3D/mv.log"
+pass "E5: PROJECT.md is staged next to itself (the final mv is a same-filesystem rename)"
+
+E5P="$E3D/projects/e5p/PROJECT.md"; mkdir -p "${E5P%/*}"; : > "$E5P"
+: > "$E3D/error-log.jsonl"
+E5_RC=0
+printf '%s' '{"recent_decisions":["e5 decision must not replace an empty read"]}' \
+  | BRAIN_DIR="$E3D" bash "$SCRIPT" --project-md "$E5P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1 || E5_RC=$?
+[ "$E5_RC" -eq 3 ] || fail "E5: an empty PROJECT.md read must exit 3 (callers retry), got $E5_RC"
+[ ! -s "$E5P" ] || fail "E5: an empty read was replaced by a stub: $(cat "$E5P")"
+grep -q 'no heading' "$E3D/error-log.jsonl" 2>/dev/null || fail "E5: the refused empty read left no error row"
+[ ! -e "${E5P%/*}/.PROJECT.md.lock" ] || fail "E5: the refused merge left its lock behind"
+[ "$(ls -A "${E5P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "E5: the refused merge left its temp file behind: $(ls -A "${E5P%/*}")"
+pass "E5: an empty PROJECT.md read is refused (exit 3), never replaced by a stub"
+
 echo "ALL PASS"

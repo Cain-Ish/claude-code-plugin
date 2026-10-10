@@ -1158,6 +1158,17 @@ sb_pin_to_user() {
   today=$(date -u +%Y-%m-%d)
   new_line="- [$today] $text"
 
+  # E3: the read-modify-write below holds the same .USER.md.lock as the TS pin_to_user
+  # (mcp/src/tools/hot-file-lock.ts); busy past the wait = logged by sb_archive_lock, return 1.
+  mkdir -p "$BRAIN_DIR"
+  sb_archive_lock "$user_file" sb_pin_to_user || return 1
+  local lock_tok="$_SB_ARCHIVE_LOCK_TOKEN" rc=0
+  _sb_pin_to_user_locked "$user_file" "$text" "$new_line" "$max_pins" || rc=$?
+  sb_archive_unlock "$user_file" "$lock_tok"
+  return "$rc"
+}
+_sb_pin_to_user_locked() {  # $1 USER.md, $2 flattened text, $3 pin line, $4 max pins
+  local user_file="$1" text="$2" new_line="$3" max_pins="$4"
   local content=""
   if [ -f "$user_file" ]; then
     content=$(cat "$user_file")

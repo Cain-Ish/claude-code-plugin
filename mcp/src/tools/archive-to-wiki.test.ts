@@ -114,4 +114,18 @@ describe('archive_to_wiki', () => {
     }
     expect(readFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8')).toBe(tpl);
   });
+
+  // E3 (audit 2026-10): the PROJECT.md rewrite holds the shared .PROJECT.md.lock the merge takes.
+  it('E3: waits for the shared .PROJECT.md.lock before rewriting PROJECT.md', async () => {
+    const projectMd = join(brainDir, 'projects', 'test-slug', 'PROJECT.md');
+    const lf = join(brainDir, 'projects', 'test-slug', '.PROJECT.md.lock');
+    writeFileSync(lf, `${process.pid}.held\n`);
+    const p = archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    await new Promise(r => setTimeout(r, 400));
+    expect(readFileSync(projectMd, 'utf-8')).toBe(tpl);
+    rmSync(lf);
+    expect((await p).ok).toBe(true);
+    expect(readFileSync(projectMd, 'utf-8')).toMatch(/→ wiki\/issues\/test-slug\//);
+    expect(existsSync(lf)).toBe(false);
+  });
 });

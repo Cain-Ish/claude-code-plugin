@@ -287,6 +287,23 @@ NPINS=$(grep -c '^- \[' "$BRAIN_DIR/USER.md" 2>/dev/null || echo 0)
 pass "D110: signal with an embedded blank line is pinned, not silently dropped"
 rm -rf "$PIN_BRAIN"
 
+# --- E3 (audit 2026-10): sb_pin_to_user's read-modify-write holds the same .USER.md.lock as the TS
+# pin_to_user (mcp/src/tools/hot-file-lock.ts). A held lock is waited for (bounded), then the pin
+# fails loud instead of racing the other writer; the lock is released after the write.
+PIN_BRAIN=$(mktemp -d); export BRAIN_DIR="$PIN_BRAIN"
+printf '# USER\n\n## Pinned\n' > "$BRAIN_DIR/USER.md"
+printf '%s\n' "$$.held" > "$BRAIN_DIR/.USER.md.lock"
+_SB_ARCHIVE_LOCK_WAIT_S=1 sb_pin_to_user "pin while another writer holds USER.md" \
+  && fail "E3: sb_pin_to_user reported success while the USER.md lock was held"
+grep -q 'pin while another writer' "$BRAIN_DIR/USER.md" && fail "E3: sb_pin_to_user wrote USER.md while its lock was held"
+grep -q 'still held' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null || fail "E3: a busy USER.md lock left no error row"
+rm -f "$BRAIN_DIR/.USER.md.lock"
+sb_pin_to_user "pin after the lock is released" || fail "E3: the pin failed after the lock was released"
+grep -q 'pin after the lock is released' "$BRAIN_DIR/USER.md" || fail "E3: the pin did not land after the release"
+[ ! -e "$BRAIN_DIR/.USER.md.lock" ] || fail "E3: sb_pin_to_user left its USER.md lock behind"
+pass "E3: sb_pin_to_user honours the shared .USER.md.lock (bounded wait, fails loud) and releases it"
+rm -rf "$PIN_BRAIN"
+
 # --- Test 16 (D139): a torn/unparseable line in persona-signals.jsonl must NOT
 # wipe the accumulated signals. `jq -s '.'` aborts on the first bad line, so the
 # old `|| echo '[]'` treated the WHOLE existing set as absent and the merge

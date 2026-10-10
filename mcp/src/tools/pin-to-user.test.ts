@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, promises as fsPromises } from 'fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, promises as fsPromises } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { pinToUser } from './pin-to-user.js';
@@ -119,5 +119,20 @@ describe('pin_to_user', () => {
       expect(res.reason).toMatch(/EPERM/);
     } finally { spy.mockRestore(); }
     expect(readFileSync(join(dir, 'USER.md'), 'utf-8')).toBe(original);
+  });
+
+  // E3 (audit 2026-10): the read-modify-write holds the shared .USER.md.lock that lib.sh
+  // sb_pin_to_user (persona graduation) takes too, and replaces USER.md by temp + rename.
+  it('E3: waits for the shared .USER.md.lock before its read-modify-write', async () => {
+    writeFileSync(join(dir, 'USER.md'), '# USER\n\n## Pinned\n', 'utf-8');
+    const lf = join(dir, '.USER.md.lock');
+    writeFileSync(lf, `${process.pid}.held\n`);
+    const p = pinToUser({ text: 'pin that waits for the lock', brainDir: dir });
+    await new Promise(r => setTimeout(r, 400));
+    expect(readFileSync(join(dir, 'USER.md'), 'utf-8')).not.toContain('pin that waits for the lock');
+    rmSync(lf);
+    expect((await p).ok).toBe(true);
+    expect(readFileSync(join(dir, 'USER.md'), 'utf-8')).toContain('pin that waits for the lock');
+    expect(existsSync(lf)).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
+import { withFileLock, writeFileAtomic } from './hot-file-lock.js';
 
 export type SourceSection = 'blockers' | 'decisions';
 export type TargetCategory = 'issues' | 'decisions';
@@ -49,7 +50,13 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
     throw e;
   }
   await fs.mkdir(wikiDir, { recursive: true });
+  // E3: the PROJECT.md read-modify-write holds the shared .PROJECT.md.lock (the merge holds it too)
+  // and replaces the file by temp + rename.
+  return withFileLock(projectFile, reason => ({ ok: false, archived_path: '', reason }),
+    () => archiveLocked(args, projectFile, wikiDir));
+}
 
+async function archiveLocked(args: ArchiveToWikiArgs, projectFile: string, wikiDir: string): Promise<ArchiveToWikiResult> {
   const content = await fs.readFile(projectFile, 'utf-8');
   const lines = content.split('\n');
 
@@ -108,6 +115,6 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
   }
   const archivePath = join(wikiDir, archiveName);
   lines[matchIdx] = `  → wiki/${args.targetCategory}/${args.slug}/${archiveName}`;
-  await fs.writeFile(projectFile, lines.join('\n'), 'utf-8');
+  await writeFileAtomic(projectFile, lines.join('\n'));
   return { ok: true, archived_path: archivePath };
 }

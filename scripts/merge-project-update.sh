@@ -308,8 +308,19 @@ SESSION_GOAL="${SESSION_GOAL//$'\r'/}"
 
 CHANGED=0
 
-TMP_OUT=$(mktemp)
-trap 'rm -f "$TMP_OUT"' EXIT
+# E3: ONE lock from this read until just after the final mv. Every merge (Stop, PreCompact, the
+# drainer) and pin_to_project / archive_to_wiki (mcp/src/tools/hot-file-lock.ts, same
+# .PROJECT.md.lock and stale rule) read-modify-write PROJECT.md; unlocked, a write landing inside
+# this window was overwritten by the final mv. Still busy after the wait: exit 3, callers retry.
+sb_archive_lock "$PROJECT_MD" merge-project-update.sh || exit 3
+MPU_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
+# E5: staged NEXT TO PROJECT.md (not in $TMPDIR), so the final mv is a same-filesystem rename.
+TMP_OUT=$(mktemp "$PROJECT_MD.XXXXXX") || {
+  sb_log_error "merge-project-update.sh" "cannot create a temp file next to $PROJECT_MD — merge NOT applied, retried later" 3
+  sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"
+  exit 3
+}
+trap 'rm -f "$TMP_OUT"; sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"' EXIT
 # tr -d '\r' (not cp): normalize CRLF at ingest so every downstream awk/grep reader sees LF.
 # A CRLF PROJECT.md (Windows/imported) otherwise silently no-ops the ENTIRE merge — section
 # headers like `## Recent decisions` never match `/^## .../`, so decisions/blockers/plan are
@@ -322,6 +333,12 @@ tr -d '\r' < "$PROJECT_MD" | awk 'NR==1 { sub(/^\357\273\277/, "") } /^#+ / { su
 # heading (whatever the human named it), never a hardcoded "# PROJECT" -- a hand-renamed
 # heading used to make every later merge refuse to write, with a misleading message.
 ORIG_HEAD=$(LC_ALL=C grep -m1 -E '^#+ ' "$TMP_OUT")
+# E5: a read with no heading (empty, or caught mid-write by a truncating writer) is refused: the
+# final guard passed on an empty ORIG_HEAD, and the merge replaced the file with a stub.
+if [ -z "$ORIG_HEAD" ]; then
+  sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading (empty or caught mid-write) for $PROJECT_MD — merge REFUSED, retried later" 3
+  exit 3
+fi
 
 # Archive a dropped decision bullet to the wiki decisions log — PER PROJECT, with a
 # project: facet, so rotated decisions stay reachable by project-scoped search instead
@@ -1776,8 +1793,7 @@ if [ "$CHANGED" -eq 1 ]; then
   if [ ! -s "$TMP_OUT" ] || { [ -n "$ORIG_HEAD" ] && ! LC_ALL=C grep -qxF -- "$ORIG_HEAD" "$TMP_OUT"; }; then
     sb_log_error "merge-project-update.sh" "PROJECT.md staging buffer corrupted (empty or missing its original first heading '${ORIG_HEAD:0:80}') for $PROJECT_MD — write REFUSED, delta NOT applied" 3
     rm -f "$TMP_OUT" 2>/dev/null
-    trap - EXIT
-    exit 3
+    exit 3   # the EXIT trap releases the PROJECT.md lock
   fi
   # EXIT 3 ON A FAILED WRITE. This `mv` was unchecked and the script ended `exit 0` regardless,
   # so an unwritable PROJECT.md (permissions, full disk, a path that stopped existing) returned
@@ -1788,11 +1804,14 @@ if [ "$CHANGED" -eq 1 ]; then
   if ! mv "$TMP_OUT" "$PROJECT_MD"; then
     sb_log_error "merge-project-update.sh" "PROJECT.md write FAILED for $PROJECT_MD — delta NOT applied; transcript must be retried, not marked extracted" 3
     rm -f "$TMP_OUT" 2>/dev/null
-    trap - EXIT
-    exit 3
+    exit 3   # the EXIT trap releases the PROJECT.md lock
   fi
-  trap - EXIT
 fi
+# E3: release right after the final mv (or the no-change path), not at exit: the reindex below can
+# run for seconds and needs no PROJECT.md lock.
+trap - EXIT
+rm -f "$TMP_OUT"
+sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"
 
 if [ "$WIKI_WRITES" -eq 1 ]; then
   # Centralized reindex helper (lib.sh) — handles ESM dynamic-import correctly
