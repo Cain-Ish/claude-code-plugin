@@ -368,7 +368,8 @@ sb_extract_archived_deterministic() {
 sb_floor_transcript() {
   local txt="$1" slug="$2"
   [ -f "$txt" ] || return 1
-  slug=$(sb_sanitize_slug "$slug") || slug="unknown"
+  slug=$(sb_slug_from_dir "$slug")   # the funnel's slug form, as sb_extract_transcript (audit L1)
+  case "$slug" in .|..) slug="unknown" ;; esac
   local delta; delta=$(sb_extract_archived_deterministic "$txt")
   [ -n "$delta" ] || return 1
   local nfiles; nfiles=$(printf '%s' "$delta" | jq '.files_touched | length' 2>/dev/null || echo 0)

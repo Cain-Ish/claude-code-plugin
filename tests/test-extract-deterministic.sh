@@ -137,4 +137,15 @@ grep -F 'trimming' "$ERRLOG" 2>/dev/null | grep -q '"exit_code":1' \
   || fail "S8: a failed 50-line trim left no error row ($(cat "$ERRLOG" 2>/dev/null))"
 pass "S8: a breadcrumb or trim that fails is an error row; the delta is still returned"
 
+
+# L1 (audit): sb_floor_transcript keyed the project dir on sb_sanitize_slug (lowercase, charset
+# rewrite) while the capture funnel and sb_extract_transcript use sb_slug_from_dir, so a slug with
+# upper case or '_' landed in a second, unregistered project dir.
+L1_TXT="$TMP/l1.txt"; printf '  [Edit] src/real.ts\n' > "$L1_TXT"
+export KNOWLEDGE_DIR="$TMP/l1-knowledge"; mkdir -p "$KNOWLEDGE_DIR/wiki"
+sb_floor_transcript "$L1_TXT" "Mono__Api" >/dev/null 2>&1
+[ -f "$BRAIN_DIR/projects/Mono__Api/PROJECT.md" ] || fail "L1: floor merge did not land in projects/Mono__Api ($(ls "$BRAIN_DIR/projects" 2>/dev/null | tr '\n' ' '))"
+[ ! -e "$BRAIN_DIR/projects/mono-api" ] || fail "L1: floor merge created the sanitized ghost dir projects/mono-api"
+pass "L1: sb_floor_transcript keeps the funnel's slug form (no sanitized ghost project)"
+
 echo "ALL PASS"
