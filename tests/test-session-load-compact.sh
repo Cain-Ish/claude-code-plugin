@@ -543,11 +543,10 @@ pass "T4b full (startup): line_cap=160 renders the 140-char Goal line whole, goa
 
 # =============================================================================
 # T5: no writes. PROJECT.md / projects.jsonl / .active-session-slug /
-# .session-count shas unchanged; no .session-baseline-* created.
+# shas unchanged; no .session-baseline-* created.
 # =============================================================================
 : > "$BRAIN_DIR/projects.jsonl"
 printf 'PIN\n' > "$BRAIN_DIR/.active-session-slug"
-printf '0\n' > "$BRAIN_DIR/projects/proj3/.session-count" 2>/dev/null || true
 sha() { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1" 2>/dev/null || cksum "$1"; }
 PRE_PROJ_SHA=$(sha "$BRAIN_DIR/projects/proj3/PROJECT.md")
 PRE_IDX_SHA=$(sha "$BRAIN_DIR/projects.jsonl")

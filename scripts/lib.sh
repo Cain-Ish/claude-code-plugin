@@ -2798,32 +2798,6 @@ sb_prune_transcripts() {
   return 0
 }
 
-# --- Session-cadence + maintenance flags ---------------------------------
-# Track substantive sessions per project so SessionStart can prompt for
-# /second-brain:dream after a threshold without manual reminders. The flag
-# files are per-project under $BRAIN_DIR/projects/<slug>/ so a noisy project
-# doesn't trigger banners on quiet ones.
-
-sb_increment_session_count() {
-  local slug="$1"
-  local f="$BRAIN_DIR/projects/$slug/.session-count"
-  mkdir -p "$(dirname "$f")" 2>/dev/null
-  local n=0
-  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
-  [[ "$n" =~ ^[0-9]+$ ]] || n=0
-  printf '%d' "$((n + 1))" > "$f"
-}
-
-sb_get_session_count() {
-  local f="$BRAIN_DIR/projects/$1/.session-count"
-  local n=0
-  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
-  [[ "$n" =~ ^[0-9]+$ ]] || n=0
-  printf '%d' "$n"
-}
-
-sb_reset_session_count() { echo 0 > "$BRAIN_DIR/projects/$1/.session-count" 2>/dev/null; }
-
 # --- Maintainer auto-dispatch state helpers -----------------------------
 # Per-project wiki-write counter. session-load.sh consumes this at the
 # threshold and dispatches the maintainer subagent.

@@ -148,9 +148,8 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_MAINTAINER_AUTO` | `on` | Auto-dispatch of knowledge-maintainer after N wiki writes. | KS | session-load.sh:151 | bash |
 | `SB_MAINTAINER_THRESHOLD` | `3` | Wiki writes since last consolidation before dispatch. | TUNE | session-load.sh:150 | bash |
 | `SB_MAINTAINER_MAX_FAILS` | `3` | Consecutive maintainer failures before auto-disable (`.maintainer-auto-disabled` marker). | TUNE | session-load.sh:158 | bash |
-| `SB_DREAM_AUTOSTAGE` | `on` | dream-autostage banner logic (suggests `/second-brain:dream`, reclaims stale pendings, banners quarantine). `off` re-enables the legacy session-count nag. | KS | dream-autostage.sh:23; session-load.sh:145 | bash |
+| `SB_DREAM_AUTOSTAGE` | `on` | dream-autostage banner logic (suggests `/second-brain:dream`, reclaims stale pendings, banners quarantine). | KS | dream-autostage.sh:23 | bash |
 | `SB_DREAM_NEW_THRESHOLD` | `10` | New transcripts since last terminal dream before the suggest-banner. | TUNE | dream-autostage.sh:25 | bash |
-| `SB_DREAM_CADENCE` | `15` | Legacy session-count threshold (only when autostage off). | TUNE | session-load.sh:141 | none |
 | `SB_DREAM_STALE_DAYS` | `7` | Banner when the last dream is older than N days. | TUNE | session-load.sh:649 | none |
 | `SB_PERSONA_SIGNAL_WINDOW_DAYS` | `30` | Signal window for persona stats in session context. | TUNE | session-load.sh:482 | none |
 

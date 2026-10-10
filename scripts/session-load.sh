@@ -1109,9 +1109,18 @@ sb_append() {
   local size=${#text}
   [ "$size" -eq 0 ] && return 0
   if [ "$max" -gt 0 ] && [ "$size" -gt "$max" ]; then
-    text=$(printf '%s' "$text" | head -c "$max")
-    size=$max
+    # Cap by bytes, then drop the torn last line so a rule/JSON row is whole or absent (audit H4).
+    local cut; cut=$(printf '%s' "$text" | head -c "$max")
+    if [ "${text#"$cut"$'\n'}" = "$text" ]; then
+      case "$cut" in *$'\n'*) cut="${cut%$'\n'*}";; *) cut="";; esac
+    fi
+    sb_log_error "session-load.sh" "gate=byte-budget $label truncated ${size}->${#cut}B" 0
+    text="$cut"
+    [ -z "$text" ] && return 0
   fi
+  # $(...) callers strip trailing newlines; always end the section with one (audit H9).
+  text="$text"$'\n'
+  size=${#text}
   # ONE accounting (ledger F1). `force` sections' bytes are RESERVED out of BYTE_BUDGET at
   # derivation time — adding them to USED as well double-counted them, so on any populated
   # install (USER+PROJECT+charter ≈ 6-9KB) USED exceeded the banner budget by construction the
@@ -1152,21 +1161,6 @@ sb_enrich_headroom() {  # $1 = label, $2 = min bytes the section needs to be wor
   return 0
 }
 
-# Bump per-project session counter (used by cadence banner below).
-sb_increment_session_count "$slug"
-
-# 0a. Cadence + maintenance banners — surface SB system events that would
-# otherwise require the user to remember to run /second-brain:dream.
-# Threshold-gated to avoid banner fatigue.
-SESSION_COUNT=$(sb_get_session_count "$slug")
-DREAM_THRESHOLD="${SB_DREAM_CADENCE:-15}"
-# Legacy session-count nag: only when auto-stage is disabled. When autostage is
-# on (default), dream-autostage.sh owns the nudge — suppress here to avoid a
-# double banner.
-if [ "${SB_DREAM_AUTOSTAGE:-on}" = "off" ] && [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
-  sb_append "$(printf '## ⓘ second-brain — dream consolidation suggested\n%s sessions since last dream (threshold: %s).\nRun: `/second-brain:dream --background` — mines transcripts for missed learnings, stages changes for review.\n\n' \
-    "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
-fi
 # --- Maintainer auto-dispatch: reconcile previous + threshold -----
 N=${SB_MAINTAINER_THRESHOLD:-3}
 AUTO=${SB_MAINTAINER_AUTO:-on}

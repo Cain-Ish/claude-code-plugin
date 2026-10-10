@@ -119,7 +119,7 @@ KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 RENDER_CLI="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")"/.. && pwd)}/mcp/dist/tools/ai-block-render-cli.bundle.js"
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
 # Originating project slug = the PROJECT.md parent dir. Stamped as the project: facet on
-# pages this run creates, and the key for the wiki-writes counter + session-count reset.
+# pages this run creates, and the key for the wiki-writes counter.
 # Validated, NOT sb_sanitize_slug'd: the facet must equal the registry slug EXACTLY for
 # scoped search (sub-project slugs like mono__api carry underscores sanitize would eat).
 # Charset mirrors validateSlug (path-guard.ts): dots ALLOWED (real project dirs like
@@ -130,7 +130,7 @@ PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
 case "$PROJECT_SLUG" in
   ''|/|.*|*[!a-zA-Z0-9._-]*)
     if [ -n "$PROJECT_SLUG" ] && [ "$PROJECT_SLUG" != "." ] && [ "$PROJECT_SLUG" != "/" ]; then
-      sb_log_error "merge-project-update.sh" "project slug '$PROJECT_SLUG' fails the facet charset — project: stamp, wiki-writes counter, and session-count reset skipped this run" 0
+      sb_log_error "merge-project-update.sh" "project slug '$PROJECT_SLUG' fails the facet charset — project: stamp and wiki-writes counter skipped this run" 0
     fi
     PROJECT_SLUG=""
     ;;
@@ -1793,17 +1793,6 @@ if [ "$WIKI_WRITES" -eq 1 ]; then
   # SB_MAINTAINER_THRESHOLD and auto-dispatches the maintainer subagent.
   # PROJECT_SLUG derived once near the top (single source).
   [ -n "$PROJECT_SLUG" ] && sb_inc_wiki_writes "$PROJECT_SLUG"
-fi
-
-# Reset session counter after a dream cycle. We detect "dream just accepted"
-# by the presence of a freshly-archived dream dir touched within last 5 min.
-# Cheap heuristic, no MCP roundtrip needed.
-RECENT_DREAM=$(find "$BRAIN_DIR/dreams/" -maxdepth 2 -name 'status.json' -mmin -5 2>/dev/null \
-  | xargs -I{} jq -r 'select(.status == "completed" or .status == "archived") | .id' {} 2>/dev/null | head -1)
-if [ -n "$RECENT_DREAM" ]; then
-  # PROJECT_SLUG from the guarded top-level derivation — never recompute it raw here
-  # (an unguarded basename would reach the .session-count path sink unvalidated).
-  [ -n "$PROJECT_SLUG" ] && sb_reset_session_count "$PROJECT_SLUG"
 fi
 
 exit 0
