@@ -704,7 +704,9 @@ _ptg_homes() {
 }
 _ptg_hadd() {  # _ptg_hadd VAR DIR: DIR spelled as a target, appended to _PTG_H (_PTG_HA for APPDATA) unless there
   local _pa_h _pa_x
-  _ptg_fpath _pa_h "$2"; _pa_h="${_pa_h%/}"
+  # '.'/'..' folded as _ptg_abs folds the target's: cd -P cannot stand in for it, since through a mount
+  # whose native path holds an 8.3 name (/tmp on C:\Users\RUNNER~1\…) it respells the directory /c/….
+  _ptg_fpath _pa_h "$2"; _fp_collapse _pa_h "$_pa_h"; _pa_h="${_pa_h%/}"
   [ -n "$_pa_h" ] || return 0
   if [ "$1" = APPDATA ]; then
     for _pa_x in ${_PTG_HA[@]+"${_PTG_HA[@]}"}; do [ "$_pa_x" = "$_pa_h" ] && return 0; done
