@@ -556,6 +556,19 @@ cmp -s "$LL/glued.in" "$LL/glued.out" || fail "scrub-long[glued]: a key glued to
 cmp -s "$LL/plain.in" "$LL/plain.out" || fail "scrub-long[plain]: a line with no credential was changed"
 pass "scrub: linear on a 2 MB single line ($LL_N keys redacted, glued keys kept, plain text untouched; each < 5 s)"
 
+# The kept part of a k/b-form separator (keyword, boundary char) is read back from 512-byte blocks
+# of the line (BWK awk takes strlen() of the whole line in every substr()). Every row above on ONE
+# " ; "-joined line, behind 0..511 spaces, so each form sits at every offset to a block edge: all
+# 512 lines scrub alike once the pad is cut (what each form becomes is the fixtures' job above).
+for fx in kinds adjacent formats dbound; do cat "$SD/$fx.in"; done \
+  | LC_ALL=C awk '{ r = r (NR > 1 ? " ; " : "") $0 } END { for (k = 0; k < 512; k++) { print p r; p = p " " } }' > "$LL/rows.in"
+sb_scrub_secrets < "$LL/rows.in" > "$LL/rows.out" || fail "scrub-blocks: sb_scrub_secrets exited non-zero"
+[ "$(head -1 "$LL/rows.out" | grep -o '\[redacted:' | wc -l | tr -d ' ')" -ge 20 ] && [ "$(wc -l < "$LL/rows.out")" -eq 512 ] \
+  || fail "scrub-blocks: the joined rows hold almost no redaction, or lines were lost (the check would prove nothing)"
+BLK_BAD=$(LC_ALL=C awk 'NR == 1 { b = $0; next } substr($0, NR) != b { print NR - 1 " spaces: " substr($0, NR, 300); exit }' "$LL/rows.out")
+[ -z "$BLK_BAD" ] || fail "scrub-blocks: the rows redact differently behind $BLK_BAD"
+pass "scrub: every form redacts alike at every offset to a 512-byte block edge"
+
 # sb_preprocess_transcript runs the scrub on every window it renders (archive AND extractor input)
 PJ="$TMP/scrub/pp.jsonl"
 { jq -nc --arg t "please use $K_ANT now" '{type:"user",message:{content:$t}}'

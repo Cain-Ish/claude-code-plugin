@@ -1850,7 +1850,11 @@ sb_archive_unlock() {  # $1 = archive path, $2 = owner token (default: the last 
 # whose separators are its matches, and the pieces are joined in pairwise rounds. A
 # match()/gsub() loop is not: gawk 5.0 scans to the end of the string on every call, so a 2 MB
 # single-line tool output with 22,727 keys took 122 s (past the Stop hook's 45 s, so the session
-# was never archived); this takes under 1 s.
+# was never archived); this takes under 1 s. A separator kept in part (the k and b forms) is read
+# back from 512-byte blocks of the line, never the line itself: BWK awk (macOS) takes strlen() of
+# the whole string in every substr(), so one read per match was quadratic there (8.5 s at 2 MB).
+# (macOS awk's split() itself still runs strlen() over the rest of the line at every match, a fast
+# scan: Apple's awk 20200816 built on Linux scrubs the test's 2 MB keys line in 0.9 s, was 18 s.)
 # Returns non-zero when cat (a read error) or awk failed: the output must then not be used.
 sb_scrub_secrets() {
   { cat && printf '\n'; } | LC_ALL=C awk -v BINMODE=3 '
@@ -1870,10 +1874,24 @@ sb_scrub_secrets() {
       }
       return (k == 1) ? A[1] : ""
     }
+    # substr(s, p, w) for w <= 512, read from the 512-byte blocks S[] of s (cut): BWK awk (macOS)
+    # takes strlen(s) in every substr(s, ...) and copies s into every call, so one read of the
+    # whole line per match was quadratic (2 MB, 27,778 keys: 8.5 s on the macOS runner). Two
+    # blocks are joined only for a window that crosses: BWK sizes every concatenation buffer to
+    # the longest record read so far.
+    function win(p, w,   b, o) {
+      b = int((p - 1) / 512) + 1; o = p - (b - 1) * 512
+      return (o + w <= 513) ? substr(S[b], o, w) : substr(S[b] S[b + 1], o, w)
+    }
+    # S[b..b+nb-1] = s in 512-byte blocks, cut in halves: O(n log n) copying, never one cut per block.
+    function cut(s, b, nb,   h) {
+      if (nb <= 1) { S[b] = s; return }
+      h = int(nb / 2); cut(substr(s, 1, h * 512), b, h); cut(substr(s, h * 512 + 1), b + h, nb - h)
+    }
     # Length of the run matching rx ("^<class>*") in s from position p, read through bounded windows.
-    function crun(s, p, rx,   n, w) {
+    function crun(p, rx,   n, w) {
       n = 0
-      while ((w = substr(s, p + n, 256)) != "") {
+      while ((w = win(p + n, 256)) != "") {
         match(w, rx); n += RLENGTH
         if (RLENGTH < length(w)) break
       }
@@ -1887,17 +1905,18 @@ sb_scrub_secrets() {
     function redact(s, i,   Q, A, k, j, a, p, w, K) {
       if (md[i] == "b") s = " " s
       k = split(s, Q, re[i]); a = 0; p = 1
+      if (md[i] != "" && k > 1) { split("", S); cut(s, 1, int((length(s) + 511) / 512)) }
       for (j = 1; j <= k; j++) {
         if (j > 1) {
           if (md[i] == "") A[++a] = "[redacted:" kind[i] "]"
           else if (md[i] == "k") {
-            w = substr(s, p, 96); match(w, kp[i]); K = RLENGTH
+            w = win(p, 96); match(w, kp[i]); K = RLENGTH
             A[++a] = substr(w, 1, K) "[redacted:" kind[i] "]"
-            p += K + crun(s, p + K, vr[i])
+            p += K + crun(p + K, vr[i])
           } else {
-            K = (substr(s, p + 1, length(lit[i])) == lit[i]) ? 1 : 2
-            A[++a] = substr(s, p, K) "[redacted:" kind[i] "]"
-            p += K + length(lit[i]) + crun(s, p + K + length(lit[i]), vr[i])
+            K = (win(p + 1, length(lit[i])) == lit[i]) ? 1 : 2
+            A[++a] = win(p, K) "[redacted:" kind[i] "]"
+            p += K + length(lit[i]) + crun(p + K + length(lit[i]), vr[i])
           }
         }
         A[++a] = Q[j]; p += length(Q[j])
