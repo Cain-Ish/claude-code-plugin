@@ -35,7 +35,7 @@
     {
       "name": "warn-force-push-main",
       "tool": "Bash",
-      "match_command": "git push.*(--force|-f)\\b.*\\b(main|master)\\b",
+      "match_command": "git push(.*(--force|-f)\\b.*|.*[^[:alnum:]_][+][^[:space:]]*)\\b(main|master)\\b|git push.*\\b(main|master)\\b[^;&|]*(--force|-f)\\b",
       "action": "ask",
       "reason": "Force-push to main/master is destructive. Confirm intent.",
       "lock": true
@@ -67,7 +67,7 @@
     {
       "name": "warn-rm-rf",
       "tool": "Bash",
-      "match_command": "\\brm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\b",
+      "match_command": "(^|[[:space:];&|(`])rm[[:space:]]+([^;&|]*[[:space:]])?(-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+-[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*[[:space:]]+-[a-zA-Z]*[rR]|--recursive[[:space:]]+--force|--force[[:space:]]+--recursive|-[a-zA-Z]*[rR][a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*[rR])",
       "action": "ask",
       "reason": "rm -rf is destructive and irreversible. Confirm target before proceeding.",
       "lock": true

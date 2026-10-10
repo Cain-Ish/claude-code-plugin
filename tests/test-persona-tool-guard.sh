@@ -49,6 +49,39 @@ for dangerous in 'rm -rf /home/u/important 2>/dev/null' 'git push --force origin
     || fail "precedence: '$dangerous' must be ask, got: $out"
 done
 pass "precedence: ask rules win over the 2>/dev/null advisory (no auto-allow via redirect)"
+
+# G9/T8 (audit 2026-10-10, D152): warn-rm-rf needed the flags glued (-rf), so `rm -r -f` and
+# `rm --recursive --force` went through, while it fired on "rm -rf" anywhere in the text (grep
+# patterns, echo strings). warn-force-push-main missed the refspec `+main` and a force flag after the
+# branch. tests/fixtures/rm-rf-cases.txt: Y|command must ask via warn-rm-rf, N|command must not ask.
+# t1b_case Y|N RULE COMMAND
+t1b_case() {
+  local out
+  rm -f "$T1_BRAIN/audit-log.jsonl"
+  out=$(jq -nc --arg c "$3" '{tool_name:"Bash",tool_input:{command:$c},session_id:"t1b"}' | BRAIN_DIR="$T1_BRAIN" bash "$SCRIPT")
+  if [ "$1" = Y ]; then
+    [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+      && grep -q "\"rule\":\"$2\"" "$T1_BRAIN/audit-log.jsonl" \
+      || fail "G9/T8: '$3' must ask via $2 (got: $out; audit: $(cat "$T1_BRAIN/audit-log.jsonl" 2>/dev/null))"
+  else
+    [ -z "$out" ] || fail "G9/T8: '$3' must not ask (got: $out)"
+  fi
+}
+T1B_N=0
+while IFS='|' read -r t1b_v t1b_c; do
+  [ -n "$t1b_v" ] || continue
+  t1b_case "$t1b_v" warn-rm-rf "$t1b_c"; T1B_N=$((T1B_N + 1))
+done < "$(dirname "$0")/fixtures/rm-rf-cases.txt"
+[ "$T1B_N" -ge 15 ] || fail "G9/T8: only $T1B_N rm cases read from tests/fixtures/rm-rf-cases.txt"
+for c in 'git push origin +main' 'git push origin +HEAD:main' 'git push origin +refs/heads/master' \
+         'git push origin main --force' 'git push origin master -f' 'git push --force origin main'; do
+  t1b_case Y warn-force-push-main "$c"
+done
+for c in 'git push origin main' 'git push origin +feature' 'git push origin main && ls -f' \
+         'git push origin +mainline' 'git push origin main:main-force'; do
+  t1b_case N warn-force-push-main "$c"
+done
+pass "G9/T8: $T1B_N rm spellings (split/long flags ask; quoted text and single flags do not) and the +main / trailing-flag force pushes"
 rm -rf "$T1_BRAIN"
 
 # D219: tests 2-7 previously ran with no BRAIN_DIR override, so sb_log_audit
@@ -816,8 +849,9 @@ b7_ask "Edit rules cache" warn-self-edit-rules-cache-edit '{"tool_name":"Edit","
 # hook-timer.sh wraps this guard in hooks.json: the wrapper must add no dependency either.
 b7_ask "rm -rf through hook-timer" warn-rm-rf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"session_id":"b7h"}' "$(dirname "$SCRIPT")/hook-timer.sh" 5
 # T1: the -edit twin of a self-edit rule is decided on the fast path too (a broken _PTG_RE_PRULES
-# made the fast path decline while parity still passed).
-b7_ask "Edit persona-rules.json" warn-self-edit-persona-rules-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/persona-rules.json","old_string":"a","new_string":"b"},"session_id":"b7i"}'
+# made the fast path decline while parity still passed). The .default file: plain persona-rules.json
+# also matches the hot-tier -edit twin (G8), which comes first, as it does for Write (t7b).
+b7_ask "Edit persona-rules.default.json" warn-self-edit-persona-rules-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/persona-rules.default.json","old_string":"a","new_string":"b"},"session_id":"b7i"}'
 # SEC-M1: the role-card / slug caches the hooks inject are locked like the rule files.
 b7_ask "Write into .second-brain/.injected" warn-self-edit-injected '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/.injected/s1.rolecard","content":"x"},"session_id":"b7j"}'
 # L3: with resource_scope on (the default), an out-of-scope target gets the full logic's scope ask —
@@ -989,9 +1023,15 @@ PAR_FAST=0
 for c in 'rm -rf /tmp/x' 'rm -fr x' 'sudo rm -Rf x' $'ls\nrm -rf x' $'rm\n-rf x' 'xrm -rf y' 'rm -rf2 x' \
          'git push --force origin main' 'git push -f origin master' 'git push --force-with-lease origin main' \
          'GIT PUSH --FORCE ORIGIN MAIN' 'git push --force origin mainline' $'git push --force origin\nmain' \
-         'git push origin main' 'ls -la'; do
+         'git push origin main' 'ls -la' \
+         'RM -R -F x' 'rm --Recursive --Force x' 'rm x -r -f' $'rm x\n-r -f' 'GIT PUSH ORIGIN +MAIN' \
+         'git push origin +HEAD:main' 'git push origin main --force' 'git push origin main--force' \
+         'git push origin main;ls -f' 'git push origin main && ls -f' 'git push origin +mainline' \
+         'git push origin main:main-force' 'git push -f+main'; do
   par Bash command "$c"
 done
+# G9/T8: every rm spelling of tests/fixtures/rm-rf-cases.txt, on both paths.
+while IFS='|' read -r _v c; do [ -n "$_v" ] && par Bash command "$c"; done < "$(dirname "$0")/fixtures/rm-rf-cases.txt"
 for f in /x/USER.md /x/superuser.md /x/persona-rules.json /x/persona-rules.default.json /x/.claude-plugin/plugin.json \
          /h/claude-code-plugin/scripts/x.sh /h/Second-Brain/SCRIPTS/Lib.SH /c/cache/second-brain/second-brain/0.1/hooks/hooks.json \
          /h/claude-code-plugin/scripts/sub/x.sh /b/projects/demo/rules.pending.json /b/.rules-effective.json \
@@ -1575,6 +1615,19 @@ grep -q '"rule":"warn-rm-rf"' "$SZ/audit-log.jsonl" || fail "SEC-H1: the 5000-li
 grep -q '"fastpath":true' "$SZ/audit-log.jsonl" \
   && fail "SEC-H1: a 5000-line command must be left to the full logic's grep, not the fast path's per-line regex"
 pass "SEC-H1: 5000-line command asks in ${BD_EL}s, decided by the full logic"
+
+# G9/T8: the rm and force-push patterns carry an unbounded run after each `rm ` / `git push`; glibc's
+# regexec retries it from every start, O(n^2) on one line (~1 s for 16 KB of `rm ` on Debian, 0.6 s for
+# `git push ` — measured 2026-10-10; MSYS's engine is linear). The fast path reads up to 16 KiB, so a
+# dense single line of either is its worst case: it must still answer inside the hook budget.
+G9R_RM=$(printf '%4900s' '' | sed 's/ /rm /g'); G9R_PUSH=$(printf '%1500s' '' | sed 's/ /git push +/g')
+for g9r in "$G9R_RM:-" "$G9R_PUSH:-" "$G9R_RM-r -f /tmp/g9r:ask"; do
+  printf '{"session_id":"g9r","tool_name":"Bash","tool_input":{"command":"%s"}}' "${g9r%:*}" > "$SZ/g9r.json"
+  bounded "G9 dense single-line ${g9r:0:10}… (${#g9r} chars)" "$BIG_BOUND" "$SZ/g9r.json"
+  if [ "${g9r##*:}" = ask ]; then is_ask "$BD_OUT" || fail "G9: a dense rm line ending in split rm flags must ask (got: $BD_OUT)"
+  else [ -z "$BD_OUT" ] || fail "G9: a dense flagless rm / git push line must stay silent (got: $BD_OUT)"; fi
+done
+pass "G9: dense 15 KB single-line rm / git push shapes answer inside the hook budget (last ${BD_MS} ms)"
 
 # SEC-C1: a 65,600-character command: the pre-filter grep's here-string (65,601 bytes) hung on MSYS.
 C1_PRE='{"session_id":"c1","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/c1 # '

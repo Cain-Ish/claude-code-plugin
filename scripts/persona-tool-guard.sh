@@ -928,8 +928,14 @@ _ptg_long_reason() {
 # persona-rules.default.json as the full logic applies them: case-insensitively (grep -i: the path
 # lowercased, [Xx] classes on the command), \b as a [^[:alnum:]_] boundary, command rules line by
 # line (grep's unit), in the default file's order (the full logic keeps the first ask it meets).
-_PTG_RE_PUSH='[Gg][Ii][Tt] [Pp][Uu][Ss][Hh].*(--[Ff][Oo][Rr][Cc][Ee]|-[Ff])[^[:alnum:]_](.*[^[:alnum:]_])?([Mm][Aa][Ii][Nn]|[Mm][Aa][Ss][Tt][Ee][Rr])([^[:alnum:]_]|$)'
-_PTG_RE_RMRF='(^|[^[:alnum:]_])[Rr][Mm][[:space:]]+(-[a-zA-Z]*[Rr][a-zA-Z]*[Ff][a-zA-Z]*|-[a-zA-Z]*[Ff][a-zA-Z]*[Rr][a-zA-Z]*)([^[:alnum:]_]|$)'
+# G9: a force flag before the branch, a '+' refspec (+main, +HEAD:main), or a force flag after the
+# branch within the same command (no ; & | between).
+_PTG_RE_PUSH='[Gg][Ii][Tt] [Pp][Uu][Ss][Hh](.*(--[Ff][Oo][Rr][Cc][Ee]|-[Ff])[^[:alnum:]_](.*[^[:alnum:]_])?|.*[^[:alnum:]_][+]([^[:space:]]*[^[:alnum:]_])?)([Mm][Aa][Ii][Nn]|[Mm][Aa][Ss][Tt][Ee][Rr])([^[:alnum:]_]|$)|[Gg][Ii][Tt] [Pp][Uu][Ss][Hh].*[^[:alnum:]_]([Mm][Aa][Ii][Nn]|[Mm][Aa][Ss][Tt][Ee][Rr])([^[:alnum:]_;&|][^;&|]*)?(--[Ff][Oo][Rr][Cc][Ee]|-[Ff])([^[:alnum:]_]|$)'
+# T8/G9: rm as a word of its own (not inside grep/echo text after a quote), glued, split or long flags.
+# shortcut: glibc retries the run after each `rm ` / `git push` from every start, O(n^2) on one line
+# (~1 s for a dense 16 KB line, the fast path's read cap; MSYS is linear) — upgrade to a per-segment
+# test if that cap grows. tests/test-persona-tool-guard.sh bounds the dense shapes.
+_PTG_RE_RMRF='(^|[[:space:];&|(`])[Rr][Mm][[:space:]]+([^;&|]*[[:space:]])?(-[a-zA-Z]*[Rr][a-zA-Z]*[[:space:]]+-[a-zA-Z]*[Ff]|-[a-zA-Z]*[Ff][a-zA-Z]*[[:space:]]+-[a-zA-Z]*[Rr]|--[Rr][Ee][Cc][Uu][Rr][Ss][Ii][Vv][Ee][[:space:]]+--[Ff][Oo][Rr][Cc][Ee]|--[Ff][Oo][Rr][Cc][Ee][[:space:]]+--[Rr][Ee][Cc][Uu][Rr][Ss][Ii][Vv][Ee]|-[a-zA-Z]*[Rr][a-zA-Z]*[Ff]|-[a-zA-Z]*[Ff][a-zA-Z]*[Rr])'
 _PTG_RE_HOT='(user\.md|project\.md|persona-card\.md|persona-rules\.json|plugin\.json)$'
 _PTG_RE_SCRIPTS='/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\.(sh|json)$'
 _PTG_RE_PRULES='persona-rules(\.default)?\.json$'
