@@ -5,6 +5,7 @@ import { spawnSync } from 'child_process';
 import { glob } from 'glob';
 import { assertSafeSlug, cleanEnvPath } from '../path-guard.js';
 import { hashContent } from './content-hash.js';
+import { registryPath, type DocRegistry } from './doc-registry.js';
 import { matchFrontmatter, extractYamlValue } from './frontmatter.js';
 
 /** Gist = first H1 / frontmatter title / first non-empty line. Deterministic, no LLM. */
@@ -46,13 +47,13 @@ export function filterIgnored(projectRoot: string, absPaths: string[]): string[]
   projectRoot = cleanEnvPath(projectRoot);   // CR-tainted root → `git -C <root>\r` fails → all files mis-classified
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
-  // git check-ignore reasons over POSIX paths; backslash rels make git C-quote its
-  // stdout (e.g. "docs\\secret.md"), which then never matches a real abs path below.
+  // git check-ignore reasons over POSIX paths. -z both ways: without it git C-quotes non-ASCII
+  // names ("d\303\266c.md") on stdout, which never matches a real abs path below (audit B6).
   const rels = nonJunk.map((p) => relative(projectRoot, p).split(/[\\/]+/).join('/'));
-  const res = spawnSync('git', ['-C', projectRoot, 'check-ignore', '--stdin'], { input: rels.join('\n'), encoding: 'utf-8' });
+  const res = spawnSync('git', ['-C', projectRoot, 'check-ignore', '-z', '--stdin'], { input: rels.join('\0'), encoding: 'utf-8' });
   // status 0 = some ignored (listed on stdout); 1 = none ignored; other (128/ENOENT) = not a repo / no git → junk-skip only
   if (res.status === 0 || res.status === 1) {
-    const ignored = new Set((res.stdout || '').split('\n').filter(Boolean).map((r) => join(projectRoot, r)));
+    const ignored = new Set((res.stdout || '').split('\0').filter(Boolean).map((r) => join(projectRoot, r)));
     return nonJunk.filter((p) => !ignored.has(p));
   }
   return nonJunk;
@@ -88,17 +89,6 @@ export async function scanLocations(projectRoot: string, locations: string[]): P
   }
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)); // byte-stable, locale-independent
   return entries;
-}
-
-export interface DocRegistry { generated_at: string; project: string; entries: DocEntry[]; }
-
-function registryPath(brainDir: string, slug: string): string {
-  return join(brainDir, 'projects', slug, 'doc-sources.json');
-}
-
-export async function loadRegistry(brainDir: string, slug: string): Promise<DocRegistry | null> {
-  try { assertSafeSlug(slug); return JSON.parse(await fs.readFile(registryPath(brainDir, slug), 'utf-8')); }
-  catch { return null; }
 }
 
 /** The registry entries a search may offer the model, and why the rest were refused. */
