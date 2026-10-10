@@ -148,17 +148,24 @@ grep '"rule":"r3"' "$AUD" | grep -q '"late":true' \
   || fail "(h) GX8: without jq, the caller's extra late flag must reach the row: $(cat "$AUD")"
 pass "(h) sb_log_audit: the deadline is the direct child's only; a caller's late flag survives a missing jq"
 
-# --- (i) audit H7: a hook that outlives its budget is killed at budget-1 s and leaves a timeout row ---
+# --- (i) audit H7: a hook that outlives its budget is killed just before it (budget-0.3 s) and leaves
+# a timeout row. Not earlier: a 5 s guard cut at 4 s lost a fifth of its budget (more fail-opens).
 HANG="$SANDBOX/hang.sh"
 printf '#!/bin/bash\ncat >/dev/null\nsleep 30\ntouch "%s/survived"\n' "$SANDBOX" > "$HANG"; chmod +x "$HANG"
 : > "$AUD"
 i_t0=$SECONDS
 printf 'in' | bash "$TIMER" 3 "$HANG" >/dev/null 2>&1; i_rc=$?
 i_dt=$(( SECONDS - i_t0 ))
-[ "$i_dt" -le 6 ] || fail "(i) the wrapper did not cut a hung child at budget-1 s (took ${i_dt}s)"
+[ "$i_dt" -le 6 ] || fail "(i) the wrapper did not cut a hung child near its budget (took ${i_dt}s)"
 [ "$i_rc" -eq 124 ] || fail "(i) a timed-out child must exit 124 (got $i_rc)"
-grep '"kind":"latency"' "$AUD" | grep '"hook":"hang.sh"' | grep -q '"timeout":true' \
-  || fail "(i) no timeout latency row for the killed hook: $(cat "$AUD")"
+i_row=$(grep '"kind":"latency"' "$AUD" | grep '"hook":"hang.sh"' | grep '"timeout":true')
+[ -n "$i_row" ] || fail "(i) no timeout latency row for the killed hook: $(cat "$AUD")"
+# The row's duration is the wrapper's own clock: ms-precise with bash 5's EPOCHREALTIME or GNU date %N
+# (a whole-second clock could read a 2.7 s run as 2000 ms, so the bound is skipped there).
+if [ -n "$(bash -c 'printf %s "${EPOCHREALTIME:-}"')" ] || [[ $(date +%s%N) =~ ^[0-9]+$ ]]; then
+  i_ms=$(printf '%s' "$i_row" | sed 's/.*"duration_ms":\([0-9]*\).*/\1/')
+  [ "${i_ms:-0}" -ge 2500 ] || fail "(i) the watchdog cut a 3 s-budget hook at ${i_ms} ms: it must leave the hook nearly its whole budget (>= 2500 ms)"
+fi
 sleep 1
 [ ! -e "$SANDBOX/survived" ] || fail "(i) the hung child kept running after the wrapper gave up"
 pass "(i) a hook past its budget is killed, a timeout row is written, the child does not survive"
