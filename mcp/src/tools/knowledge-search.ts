@@ -220,6 +220,15 @@ const SINGLE_LETTER_RE = /^[a-z]$/;
 // alphanumerics (d154, v2, 627m) still ground. Grounding only; BM25 still scores digits.
 const PURE_DIGITS_RE = /^[0-9]+$/;
 
+/** A numeric env override, clamped to [lo, hi]; unset, empty or non-numeric falls back to `def`
+ *  (audit N6: shared by the two injecting CLIs). NaN would make every `>= NaN` gate false. */
+export const envNum = (name: string, def: number, lo: number, hi: number): number => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
+
 let embedFailLogged = false;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {

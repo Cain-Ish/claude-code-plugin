@@ -1,4 +1,4 @@
-import { knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision, injectedHitLines, reportInjectDrops } from './knowledge-search.js';
+import { envNum, knowledgeSearch, injectableWiki, legacyWikiFilter, parseInjectGate, reportInjectPrecision, injectedHitLines, reportInjectDrops } from './knowledge-search.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 const query = process.argv[2] || '';
@@ -35,12 +35,6 @@ const minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || '0');
 // exact unsatisfiable-gate failure this file exists to fix, re-entered through an operator typo.
 // A negative override is the mirror image: `grounded >= -1` is vacuously true and the precision
 // gate disappears. Clamp both ends and fall back to the documented default.
-const envNum = (name: string, def: number, lo: number, hi: number): number => {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return def;
-  const v = Number(raw);
-  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
-};
 const minRelevance = envNum('SB_INJECT_MIN_RELEVANCE', 0, 0, Number.MAX_SAFE_INTEGER);
 const minGrounded = envNum('SB_INJECT_MIN_GROUNDED', 2, 0, 64);
 
