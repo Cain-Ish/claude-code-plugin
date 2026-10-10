@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { promises as fs, mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
+import { promises as fs, readFileSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
 import { join, sep, parse } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
@@ -10,12 +10,12 @@ import {
   readConfig,
   scanLocations,
   buildRegistry,
-  loadRegistry,
   addLocation,
   removeLocation,
   listLocations,
   servableEntries,
 } from './doc-sources.js';
+import { loadRegistry } from './doc-registry.js';
 import { hashContent } from './content-hash.js';
 
 // Review 2 (P-T1, P-T6): an entry is served by its realpath but printed as registered, so only a
@@ -93,6 +93,26 @@ describe('doc-sources filterIgnored', () => {
     const junk = join(root, 'node_modules', 'pkg', 'x.md');
     const keep = join(root, 'docs', 'y.md');
     expect(filterIgnored(root, [junk, keep])).toEqual([keep]);
+  });
+
+  // Audit B6: without -z git C-quotes non-ASCII names on stdout, so an ignored doc was kept.
+  it('drops a git-ignored doc whose name is non-ASCII', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'fi-nonascii-'));
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    writeFileSync(join(root, '.gitignore'), 'docs/\n');
+    const ignored = join(root, 'docs', 'caf\u00e9-\u4e2d.md');
+    const gitignoredAscii = join(root, 'docs', 'plain.md');
+    writeFileSync(ignored, 'x'); writeFileSync(gitignoredAscii, 'x');
+    const keep = join(root, 'keep-\u00fc.md'); writeFileSync(keep, 'x');
+    expect(filterIgnored(root, [ignored, gitignoredAscii, keep])).toEqual([keep]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  // Audit N3: the registry reader stays glob-free.
+  it('doc-registry.ts does not import glob', () => {
+    const src = readFileSync(new URL('./doc-registry.ts', import.meta.url), 'utf-8');
+    expect(src).not.toMatch(/from 'glob'/);
   });
 
   it('splits path segments on both separators (the junk regex is cross-OS)', () => {

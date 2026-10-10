@@ -585,3 +585,18 @@ describe('SB_INJECT_PRECISION kill switch', () => {
     }
   });
 });
+
+describe('envNum (shared by both injecting CLIs)', () => {
+  it('clamps, and falls back to the default for unset, empty or non-numeric values', async () => {
+    const { envNum } = await import('./knowledge-search.js');
+    const K = 'SB_TEST_ENVNUM';
+    delete process.env[K];
+    expect(envNum(K, 2, 0, 64)).toBe(2);
+    process.env[K] = ''; expect(envNum(K, 2, 0, 64)).toBe(2);
+    process.env[K] = 'true'; expect(envNum(K, 2, 0, 64)).toBe(2);
+    process.env[K] = '-5'; expect(envNum(K, 2, 0, 64)).toBe(0);
+    process.env[K] = '999'; expect(envNum(K, 2, 0, 64)).toBe(64);
+    process.env[K] = '7'; expect(envNum(K, 2, 0, 64)).toBe(7);
+    delete process.env[K];
+  });
+});

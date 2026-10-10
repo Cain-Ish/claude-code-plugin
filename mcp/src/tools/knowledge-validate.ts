@@ -262,6 +262,12 @@ export async function knowledgeValidate(
   } catch { /* knowledgeDir may not exist */ }
 
   if (opts.autofix) {
+    // mtime dates of pages that will be patched, read before ANY fix rewrites a file (audit D9).
+    const origMtimeDate = new Map<string, string>();
+    for (const issue of issues) {
+      if (issue.autofix !== 'patch_frontmatter') continue;
+      try { origMtimeDate.set(issue.path, (await fs.stat(issue.path)).mtime.toISOString().slice(0, 10)); } catch { /* gone */ }
+    }
     for (const issue of issues) {
       if (issue.autofix === 'remove' && issue.type === 'empty_page') {
         try {
@@ -298,7 +304,7 @@ export async function knowledgeValidate(
       }
       if (issue.autofix === 'patch_frontmatter' && issue.type === 'incomplete_frontmatter') {
         try {
-          if (await patchFrontmatter(issue.path, wikiDir, graphEnabled)) fixed++;
+          if (await patchFrontmatter(issue.path, wikiDir, graphEnabled, origMtimeDate.get(issue.path))) fixed++;
         } catch { /* skip pages we can't write */ }
       }
     }
@@ -319,18 +325,19 @@ function isIncompleteFrontmatter(content: string): boolean {
 // (title from H1/slug, type from folder, created from body-date/slug/mtime) —
 // but `updated` derives from FILE MTIME, never "today", so shaping a page never
 // re-dates it (the churn/provenance risk). Returns true if the file changed.
-async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled = false): Promise<boolean> {
+async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled = false, origMtimeDate?: string): Promise<boolean> {
   const original = await fs.readFile(filePath, 'utf-8');
   const m = matchFrontmatter(original);
-  if (!m) return false;
+  if (!m || !looksLikeFrontmatter(m.fm)) return false;
   const fmBody = m.fm;
   const missing = REQUIRED_FM_FIELDS.filter(k => !new RegExp(`^${k}:`, 'm').test(fmBody));
   if (missing.length === 0) return false;
 
   const slug = basename(filePath, '.md');
   const body = m.body;
+  // origMtimeDate: captured before any autofix write, which would otherwise move the mtime to today (audit D9).
   let mtimeDate: string;
-  try { mtimeDate = (await fs.stat(filePath)).mtime.toISOString().slice(0, 10); }
+  try { mtimeDate = origMtimeDate ?? (await fs.stat(filePath)).mtime.toISOString().slice(0, 10); }
   catch { mtimeDate = new Date().toISOString().slice(0, 10); }
 
   const derive = (k: string): string => {
@@ -382,6 +389,8 @@ export async function addFrontmatter(filePath: string, wikiDir: string): Promise
   // BOM-tolerant (D054): without this, a BOM'd page that already has valid frontmatter
   // slipped past this guard and got a SECOND block prepended on top of the first.
   if (hasFrontmatterFence(original)) return;
+  // An empty page belongs to the empty_page pass (D066 keeps a young one): a stub would make it non-empty (audit T9).
+  if (!original.trim()) return;
 
   const slug = basename(filePath, '.md');
 
@@ -464,6 +473,14 @@ function isMalformedFrontmatter(content: string): boolean {
   }
 }
 
+// An unclosed fence makes matchFrontmatter run on to a later '---' in the body, so the "frontmatter"
+// is really prose and code. Rewriting it (the duplicate-key collapse) deletes body lines (audit D3).
+// Frontmatter here is flat: lowercase `key: value` lines, indented continuations, `- ` list items,
+// blank lines. Anything else (a heading, a shell line, a capitalised "Step:") means it is not.
+function looksLikeFrontmatter(fm: string): boolean {
+  return fm.split('\n').every(l => l.trim() === '' || /^([a-z_][\w.-]*:([ \t]|$)|[ \t]|-[ \t])/.test(l));
+}
+
 // Collapse duplicate top-level frontmatter keys, keeping each key's LAST
 // occurrence (and its owned indented block-list continuation). Shallow by
 // design — frontmatter is a flat key: value map, so a key appearing at column 0
@@ -506,7 +523,7 @@ function dedupeTopLevelKeys(fm: string): string {
 async function normalizeFrontmatter(filePath: string): Promise<boolean> {
   const content = await fs.readFile(filePath, 'utf-8');
   const m = matchFrontmatter(content);
-  if (!m) return false;
+  if (!m || !looksLikeFrontmatter(m.fm)) return false;
   let fm = m.fm;
   // Repair the duplicate-mapping-key class first (e.g. `updated:` written twice
   // — the regex reader returned the STALE first value). Collapse each duplicated

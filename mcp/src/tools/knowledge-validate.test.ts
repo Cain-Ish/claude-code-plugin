@@ -441,3 +441,53 @@ describe('empty-page autofix race guard (D066)', () => {
     expect(out).toContain('real content');   // re-check saw it was no longer empty — not deleted
   });
 });
+
+// Audit T9: the young-empty-page guard (D066) keeps the file, but addFrontmatter then stubbed it,
+// so the page stopped being empty and the guard's job was undone.
+describe('autofix leaves a young empty page empty (audit T9)', () => {
+  it('does not give an empty page a frontmatter stub', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-t9-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+    const f = join(wiki, 'learnings', 'fresh-empty.md');
+    await fs.writeFile(f, '');
+    await knowledgeValidate(dir, { autofix: true });
+    expect(await fs.readFile(f, 'utf-8')).toBe('');
+  });
+});
+
+// Audit D3: an UNCLOSED fence made matchFrontmatter run to a later '---' in the body, and the
+// duplicate-key collapse then deleted body lines (a repeated 'Step:' line).
+describe('normalize refuses a fence that swallowed the body (audit D3)', () => {
+  it('leaves a page with an unclosed frontmatter fence byte-identical', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-d3-'));
+    const wiki = join(dir, 'wiki', 'learnings');
+    await fs.mkdir(wiki, { recursive: true });
+    const f = join(wiki, 'runbook.md');
+    const page = [
+      '---', 'title: Runbook', 'type: learnings', '',
+      '# Restore', 'Step: 1', 'psql -c "select 1"', 'Step: 2', 'psql -c "select 2"', '---', 'tail text', '',
+    ].join('\n');
+    await fs.writeFile(f, page);
+    await knowledgeValidate(dir, { autofix: true });
+    expect(await fs.readFile(f, 'utf-8')).toBe(page);
+  });
+});
+
+// Audit D9: normalize rewrote the file, then patch read the NEW mtime and stamped created: today.
+describe('normalize-then-patch keeps the original date (audit D9)', () => {
+  it('derives created/updated from the pre-fix mtime', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-d9-'));
+    const wiki = join(dir, 'wiki', 'learnings');
+    await fs.mkdir(wiki, { recursive: true });
+    const f = join(wiki, 'old-page.md');
+    // malformed (bracketless related) AND incomplete (no created/updated)
+    await fs.writeFile(f, '---\ntitle: Old\ntype: learnings\nrelated: [[a]], [[b]]\n---\n\nbody body body\n');
+    const past = new Date('2024-03-05T12:00:00Z');
+    await fs.utimes(f, past, past);
+    await knowledgeValidate(dir, { autofix: true });
+    const out = await fs.readFile(f, 'utf-8');
+    expect(out).toMatch(/^created: 2024-03-05$/m);
+    expect(out).toMatch(/^updated: 2024-03-05$/m);
+  });
+});
