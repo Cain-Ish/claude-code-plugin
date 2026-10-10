@@ -149,7 +149,7 @@ if [ ! -f "$_D118_MARK" ] && [ -s "$BRAIN_DIR/projects.jsonl" ] && command -v jq
     _D118_DEST="$BRAIN_DIR/projects.jsonl.purged-$(date -u +%Y%m%d)"
     cat "$_D118_PURGED" >> "$_D118_DEST"
     mv "$_D118_KEPT" "$BRAIN_DIR/projects.jsonl"
-    _D118_N=$(grep -c . "$_D118_PURGED" 2>/dev/null || echo 0)
+    _D118_N=$(grep -c . "$_D118_PURGED" 2>/dev/null); _D118_N=${_D118_N:-0}
     sb_log_error "ensure-dirs.sh" "gate=registration-purge removed $_D118_N HOME/temp-root registry row(s) -> $_D118_DEST" 0
   else
     rm -f "$_D118_KEPT"

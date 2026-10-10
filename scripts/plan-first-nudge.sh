@@ -148,7 +148,7 @@ fi
 # Re-edits of an already-registered file change nothing the gates evaluate.
 [ "$NEWFILE" = "1" ] || exit 0
 
-COUNT=$(grep -c . "$SEEN" 2>/dev/null || echo 0)
+COUNT=$(grep -c . "$SEEN" 2>/dev/null)
 
 if [ ! -f "$DONE" ] && [ "${COUNT:-0}" -ge "$THRESH" ] 2>/dev/null; then
   if [ "$SPINE_ON" = "0" ]; then
@@ -241,7 +241,7 @@ if [ "$SPINE_ON" = "1" ] && [ ! -f "$STATE/$SID.driftdeny" ]; then
       fi
       if [ "$_OBSERVED" -eq 0 ]; then
         printf '%s\n' "$FP" >> "$DRIFT" 2>/dev/null || true
-        DCOUNT=$(grep -c . "$DRIFT" 2>/dev/null || echo 0)
+        DCOUNT=$(grep -c . "$DRIFT" 2>/dev/null)
         DTHRESH="${SB_DRIFT_FILES:-4}"; case "$DTHRESH" in ''|*[!0-9]*) DTHRESH=4 ;; esac
         if [ "${DCOUNT:-0}" -ge "$DTHRESH" ] 2>/dev/null; then
           GOAL=$(jq -r '.goal // ""' "$MEMO" 2>/dev/null | tr -d '\r')

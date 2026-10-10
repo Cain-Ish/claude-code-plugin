@@ -75,7 +75,7 @@ _snapshot() {
   # Nothing staged => nothing changed => no empty commit (keeps the log meaningful).
   if _git diff --cached --quiet 2>/dev/null; then return 0; fi
   local n
-  n=$(_git diff --cached --name-only 2>/dev/null | grep -c . || echo 0)
+  n=$(_git diff --cached --name-only 2>/dev/null | grep -c .)
   if ! out=$(_git commit -q -m "$reason ($n file(s))" 2>&1); then
     sb_log_error "wiki-history" "snapshot commit failed: ${out:0:200}" 1
     return 1
