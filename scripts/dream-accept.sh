@@ -426,11 +426,13 @@ if command -v rsync >/dev/null 2>&1; then
     printf '%s\n' "$PROTECT" | while IFS= read -r _rel; do
       [ -n "$_rel" ] && printf '/%s\n' "$_rel"
     done > "$_exf"
-    APPLY_ERR=$(rsync -a --delete --safe-links --exclude-from="$_exf" "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
+    # D8: -u (both --delete arms) keeps a live page written during the apply window, i.e. after
+    # PROTECT was computed, when it is newer than staging's copy.
+    APPLY_ERR=$(rsync -au --delete --safe-links --exclude-from="$_exf" "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
     rm -f "$_exf"
     [ "$APPLY_RC" -eq 0 ] && echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (merge-only; not deleted or overwritten)."
   else
-    APPLY_ERR=$(rsync -a --delete --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
+    APPLY_ERR=$(rsync -au --delete --safe-links "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
   fi
 else
   # No rsync — the NORMAL apply path on Windows git-bash (the primary dev
@@ -442,11 +444,18 @@ else
   # D1: both stash loops run in THIS shell (not a pipe subshell) so a failed copy is seen. A failed
   # fill aborts before the apply (live untouched, so the partial stash holds nothing unique); a
   # failed or short restore keeps the stash (the only copy of those edits) and fails the accept.
+  # D8: cp -u keeps a live page written during the apply window when it is newer than staging's
+  # copy. GNU cp only (git-bash, Linux); BSD cp has no -u, and macOS ships rsync, so a BSD host gets
+  # here only without rsync and keeps the plain copy. Merge-only keeps its documented overwrite.
+  _cpf="-r"; [ "$PROTECT_OK" = "1" ] && cp --version >/dev/null 2>&1 && _cpf="-ru"
   _stash=""; _stashed=0
   if [ -n "$PROTECT" ]; then
     _stash=$(mktemp -d) || { _stash=""; APPLY_RC=1; APPLY_ERR="could not create a stash dir for the post-snapshot live pages; nothing was applied"; }
     while [ -n "$_stash" ] && IFS= read -r _rel; do
       { [ -n "$_rel" ] && [ -f "$LIVE_WIKI/$_rel" ]; } || continue
+      # cp -u never overwrites a live page newer than its staging copy: no stash, and no restore
+      # that would clobber a write landing during the apply.
+      [ "$_cpf" = "-ru" ] && [ "$LIVE_WIKI/$_rel" -nt "$STAGING_WIKI/$_rel" ] && continue
       if mkdir -p "$_stash/$(dirname "$_rel")" && cp -p "$LIVE_WIKI/$_rel" "$_stash/$_rel"; then
         _stashed=$((_stashed + 1))
       else
@@ -459,10 +468,10 @@ else
     # First attempt's stderr is discarded on purpose — it commonly fails only
     # because $LIVE_WIKI doesn't exist yet, which the mkdir -p fallback fixes;
     # the SECOND attempt's exit status/stderr is the one that matters.
-    cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>/dev/null
+    cp "$_cpf" "$STAGING_WIKI/." "$LIVE_WIKI/" 2>/dev/null
     APPLY_RC=$?
     if [ "$APPLY_RC" -ne 0 ]; then
-      APPLY_ERR=$(mkdir -p "$LIVE_WIKI" && cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
+      APPLY_ERR=$(mkdir -p "$LIVE_WIKI" && cp "$_cpf" "$STAGING_WIKI/." "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
     fi
   fi
   if [ "$APPLY_RC" -eq 0 ] && [ -n "$_stash" ]; then

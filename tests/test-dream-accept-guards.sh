@@ -404,8 +404,9 @@ if ! command -v rsync >/dev/null 2>&1 || ! command -v cygpath >/dev/null 2>&1; t
   NORSYNC_PATH=$(norsync_path)
   PATH="$NORSYNC_PATH" command -v rsync >/dev/null 2>&1 && NORSYNC_PATH=""
 fi
-# stash_fixture: live p1..p3 predate created_at, p2 is edited live after it (PROTECT -> stashed);
-# staging rewrites p1 (CONSOLIDATED) and holds the snapshot p2, which the apply copies over live p2.
+# stash_fixture: live p1..p3 predate created_at; p2 was edited live after it (PROTECT) and the dream
+# rewrote p2 later still, so the apply overwrites live p2 and the stash must bring the edit back.
+# Staging also rewrites p1 (CONSOLIDATED).
 stash_fixture() {
   setup 3 "p1 p2 p3"
   D="$BRAIN_DIR/dreams/drm_test"
@@ -414,8 +415,9 @@ stash_fixture() {
                         "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
                         "$KNOWLEDGE_DIR/wiki/entities/p3.md"
   printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"
-  touch "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+  touch -t 202601150000 "$KNOWLEDGE_DIR/wiki/entities/p2.md"
   printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
+  printf -- '---\ntitle: p2\ntype: entities\nrelated: []\n---\n\n# p2\n\nDREAM REWRITE\n' > "$D/staging/wiki/entities/p2.md"
 }
 # apply_shim <fill|restore>: a PATH dir whose cp fails the stash copy of p2 (fill: live -> stash;
 # restore: stash -> live) and passes every other call to the real cp.
@@ -599,5 +601,40 @@ printf '%s' "$OUT" | grep -q 'Applied 1 relation edge' \
   || fail "D10: the edge count is wrong with an empty edges.jsonl: $OUT"
 pass "D10: an empty edges.jsonl no longer aborts the accept (rc=0, archived, 1 edge applied)"
 rm -rf "$SB"
+
+# === D8 (audit): a live write landing DURING the apply (after PROTECT was computed) was overwritten
+# by staging's older copy (no -u). A shim around this host's apply tool (rsync, else cp) appends to
+# live p3, a pre-snapshot page staging holds unchanged, as the apply starts. ORACLE: that write
+# survives and the dream's own change to p1 still lands. Run with and without a protected page so
+# both --delete arms (exclude list / none) are covered where rsync exists. The shim sleeps 1 s first:
+# rsync compares mtimes to the whole second by default, and the accept's own staging normalization
+# rewrites p3 moments before the apply (a same-second write is the residual limit of -u there).
+for d8_protect in 1 0; do
+  if ! command -v rsync >/dev/null 2>&1 && ! cp --version >/dev/null 2>&1; then
+    echo "SKIP: D8 — no rsync and a BSD cp without -u: this host keeps the plain merge-copy (macOS ships rsync)"
+    pass "D8: apply-window write (skipped — no rsync and no cp -u)"; break
+  fi
+  setup 3 SAME
+  old_snapshot
+  D="$BRAIN_DIR/dreams/drm_test"
+  find "$D/staging/wiki" -name '*.md' -type f -exec touch -t 202512010000 {} +   # snapshot copies keep old mtimes
+  printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
+  [ "$d8_protect" = 1 ] && printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"
+  d8_tool=cp; command -v rsync >/dev/null 2>&1 && d8_tool=rsync
+  mkdir -p "$SB/d8shim"
+  printf '#!%s\nfor a in "$@"; do case "$a" in */staging/wiki/|*/staging/wiki/.) [ -e %q ] || { sleep 1; printf "WINDOW WRITE\\n" >> %q; : > %q; } ;; esac; done\nexec %q "$@"\n' \
+    "$BASH" "$SB/d8.done" "$KNOWLEDGE_DIR/wiki/entities/p3.md" "$SB/d8.done" "$(command -v "$d8_tool")" > "$SB/d8shim/$d8_tool"
+  chmod +x "$SB/d8shim/$d8_tool"
+  OUT=$(PATH="$SB/d8shim:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1); rc=$?
+  [ -e "$SB/d8.done" ] || fail "D8: precondition — the $d8_tool shim never saw the apply call: $OUT"
+  [ "$rc" -eq 0 ] || fail "D8: accept failed (rc=$rc): $OUT"
+  grep -q 'WINDOW WRITE' "$KNOWLEDGE_DIR/wiki/entities/p3.md" \
+    || fail "D8 ($d8_tool, protected page=$d8_protect): a live write during the apply was overwritten by staging's older copy"
+  grep -q 'CONSOLIDATED' "$KNOWLEDGE_DIR/wiki/entities/p1.md" || fail "D8 ($d8_tool): the dream's change to p1 no longer lands"
+  [ "$d8_protect" = 0 ] || grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+    || fail "D8 ($d8_tool): the post-snapshot edit to p2 was lost"
+  pass "D8 ($d8_tool, protected page=$d8_protect): a live write during the apply survives; the dream's p1 change still lands"
+  rm -rf "$SB"
+done
 
 echo "ALL PASS"
