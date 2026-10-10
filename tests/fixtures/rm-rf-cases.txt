@@ -1,0 +1,15 @@
+Y|rm -rf /tmp/x
+Y|rm -fr /tmp/x
+Y|rm -Rf /tmp/x
+Y|rm -r -f /tmp/x
+Y|rm -f -r /tmp/x
+Y|rm --recursive --force /tmp/x
+Y|cd a && rm -rf b
+Y|sudo rm -r -f ~
+Y|find . | xargs rm -rf
+Y|(rm -rf x)
+N|grep -n 'rm -rf' scripts/a.sh
+N|echo "rm -rf is bad"
+N|rm -r /tmp/x
+N|rm -f file
+N|cat x | grep form -rf
