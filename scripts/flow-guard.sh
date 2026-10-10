@@ -16,10 +16,13 @@
 #   - Task — subagent dispatch is a separate channel (future work).
 #
 # Patterns detected (conservative; false-negative leaning):
-#   JWT, AWS Access Key, GitHub PAT (legacy + fine-grained), Anthropic
-#   key, OpenAI key, Slack token, PEM private key block, Bearer + long
-#   base64 (≥40 chars) bundle. All anchored with surrounding context to
-#   avoid tripping on test fixtures of random base64.
+#   JWT, AWS Access Key, GitHub PAT (legacy + fine-grained) and OAuth/app
+#   tokens (gho_ ghu_ ghs_ ghr_), Anthropic key and Claude OAuth token
+#   (sk-ant-oat/ort), OpenAI key, Slack token, PEM private key block, Bearer +
+#   long base64 (≥40 chars) bundle, and a credential FILE fed to the egress
+#   (curl's @path, a reader piped or substituted in, a < redirect, an upload
+#   flag). All anchored with surrounding context to avoid tripping on test
+#   fixtures of random base64.
 #
 # Verdict: ask. Reason carries which pattern matched (no secret value).
 # Logged to audit-log.jsonl. Kill switch: SB_FLOW_GUARD=off.
@@ -525,13 +528,13 @@ FG_LABELS=(jwt aws-access-key github-pat anthropic-key openai-key slack-token pe
 FG_RES=(
   'ey[A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
   'AKIA[0-9A-Z]{16}'
-  '(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
-  'sk-ant-(api|admin)[0-9]*-[A-Za-z0-9_-]{20,}'
+  '(gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
+  'sk-ant-(api|admin|oat|ort)[0-9]*-[A-Za-z0-9_-]{20,}'
   'sk-(proj-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})'
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '@[^[:space:]@]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
+  '(@|<[[:space:]]*|(^|[^A-Za-z0-9_-])(cat|gc|Get-Content|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*|(^|[[:space:]])(-T|--upload-file|--post-file|-InFile)(=|[[:space:]]+))[^[:space:]@<>|;&]*(\.ssh[/\\](id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws[/\\]credentials|\.netrc|\.npmrc|\.git-credentials|\.docker[/\\]config\.json|\.kube[/\\]config|\.credentials\.json|\.pem|\.p12)([^A-Za-z0-9_.-]|$)'
 )
 # The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
 # be followed by something else is retried from every start inside a long run of its own characters,
@@ -539,8 +542,11 @@ FG_RES=(
 # 'ey' 9-11 s, BEGIN + 80K spaces 17 s — past the 5 s timeout, so the call ran). Each copy matches
 # the same lines as its FG_RES twin, in linear time; tests/test-flow-guard.sh holds the two paths to
 # one verdict over a corpus and times the adversarial shapes.
-# - credential-file-upload: its run excludes '@' in FG_RES itself (both paths): a match from an
-#   earlier '@' still matches from the last '@' of its run, so no line changes verdict.
+# - credential-file-upload: its run excludes the characters its starts begin with ('@', '<', space)
+#   in FG_RES itself (both paths): a match from an earlier start still matches from the last one, so
+#   no line changes verdict, and no start rescans another's run. Its starts (G5): curl's @path, a
+#   < redirect, a reader word (cat, base64, …, its -flags) — piped or $(…)-substituted — and an upload
+#   flag (-T, --upload-file, --post-file, -InFile). An identity flag (ssh -i ~/.ssh/id_rsa) is no start.
 # - jwt: the first segment's run must end where its '.' is — the end of its run of token
 #   characters — so whether some 'ey' in a run starts a match is decided by the first 'ey' of that
 #   run with 10 characters after it. The copy starts only at a run's start (lookbehind), takes that
