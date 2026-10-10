@@ -483,6 +483,7 @@ COMBINED_CLI="$PLUGIN_ROOT/mcp/dist/tools/context-serve-cli.bundle.js"
 # failed relink is breadcrumbed to the error log rather than swallowed.
 if [ -f "$COMBINED_CLI" ] \
    && [ ! -d "$PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] \
+   && [ -d "${SB_VECTOR_DEPS_DIR:-$HOME/.second-brain/vector-deps}/node_modules" ] \
    && [ -f "$PLUGIN_ROOT/bin/install-vector-deps.sh" ]; then
   if ! bash "$PLUGIN_ROOT/bin/install-vector-deps.sh" --relink-only >/dev/null 2>&1; then
     printf '{"timestamp":"%s","script":"persona-context.sh","message":"vector-deps relink failed after cache refresh — embeddings bm25-only until fixed","exit_code":0}\n' \

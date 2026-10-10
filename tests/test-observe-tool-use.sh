@@ -337,5 +337,31 @@ grep -q 'SB_OBSERVATION_LEDGER' "$PLUGIN_ROOT/scripts/lib.sh" \
   || fail "wiring: SB_OBSERVATION_LEDGER not mapped in lib.sh minimal profile"
 pass "wiring: hooks.json entry + drainer GC + minimal-profile mapping present"
 
+# H8 (audit): the per-tool-call hooks must not load lib.sh unless they need it. A tripwire lib.sh
+# (copied-script dir) leaves a marker when sourced.
+H8=$(mktemp -d); mkdir -p "$H8/scripts"
+cp "$PLUGIN_ROOT/scripts/observe-tool-use.sh" "$PLUGIN_ROOT/scripts/tool-return-scanner.sh" "$H8/scripts/"
+printf 'touch "%s/lib-sourced"; sb_has_scrub_literal() { return 1; }\n' "$H8" > "$H8/scripts/lib.sh"
+payload "Bash" "sess-h8" '{"command":"git status"}' '{"stdout":"clean","stderr":""}' | bash "$H8/scripts/observe-tool-use.sh"
+[ -s "$BRAIN_DIR/observations/sess-h8.jsonl" ] || fail "H8: benign observation not written"
+[ ! -e "$H8/lib-sourced" ] || fail "H8: observe-tool-use.sh sourced lib.sh on a credential-free call"
+payload "Bash" "sess-h8k" '{"command":"echo sk-abc"}' '{"stdout":"x","stderr":""}' | bash "$H8/scripts/observe-tool-use.sh"
+[ -e "$H8/lib-sourced" ] || fail "H8: a credential-looking line must load lib.sh for the scrub"
+rm -f "$H8/lib-sourced"
+payload "Bash" "sess-h8" '{"command":"ls"}' '{"stdout":"clean listing","stderr":""}' \
+  | CLAUDE_PLUGIN_ROOT="$H8" bash "$H8/scripts/tool-return-scanner.sh"
+[ ! -e "$H8/lib-sourced" ] || fail "H8: tool-return-scanner.sh sourced lib.sh before its no-match exit"
+pass "H8: observe/scanner skip lib.sh on the no-hit path (observe loads it for a credential-like line)"
+# the prefilter in observe-tool-use.sh must cover every literal of lib.sh's scrub list
+( source "$PLUGIN_ROOT/scripts/lib.sh"; for l in "${_SB_SCRUB_LITERALS[@]}"; do
+    [ "$l" = "-e" ] && continue
+    case "$l" in $'\xe2'*|$'\xef'*) continue ;; esac   # zero-width bytes: checked by the grep below
+    grep -qiF -- "*$l*" "$PLUGIN_ROOT/scripts/observe-tool-use.sh" || grep -qiF -- "*\"$l\"*" "$PLUGIN_ROOT/scripts/observe-tool-use.sh" \
+      || { echo "FAIL: H8 prefilter lacks scrub literal '$l'"; exit 1; }
+  done ) || exit 1
+grep -qF "xe2\x80\x8b" "$PLUGIN_ROOT/scripts/observe-tool-use.sh" || fail "H8: prefilter lacks the zero-width literals"
+pass "H8: observe prefilter covers lib.sh's scrub literals"
+rm -rf "$H8"
+
 echo
 echo "ALL PASS"

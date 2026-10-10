@@ -403,17 +403,24 @@ mkdir -p "$(cd "$(dirname "$0")/.." && pwd)/mcp/node_modules/@huggingface/transf
 exit 0
 RLS
 chmod +x "$RL_ROOT/bin/install-vector-deps.sh"
+# bm25-only install (no shared vector-deps tree): the relink must NOT be attempted (audit H6).
+RL_VD=$(mktemp -d)
 printf '{"prompt":"check the model ladder resolution here"}' \
-  | CLAUDE_PLUGIN_ROOT="$RL_ROOT" BRAIN_DIR="$RL_BRAIN" bash "$SCRIPT" >/dev/null 2>&1
+  | SB_VECTOR_DEPS_DIR="$RL_VD" CLAUDE_PLUGIN_ROOT="$RL_ROOT" BRAIN_DIR="$RL_BRAIN" bash "$SCRIPT" >/dev/null 2>&1
+[ ! -f "$RL_ROOT/relink-invoked" ] || fail "relink guard: relinked on a bm25-only install (no shared vector-deps)"
+pass "relink guard: no shared vector-deps tree skips the relink"
+mkdir -p "$RL_VD/node_modules"
+printf '{"prompt":"check the model ladder resolution here too"}' \
+  | SB_VECTOR_DEPS_DIR="$RL_VD" CLAUDE_PLUGIN_ROOT="$RL_ROOT" BRAIN_DIR="$RL_BRAIN" bash "$SCRIPT" >/dev/null 2>&1
 [ -f "$RL_ROOT/relink-invoked" ] && grep -q -- '--relink-only' "$RL_ROOT/relink-invoked" \
   || fail "relink guard: missing junction did not trigger --relink-only relink"
 pass "relink guard: fresh cache without node_modules triggers a no-network relink"
 printf '{"prompt":"check the model ladder resolution again"}' \
-  | CLAUDE_PLUGIN_ROOT="$RL_ROOT" BRAIN_DIR="$RL_BRAIN" bash "$SCRIPT" >/dev/null 2>&1
+  | SB_VECTOR_DEPS_DIR="$RL_VD" CLAUDE_PLUGIN_ROOT="$RL_ROOT" BRAIN_DIR="$RL_BRAIN" bash "$SCRIPT" >/dev/null 2>&1
 [ "$(grep -c . "$RL_ROOT/relink-invoked")" = "1" ] \
   || fail "relink guard: re-invoked though the junction now exists (must be once-only)"
 pass "relink guard: present junction skips the relink (no per-prompt spawn)"
-rm -rf "$RL_ROOT" "$RL_BRAIN"
+rm -rf "$RL_ROOT" "$RL_BRAIN" "$RL_VD"
 
 # --- R1#1/R1#2 (0.55.0): machine-turn skip, exact-repeat skip, headless children ------------------
 # 68% of per-prompt injections fired on turns no human typed (task notifications, peer messages,

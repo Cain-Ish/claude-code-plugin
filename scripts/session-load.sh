@@ -1109,9 +1109,18 @@ sb_append() {
   local size=${#text}
   [ "$size" -eq 0 ] && return 0
   if [ "$max" -gt 0 ] && [ "$size" -gt "$max" ]; then
-    text=$(printf '%s' "$text" | head -c "$max")
-    size=$max
+    # Cap by bytes, then drop the torn last line so a rule/JSON row is whole or absent (audit H4).
+    local cut; cut=$(printf '%s' "$text" | head -c "$max")
+    if [ "${text#"$cut"$'\n'}" = "$text" ]; then
+      case "$cut" in *$'\n'*) cut="${cut%$'\n'*}";; *) cut="";; esac
+    fi
+    sb_log_error "session-load.sh" "gate=byte-budget $label truncated ${size}->${#cut}B" 0
+    text="$cut"
+    [ -z "$text" ] && return 0
   fi
+  # $(...) callers strip trailing newlines; always end the section with one (audit H9).
+  text="$text"$'\n'
+  size=${#text}
   # ONE accounting (ledger F1). `force` sections' bytes are RESERVED out of BYTE_BUDGET at
   # derivation time — adding them to USED as well double-counted them, so on any populated
   # install (USER+PROJECT+charter ≈ 6-9KB) USED exceeded the banner budget by construction the
@@ -1152,21 +1161,6 @@ sb_enrich_headroom() {  # $1 = label, $2 = min bytes the section needs to be wor
   return 0
 }
 
-# Bump per-project session counter (used by cadence banner below).
-sb_increment_session_count "$slug"
-
-# 0a. Cadence + maintenance banners — surface SB system events that would
-# otherwise require the user to remember to run /second-brain:dream.
-# Threshold-gated to avoid banner fatigue.
-SESSION_COUNT=$(sb_get_session_count "$slug")
-DREAM_THRESHOLD="${SB_DREAM_CADENCE:-15}"
-# Legacy session-count nag: only when auto-stage is disabled. When autostage is
-# on (default), dream-autostage.sh owns the nudge — suppress here to avoid a
-# double banner.
-if [ "${SB_DREAM_AUTOSTAGE:-on}" = "off" ] && [ "$SESSION_COUNT" -ge "$DREAM_THRESHOLD" ]; then
-  sb_append "$(printf '## ⓘ second-brain — dream consolidation suggested\n%s sessions since last dream (threshold: %s).\nRun: `/second-brain:dream --background` — mines transcripts for missed learnings, stages changes for review.\n\n' \
-    "$SESSION_COUNT" "$DREAM_THRESHOLD")" "dream-cadence-banner" 300
-fi
 # --- Maintainer auto-dispatch: reconcile previous + threshold -----
 N=${SB_MAINTAINER_THRESHOLD:-3}
 AUTO=${SB_MAINTAINER_AUTO:-on}
@@ -1235,29 +1229,29 @@ fi
 # nudging the user to keep them in sync manually.
 # Kill switch: SB_RULES_GAP_BANNER=off.
 if [ "${SB_RULES_GAP_BANNER:-on}" != "off" ] && [ -f "$USER_FILE" ]; then
-  RULES_FILE_RUNTIME="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)}/scripts/persona-rules.default.json"
-  if [ -f "$RULES_FILE_RUNTIME" ]; then
-    UM_MT=$(sb_mtime "$USER_FILE")
-    PR_MT=$(sb_mtime "$RULES_FILE_RUNTIME")
-    if [ "$UM_MT" -gt "$PR_MT" ]; then
-      # awk range `/start/,/end/` matches the header line on both ends — so
-      # `/^## Never/,/^## /` collapses to just the Never header itself and
-      # never reaches the bullets. Use an explicit in-section flag instead.
-      NEVER_COUNT=$(awk '
-        /^## Never/ { in_s=1; next }
-        /^## / && in_s { in_s=0 }
-        in_s && /^- / { c++ }
-        END { print c+0 }
-      ' "$USER_FILE" 2>/dev/null)
-      ALWAYS_COUNT=$(awk '
-        /^## Always/ { in_s=1; next }
-        /^## / && in_s { in_s=0 }
-        in_s && /^- / { c++ }
-        END { print c+0 }
-      ' "$USER_FILE" 2>/dev/null)
-      sb_append "$(printf '## ⓘ second-brain — USER.md rules are advisory, not enforced\nUSER.md has %s Never + %s Always bullet(s) but was modified after persona-rules.default.json. Tool-time blocking only happens for rules wired into `scripts/persona-rules.default.json` (the rules array). USER.md text reaches the model as context but does not block tool calls.\nTo make a Never rule hard-enforced, add it to the rules JSON. Suppress this banner: `SB_RULES_GAP_BANNER=off`.\n\n' \
-        "$NEVER_COUNT" "$ALWAYS_COUNT")" "rules-gap-banner" 500
-    fi
+  # The USER's rules file is what the guard enforces ($BRAIN_DIR/persona-rules.json); the shipped
+  # default in the plugin cache has a fixed mtime and says nothing about the user's rules (audit H5).
+  RULES_FILE_RUNTIME="$BRAIN_DIR/persona-rules.json"
+  UM_MT=$(sb_mtime "$USER_FILE")
+  PR_MT=0; [ -f "$RULES_FILE_RUNTIME" ] && PR_MT=$(sb_mtime "$RULES_FILE_RUNTIME")
+  if [ "$UM_MT" -gt "$PR_MT" ]; then
+    # awk range `/start/,/end/` matches the header line on both ends — so
+    # `/^## Never/,/^## /` collapses to just the Never header itself and
+    # never reaches the bullets. Use an explicit in-section flag instead.
+    NEVER_COUNT=$(awk '
+      /^## Never/ { in_s=1; next }
+      /^## / && in_s { in_s=0 }
+      in_s && /^- / { c++ }
+      END { print c+0 }
+    ' "$USER_FILE" 2>/dev/null)
+    ALWAYS_COUNT=$(awk '
+      /^## Always/ { in_s=1; next }
+      /^## / && in_s { in_s=0 }
+      in_s && /^- / { c++ }
+      END { print c+0 }
+    ' "$USER_FILE" 2>/dev/null)
+    sb_append "$(printf '## ⓘ second-brain — USER.md rules are advisory, not enforced\nUSER.md has %s Never + %s Always bullet(s) but is newer than (or has no) %s. Only rules in that file block tool calls; USER.md is context only.\nTo hard-enforce a Never rule, add it there. Suppress: `SB_RULES_GAP_BANNER=off`.\n\n' \
+      "$NEVER_COUNT" "$ALWAYS_COUNT" "$RULES_FILE_RUNTIME")" "rules-gap-banner" 500
   fi
 fi
 
@@ -2089,19 +2083,6 @@ if [ -f "$project_file" ]; then
     sb_append "$(printf '\n✓ second-brain: project memory loaded — %s (plan %s/%s · %s decisions · %s active blockers)\n' \
       "$slug" "$PLAN_OPEN" "$PLAN_TOTAL" "$DEC_N" "$BLK_N")" "scope-banner" 200 force
   fi
-fi
-
-# 4. Index line — tiny, always fits
-if [ -f "$INDEX_FILE" ]; then
-  # -c so a matched record renders as ONE compact line — jq pretty-prints
-  # objects by default even with -r, so `head -1` used to grab a lone "{" and
-  # inject it into the hot tier. tr -d '\r' for Windows CRLF stdout.
-  # First matching line + CR strip by parameter expansion (was `| tr -d '\r' | head -1` and a
-  # second command-substitution fork around it).
-  IDX_LINE=$(jq -c --arg s "$slug" 'select(.slug == $s)' "$INDEX_FILE" 2>/dev/null)
-  IDX_LINE="${IDX_LINE%%$'\n'*}"; IDX_LINE="${IDX_LINE//$'\r'/}"
-  [ -n "$IDX_LINE" ] && IDX_LINE=$'\n'"$IDX_LINE"
-  sb_append "$IDX_LINE" "index-line" 200
 fi
 
 # 4b. Recent-sessions digest (P0 rec 4, capture widening) — PUSHED continuity:
