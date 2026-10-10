@@ -8,7 +8,8 @@
 # into an http request — the paper calls this a "flow boundary" violation.
 #
 # In scope:
-#   - Bash: command must contain a network tool AND a credential pattern.
+#   - Bash / PowerShell (G1: the same tool_input.command): command must contain a network tool
+#     (Invoke-WebRequest/iwr/Invoke-RestMethod/irm too) AND a credential pattern.
 #   - WebFetch / WebSearch: any credential pattern anywhere in tool_input.
 #
 # Out of scope (other guards / non-egress):
@@ -16,10 +17,13 @@
 #   - Task — subagent dispatch is a separate channel (future work).
 #
 # Patterns detected (conservative; false-negative leaning):
-#   JWT, AWS Access Key, GitHub PAT (legacy + fine-grained), Anthropic
-#   key, OpenAI key, Slack token, PEM private key block, Bearer + long
-#   base64 (≥40 chars) bundle. All anchored with surrounding context to
-#   avoid tripping on test fixtures of random base64.
+#   JWT, AWS Access Key, GitHub PAT (legacy + fine-grained) and OAuth/app
+#   tokens (gho_ ghu_ ghs_ ghr_), Anthropic key and Claude OAuth token
+#   (sk-ant-oat/ort), OpenAI key, Slack token, PEM private key block, Bearer +
+#   long base64 (≥40 chars) bundle, and a credential FILE fed to the egress
+#   (curl's @path, a reader piped or substituted in, a < redirect, an upload
+#   flag). All anchored with surrounding context to avoid tripping on test
+#   fixtures of random base64.
 #
 # Verdict: ask. Reason carries which pattern matched (no secret value).
 # Logged to audit-log.jsonl. Kill switch: SB_FLOW_GUARD=off.
@@ -520,18 +524,18 @@ _fp_jqfail() {
 # anything else — no match, or a payload field _fp_str cannot decode — falls through to the full
 # logic. A fast-path ask skips sb_buddy_event (lib.sh's): the verdict and its audit row are what
 # must arrive before the hook timeout.
-FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl)([^A-Za-z_]|$)'
+FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl|Invoke-WebRequest|iwr|Invoke-RestMethod|irm)([^A-Za-z_]|$)'
 FG_LABELS=(jwt aws-access-key github-pat anthropic-key openai-key slack-token pem-private bearer-blob credential-file-upload)
 FG_RES=(
   'ey[A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
   'AKIA[0-9A-Z]{16}'
-  '(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
-  'sk-ant-(api|admin)[0-9]*-[A-Za-z0-9_-]{20,}'
+  '(gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
+  'sk-ant-(api|admin|oat|ort)[0-9]*-[A-Za-z0-9_-]{20,}'
   'sk-(proj-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})'
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '@[^[:space:]@]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
+  '(@|<[[:space:]]*|(^|[^A-Za-z0-9_-])(cat|gc|Get-Content|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*|(^|[[:space:]])(-T|--upload-file|--post-file|-InFile)(=|[[:space:]]+))[^[:space:]@<>|;&]*(\.ssh[/\\](id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws[/\\]credentials|\.netrc|\.npmrc|\.git-credentials|\.docker[/\\]config\.json|\.kube[/\\]config|\.credentials\.json|\.pem|\.p12)([^A-Za-z0-9_.-]|$)'
 )
 # The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
 # be followed by something else is retried from every start inside a long run of its own characters,
@@ -539,8 +543,11 @@ FG_RES=(
 # 'ey' 9-11 s, BEGIN + 80K spaces 17 s — past the 5 s timeout, so the call ran). Each copy matches
 # the same lines as its FG_RES twin, in linear time; tests/test-flow-guard.sh holds the two paths to
 # one verdict over a corpus and times the adversarial shapes.
-# - credential-file-upload: its run excludes '@' in FG_RES itself (both paths): a match from an
-#   earlier '@' still matches from the last '@' of its run, so no line changes verdict.
+# - credential-file-upload: its run excludes the characters its starts begin with ('@', '<', space)
+#   in FG_RES itself (both paths): a match from an earlier start still matches from the last one, so
+#   no line changes verdict, and no start rescans another's run. Its starts (G5): curl's @path, a
+#   < redirect, a reader word (cat, base64, …, its -flags) — piped or $(…)-substituted — and an upload
+#   flag (-T, --upload-file, --post-file, -InFile). An identity flag (ssh -i ~/.ssh/id_rsa) is no start.
 # - jwt: the first segment's run must end where its '.' is — the end of its run of token
 #   characters — so whether some 'ey' in a run starts a match is decided by the first 'ey' of that
 #   run with 10 characters after it. The copy starts only at a run's start (lookbehind), takes that
@@ -559,7 +566,7 @@ _fg_fast() {
   _fp_str tool_name || return 1
   tool="$_FP"
   case "$tool" in
-    Bash)      _fp_str command || return 1; _fp_nocr hay "$_FP" ;;
+    Bash|PowerShell) _fp_str command || return 1; _fp_nocr hay "$_FP" ;;
     WebFetch)  _fp_str url; rc=$?; [ "$rc" = 2 ] && return 1; u="$_FP"
                _fp_str prompt; rc=$?; [ "$rc" = 2 ] && return 1; pr="$_FP"
                hay="$u $pr" ;;
@@ -568,7 +575,7 @@ _fg_fast() {
   esac
   _fp_trimnl hay "$hay"
   [ -n "$hay" ] || return 1
-  if [ "$tool" = Bash ]; then _fp_lines "$FG_NET" "$hay" || return 1; fi
+  case "$tool" in Bash|PowerShell) _fp_lines "$FG_NET" "$hay" || return 1 ;; esac
   for ((i = 0; i < ${#FG_RES[@]}; i++)); do
     _fp_lines "${FG_RES[$i]}" "$hay"; rc=$?
     [ "$rc" = 2 ] && return 1
@@ -607,14 +614,14 @@ FG_JQ='
 def str: if type == "string" then . elif . == null then "" else tojson end;
 ($ARGS.positional | map(gsub("\\[\\[:space:\\]\\](?<q>[+*])"; "[^\\S\\n]\(.q)"))) as $res
 | (.tool_name | str) as $t
-| (if $t == "Bash" then (.tool_input.command | str)
+| (if $t == "Bash" or $t == "PowerShell" then (.tool_input.command | str)
    elif $t == "WebFetch" then ([(.tool_input.url | str), (.tool_input.prompt | str)] | join(" "))
    elif $t == "WebSearch" then (.tool_input.query | str)
    else "" end
    | if $t == "WebFetch" then . else (split("\r") | join("")) end) as $h
 | (if ([.tool_name, .session_id, .tool_input.command, .tool_input.url, .tool_input.prompt, .tool_input.query] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end),
   "\u0000", $t, "\u0000", (.session_id | str), "\u0000",
-  (if $h == "" or ($t == "Bash" and ($h | test($net) | not)) then ""
+  (if $h == "" or (($t == "Bash" or $t == "PowerShell") and ($h | test($net) | not)) then ""
    else [range(0; $res | length) as $i | select($h | test($res[$i])) | $i | tostring] | join(",") end),
   "\u0000", "end", "\u0000"
 '
@@ -655,11 +662,11 @@ _fg_rawscan() {
   # An undecoded tool name (every payload on bash < 4.3, _fp_ob) is read from the payload: one that
   # names none of the three tools this guard checks is not scanned, as a decoded one is not.
   case "$TOOL" in
-    Bash) ;;
+    Bash|PowerShell) ;;
     WebFetch|WebSearch) web=1 ;;
     '') case "$RAW" in
           *'"WebFetch"'*|*'"WebSearch"'*) web=1 ;;
-          *'"Bash"'*) ;;
+          *'"Bash"'*|*'"PowerShell"'*) ;;
           *) return 1 ;;
         esac ;;
     *) return 1 ;;
@@ -684,7 +691,7 @@ _fg_nojq() {
   _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; TOOL="$_FP"
   _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; SESSION_ID="$_FP"
   case "$TOOL" in
-    Bash)      _fp_str command; rc=$? ;;
+    Bash|PowerShell) _fp_str command; rc=$? ;;
     WebSearch) _fp_str query; rc=$? ;;
     WebFetch)  _fp_str url; rc=$?; u="$_FP"
                if [ "$rc" != 2 ]; then _fp_str prompt; rc=$?; pr="$_FP"; _FP="$u $pr"; fi ;;
@@ -698,7 +705,7 @@ _fg_nojq() {
   _fp_trimnl hay "$hay"
   _FP_A=()
   [ -n "$hay" ] || return 1
-  if [ "$TOOL" = Bash ]; then _fp_feed "$hay" grep -qE "$FG_NET" || return 1; fi
+  case "$TOOL" in Bash|PowerShell) _fp_feed "$hay" grep -qE "$FG_NET" || return 1 ;; esac
   # One grep with every pattern says whether any can match; only then one grep per label, over the
   # lines that one matched (an error, exit 2, counts as a hit: the per-label greps then decide).
   for p in "${FG_RES[@]}"; do args+=(-e "$p"); done
@@ -725,7 +732,7 @@ else
   RAW="" _FP_RAW=""
   _fp_clean TOOL SESSION_ID
   # Only outbound channels concern us; no pattern matched (or the egress gate did not), no verdict.
-  case "$TOOL" in Bash|WebFetch|WebSearch) ;; *) exit 0 ;; esac
+  case "$TOOL" in Bash|PowerShell|WebFetch|WebSearch) ;; *) exit 0 ;; esac
   [ -n "$FG_HITS" ] || exit 0
   MATCHED_LABELS=""
   _fp_split , "$FG_HITS"
