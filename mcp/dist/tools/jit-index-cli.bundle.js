@@ -188,12 +188,6 @@ var kb_schema_default = {
 var STRUCTURED_TYPES = kb_schema_default.structured_types;
 var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
 var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
-var PROJECT_SECTIONS = kb_schema_default.project_sections;
-var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-var RAW_DIR = kb_schema_default.raw.dir;
-var RAW_STATUSES = kb_schema_default.raw.statuses;
 var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
 var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
 var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;
@@ -354,9 +348,12 @@ function stripInvisible(s) {
 
 // src/tools/atomic-write.ts
 import { promises as fs2 } from "fs";
-var strictWriteCounter = 0;
+var writeCounter = 0;
+function uniqueTmp(filePath) {
+  return `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter++}`;
+}
 async function atomicWriteJsonStrict(filePath, value) {
-  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
+  const tmp = uniqueTmp(filePath);
   try {
     await fs2.writeFile(tmp, JSON.stringify(value));
     await fs2.rename(tmp, filePath);

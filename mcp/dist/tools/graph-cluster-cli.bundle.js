@@ -45,6 +45,7 @@ function labelPropagate(adj, opts = {}) {
   const maxIter = opts.maxIter ?? 20;
   const nodes = [...adj.keys()].sort();
   let labels = new Map(nodes.map((n) => [n, n]));
+  let converged = false;
   for (let iter = 0; iter < maxIter; iter++) {
     const next = /* @__PURE__ */ new Map();
     let changed = false;
@@ -67,6 +68,27 @@ function labelPropagate(adj, opts = {}) {
       if (chosen !== own) changed = true;
     }
     labels = next;
+    if (!changed) {
+      converged = true;
+      break;
+    }
+  }
+  for (let iter = 0; !converged && iter < maxIter; iter++) {
+    let changed = false;
+    for (const node of nodes) {
+      const nbrs = adj.get(node);
+      if (nbrs.size === 0) continue;
+      const own = labels.get(node);
+      const tally = /* @__PURE__ */ new Map();
+      for (const nb of nbrs) tally.set(labels.get(nb), (tally.get(labels.get(nb)) ?? 0) + 1);
+      const max = Math.max(...tally.values());
+      const tied = [...tally.entries()].filter(([, c]) => c === max).map(([l]) => l);
+      const chosen = tied.includes(own) ? own : tied.sort()[0];
+      if (chosen !== own) {
+        labels.set(node, chosen);
+        changed = true;
+      }
+    }
     if (!changed) break;
   }
   return normalize(labels);
@@ -204,12 +226,6 @@ var kb_schema_default = {
 var STRUCTURED_TYPES = kb_schema_default.structured_types;
 var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
 var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
-var PROJECT_SECTIONS = kb_schema_default.project_sections;
-var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-var RAW_DIR = kb_schema_default.raw.dir;
-var RAW_STATUSES = kb_schema_default.raw.statuses;
 var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
 var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
 var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;

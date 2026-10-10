@@ -1,10 +1,14 @@
 // src/tools/knowledge-search.ts
-import { promises as fs6 } from "fs";
+import { promises as fs7 } from "fs";
 
 // src/tools/atomic-write.ts
 import { promises as fs } from "fs";
+var writeCounter = 0;
+function uniqueTmp(filePath) {
+  return `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter++}`;
+}
 async function atomicWriteJson(filePath, value) {
-  const tmp = `${filePath}.tmp.${process.pid}`;
+  const tmp = uniqueTmp(filePath);
   try {
     await fs.writeFile(tmp, JSON.stringify(value));
     await fs.rename(tmp, filePath);
@@ -20,7 +24,7 @@ async function atomicWriteJson(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join6 } from "path";
+import { join as join7 } from "path";
 
 // src/brain-paths.ts
 import { join, isAbsolute as isAbsolute2 } from "path";
@@ -291,9 +295,9 @@ function estimateTokens(text) {
 }
 
 // src/tools/doc-sources.ts
-import { promises as fs3, realpathSync as realpathSync3, existsSync } from "fs";
+import { promises as fs4, realpathSync as realpathSync3, existsSync } from "fs";
 import { homedir as homedir2 } from "os";
-import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3, parse, win32 as win322 } from "path";
+import { join as join4, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3, parse, win32 as win322 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -4689,8 +4693,8 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs7 = defaultFS } = {}) {
-    this.#fs = fsFromOption(fs7);
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs8 = defaultFS } = {}) {
+    this.#fs = fsFromOption(fs8);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
     }
@@ -5248,8 +5252,8 @@ var PathScurryWin32 = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs7) {
-    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs7 });
+  newRoot(fs8) {
+    return new PathWin32(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs8 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -5277,8 +5281,8 @@ var PathScurryPosix = class extends PathScurryBase {
   /**
    * @internal
    */
-  newRoot(fs7) {
-    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs7 });
+  newRoot(fs8) {
+    return new PathPosix(this.rootPath, IFDIR, void 0, this.roots, this.nocase, this.childrenCache(), { fs: fs8 });
   }
   /**
    * Return true if the provided path string is an absolute path
@@ -6356,6 +6360,21 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
+// src/tools/doc-registry.ts
+import { promises as fs3 } from "fs";
+import { join as join3 } from "path";
+function registryPath(brainDir2, slug) {
+  return join3(brainDir2, "projects", slug, "doc-sources.json");
+}
+async function loadRegistry(brainDir2, slug) {
+  try {
+    assertSafeSlug(slug);
+    return JSON.parse(await fs3.readFile(registryPath(brainDir2, slug), "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
 // ../kb-schema.json
 var kb_schema_default = {
   _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
@@ -6425,12 +6444,6 @@ var kb_schema_default = {
 var STRUCTURED_TYPES = kb_schema_default.structured_types;
 var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
 var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
-var PROJECT_SECTIONS = kb_schema_default.project_sections;
-var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-var RAW_DIR = kb_schema_default.raw.dir;
-var RAW_STATUSES = kb_schema_default.raw.statuses;
 var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
 var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
 var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;
@@ -6570,17 +6583,6 @@ function parseDoc(content, filePath) {
 }
 
 // src/tools/doc-sources.ts
-function registryPath(brainDir2, slug) {
-  return join3(brainDir2, "projects", slug, "doc-sources.json");
-}
-async function loadRegistry(brainDir2, slug) {
-  try {
-    assertSafeSlug(slug);
-    return JSON.parse(await fs3.readFile(registryPath(brainDir2, slug), "utf-8"));
-  } catch {
-    return null;
-  }
-}
 function isDocEntry(e) {
   if (!e || typeof e !== "object") return false;
   const o = e;
@@ -6614,7 +6616,7 @@ function fromOtherCheckout(e, root) {
     path2 = path2.toLowerCase();
     tail = tail.toLowerCase();
   }
-  return path2.endsWith(tail) && existsSync(join3(root, rel));
+  return path2.endsWith(tail) && existsSync(join4(root, rel));
 }
 function servableEntries(entries, projectRoot, home = homedir2()) {
   const r = {
@@ -6665,11 +6667,11 @@ function servableEntries(entries, projectRoot, home = homedir2()) {
 
 // src/tools/project-registry.ts
 import { readFileSync } from "fs";
-import { join as join4 } from "path";
+import { join as join5 } from "path";
 function loadRegistry2(brainDir2) {
   let text;
   try {
-    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
+    text = readFileSync(join5(brainDir2, "projects.jsonl"), "utf-8");
   } catch {
     return [];
   }
@@ -6706,8 +6708,8 @@ function stripInvisible(s) {
 }
 
 // src/tools/graph-store.ts
-import { promises as fs4 } from "fs";
-var EDGE_TYPES2 = ["requires", "affects", "relates", "part_of", "supersedes"];
+import { promises as fs5 } from "fs";
+var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
 function cmpTime(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -6719,7 +6721,7 @@ function isValidRecord(r) {
   if (r.op !== "assert" && r.op !== "invalidate") return false;
   if (typeof r.from !== "string" || r.from.length === 0) return false;
   if (typeof r.to !== "string" || r.to.length === 0) return false;
-  if (!EDGE_TYPES2.includes(r.type)) return false;
+  if (!EDGE_TYPES.includes(r.type)) return false;
   if (typeof r.recorded_at !== "string" || r.recorded_at.length < 10) return false;
   for (const k of ["valid_from", "valid_to"]) {
     const v = r[k];
@@ -6730,7 +6732,7 @@ function isValidRecord(r) {
 async function loadEdges(path2) {
   let raw;
   try {
-    raw = await fs4.readFile(path2, "utf-8");
+    raw = await fs5.readFile(path2, "utf-8");
   } catch {
     return [];
   }
@@ -6785,18 +6787,18 @@ function validAt(e, t) {
 }
 
 // src/tools/walk-wiki.ts
-import { promises as fs5 } from "fs";
-import { join as join5 } from "path";
+import { promises as fs6 } from "fs";
+import { join as join6 } from "path";
 async function walkWiki(dir, opts = {}, acc = []) {
   let entries;
   try {
-    entries = await fs5.readdir(dir, { withFileTypes: true });
+    entries = await fs6.readdir(dir, { withFileTypes: true });
   } catch {
     return acc;
   }
   for (const e of entries) {
     if (opts.skipHidden && e.name.startsWith(".")) continue;
-    const p = join5(dir, e.name);
+    const p = join6(dir, e.name);
     if (e.isDirectory()) {
       if (opts.skipDirs?.includes(e.name)) continue;
       await walkWiki(p, opts, acc);
@@ -6944,12 +6946,12 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile(brainDir2) {
-  return join6(resolveBrainDir(brainDir2), "access-counts.json");
+  return join7(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts(file) {
   try {
-    return JSON.parse(await fs6.readFile(file, "utf-8"));
+    return JSON.parse(await fs7.readFile(file, "utf-8"));
   } catch {
     return {};
   }
@@ -7135,9 +7137,16 @@ var AUTO_EXTRACTED_RE = /<!--\s*auto-extracted/;
 var STUB_DESCRIPTION_RE = /^\s*Auto-created stub/;
 var SINGLE_LETTER_RE = /^[a-z]$/;
 var PURE_DIGITS_RE = /^[0-9]+$/;
+var envNum = (name, def, lo, hi) => {
+  const raw = process.env[name];
+  if (raw === void 0 || raw === "") return def;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
+var embedFailLogged = false;
 async function knowledgeSearch(args) {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
-  const wikiRoot = join6(knowledgeDir, "wiki");
+  const wikiRoot = join7(knowledgeDir, "wiki");
   const accessFile = accessCountsFile(args.brainDir);
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
@@ -7149,8 +7158,8 @@ async function knowledgeSearch(args) {
     scopeDirs = [assertWithin(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs6.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join6(wikiRoot, d.name));
+      const entries = await fs7.readdir(wikiRoot, { withFileTypes: true });
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join7(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -7162,7 +7171,7 @@ async function knowledgeSearch(args) {
     const paths = await walkWiki(dir, { posix: true });
     for (const filePath of paths) {
       try {
-        const content = await fs6.readFile(filePath, "utf-8");
+        const content = await fs7.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
@@ -7238,7 +7247,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   });
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join6(knowledgeDir, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join7(knowledgeDir, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -7325,7 +7334,11 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
         scored[i].score = bm25Only[i] > 0 ? Math.round(rrfScores[i] * 1e4) / 1e4 : 0;
       }
     }
-  } catch {
+  } catch (e) {
+    if (!embedFailLogged) {
+      embedFailLogged = true;
+      console.error(`knowledge-search: embeddings failed, falling back to BM25: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
   for (let i = 0; i < scored.length; i++) {
     if (shortStub[i]) scored[i].score *= STUB_PENALTY;
@@ -7340,7 +7353,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
     const updated = new Date(dateStr).getTime();
     if (isNaN(updated)) continue;
     const daysSince = (now - updated) / 864e5;
-    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
+    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.min(1, Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS));
   }
   const scopeOn = !!args.projectSlug && process.env.SB_PROJECT_SCOPE !== "off" && args.scope !== "all";
   let anchorCount = 0;
@@ -7592,12 +7605,6 @@ if (!query) {
   process.exit(0);
 }
 var minScore = parseFloat(process.env.KNOWLEDGE_MIN_SCORE || "0");
-var envNum = (name, def, lo, hi) => {
-  const raw = process.env[name];
-  if (raw === void 0 || raw === "") return def;
-  const v = Number(raw);
-  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
-};
 var minRelevance = envNum("SB_INJECT_MIN_RELEVANCE", 0, 0, Number.MAX_SAFE_INTEGER);
 var minGrounded = envNum("SB_INJECT_MIN_GROUNDED", 2, 0, 64);
 var brainDir = resolveBrainDir();
