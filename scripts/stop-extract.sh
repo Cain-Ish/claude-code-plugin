@@ -990,10 +990,12 @@ sb_merge_extraction_edges "$DELTA_JSON" "$KNOWLEDGE_DIR"
 # signal dedup/scoring AND candidate accumulation, so they must arrive together.
 PERSONA_PAYLOAD=$(echo "$DELTA_JSON" | jq -c \
   '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}')
-if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
+# E1: a failed merge leaves the marker, and the retry re-extracts this window, so its persona
+# signals wait for that retry (merging them now counted one window twice toward graduation).
+if [ "$MERGE_FAILED" != 1 ] && echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
   PERSONA_ERR=$(mktemp)
   if ! echo "$PERSONA_PAYLOAD" \
-    | bash "$(dirname "$0")/merge-persona-signals.sh" --slug "$SLUG" 2>"$PERSONA_ERR"; then
+    | bash "$(dirname "$0")/merge-persona-signals.sh" --slug "$SLUG" --session "$SESSION_ID" 2>"$PERSONA_ERR"; then
     ERR_TAIL=$(tr '\n' ' ' < "$PERSONA_ERR" | head -c 200)
     log_gate "persona-merge-failed err=$ERR_TAIL"
   fi

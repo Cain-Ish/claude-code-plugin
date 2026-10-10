@@ -413,10 +413,12 @@ sb_merge_extraction_edges "$DELTA_JSON" "$KNOWLEDGE_DIR"
 # --- Persona signal + rule-candidate extraction ---
 PERSONA_PAYLOAD=$(echo "$DELTA_JSON" | jq -c \
   '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}')
-if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
+# E1 (as stop-extract.sh): a failed merge is retried with this same window, so its persona signals
+# wait for the retry instead of being counted twice toward graduation.
+if [ "$MERGE_FAILED" != 1 ] && echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
   PERSONA_ERR=$(mktemp)
   if ! echo "$PERSONA_PAYLOAD" \
-    | bash "$(dirname "$0")/merge-persona-signals.sh" --slug "$SLUG" 2>"$PERSONA_ERR"; then
+    | bash "$(dirname "$0")/merge-persona-signals.sh" --slug "$SLUG" --session "$SESSION_ID" 2>"$PERSONA_ERR"; then
     ERR_TAIL=$(tr '\n' ' ' < "$PERSONA_ERR" | head -c 200)
     sb_log_error "pre-compact.sh" "persona-merge-failed err=$ERR_TAIL" 0
   fi

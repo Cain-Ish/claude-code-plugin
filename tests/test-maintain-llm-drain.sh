@@ -16,8 +16,8 @@ SCRIPT="$ROOT/scripts/maintain-llm-drain.sh"
 fail(){ echo "FAIL: $1"; exit 1; }; pass(){ echo "PASS: $1"; }
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq absent"; exit 0; }
 # Run out-of-band: unset CLAUDECODE so the defense-in-depth refuse doesn't short-circuit the
-# test; unset CLAUDE_SESSION_ID so self-transcript exclusion only fires when a case sets it.
-unset CLAUDECODE CLAUDE_SESSION_ID 2>/dev/null || true
+# test; unset the session ids so self-transcript exclusion only fires when a case sets one.
+unset CLAUDECODE CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID 2>/dev/null || true
 
 # --- structural: the quarantine flag set is in the source, and the old confinement gate is gone ---
 grep -q -- '--tools ""' "$SCRIPT"                   && pass "zero-tool spawn (--tools \"\")"            || fail "--tools \"\" missing"
@@ -272,11 +272,12 @@ grep -q 'candidate_facts.json_schema' "$SCRIPT" && pass "Stage A schema sourced 
 PB=$(echo "$OUT" | sed -n 's/.*prompt_bytes=\([0-9]*\).*/\1/p'); [ "${PB:-0}" -gt 200 ] && pass "prompt carries the inlined transcripts (${PB}B)" || fail "prompt empty/truncated (prompt_bytes=${PB:-?})"
 echo "$OUT" | grep -q 'tx=2 excluded_self=0' && pass "both transcripts inlined, none excluded" || fail "transcript counts wrong (got: $(echo "$OUT" | grep DRYRUN | head -c 160))"
 
-# 4b. self-transcript exclusion: the spawning session's own transcript (CLAUDE_SESSION_ID
-#     filename prefix) is never fed to the summarizer.
+# 4b. self-transcript exclusion: the spawning session's own transcript (CLAUDE_CODE_SESSION_ID,
+#     what Claude Code sets; filename prefix) is never fed to the summarizer. (d) below covers
+#     the legacy CLAUDE_SESSION_ID fallback.
 rm -rf "$B/dreams"; seed_tx 1; seed_tx 2
 printf 'self session\n' > "$B/transcripts/selfsess_x_2026-01-03.txt"
-OUT=$(CLAUDE_SESSION_ID=selfsess SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" 2>&1 || true)
+OUT=$(CLAUDE_CODE_SESSION_ID=selfsess SB_MAINTAIN_LLM_FORCE=1 SB_MAINTAIN_LLM_DRYRUN=1 bash "$SCRIPT" 2>&1 || true)
 echo "$OUT" | grep -q 'tx=2 excluded_self=1' && pass "4b: own-session transcript excluded from the summarizer input" || fail "4b: self-transcript not excluded (got: $(echo "$OUT" | grep DRYRUN | head -c 160))"
 rm -f "$B/transcripts/selfsess_x_2026-01-03.txt"
 

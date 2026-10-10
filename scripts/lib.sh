@@ -1082,6 +1082,34 @@ sb_auto_accept_decision() {
   echo "accept"
 }
 
+# Injection classifier for untrusted text, shared by merge-project-update.sh (plan[] and
+# compact_pending gates) and merge-persona-signals.sh (persona graduation into USER.md, audit E1).
+# Classes, in this precedence: control = any \p{Cc} (items are single-line by the time they get
+# here, so no character is exempt); format = invisible/format characters (\p{Cf} incl. the Tags
+# block, line/paragraph separators, variation selectors incl. the E0100 supplement, Hangul fillers,
+# U+034F); phrase = every tool-return-scanner.sh pattern, case-INSENSITIVE (that scanner is
+# case-sensitive after the first letter), plus the evasions it misses: "ignore the above
+# instructions", "disregard", a system: marker or a <system>/<system-reminder> tag ANYWHERE in
+# the text (not only at line start -- a leading "[ ] " used to defeat the anchor). jq/Oniguruma,
+# 1.7.1-safe; apostrophe-free (it lives inside single quotes).
+SB_GATE_CLASS_JQ='
+  def bad_class:
+    if test("\\p{Cc}") then "control"
+    elif test("[\\p{Cf}\\p{Zl}\\p{Zp}\\x{FE00}-\\x{FE0F}\\x{E0100}-\\x{E01EF}\\x{115F}\\x{1160}\\x{3164}\\x{FFA0}\\x{034F}]") then "format"
+    elif test("ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above)\\s+(instructions?|context|messages?|directions?|prompts?)|disregard\\s+(all\\s+|any\\s+)?(the\\s+|your\\s+)?(previous|prior|above|earlier|preceding|former)\\b|\\bsystem\\s*:|<\\s*/?\\s*system([\\s>/-]|$)|</?(human|assistant)[\\s>]|(begin|end)\\s+(system\\s+prompt|instructions?)|do\\s+not\\s+(tell|inform|notify|mention)\\s+(the\\s+)?user|execute\\s+the\\s+following\\s+(command|code|instructions?|prompt)|new\\s+(instructions?|system\\s+prompt|directive)\\s*:"; "i") then "phrase"
+    else "" end;
+  def gate_row($v):
+    [ $v[] | select(.c != "") ] as $bad
+    | "GATE \($bad | length) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .i | tostring ] | join(",")) end) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .c ] | join(",")) end)";
+'
+# Echo the class of $1 (control|format|phrase; CR/LF/TAB count as spaces), nothing when clean.
+# Returns 1 when the classifier itself failed (no CLASS: row): callers fail closed.
+sb_text_injection_class() {
+  local v
+  v=$(printf '%s' "${1:-}" | jq -Rrs "$SB_GATE_CLASS_JQ"'gsub("[\r\n\t]+"; " ") | "CLASS:" + bad_class' | tr -d '\r')
+  case "$v" in CLASS:*) printf '%s' "${v#CLASS:}" ;; *) return 1 ;; esac
+}
+
 # Pin a preference line to USER.md, under "## Pinned". Cap counts PIN LINES ONLY
 # ("- [YYYY-MM-DD] …", max 15) — NEVER the whole file. The previous 2200-byte whole-file cap
 # counted the operator's hand-written About/Intent prose: the live USER.md was 2716 bytes with
@@ -1115,6 +1143,17 @@ sb_pin_to_user() {
   today=$(date -u +%Y-%m-%d)
   new_line="- [$today] $text"
 
+  # E3: the read-modify-write below holds the same .USER.md.lock as the TS pin_to_user
+  # (mcp/src/tools/hot-file-lock.ts); busy past the wait = logged by sb_archive_lock, return 1.
+  mkdir -p "$BRAIN_DIR"
+  sb_archive_lock "$user_file" sb_pin_to_user || return 1
+  local lock_tok="$_SB_ARCHIVE_LOCK_TOKEN" rc=0
+  _sb_pin_to_user_locked "$user_file" "$text" "$new_line" "$max_pins" || rc=$?
+  sb_archive_unlock "$user_file" "$lock_tok"
+  return "$rc"
+}
+_sb_pin_to_user_locked() {  # $1 USER.md, $2 flattened text, $3 pin line, $4 max pins
+  local user_file="$1" text="$2" new_line="$3" max_pins="$4"
   local content=""
   if [ -f "$user_file" ]; then
     content=$(cat "$user_file")
@@ -4171,9 +4210,9 @@ TMPL
     if [ -n "$sigs" ] && printf '%s' "$sigs" \
       | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
       if [ -n "$slug" ]; then
-        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" 2>/dev/null || true
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" --session "${sess_id:-unknown}" 2>/dev/null || true
       else
-        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --session "${sess_id:-unknown}" 2>/dev/null || true
       fi
     fi
     cur="$cend"; SB_EXTRACT_REACHED="$cend"

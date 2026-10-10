@@ -597,17 +597,37 @@ pass "PC1: a PreCompact LLM failure merges the deterministic floor (breadcrumb o
 # would stop PreCompact at its project-md-missing gate, before the merge).
 init_sandbox "pc-merge-failed"
 seed_transcript_long_with_edit
-stub_claude_json '{"recent_decisions":["pc2 decision survives a failed merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stub_claude_json '{"recent_decisions":["pc2 decision survives a failed merge"],"open_blockers":[],"cross_refs":[],"files_touched":[],"persona_signals":[{"category":"workflow","signal":"pc2 persona signal counted once per window","evidence":"e","confidence":"high"}]}'
 PC2_ROOT="$TMP/pc2-root"; mkdir -p "$PC2_ROOT"; cp -R "$REPO_ROOT/scripts" "$PC2_ROOT/"
 printf '#!/bin/bash\ncat > /dev/null\necho "stub: merge refused" >&2\nexit 1\n' > "$PC2_ROOT/scripts/merge-project-update.sh"
 MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
 run_pc "$PC2_ROOT/scripts/pre-compact.sh"
 grep -q 'merge-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PC2: the stubbed merge failure left no merge-failed row (the case proves nothing)"
 [ ! -f "$MARKER" ] || fail "PC2: PreCompact advanced the marker to $(cat "$MARKER") despite a failed merge: the window is lost"
+grep -q 'pc2 persona signal' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null \
+  && fail "E1: PreCompact merged persona signals although the PROJECT.md merge failed"
 run_pc
 grep -q 'pc2 decision survives a failed merge' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PC2: the retry did not merge the window's decision"
 [ "$(cat "$MARKER" 2>/dev/null)" = 20 ] || fail "PC2: the successful retry did not advance the marker to 20 (got $(cat "$MARKER" 2>/dev/null))"
+[ "$(jq -rs '[.[] | select(.signal | test("pc2 persona signal")) | .count] | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = 1 ] \
+  || fail "E1: the window's persona signal should be merged exactly once, by the successful retry: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
 pass "PC2: a failed PreCompact merge keeps the marker; the next run retries and advances it"
+restore_path
+
+# E1 (audit 2026-10), Stop twin of PC2: the retry re-extracts the same window, so its persona
+# signals wait for the merge that succeeds; merging them on the failed run counted one window twice
+# toward USER.md graduation (live-reproduced above in PC2's shape: count 2, graduated).
+init_sandbox "stop-merge-failed-persona"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":["stop e1 decision"],"open_blockers":[],"cross_refs":[],"files_touched":[],"persona_signals":[{"category":"workflow","signal":"stop persona signal counted once per window","evidence":"e","confidence":"high"}]}'
+stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$PC2_ROOT/scripts/stop-extract.sh" >/dev/null 2>"$SANDBOX/hook.err"
+grep -q 'merge-failed' "$SANDBOX/.second-brain/audit-log.jsonl" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "E1 Stop: the stubbed merge failure left no merge-failed row (the case proves nothing)"
+grep -q 'stop persona signal' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null \
+  && fail "E1 Stop: persona signals were merged although the PROJECT.md merge failed"
+run_stop
+[ "$(jq -rs '[.[] | select(.signal | test("stop persona signal")) | .count] | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = 1 ] \
+  || fail "E1 Stop: the window's persona signal should be merged exactly once, by the successful retry: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
+pass "E1: a failed Stop merge skips the persona merge; the successful retry merges it once"
 restore_path
 
 # TC1: a record cut mid-write must not hide the rest of the window. A plain `jq` stops at the first
