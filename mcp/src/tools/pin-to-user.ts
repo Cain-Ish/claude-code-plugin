@@ -39,7 +39,13 @@ export async function pinToUser(args: PinToUserArgs): Promise<PinToUserResult> {
 
   let content = '';
   try { content = await fs.readFile(file, 'utf-8'); }
-  catch { content = `# USER preferences\n\n${PIN_SECTION}\n`; }
+  catch (e) {
+    // M5: only a MISSING file gets the template. EPERM/EBUSY (a locked file on Windows) used to
+    // write template + one pin over the real profile and report ok:true.
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') return { ok: false, line_added: '', reason: `cannot read USER.md (${code ?? String(e)}); nothing written` };
+    content = `# USER preferences\n\n${PIN_SECTION}\n`;
+  }
 
   const lines = content.split('\n');
   const pinLines = lines.filter(l => PIN_RE.test(l));

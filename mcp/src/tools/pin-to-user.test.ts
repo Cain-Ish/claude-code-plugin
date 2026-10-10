@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, promises as fsPromises } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { pinToUser } from './pin-to-user.js';
+
+const realReadFile = fsPromises.readFile.bind(fsPromises);
 
 describe('pin_to_user', () => {
   let dir: string;
@@ -99,5 +101,23 @@ describe('pin_to_user', () => {
     const res = await pinToUser({ text: long, brainDir: dir });
     expect(res.ok).toBe(true);
     expect(res.line_added.length).toBeLessThan(500);
+  });
+
+  // M5 (audit 2026-10): a bare catch treated ANY read error (EPERM/EBUSY, common on Windows) as
+  // "file missing", wrote a blank template plus one pin over the real USER.md and said ok:true.
+  it('a USER.md read error other than ENOENT fails loud and leaves the file untouched', async () => {
+    const original = '# USER\n\n## About me\nhand-written profile.\n\n## Pinned\n- [2026-01-01] kept pin\n';
+    writeFileSync(join(dir, 'USER.md'), original, 'utf-8');
+    const spy = vi.spyOn(fsPromises, 'readFile');
+    spy.mockImplementation(async (p, ...rest) => {
+      if (String(p).endsWith('USER.md')) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      return realReadFile(p as string, ...(rest as [BufferEncoding]));
+    });
+    try {
+      const res = await pinToUser({ text: 'must not replace the profile', brainDir: dir });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toMatch(/EPERM/);
+    } finally { spy.mockRestore(); }
+    expect(readFileSync(join(dir, 'USER.md'), 'utf-8')).toBe(original);
   });
 });
