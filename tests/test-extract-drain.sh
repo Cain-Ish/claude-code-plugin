@@ -1,7 +1,16 @@
 #!/bin/bash
 # Tests for extract-drain.sh
-# run-all-timeout: 300   (33 full drainer ticks by design; ~3.8s/tick lib.sh-source floor on MSYS — see run-all.sh)
+# run-all-timeout: 900   (~79 full drainer ticks by design: the R2-B delta drain, the R2-F scrub migration and the 0.56.0 fix-round cases, one of them on the real extraction path, plus the integration scrub list + bound case D18 (3 ticks); measured 233-302s on a quiet MSYS dev box before the fix round, 715s with two other implementers' suites running in parallel; 2026-10-06 on a quiet MSYS box, back to back: 522-566s at 12cfa63, 528-536s with D18; 2026-10-07 R3-B (Q-L10 adds asserts, no tick), alone: 422 s (jq 1.8.1, ~12 GB free, ~380 processes) / 538 s (jq 1.7.1, ~9 GB free, ~410 processes). 2x is past run-all's 900 s hard ceiling, so 900 (the most a header can declare) — see run-all.sh)
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
+# pins: SB_DRAIN_QUIET_S — =0 treats the tiny fresh fixtures as settled; D7 + the too-small case set 3600 to test the gate itself
+# pins: SB_EXTRACT_MAX_BYTES — D8 shrinks the chunk cap so a 37-line fixture spans several forward chunks
+# pins: SB_DRAIN_STALE_MAX — D3 raises it so the deferred-tick migration case cannot take the age escape
+# pins: SB_DRAIN_BATCH — D8/D8b/D9 size the per-tick extractor-call budget that is under test
+# pins: SB_DRAIN_FLOOR — D2 turns the deterministic floor off so MAX_FAILS yields the error row under test
+# pins: SB_DRAIN_MAX_FAILS — D2 fixes the dead-letter threshold the retry/error rows are asserted against
+# pins: SB_DRAIN_MIN_BYTES — 0 for the tiny legacy fixtures; D7 and D16 set 1024 to test the too-small gate itself
+# pins: SB_SCRUB_MIGRATE_MAX_FILES — D11c/D17a/D18 size the per-run scrub cap that is under test (1 = one scrub per tick)
+# pins: SB_SCRUB_MIGRATE_MAX_S — D18 sets 0 to test the per-run time bound itself (one scrub, then stop)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -23,6 +32,10 @@ export SB_INTERACTIVE_OVERRIDE=inactive
 # R1.2: the too-small fast-path would skip these deliberately tiny fixtures —
 # disable it for the legacy cases; the fast-path test re-enables it per-call.
 export SB_DRAIN_MIN_BYTES=0
+# R2-B: an archive is eligible once >= SB_DRAIN_DELTA_MIN_BYTES (4 KB) is new OR it has been quiet
+# SB_DRAIN_QUIET_S (1 h). The fixtures here are tiny and fresh, so every archive is treated as
+# settled; the eligibility cases (D7, the too-small fast-path) set SB_DRAIN_QUIET_S per call.
+export SB_DRAIN_QUIET_S=0
 # brain-os OFF by default. Every drainer tick also runs brain-os-run.sh (maintain-deterministic:
 # archive prune + project backfill + codemap + wiki-history) — ~13s/tick on the dev box even
 # after the 2026-08-23 spawn fixes (67s before). Only the 4 codemap cases below assert on it;
@@ -93,13 +106,19 @@ eq "remaining 2 drained, total 7" "$(done_count)" "7"
 reset; mk_tx "p1_poison_2026-05-24.txt" poison
 SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # retry 1
 SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # retry 2
-SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # 3rd → terminal error
-RETRIES=$(grep -c '"outcome":"retry"' "$STATE" || echo 0)
-ERRORS=$(grep -c '"outcome":"error"' "$STATE" || echo 0)
+RETRIES=$(grep -c '"outcome":"retry"' "$STATE" || true)
 eq "poison: 2 retries recorded" "$RETRIES" "2"
+SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # 3rd → terminal error
+ERRORS=$(grep -c '"outcome":"error"' "$STATE" || true)
 eq "poison: 1 terminal error" "$ERRORS" "1"
+# R2-F#10: once dead-lettered, the retry rows before it are compacted away (the cursor map reads
+# only the error row); the error row itself records the attempts
+grep -q '"outcome":"error".*"fails":3' "$STATE" && ok "poison: the error row records the 3 attempts" \
+  || no "poison: the error row lost its fails count (got: $(cat "$STATE"))"
+cp "$STATE" "$SANDBOX/poison.before"
 SB_DRAIN_MAX_FAILS=3 bash "$DRAIN" >/dev/null 2>&1 || true   # must NOT touch it again
-eq "poison: not reprocessed after terminal" "$(grep -c '"outcome":"retry"' "$STATE" || echo 0)" "2"
+cmp -s "$STATE" "$SANDBOX/poison.before" && ok "poison: not reprocessed after terminal" \
+  || no "poison: the dead-lettered transcript was touched again (got: $(cat "$STATE"))"
 
 # Test 4b: a run where everything fails → health status must be "fail" (not clobbered to ok)
 reset; mk_tx "f1_poison_2026-05-24.txt" poison
@@ -165,17 +184,20 @@ exit 0
 EOF2
 chmod +x "$FPSTUB"
 mk_tx "tiny1_x.txt" someproj     # mk_tx bodies are well under 1KB
-SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+touch -t 202601010000 "$BRAIN_DIR/transcripts/tiny1_x.txt"   # settled: quiet for months
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_QUIET_S=3600 SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
 grep -q '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null && grep -q '"reason":"too-small"' "$STATE" 2>/dev/null \
   && ok "too-small archive marked ok/too-small in state" || no "too-small not recorded in state"
 [ ! -f "$CALLED" ] && ok "extractor NOT spawned for too-small archive" || no "extractor was spawned for a too-small archive"
 # Idempotent: second run must skip it via sb_extraction_done.
-SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_QUIET_S=3600 SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
 eq "too-small recorded exactly once" "$(grep -c '"basename":"tiny1_x.txt"' "$STATE" 2>/dev/null)" "1"
 # Header guard (deep-review): a file WITHOUT the ^---$ terminator must NOT be
-# fast-path-classified too-small (sed would report 0 bytes for real content).
-printf 'no header here\nlots of real content that is not actually small at all\n' > "$BRAIN_DIR/transcripts/nohdr_x.txt"
-SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
+# fast-path-classified too-small (sed reported 0 bytes for real content). R2-B measures a
+# header-less archive as all body, so a real >1 KB body is never too-small.
+{ printf 'no header here\n'; head -c 1500 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$BRAIN_DIR/transcripts/nohdr_x.txt"
+touch -t 202601010000 "$BRAIN_DIR/transcripts/nohdr_x.txt"
+SB_EXTRACT_STUB="$FPSTUB" SB_DRAIN_QUIET_S=3600 SB_DRAIN_MIN_BYTES=1024 bash "$DRAIN" >/dev/null 2>&1 || true
 grep -q '"basename":"nohdr_x.txt".*"reason":"too-small"' "$STATE" 2>/dev/null \
   && no "header-less archive misclassified as too-small" || ok "header-less archive not fast-path-classified"
 
@@ -329,6 +351,496 @@ bash "$DRAIN" >/dev/null 2>&1 || true
 grep -q '"basename":"live_proj_2026-05-24.txt"' "$STATE" 2>/dev/null && ok "ledger GC kept the live row" || no "ledger GC dropped a live row"
 grep -q '"basename":"gone_proj_2026-05-24.txt"' "$STATE" 2>/dev/null && no "ledger GC kept a dead row (orphan)" || ok "ledger GC dropped the dead row"
 
+# ==== R2-B (0.56.0): line-cursor delta drain ====================================================
+# The stub records "<basename> <from> <to>" per call and fails when "<basename> <from>" is listed
+# in $RFAIL. Rows are checked on the done-set; cursors through the real sb_drain_cursor_map.
+echo "Test: R2-B delta drain"
+RLOG="$SANDBOX/rstub.log"; RFAIL="$SANDBOX/rstub.fail"
+RSTUB="$SANDBOX/rstub.sh"
+cat > "$RSTUB" <<EOF6
+#!/bin/bash
+printf '%s %s %s\n' "\${1##*/}" "\${3:-}" "\${4:-}" >> "$RLOG"
+[ -f "$RFAIL" ] && grep -qxF "\${1##*/} \${3:-}" "$RFAIL" && exit 1
+exit 0
+EOF6
+chmod +x "$RSTUB"
+mk_lines() {  # $1 = archive name, $2 = body lines to append (the 7-line meta header comes first)
+  local f="$BRAIN_DIR/transcripts/$1" i=1
+  [ -f "$f" ] || printf -- '--- session-meta ---\nsession_id: %s\nproject_slug: proj\ndate: 2026-05-24\ntool_count: 1\nline_count: 0\n---\n' "${1%%_*}" > "$f"
+  while [ "$i" -le "$2" ]; do printf 'USER: line %s of %s\n' "$i" "$1" >> "$f"; i=$((i+1)); done
+}
+rcalls() { if [ -f "$RLOG" ]; then grep -c . "$RLOG" || true; else echo 0; fi; }
+rlast() { tail -1 "$RLOG" 2>/dev/null; }
+rdrain() { SB_EXTRACT_STUB="$RSTUB" bash "$DRAIN" >/dev/null 2>&1 || true; }
+cmap() {  # $1 = basename, $2 = field (2 cursor, 3 lines, 4 state) — the real accounting primitive
+  # shellcheck disable=SC2016  # $1 expands inside the child shell
+  BRAIN_DIR="$BRAIN_DIR" bash -c '. "$1/lib.sh"; sb_drain_cursor_map' _ "$SCRIPT_DIR" \
+    | awk -F'\t' -v b="$1" -v k="$2" '$1 == b { print $k; exit }'
+}
+rows_for() { grep -F "\"basename\":\"$1\"" "$STATE" 2>/dev/null || true; }
+
+# D1: a grown archive is re-queued with exactly the new window; no growth -> no call.
+reset; rm -f "$RLOG" "$RFAIL"
+mk_lines "gr1_proj_2026-05-24.txt" 3                       # 10 lines
+rdrain
+eq "delta: first drain extracts (0,10]" "$(rlast)" "gr1_proj_2026-05-24.txt 0 10"
+rows_for gr1_proj_2026-05-24.txt | grep -q '"outcome":"ok".*"from":0,"lines":10' \
+  && ok "delta: ok row carries from/lines" || no "delta: ok row lacks from/lines (got: $(rows_for gr1_proj_2026-05-24.txt))"
+rm -f "$RLOG"; rdrain
+eq "delta: no growth -> no extractor call" "$(rcalls)" "0"
+mk_lines "gr1_proj_2026-05-24.txt" 4                       # 14 lines
+rdrain
+eq "delta: grown archive re-queued with the new window only" "$(rlast)" "gr1_proj_2026-05-24.txt 10 14"
+eq "delta: cursor advanced to the new end" "$(cmap gr1_proj_2026-05-24.txt 2)" "14"
+
+# D2: a failing region dead-letters ONLY that region; retry/error rows never advance the cursor.
+reset; rm -f "$RLOG" "$RFAIL"
+mk_lines "fr1_proj_2026-05-24.txt" 3; rdrain               # (0,10] ok
+mk_lines "fr1_proj_2026-05-24.txt" 3                       # 13 lines
+echo "fr1_proj_2026-05-24.txt 10" > "$RFAIL"
+SB_DRAIN_MAX_FAILS=3 rdrain
+rows_for fr1_proj_2026-05-24.txt | grep -q '"outcome":"retry","from":10,"lines":13' \
+  && ok "dead-letter: a failed window records a retry row with from/lines" || no "dead-letter: no retry row for (10,13] (got: $(rows_for fr1_proj_2026-05-24.txt))"
+eq "dead-letter: a retry row does not advance the cursor" "$(cmap fr1_proj_2026-05-24.txt 2)" "10"
+SB_DRAIN_MAX_FAILS=3 rdrain; SB_DRAIN_FLOOR=off SB_DRAIN_MAX_FAILS=3 rdrain
+rows_for fr1_proj_2026-05-24.txt | grep -q '"outcome":"error","from":10,"lines":13' \
+  && ok "dead-letter: MAX_FAILS turns the region into an error row" || no "dead-letter: no error row (got: $(rows_for fr1_proj_2026-05-24.txt))"
+eq "dead-letter: the error row does not advance the cursor" "$(cmap fr1_proj_2026-05-24.txt 2)" "10"
+eq "dead-letter: the archive reads as dead" "$(cmap fr1_proj_2026-05-24.txt 4)" "dead"
+N_BEFORE=$(rcalls); rdrain
+eq "dead-letter: a dead region is not retried" "$(rcalls)" "$N_BEFORE"
+mk_lines "fr1_proj_2026-05-24.txt" 3                       # 16 lines
+rdrain
+eq "dead-letter: growth past the dead region extracts only the new window" "$(rlast)" "fr1_proj_2026-05-24.txt 13 16"
+eq "dead-letter: a later ok row lifts the cursor over the dead region" "$(cmap fr1_proj_2026-05-24.txt 2) $(cmap fr1_proj_2026-05-24.txt 4)" "16 done"
+# X2#1: ...but the dead region (10,13] is still counted, after the tick's ledger compaction too
+eq "dead-letter: the passed-over dead window still counts (windows lines)" "$(cmap fr1_proj_2026-05-24.txt 9) $(cmap fr1_proj_2026-05-24.txt 10)" "1 3"
+DROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+printf '%s' "$DROW" | grep -q 'dead_archives=1 dead_windows=1 dead_lines=3' \
+  && ok "dead-letter: the reconcile row surfaces the dead window" || no "dead-letter: reconcile row lacks the dead totals (got: $DROW)"
+
+# D3: first-tick migration. Legacy row (no lines) + archive unchanged since -> baseline, no LLM;
+# grown since -> legacy-regrow re-mined from the header end; legacy error unchanged -> stays dead.
+reset; rm -f "$RLOG" "$RFAIL"
+mk_lines "lb1_proj_2026-05-24.txt" 3; touch -t 202601010000 "$BRAIN_DIR/transcripts/lb1_proj_2026-05-24.txt"
+mk_lines "le1_proj_2026-05-24.txt" 3; touch -t 202601010001 "$BRAIN_DIR/transcripts/le1_proj_2026-05-24.txt"
+mk_lines "lr1_proj_2026-05-24.txt" 3                       # fresh mtime: grew after its legacy row
+{
+  printf '%s\n' '{"basename":"lb1_proj_2026-05-24.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}'
+  printf '%s\n' '{"basename":"le1_proj_2026-05-24.txt","ts":"2026-01-03T00:00:00Z","outcome":"error","fails":3}'
+  printf '%s\n' '{"basename":"lr1_proj_2026-05-24.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}'
+} > "$STATE"
+rdrain
+rows_for lb1_proj_2026-05-24.txt | grep -q '"outcome":"baseline","reason":"cursor-baseline","from":0,"lines":10' \
+  && ok "migration: unchanged legacy ok -> cursor-baseline row" || no "migration: no baseline row (got: $(rows_for lb1_proj_2026-05-24.txt))"
+grep -q '^lb1_proj' "$RLOG" 2>/dev/null && no "migration: a baseline archive was sent to the extractor" || ok "migration: baseline costs no LLM call"
+rows_for le1_proj_2026-05-24.txt | grep -q '"outcome":"error","reason":"legacy-dead-letter","from":0,"lines":10' \
+  && ok "migration: unchanged legacy error stays dead-lettered (never baselined)" || no "migration: legacy error mishandled (got: $(rows_for le1_proj_2026-05-24.txt))"
+eq "migration: legacy error is not extracted" "$(grep -c '^le1_proj' "$RLOG" 2>/dev/null || true)" "0"
+eq "migration: grown legacy archive re-mined from the header end" "$(grep '^lr1_proj' "$RLOG" 2>/dev/null)" "lr1_proj_2026-05-24.txt 0 10"
+rows_for lr1_proj_2026-05-24.txt | grep -q '"outcome":"ok","reason":"legacy-regrow","from":0,"lines":10' \
+  && ok "migration: regrow row tagged legacy-regrow" || no "migration: regrow row missing (got: $(rows_for lr1_proj_2026-05-24.txt))"
+# The migration is LLM-free, so it also runs on a DEFERRED tick (an always-on session must not
+# leave a fresh upgrade reading every legacy archive as pending for hours).
+reset; rm -f "$RLOG"
+mk_lines "ld1_proj_2026-05-24.txt" 3; touch -t 202601010000 "$BRAIN_DIR/transcripts/ld1_proj_2026-05-24.txt"
+printf '%s\n' '{"basename":"ld1_proj_2026-05-24.txt","ts":"2026-01-03T00:00:00Z","outcome":"ok"}' > "$STATE"
+rm -f "$BRAIN_DIR/.drain-defer-count"
+# STALE_MAX huge: the backdated archive must not trigger the age escape — this tick has to DEFER.
+SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 rdrain
+eq "migration: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
+grep -q '"basename":"ld1_proj_2026-05-24.txt".*"outcome":"baseline"' "$STATE" \
+  && ok "migration: baseline written on a deferred tick" || no "migration: deferred tick skipped the LLM-free migration"
+eq "migration: a deferred tick makes no extractor call" "$(rcalls)" "0"
+
+# D4: CRLF archive — the window ends at wc -l; nothing is re-sent next tick.
+reset; rm -f "$RLOG"
+printf '%s\r\n' '--- session-meta ---' 'session_id: cr1' 'project_slug: proj' '---' 'USER: a' 'ASSISTANT: b' 'USER: c' \
+  > "$BRAIN_DIR/transcripts/cr1_proj_2026-05-24.txt"
+rdrain
+eq "crlf: window (0,7]" "$(rlast)" "cr1_proj_2026-05-24.txt 0 7"
+rm -f "$RLOG"; rdrain
+eq "crlf: no re-send after the cursor reached the end" "$(rcalls)" "0"
+
+# D5: no trailing newline — the torn last line is not covered until it is completed.
+reset; rm -f "$RLOG"
+mk_lines "nt1_proj_2026-05-24.txt" 3; printf 'USER: still typ' >> "$BRAIN_DIR/transcripts/nt1_proj_2026-05-24.txt"
+rdrain
+eq "torn: window stops before the torn line" "$(rlast)" "nt1_proj_2026-05-24.txt 0 10"
+printf 'ing\n' >> "$BRAIN_DIR/transcripts/nt1_proj_2026-05-24.txt"
+rdrain
+eq "torn: the completed line is extracted next tick" "$(rlast)" "nt1_proj_2026-05-24.txt 10 11"
+
+# D6: a recreated archive (line count below its rows) restarts at 0, and growth past the OLD
+# cursor is not skipped (the stale rows are purged, not just masked).
+reset; rm -f "$RLOG"
+mk_lines "rc1_proj_2026-05-24.txt" 3                       # 10 lines
+printf '%s\n' '{"basename":"rc1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":50}' > "$STATE"
+rdrain
+eq "recreate: extraction restarts at 0" "$(rlast)" "rc1_proj_2026-05-24.txt 0 10"
+rows_for rc1_proj_2026-05-24.txt | grep -q '"lines":50' && no "recreate: the stale cursor row survived" || ok "recreate: stale rows purged"
+mk_lines "rc1_proj_2026-05-24.txt" 50                      # 60 lines: past the old cursor
+rdrain
+eq "recreate: growth past the old cursor is extracted, not skipped" "$(rlast)" "rc1_proj_2026-05-24.txt 10 60"
+# D6b (X2#9): the purge is jq | tr -d '\r' (Windows jq writes CRLF); a jq that fails must not pass
+# for success through the pipe: the ledger stays as it was, the purge is logged, nothing extracted.
+reset; rm -f "$RLOG"; : > "$BRAIN_DIR/error-log.jsonl"
+mk_lines "rc2_proj_2026-05-24.txt" 3
+printf '{"basename":"rc2_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":50}\n' > "$STATE"
+PSHIM="$SANDBOX/purgeshim"; mkdir -p "$PSHIM"
+printf '#!/bin/bash\ncase "$*" in *"--argjson drop"*) exit 5 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$PSHIM/jq"; chmod +x "$PSHIM/jq"
+PATH="$PSHIM:$PATH" rdrain
+grep -q 'recreate purge failed' "$BRAIN_DIR/error-log.jsonl" && ok "recreate: a failed purge is logged" || no "recreate: a failed purge was silent"
+eq "recreate: a failed purge skips the archive this tick" "$(rcalls)" "0"
+
+# D7: eligibility — >= SB_DRAIN_DELTA_MIN_BYTES new, or quiet >= SB_DRAIN_QUIET_S; a settled tiny
+# tail gets an ok/too-small row WITH lines (so it is done) and no LLM call.
+reset; rm -f "$RLOG"
+mk_lines "el1_proj_2026-05-24.txt" 2                       # fresh, ~50 B new
+SB_DRAIN_QUIET_S=3600 rdrain
+eq "eligible: a small fresh window waits (no call, no row)" "$(rcalls) $(rows_for el1_proj_2026-05-24.txt | grep -c . || true)" "0 0"
+mk_lines "el1_proj_2026-05-24.txt" 200                     # fresh, > 4 KB new
+SB_DRAIN_QUIET_S=3600 rdrain
+eq "eligible: >= 4 KB new is extracted while the archive is live" "$(rlast)" "el1_proj_2026-05-24.txt 0 209"
+mk_lines "el2_proj_2026-05-24.txt" 2; touch -t 202601010000 "$BRAIN_DIR/transcripts/el2_proj_2026-05-24.txt"
+SB_DRAIN_QUIET_S=3600 SB_DRAIN_MIN_BYTES=1024 rdrain
+rows_for el2_proj_2026-05-24.txt | grep -q '"outcome":"ok","reason":"too-small","from":0,"lines":9' \
+  && ok "eligible: a settled tiny tail -> ok/too-small row with lines" || no "eligible: too-small row wrong (got: $(rows_for el2_proj_2026-05-24.txt))"
+grep -q '^el2_proj' "$RLOG" && no "eligible: the too-small tail was sent to the extractor" || ok "eligible: too-small costs no LLM call"
+eq "eligible: a too-small archive is done" "$(cmap el2_proj_2026-05-24.txt 4)" "done"
+
+# D8: chunk forward inside a tick — every chunk is one extractor call and one batch slot.
+reset; rm -f "$RLOG"
+mk_lines "ch1_proj_2026-05-24.txt" 30                      # 37 lines: body lines 1-9 are 40 B, 10-30 are 41 B
+SB_EXTRACT_MAX_BYTES=320 SB_DRAIN_BATCH=2 rdrain
+eq "chunks: two batch slots -> two forward chunks" "$(tr '\n' '|' < "$RLOG")" "ch1_proj_2026-05-24.txt 0 15|ch1_proj_2026-05-24.txt 15 22|"
+SB_EXTRACT_MAX_BYTES=320 SB_DRAIN_BATCH=5 rdrain
+eq "chunks: the next tick resumes at the cursor" "$(sed -n 3p "$RLOG")" "ch1_proj_2026-05-24.txt 22 29"
+eq "chunks: the archive drains fully across ticks" "$(cmap ch1_proj_2026-05-24.txt 4)" "done"
+
+# D8b: a FAILED attempt takes a batch slot too — the lock-budget proof (lib.sh, timeout_s comment)
+# assumes at most SB_DRAIN_BATCH extractor calls per tick, failures included.
+reset; rm -f "$RLOG" "$RFAIL"
+for n in 1 2 3; do mk_lines "bf${n}_proj_2026-05-24.txt" 3; echo "bf${n}_proj_2026-05-24.txt 0" >> "$RFAIL"; done
+SB_DRAIN_BATCH=2 SB_DRAIN_MAX_FAILS=3 rdrain
+eq "batch: failing attempts are bounded by SB_DRAIN_BATCH" "$(rcalls)" "2"
+rm -f "$RFAIL"
+
+# D9: reconcile counts a GROWN archive as pending (the basename set called it done).
+reset; rm -f "$RLOG" "$BRAIN_DIR/audit-log.jsonl"
+mk_lines "rp1_proj_2026-05-24.txt" 3; rdrain
+mk_lines "rp1_proj_2026-05-24.txt" 3
+SB_DRAIN_BATCH=0 rdrain
+RROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+printf '%s' "$RROW" | grep -q 'declared=1 observed=0 pending=1' \
+  && ok "reconcile: a grown archive is pending" || no "reconcile: grown archive miscounted (got: $RROW)"
+
+# D10 (R2-F#10): the tick's ledger GC compacts a live archive's window rows to the rows the cursor
+# map reads (lossless: same cursor and state), so the ledger stops growing by a row per window.
+reset; rm -f "$RLOG"
+mk_lines "cp1_proj_2026-05-24.txt" 8                       # 15 lines, extracted in five windows
+for w in 0 3 6 9 12; do
+  printf '{"basename":"cp1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":%d,"lines":%d}\n' "$w" $((w + 3))
+done > "$STATE"
+CP_BEFORE="$(cmap cp1_proj_2026-05-24.txt 2) $(cmap cp1_proj_2026-05-24.txt 4)"
+eq "compact: fixture is a done archive" "$CP_BEFORE" "15 done"
+SB_DRAIN_BATCH=0 rdrain
+eq "compact: the tick's GC keeps one row for the done archive" "$(rows_for cp1_proj_2026-05-24.txt | grep -c . || true)" "1"
+eq "compact: cursor and state unchanged by the compaction" "$(cmap cp1_proj_2026-05-24.txt 2) $(cmap cp1_proj_2026-05-24.txt 4)" "$CP_BEFORE"
+eq "compact: a done archive makes no extractor call" "$(rcalls)" "0"
+
+# D11 (R2-F#4/#5): archives written before 0.56.0 hold secrets in clear. The first ticks scrub
+# them in place (sb_scrub_archive_file), under the drain lock and before the defer gate, pending
+# archives first, bounded per tick by a file cap and a time bound (D18, not SB_DRAIN_BATCH: a scrub
+# makes no LLM call), then write .archive-scrub-v1. No archive is extracted
+# before its scrub: the extractor never receives a key. The stub records the window it receives.
+SSTUB="$SANDBOX/sstub.sh"; SCAP="$SANDBOX/sstub.cap"
+cat > "$SSTUB" <<EOF7
+#!/bin/bash
+printf '=== %s %s %s\n' "\${1##*/}" "\$3" "\$4" >> "$SCAP"
+sed -n "\$((\$3 + 1)),\$4p" "\$1" >> "$SCAP"
+exit 0
+EOF7
+chmod +x "$SSTUB"
+sdrain() { SB_EXTRACT_STUB="$SSTUB" bash "$DRAIN" >/dev/null 2>&1 || true; }
+SMARK="$BRAIN_DIR/.archive-scrub-v1"; STODO="$BRAIN_DIR/.archive-scrub-v1.todo"
+KANT="sk-""ant-api03-$(printf 'Zq9x%.0s' 1 2 3 4 5 6 7 8)"   # built at run time: no key-shaped literal in the repo
+mk_key() {  # $1 = archive, $2 = touch stamp: an archive written before 0.56.0, a key in clear
+  mk_lines "$1" 3; printf 'USER: my key is %s\n' "$KANT" >> "$BRAIN_DIR/transcripts/$1"; mk_lines "$1" 2
+  touch -t "$2" "$BRAIN_DIR/transcripts/$1"
+}
+smt() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+# D11a: a legacy archive (legacy ok row, grown since: re-mined) goes through migration then extraction
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "sk1_proj_2026-05-24.txt" 202605240000
+SK1="$BRAIN_DIR/transcripts/sk1_proj_2026-05-24.txt"; SK1_LC=$(wc -l < "$SK1"); SK1_MT=$(smt "$SK1")
+printf '%s\n' '{"basename":"sk1_proj_2026-05-24.txt","ts":"2026-01-01T00:00:00Z","outcome":"ok"}' > "$STATE"
+sdrain
+grep -q '^=== sk1_proj_2026-05-24.txt 0 ' "$SCAP" 2>/dev/null && ok "scrub-migrate: the legacy archive was extracted" \
+  || no "scrub-migrate: the legacy archive was not extracted (got: $(cat "$SCAP" 2>/dev/null))"
+grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub-migrate: the extractor RECEIVED the key" || ok "scrub-migrate: the extractor never received the key"
+grep -qF '[redacted:anthropic]' "$SCAP" 2>/dev/null && ok "scrub-migrate: the extractor received the redaction" || no "scrub-migrate: no redaction in the extractor input"
+grep -qF 'sk-ant-' "$SK1" && no "scrub-migrate: the archive at rest still holds the key" || ok "scrub-migrate: the archive at rest is scrubbed"
+eq "scrub-migrate: line count unchanged" "$(wc -l < "$SK1")" "$SK1_LC"
+eq "scrub-migrate: mtime unchanged (the quiet rule reads it)" "$(smt "$SK1")" "$SK1_MT"
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: done in one tick -> marker, no to-do list" || no "scrub-migrate: marker/to-do state wrong"
+# D11b: an archive whose scrub fails this tick (its lock is held) is NOT extracted, even with free slots
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "sg1_proj_2026-05-24.txt" 202605240000
+printf '1\n' > "$BRAIN_DIR/transcripts/.sg1_proj_2026-05-24.txt.lock"
+SB_DRAIN_BATCH=3 sdrain
+grep -q '^=== sg1_proj' "$SCAP" 2>/dev/null && no "scrub-migrate: an archive still awaiting its scrub was extracted" \
+  || ok "scrub-migrate: an archive awaiting its scrub is not extracted"
+grep -qx "$(printf 'transcripts/sg1_proj_2026-05-24.txt\t1')" "$STODO" 2>/dev/null && ok "scrub-migrate: the failed scrub stays on the to-do list" || no "scrub-migrate: the failed scrub left the to-do list"
+[ ! -f "$SMARK" ] && ok "scrub-migrate: no marker while an archive awaits its scrub" || no "scrub-migrate: marker written early"
+rm -f "$BRAIN_DIR/transcripts/.sg1_proj_2026-05-24.txt.lock"
+SB_DRAIN_BATCH=3 sdrain
+grep -q '^=== sg1_proj' "$SCAP" 2>/dev/null && ok "scrub-migrate: extracted once scrubbed (next tick)" || no "scrub-migrate: never extracted after its scrub"
+grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub-migrate: key leaked after the retry" || ok "scrub-migrate: no key after the retry either"
+[ -f "$SMARK" ] && ok "scrub-migrate: marker once the list is empty" || no "scrub-migrate: no marker after the last scrub"
+# D11c: PENDING archives are scrubbed first (a done archive can wait; the extractor cannot): with a
+# scrub cap of 1, the pending archive is scrubbed and extracted on tick 1
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "so0_proj_2026-05-24.txt" 202605230000              # done, oldest, first in name order
+mk_key "so1_proj_2026-05-24.txt" 202605240000              # pending
+printf '{"basename":"so0_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":%d}\n' \
+  "$(wc -l < "$BRAIN_DIR/transcripts/so0_proj_2026-05-24.txt")" > "$STATE"
+SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
+grep -q '^=== so1_proj' "$SCAP" 2>/dev/null && ok "scrub-migrate: the pending archive is scrubbed first and extracted on tick 1" \
+  || no "scrub-migrate: the pending archive waited behind a done one"
+grep -qx "$(printf 'transcripts/so0_proj_2026-05-24.txt\t0')" "$STODO" 2>/dev/null && ok "scrub-migrate: cap-bounded (the done archive waits for tick 2)" || no "scrub-migrate: not cap-bounded"
+SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/so0_proj_2026-05-24.txt" && no "scrub-migrate: the done archive was never scrubbed" || ok "scrub-migrate: resumed on tick 2 (done archive scrubbed)"
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub-migrate: complete after tick 2" || no "scrub-migrate: not complete after tick 2"
+# D11d: the migration is LLM-free, so it also runs on a DEFERRED tick
+reset; rm -f "$SCAP" "$SMARK" "$STODO" "$BRAIN_DIR/.drain-defer-count"
+mk_key "sd1_proj_2026-05-24.txt" 202605240000
+SB_INTERACTIVE_OVERRIDE=active SB_DRAIN_STALE_MAX=999999999 sdrain
+eq "scrub-migrate: the tick really deferred" "$(cat "$BRAIN_DIR/.drain-defer-count" 2>/dev/null)" "1"
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sd1_proj_2026-05-24.txt" && no "scrub-migrate: a deferred tick skipped the scrub" || ok "scrub-migrate: runs on a deferred tick"
+# D14 (X2 S2): the cap evicted an extracted archive (tombstone .<name>.evicted) and the same
+# session re-created the basename the same day, growing it past the old cursor, before this tick.
+# The tick must extract it from 0, drop the evicted incarnation's row and consume the tombstone.
+reset; rm -f "$RLOG"
+mk_lines "ev1_proj_2026-05-24.txt" 3                       # the evicted incarnation: 10 lines
+printf '{"basename":"ev1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":10}\n' > "$STATE"
+rm -f "$BRAIN_DIR/transcripts/ev1_proj_2026-05-24.txt"
+printf 'ev1_proj_2026-05-24.txt\n' > "$BRAIN_DIR/transcripts/.ev1_proj_2026-05-24.txt.evicted"
+sleep 1   # the eviction is a past second: a row stamped in the tombstone's own second is stale by design (lib.sh), and a fast host ticks within it
+mk_lines "ev1_proj_2026-05-24.txt" 13                      # re-created: 20 lines, past the old cursor
+rdrain
+eq "evicted+recreated: extracted from 0, not from the stale cursor" "$(rlast)" "ev1_proj_2026-05-24.txt 0 20"
+rows_for ev1_proj_2026-05-24.txt | grep -q '"ts":"2026-05-24T00:00:00Z"' && no "evicted+recreated: the evicted incarnation's row survived the tick" \
+  || ok "evicted+recreated: the evicted incarnation's row is dropped"
+[ ! -e "$BRAIN_DIR/transcripts/.ev1_proj_2026-05-24.txt.evicted" ] && ok "evicted+recreated: the tick consumed the tombstone" \
+  || no "evicted+recreated: tombstone left after the tick"
+eq "evicted+recreated: done after the tick" "$(cmap ev1_proj_2026-05-24.txt 2) $(cmap ev1_proj_2026-05-24.txt 4)" "20 done"
+
+# D15: the REAL extraction path (no SB_EXTRACT_STUB: lib.sh sb_extract_transcript, the real
+# extract -> gate -> merge) with a fake `claude` on PATH that records every extractor input. HOME
+# and the knowledge dir are sandboxed: the real merge writes pages. One tick, one archive,
+# several assertions (each real pass costs seconds on MSYS).
+FAKEBIN="$SANDBOX/fakebin"; FCAP="$SANDBOX/fake-claude.in"; mkdir -p "$FAKEBIN" "$SANDBOX/fakehome" "$SANDBOX/fake-knowledge/wiki"
+cat > "$FAKEBIN/claude" <<EOF8
+#!/bin/bash
+in=\$(cat); printf '%s\n=== END CALL ===\n' "\$in" >> "$FCAP"
+case "\$in" in *FAILCHUNK*) exit 1 ;; esac   # item 11: an input carrying this marker fails
+printf '%s\n' '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+EOF8
+chmod +x "$FAKEBIN/claude"
+realdrain() {
+  env -u SB_EXTRACT_STUB -u ANTHROPIC_API_KEY -u SB_EXTRACTOR_LOCAL_URL PATH="$FAKEBIN:$PATH" HOME="$SANDBOX/fakehome" \
+    CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$SANDBOX/fake-knowledge" "$@" bash "$DRAIN" >/dev/null 2>&1 || true
+}
+reset; rm -f "$FCAP"; : > "$SMARK"                         # the one-time migration is done
+# X2 S6 (p4): a 0.55 hook (no scrub) appended a key to the archive AFTER the migration marker.
+# Item 11: the archive spans several forward chunks at a 320 B cap and the extractor fails the
+# SECOND one (line 22 carries the marker). The drainer hands one chunk per call, so the merged
+# chunk gets its own ok row ending where it ended (not at the archive end) and only the failed
+# chunk is retried.
+KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
+mk_lines "rx1_proj_2026-05-24.txt" 3
+printf 'USER: deploy with %s\n' "$KGHP" >> "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt"   # line 11
+mk_lines "rx1_proj_2026-05-24.txt" 26                                                          # 37 lines
+sed -i.bak '22s/$/ FAILCHUNK/' "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt" && rm -f "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt.bak"
+# X2 S3: an observation ledger written before the write-time scrub holds keys in target/err
+mkdir -p "$BRAIN_DIR/observations"
+jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
+  '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$BRAIN_DIR/observations/rx1.jsonl"
+realdrain SB_EXTRACT_MAX_BYTES=320 SB_DRAIN_MAX_FAILS=3
+grep -q '=== OBSERVATIONS' "$FCAP" 2>/dev/null && ok "real path: the extractor received the observations section" \
+  || no "real path: no extractor input recorded (got: $(head -c 300 "$FCAP" 2>/dev/null))"
+grep -qF 'ant-api03-' "$FCAP" 2>/dev/null && no "real path: the extractor RECEIVED a key from the observation ledger" \
+  || ok "real path: no key from the observation ledger reaches the extractor"
+grep -qF "$KGHP" "$FCAP" 2>/dev/null && no "real path: the extractor RECEIVED a key appended after the scrub marker" \
+  || ok "real path: an archive key appended after the marker is scrubbed before extraction"
+grep -qF "$KGHP" "$BRAIN_DIR/transcripts/rx1_proj_2026-05-24.txt" && no "real path: the archive at rest still holds the key" \
+  || ok "real path: the archive at rest is scrubbed too"
+RX_ROWS=$(rows_for rx1_proj_2026-05-24.txt)
+RX_OK=$(printf '%s\n' "$RX_ROWS" | jq -r 'select(.outcome == "ok") | "\(.from) \(.lines)"' 2>/dev/null | tr -d '\r')
+RX_C1="${RX_OK#* }"
+case "$RX_OK" in
+  "0 "*) [ "$RX_C1" -gt 11 ] && [ "$RX_C1" -lt 22 ] \
+           && ok "partial: the merged first chunk's ok row ends at that chunk (0,$RX_C1], not at the archive end" \
+           || no "partial: ok row bounds wrong (got: $RX_OK)" ;;
+  *) no "partial: no single ok row from 0 for the merged chunk (got: $RX_ROWS)" ;;
+esac
+[ -n "$RX_ROWS" ] && printf '%s\n' "$RX_ROWS" | jq -e --argjson c "${RX_C1:-0}" 'select(.outcome == "retry" and .from == $c and .lines > $c)' >/dev/null 2>&1 \
+  && ok "partial: the failed chunk is a retry row starting where the merged one ended" \
+  || no "partial: retry row missing or misplaced (got: $RX_ROWS)"
+eq "partial: the next tick resumes at the end of the merged chunk (cursor next state)" \
+  "$(cmap rx1_proj_2026-05-24.txt 2) $(cmap rx1_proj_2026-05-24.txt 5) $(cmap rx1_proj_2026-05-24.txt 4)" "$RX_C1 $RX_C1 pending"
+rm -f "$SMARK"
+
+# D16 (X2 S5, p3): too-small is for a never-extracted archive only (cursor 0). A short final turn
+# after earlier windows were extracted (the decision that closes a session) must be extracted.
+reset; rm -f "$RLOG"
+mk_lines "ts1_proj_2026-05-24.txt" 3                       # 10 lines, extracted by an earlier tick
+printf '{"basename":"ts1_proj_2026-05-24.txt","ts":"2026-05-24T00:00:00Z","outcome":"ok","from":0,"lines":10}\n' > "$STATE"
+mk_lines "ts1_proj_2026-05-24.txt" 2; touch -t 202601010000 "$BRAIN_DIR/transcripts/ts1_proj_2026-05-24.txt"
+SB_DRAIN_QUIET_S=3600 SB_DRAIN_MIN_BYTES=1024 rdrain
+eq "short tail: the settled tail after extraction goes to the extractor" "$(rlast)" "ts1_proj_2026-05-24.txt 10 12"
+rows_for ts1_proj_2026-05-24.txt | grep -q 'too-small' && no "short tail: marked too-small without extraction" \
+  || ok "short tail: no too-small row after earlier extraction"
+
+# D13 (R2 fix X2#2): a cursor-map failure is not "nothing pending". A jq shim fails ONLY the map
+# program (the one that defines `epoch`); the tick must not write reconcile 0/0/0 nor health ok.
+JQS="$SANDBOX/jqshim"; mkdir -p "$JQS"
+printf '#!/bin/bash\ncase "$*" in *"def epoch"*) exit 5 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$JQS/jq"; chmod +x "$JQS/jq"
+reset; rm -f "$RLOG" "$BRAIN_DIR/audit-log.jsonl" "$BRAIN_DIR/.extractor-health.json"
+mk_lines "mf1_proj_2026-05-24.txt" 3
+PATH="$JQS:$PATH" rdrain
+MROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
+printf '%s' "$MROW" | grep -q 'map=failed' && ! printf '%s' "$MROW" | grep -q 'declared=0 ' \
+  && ok "map-failed: the reconcile row says map=failed, not 0/0/0" || no "map-failed: reconcile row hid the failure (got: $MROW)"
+eq "map-failed: extractor health is fail" "$(jq -r '.status' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | tr -d '\r')" "fail"
+jq -r '.reason' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null | grep -q 'cursor map unavailable' \
+  && ok "map-failed: the health reason names the cursor map" || no "map-failed: health reason (got: $(cat "$BRAIN_DIR/.extractor-health.json" 2>/dev/null))"
+
+# D17 (X2#3): the scrub to-do list holds archives one by one. Format (also read by the episodic
+# indexer): one `<path relative to BRAIN_DIR>\t<failed scrub attempts>` per line.
+# D17a: a scrub that keeps failing rotates to the back instead of blocking every other archive
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_key "sr1_proj_2026-05-24.txt" 202605240000              # oldest pending: the first pick
+mk_key "sr2_proj_2026-05-24.txt" 202605240001
+printf '1\n' > "$BRAIN_DIR/transcripts/.sr1_proj_2026-05-24.txt.lock"   # a live writer: its scrub fails
+SB_DRAIN_BATCH=1 SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
+grep -qx "$(printf 'transcripts/sr1_proj_2026-05-24.txt\t1')" "$STODO" 2>/dev/null \
+  && ok "scrub rotation: a failed scrub counts its attempt" || no "scrub rotation: no attempt count (got: $(cat "$STODO" 2>/dev/null))"
+SB_DRAIN_BATCH=1 SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain
+grep -q '^=== sr2_proj' "$SCAP" 2>/dev/null && ok "scrub rotation: the failing archive goes last, the next one is scrubbed and extracted" \
+  || no "scrub rotation: the failing archive is re-picked first and blocks the others"
+grep -q '^=== sr1_proj' "$SCAP" 2>/dev/null && no "scrub rotation: an unscrubbed archive was extracted" || ok "scrub rotation: the unscrubbed archive stays held"
+rm -f "$BRAIN_DIR/transcripts/.sr1_proj_2026-05-24.txt.lock"
+# D17b: one archive the listing grep cannot read is held alone, not every extraction
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_lines "su2_proj_2026-05-24.txt" 3                       # clean, extractable
+mk_key "su1_proj_2026-05-24.txt" 202605240000
+GSHIM="$SANDBOX/grepshim"; mkdir -p "$GSHIM"; RGREP=$(command -v grep)
+cat > "$GSHIM/grep" <<EOF9
+#!/bin/bash
+case " \$* " in *" -lE "*)
+  "$RGREP" "\$@" | "$RGREP" -v 'su1_proj'; echo "grep: transcripts/su1_proj_2026-05-24.txt: Permission denied" >&2; exit 2 ;;
+esac
+exec "$RGREP" "\$@"
+EOF9
+chmod +x "$GSHIM/grep"
+PATH="$GSHIM:$PATH" sdrain
+grep -q '^=== su2_proj' "$SCAP" 2>/dev/null && ok "scrub hold: an unreadable archive no longer holds every extraction" \
+  || no "scrub hold: one unreadable archive held all extraction"
+grep -qF 'sk-ant-' "$SCAP" 2>/dev/null && no "scrub hold: a key reached the extractor" || ok "scrub hold: no key reached the extractor"
+# D17e: a listing error that names no archive keeps the list for this tick only (it is rebuilt next
+# tick): nothing the grep did not see can be marked scrubbed, and no marker is written
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+mk_lines "sn1_proj_2026-05-24.txt" 3
+cat > "$GSHIM/grep" <<EOF10
+#!/bin/bash
+case " \$* " in *" -lE "*) "$RGREP" "\$@"; echo "grep: (standard input): read error" >&2; exit 2 ;; esac
+exec "$RGREP" "\$@"
+EOF10
+PATH="$GSHIM:$PATH" sdrain
+[ ! -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub hold: an unexplained listing error writes neither a marker nor a list" \
+  || no "scrub hold: an unexplained listing error was taken as complete ($(ls -a "$BRAIN_DIR" | grep archive-scrub | tr '\n' ' '))"
+# D17c: a to-do list that cannot be read is rebuilt (attempt counts restart) instead of holding all.
+# D17d rides the same tick (security review): the transcript copies already staged in dream dirs
+# are part of the list build, so the dream-runner's input is scrubbed by the migration too.
+reset; rm -f "$SCAP" "$SMARK"; rm -rf "$BRAIN_DIR/dreams"
+mk_lines "sc2_proj_2026-05-24.txt" 3
+mk_key "sc1_proj_2026-05-24.txt" 202605240000
+printf 'transcripts/sc1_proj_2026-05-24.txt\t2\n' > "$STODO"
+mkdir -p "$BRAIN_DIR/dreams/dr1/transcripts"
+printf 'USER: my key is %s\n' "$KANT" > "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt"
+CSHIM="$SANDBOX/catshim"; mkdir -p "$CSHIM"; RCAT=$(command -v cat)
+printf '#!/bin/bash\ncase "$*" in *archive-scrub-v1.todo*) exit 1 ;; esac\nexec "%s" "$@"\n' "$RCAT" > "$CSHIM/cat"; chmod +x "$CSHIM/cat"
+PATH="$CSHIM:$PATH" sdrain
+grep -q '^=== sc2_proj' "$SCAP" 2>/dev/null && ok "scrub hold: an unreadable to-do list is rebuilt, extraction goes on" \
+  || no "scrub hold: an unreadable to-do list held all extraction"
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/sc1_proj_2026-05-24.txt" && no "scrub hold: the rebuilt list lost the key-holding archive" \
+  || ok "scrub hold: the rebuilt list still scrubs the key-holding archive"
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub hold: the rebuilt migration completes (marker, list removed)" \
+  || no "scrub hold: the migration stalled on its unreadable list"
+grep -qF 'sk-ant-' "$BRAIN_DIR/dreams/dr1/transcripts/x1_proj_2026-05-24.txt" && no "scrub-migrate: a dream dir's transcript copy still holds a key" \
+  || ok "scrub-migrate: a dream dir's transcript copy is scrubbed before the marker is written"
+rm -rf "$BRAIN_DIR/dreams"
+
+# D18 (0.56.0 integration, items 1 and 2). Item 1: the to-do list names only archives the scrub
+# would change. The bare literals (_SB_SCRUB_LITERALS) also hit every task-/disk- id, so the list
+# named most archives, and each listed one is held out of extraction and recall until its turn.
+# Near-miss archives each hold a bare literal (the old listing named them) and nothing the scrub
+# changes; they are the newest, so the first tick's one scrub takes a real-format archive and the
+# list shows what was listed. Item 2: a scrub is cheap (no LLM call), so a run is bounded by its
+# own file cap (SB_SCRUB_MIGRATE_MAX_FILES, 50) and time bound (SB_SCRUB_MIGRATE_MAX_S, 20 s: no
+# scrub starts past it, one always does), not by SB_DRAIN_BATCH; it stays resumable, and an entry
+# not attempted keeps its attempt count. Three ticks over one fixture set cover both.
+reset; rm -f "$SCAP" "$SMARK" "$STODO"
+tcount() { if [ -f "$STODO" ]; then grep -c . "$STODO" || true; else echo 0; fi; }
+mk_fx() {  # $1 = archive, $2 = line, $3 = touch stamp
+  mk_lines "$1" 2; printf '%s\n' "$2" >> "$BRAIN_DIR/transcripts/$1"; touch -t "$3" "$BRAIN_DIR/transcripts/$1"
+}
+r4() { printf "$1%.0s" 1 2 3 4 5 6 7 8; }
+mk_fx "nm1_proj_2026-05-24.txt" "USER: run task-123 on disk-0, then task-$(r4 0a1B) and disk-$(r4 0a1B)" 202605250001
+mk_fx "nm2_proj_2026-05-24.txt" "USER: sk-short1234, Bearer abc, ghp_tooshort, AKIA12, glpat-short, xapp-short" 202605250002
+mk_fx "nm3_proj_2026-05-24.txt" "USER: the PRIV""ATE KEY file; eyJson; xoxo; Authorization: header docs; npm_config; hf_hub" 202605250003
+mk_fx "rf1_proj_2026-05-24.txt" "USER: my key is $KANT" 202605240001
+mk_fx "rf2_proj_2026-05-24.txt" "  export OPENAI_API_KEY=sk-$(r4 aB3)" 202605240002
+mk_fx "rf3_proj_2026-05-24.txt" "USER: -----BEGIN RSA PRIV""ATE KEY-----" 202605240003
+mk_fx "rf4_proj_2026-05-24.txt" "  -H \"authorization: bearer $(r4 Zz.9)\"" 202605240004
+mk_fx "rf5_proj_2026-05-24.txt" "key sk-ab$(printf '\342\200\213')$(r4 cD3) end" 202605240005
+# shellcheck disable=SC2016  # $1 expands inside the child shell
+NM_LIT=$(BRAIN_DIR="$BRAIN_DIR" bash -c '. "$1/lib.sh"; cd "$BRAIN_DIR" && LC_ALL=C grep -lF "${_SB_SCRUB_LITERALS[@]}" -- transcripts/nm*.txt' _ "$SCRIPT_DIR" | grep -c .)
+eq "scrub list: each near-miss archive holds a bare literal (the old listing named it)" "$NM_LIT" "3"
+SB_SCRUB_MIGRATE_MAX_FILES=1 sdrain                 # tick 1: cap 1 under the default batch of 5
+eq "scrub list: no near-miss archive is listed" "$(grep -c '^transcripts/nm' "$STODO" 2>/dev/null || true)" "0"
+eq "scrub list: every real-format archive but the one scrubbed this tick is listed (the cap, not the batch, sizes a run)" \
+  "$(grep -c '^transcripts/rf[2-5]_' "$STODO" 2>/dev/null || true)" "4"
+grep -qF 'sk-ant-' "$BRAIN_DIR/transcripts/rf1_proj_2026-05-24.txt" && no "scrub list: the first real-format archive was not scrubbed" \
+  || ok "scrub list: the tick's scrub took a real-format archive"
+SB_SCRUB_MIGRATE_MAX_S=0 sdrain                     # tick 2: the time bound already passed
+eq "scrub bound: past the time bound no scrub starts, one always does (3 of 4 left)" "$(tcount)" "3"
+eq "scrub bound: the entries not attempted keep 0 attempts" "$(grep -c "$(printf '\t0$')" "$STODO" 2>/dev/null || true)" "3"
+SB_DRAIN_BATCH=1 sdrain                             # tick 3: the default budget, a batch of 1
+[ -f "$SMARK" ] && [ ! -f "$STODO" ] && ok "scrub bound: the default cap finishes the rest (3) in one run, past a batch of 1" \
+  || no "scrub bound: the default run did not finish the list (left: $(tcount))"
+eq "scrub list: every real-format archive is redacted" \
+  "$( { grep -L '\[redacted:' "$BRAIN_DIR"/transcripts/rf*_proj_2026-05-24.txt 2>/dev/null || true; } | grep -c . || true)" "0"
+
+# D12 (R2-F#3): a per-archive lock left by a writer that died is swept after a day; a live one stays
+reset
+printf '1\n' > "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"; touch -t 202601010000 "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock"
+printf '1\n' > "$BRAIN_DIR/transcripts/.dl2_proj.txt.lock"
+# X2#4: *.part scratch files of a hook killed mid-append (.stage-<sid>-<pid>.part) or mid-scrub
+# (<archive>.txt.scrub-<pid>.part) sat outside every cap; X2 S2: a stale eviction tombstone
+OLDF="$BRAIN_DIR/transcripts/.stage-sid1-123.part $BRAIN_DIR/transcripts/a1_proj.txt.scrub-9.part $BRAIN_DIR/transcripts/.ev9_proj.txt.evicted"
+for f in $OLDF; do printf 'x' > "$f"; touch -t 202601010000 "$f"; done
+printf 'x' > "$BRAIN_DIR/transcripts/.stage-sid2-456.part"; : > "$BRAIN_DIR/transcripts/.ev8_proj.txt.evicted"
+rdrain
+[ ! -e "$BRAIN_DIR/transcripts/.dl1_proj.txt.lock" ] && ok "lock sweep: a day-old archive lock is removed" || no "lock sweep: a day-old archive lock survived"
+[ -e "$BRAIN_DIR/transcripts/.dl2_proj.txt.lock" ] && ok "lock sweep: a fresh archive lock is kept" || no "lock sweep: a live archive lock was removed"
+LEFT=""; for f in $OLDF; do [ -e "$f" ] && LEFT="$LEFT ${f##*/}"; done
+[ -z "$LEFT" ] && ok "part sweep: stale *.part scratch files and tombstones are removed" || no "part sweep: left behind:$LEFT"
+[ -e "$BRAIN_DIR/transcripts/.stage-sid2-456.part" ] && [ -e "$BRAIN_DIR/transcripts/.ev8_proj.txt.evicted" ] \
+  && ok "part sweep: a live writer's fresh scratch file and a fresh tombstone are kept" || no "part sweep: a fresh scratch file or tombstone was removed"
+
 # Test GC (R1.2): stale extraction markers (7d) + nested-spawn scratch
 # transcripts (3d) are swept by the drainer. Re-exports HOME — keep this LAST.
 echo "Test: GC sweeps — stale markers + scratch transcripts"
@@ -336,12 +848,30 @@ reset
 export HOME="$SANDBOX"            # hermetic: the scratch prune walks $HOME/.claude
 touch -t 202601010000 "$BRAIN_DIR/.last-extracted-line-old--sess"
 touch "$BRAIN_DIR/.last-extracted-line-new--sess"
+touch -t 202601010000 "$BRAIN_DIR/.last-archived-line-old--sess"
+touch "$BRAIN_DIR/.last-archived-line-new--sess"
 mkdir -p "$HOME/.claude/projects/-x-second-brain-scratch"
 touch -t 202601010000 "$HOME/.claude/projects/-x-second-brain-scratch/old.jsonl"
 touch "$HOME/.claude/projects/-x-second-brain-scratch/new.jsonl"
+# X2#8: a stale cursor whose raw transcript is still on disk (a session that can resume) is kept,
+# with its legacy sibling: deleting it re-archived the resumed session from raw line 0 (a
+# duplicate window in the archive). One whose transcript is gone still ages out.
+printf 'raw\n' > "$SANDBOX/live-transcript.jsonl"
+printf '42\t%s\n' "$SANDBOX/live-transcript.jsonl" > "$BRAIN_DIR/.last-archived-line-live--sess"
+printf '42\n' > "$BRAIN_DIR/.last-extracted-line-live--sess"
+printf '42\t%s\n' "$SANDBOX/gone-transcript.jsonl" > "$BRAIN_DIR/.last-archived-line-gone--sess"
+printf '42\n' > "$BRAIN_DIR/.last-extracted-line-gone--sess"
+touch -t 202601010000 "$BRAIN_DIR/.last-archived-line-live--sess" "$BRAIN_DIR/.last-extracted-line-live--sess" \
+  "$BRAIN_DIR/.last-archived-line-gone--sess" "$BRAIN_DIR/.last-extracted-line-gone--sess"
 bash "$DRAIN" >/dev/null 2>&1 || true
+[ -f "$BRAIN_DIR/.last-archived-line-live--sess" ] && [ -f "$BRAIN_DIR/.last-extracted-line-live--sess" ] \
+  && ok "cursor GC: a resumable session's stale cursors are kept" || no "cursor GC: a resumable session's cursor was swept (re-archived from 0)"
+[ ! -f "$BRAIN_DIR/.last-archived-line-gone--sess" ] && [ ! -f "$BRAIN_DIR/.last-extracted-line-gone--sess" ] \
+  && ok "cursor GC: cursors of a vanished transcript still age out" || no "cursor GC: a vanished transcript's cursors survived"
 [ ! -f "$BRAIN_DIR/.last-extracted-line-old--sess" ] && ok "stale marker swept (7d)" || no "stale marker survived"
 [ -f "$BRAIN_DIR/.last-extracted-line-new--sess" ] && ok "fresh marker kept" || no "fresh marker swept"
+[ ! -f "$BRAIN_DIR/.last-archived-line-old--sess" ] && ok "stale raw_line cursor (.last-archived-line-*) swept (30d)" || no "stale .last-archived-line-* survived"
+[ -f "$BRAIN_DIR/.last-archived-line-new--sess" ] && ok "fresh raw_line cursor kept" || no "fresh .last-archived-line-* swept"
 [ ! -f "$HOME/.claude/projects/-x-second-brain-scratch/old.jsonl" ] && ok "old scratch transcript pruned (3d)" || no "old scratch transcript survived"
 [ -f "$HOME/.claude/projects/-x-second-brain-scratch/new.jsonl" ] && ok "fresh scratch transcript kept" || no "fresh scratch transcript pruned"
 
@@ -438,6 +968,13 @@ mkdir -p "$BRAIN_DIR/observations"
 printf '{"ts":"2026-01-01T00:00:00Z","tool":"Bash","target":"x","ok":true}\n' > "$BRAIN_DIR/observations/old-session.jsonl"
 touch -t 202601010000 "$BRAIN_DIR/observations/old-session.jsonl"
 printf '{"ts":"2026-07-30T00:00:00Z","tool":"Bash","target":"y","ok":true}\n' > "$BRAIN_DIR/observations/fresh-session.jsonl"
+# Q-L10: the hook's loud-once flags (observations/<sid>.<condition>.flag, and the BRAIN_DIR fallback
+# .obs-<sid>.<condition>.flag) age out with the ledgers; only aged *flag* names go at BRAIN_DIR depth.
+: > "$BRAIN_DIR/observations/old-session.capped.flag"; touch -t 202601010000 "$BRAIN_DIR/observations/old-session.capped.flag"
+: > "$BRAIN_DIR/observations/fresh-session.capped.flag"
+: > "$BRAIN_DIR/.obs-old-session.append-failed.flag"; touch -t 202601010000 "$BRAIN_DIR/.obs-old-session.append-failed.flag"
+: > "$BRAIN_DIR/.obs-fresh-session.append-failed.flag"
+printf 'x\n' > "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl"; touch -t 202601010000 "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl"
 bash "$DRAIN" >/dev/null 2>&1 || true
 [ ! -f "$BRAIN_DIR/observations/old-session.jsonl" ] \
   && ok "observation GC: >7d ledger swept" \
@@ -445,6 +982,13 @@ bash "$DRAIN" >/dev/null 2>&1 || true
 [ -f "$BRAIN_DIR/observations/fresh-session.jsonl" ] \
   && ok "observation GC: fresh ledger kept" \
   || no "observation GC: fresh ledger was deleted"
+[ ! -e "$BRAIN_DIR/observations/old-session.capped.flag" ] && [ ! -e "$BRAIN_DIR/.obs-old-session.append-failed.flag" ] \
+  && ok "observation GC: >7d loud-once flags swept (observations/ and the BRAIN_DIR fallback)" \
+  || no "observation GC: an aged loud-once flag survived ($(ls -a "$BRAIN_DIR/observations" "$BRAIN_DIR" | grep -F '.flag' | tr '\n' ' '))"
+[ -e "$BRAIN_DIR/observations/fresh-session.capped.flag" ] && [ -e "$BRAIN_DIR/.obs-fresh-session.append-failed.flag" ] \
+  && [ -e "$BRAIN_DIR/.obs-aged-not-a-flag.jsonl" ] \
+  && ok "observation GC: fresh flags and an aged non-flag file at BRAIN_DIR depth kept" \
+  || no "observation GC: a fresh flag or a non-flag BRAIN_DIR file was deleted"
 
 # --- lock steal must clear a NON-EMPTY stale lock dir ------------------------
 # The steal path itself writes $LOCK_DIR/pid, so any run killed after that point

@@ -54,8 +54,11 @@ emit_failed_banner() {  # $1 = id, $2 = error tail
 }
 
 emit_quarantine_banner() {  # $1 = quarantine line
+  # Only a CLI-version quarantine clears itself (maintain-llm-drain.sh). Every other cause stays
+  # until both files are deleted: the strike count in .llm-maintain-fails re-quarantines on the
+  # next failure if only the quarantine file goes.
   # shellcheck disable=SC2016
-  printf '## ⚠ second-brain — auto_maintain quarantined\n%s\nIf the error names bwrap/namespaces, redeploy the drainer unit: `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`. The quarantine self-clears on the next drain cycle once the cause is fixed (or delete `~/.second-brain/.llm-maintain-quarantine`).\n\n' "$1"
+  printf '## ⚠ second-brain — auto_maintain quarantined\n%s\nIf the error names bwrap/namespaces, redeploy the drainer unit: `bash $CLAUDE_PLUGIN_ROOT/scripts/install-extract-timer.sh --apply --oauth`. Only a CLI-version quarantine clears itself (the next drain cycle after a CLI upgrade). Any other cause stays quarantined: fix it, then delete `%s` and `%s`.\n\n' "$1" "$BRAIN_DIR/.llm-maintain-quarantine" "$BRAIN_DIR/.llm-maintain-fails"
 }
 
 # Anchor the new-transcripts watermark on a TERMINAL dream (failed/canceled

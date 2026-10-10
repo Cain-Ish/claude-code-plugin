@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs, mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, sep, parse } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
 import {
@@ -14,8 +14,78 @@ import {
   addLocation,
   removeLocation,
   listLocations,
+  servableEntries,
 } from './doc-sources.js';
 import { hashContent } from './content-hash.js';
+
+// Review 2 (P-T1, P-T6): an entry is served by its realpath but printed as registered, so only a
+// plain absolute path in the host's own form qualifies: no `.`/`..` segment (a link inside the
+// project plus `..` prints a path that names a file outside it), and on Windows a drive or UNC path
+// (`\proj\x.md` is drive-relative). Both count as `relative`.
+describe('servableEntries: only a plain absolute path is served (review 2)', () => {
+  const entry = (path: string) => ({ id: 'i', path, rel: 'r', gist: 'g', headings: [], hash: 'h', mtime: 'x', size: 1 });
+  it('refuses a dot segment and, on Windows, a drive-relative path', () => {
+    const root = mkdtempSync(join(tmpdir(), 'se-dots-'));
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    const inside = join(root, 'docs', 'a.md');
+    writeFileSync(inside, '# a\n');
+    const dotted = [root, 'docs', '..', 'docs', 'a.md'].join(sep);   // join() would normalise the `..` away
+    const dotOnly = [root, '.', 'docs', 'a.md'].join(sep);
+    const entries = [entry(inside), entry(dotted), entry(dotOnly)];
+    if (process.platform === 'win32') entries.push(entry(inside.slice(2)));   // "\Users\...\a.md": drive-relative
+    const r = servableEntries(entries, root);
+    expect(r.kept.map(e => e.path)).toEqual([inside]);
+    expect(r.relative).toBe(entries.length - 1);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  // P-S7: a session started in the home directory (or above it, or at a drive root) made every file
+  // under it servable: ~/.bash_history, ~/.env. Such a root serves nothing (fails closed); the
+  // reason is reported (rootStatus) for the gate=local-doc-drop row.
+  it('refuses a project root that is the home directory, contains it, or is a filesystem root (P-S7)', () => {
+    const base = mkdtempSync(join(tmpdir(), 'se-home-'));
+    const home = join(base, 'home', 'u');
+    mkdirSync(join(home, 'proj', 'docs'), { recursive: true });
+    const secret = join(home, '.bash_history');
+    writeFileSync(secret, 'x\n');
+    const doc = join(home, 'proj', 'docs', 'a.md');
+    writeFileSync(doc, '# a\n');
+    const entries = [entry(secret), entry(doc)];
+    const at = (root: string | undefined) => servableEntries(entries, root, home);
+    expect(at(home)).toMatchObject({ kept: [], outside: 2, rootUsable: false, rootStatus: 'home' });
+    expect(at(join(base, 'home'))).toMatchObject({ kept: [], outside: 2, rootUsable: false, rootStatus: 'home' });
+    expect(at(parse(base).root)).toMatchObject({ kept: [], outside: 2, rootUsable: false, rootStatus: 'fs-root' });
+    expect(at(undefined)).toMatchObject({ kept: [], outside: 2, rootUsable: false, rootStatus: 'unusable' });
+    expect(at(join(base, 'nope'))).toMatchObject({ kept: [], rootStatus: 'unusable' });
+    const ok = at(join(home, 'proj'));
+    expect(ok).toMatchObject({ rootUsable: true, rootStatus: 'ok', outside: 1 });
+    expect(ok.kept.map(e => e.path)).toEqual([doc]);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  // P-F5: a registry built in another checkout of the project (a worktree that shares the slug) and
+  // a forged entry both counted as `outside`. An entry outside the root whose path ends in its own
+  // `rel`, and whose `rel` names a file under this root, is counted as otherCheckout instead. It is
+  // still not served: the registry entry, not this checkout's file, would be printed.
+  it('counts an entry from another checkout of the project apart from a forged one (P-F5)', () => {
+    const base = mkdtempSync(join(tmpdir(), 'se-other-'));
+    const here = join(base, 'here'), there = join(base, 'there');
+    for (const r of [here, there]) { mkdirSync(join(r, 'docs'), { recursive: true }); writeFileSync(join(r, 'docs', 'a.md'), '# a\n'); }
+    writeFileSync(join(there, 'docs', 'only-there.md'), '# b\n');
+    const e = (path: string, rel: string) => ({ ...entry(path), rel });
+    const r = servableEntries([
+      e(join(here, 'docs', 'a.md'), 'docs/a.md'),
+      e(join(there, 'docs', 'a.md'), 'docs/a.md'),                 // the same doc in the other checkout
+      e(join(there, 'docs', 'only-there.md'), 'docs/only-there.md'), // not in this checkout: outside
+      e(join(there, 'docs', 'a.md'), 'a.md'),                       // rel does not match its path: outside
+      e(join(there, 'docs', 'a.md'), '../here/docs/a.md'),          // a rel that climbs: outside
+      e(join(there, 'docs', 'only-there.md'), 'docs/a.md'),         // a rel its own path does not end in: outside
+    ], here, join(base, 'home'));
+    expect(r.kept.map(x => x.path)).toEqual([join(here, 'docs', 'a.md')]);
+    expect(r).toMatchObject({ otherCheckout: 1, outside: 4 });
+    rmSync(base, { recursive: true, force: true });
+  });
+});
 
 describe('doc-sources filterIgnored', () => {
   it('drops junk-dir paths (node_modules) and keeps real docs', async () => {

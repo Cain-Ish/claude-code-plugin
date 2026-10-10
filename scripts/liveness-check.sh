@@ -54,7 +54,10 @@ fi
 IDX="$BRAIN_DIR/episodic-index.json"
 NEWEST_TX=""
 if [ -d "$BRAIN_DIR/transcripts" ]; then
-  NEWEST_TX=$(find "$BRAIN_DIR/transcripts" -maxdepth 1 -type f 2>/dev/null \
+  # Archives only: *.txt, the indexer's own selection (episodic-search.ts). transcripts/ also
+  # holds per-archive locks (.<name>.txt.lock), eviction tombstones (.<name>.txt.evicted) and
+  # *.part scratch files, none of which the indexer reads; a fresh one read as "index behind".
+  NEWEST_TX=$(find "$BRAIN_DIR/transcripts" -maxdepth 1 -type f -name '*.txt' 2>/dev/null \
     | while IFS= read -r f; do printf '%s %s\n' "$(mtime_of "$f")" "$f"; done \
     | sort -rn | head -1 | cut -d' ' -f1)
 fi

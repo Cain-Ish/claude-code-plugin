@@ -3,7 +3,7 @@ import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
 import { atomicWriteJson } from './atomic-write.js';
 
-const EMBEDDING_DIM = 384;
+export const EMBEDDING_DIM = 384;
 const CACHE_FILE = '.embeddings-cache.json';
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const DISABLE_ENV = 'SECOND_BRAIN_DISABLE_EMBEDDINGS';
@@ -18,6 +18,20 @@ let lastLoadError: { msg: string; loggedTo: Set<string> } | null = null;
 
 function brainDirFromEnv(): string {
   return resolveBrainDir();
+}
+
+/** The command that installs the vector dependencies, for the load-error hint (review 2, P-T10;
+ *  rawCaptureCliCommand's T6 rule). Built from the running bundle's path (pass process.argv[1]):
+ *  every bundle sits under <plugin root>/mcp/dist/, and bin/install-vector-deps.sh under the root.
+ *  `$CLAUDE_PLUGIN_ROOT` is not set in a Bash tool's environment, so the old hint resolved to
+ *  /bin/install-vector-deps.sh. Forward slashes; the characters a double-quoted shell word would
+ *  expand are escaped. Only when the path names no plugin root does the documented form come back. */
+export function installVectorDepsCommand(scriptPath: string | undefined): string {
+  const p = (scriptPath ?? '').replace(/\\/g, '/');
+  const cut = p.lastIndexOf('/mcp/dist/');
+  if (cut < 0) return 'bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"';
+  const script = `${p.slice(0, cut)}/bin/install-vector-deps.sh`;
+  return `bash "${script.replace(/(["$`])/g, '\\$1')}"`;
 }
 
 async function logLoadError(message: string, brainDir: string): Promise<void> {
@@ -95,9 +109,7 @@ async function getPipeline(): Promise<any> {
     return pipelineInstance;
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e));
-    const hint = msg.includes('Cannot find package')
-      ? ' — run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh'
-      : '';
+    const hint = msg.includes('Cannot find package') ? ` — run: ${installVectorDepsCommand(process.argv[1])}` : '';
     await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir);
     return null;
   }
@@ -127,11 +139,19 @@ async function saveCache(wikiRoot: string, cache: EmbeddingCache): Promise<void>
   await atomicWriteJson(join(wikiRoot, CACHE_FILE), cache);
 }
 
+/** JSON has no Infinity or NaN (both are written as null), so a non-finite vector is never
+ *  cached, and a cached vector that is not all finite numbers (an older writer's) is a miss. */
+function isFiniteVector(v: unknown): v is number[] {
+  return Array.isArray(v) && v.every(Number.isFinite);
+}
+
 export async function embedTexts(texts: string[], wikiRoot: string, paths: string[]): Promise<number[][] | null> {
   const pipe = await getPipeline();
   if (!pipe) return null;
 
-  const cache = await loadCache(wikiRoot);
+  // Only keyed texts are ever saved, so a call with no key (the per-prompt query embed) can never
+  // hit the cache: do not parse it (transcripts/ held 5.7 MB, ~9 ms, on a live box in 2026-10).
+  const cache: EmbeddingCache = paths.some(p => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results: number[][] = [];
   let cacheUpdated = false;
 
@@ -139,8 +159,9 @@ export async function embedTexts(texts: string[], wikiRoot: string, paths: strin
     const hash = simpleHash(texts[i]);
     const key = paths[i] || `query-${i}`;
 
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
+    const hit = cache.entries[key];
+    if (hit?.hash === hash && isFiniteVector(hit.vector)) {
+      results.push(hit.vector);
       continue;
     }
 
@@ -148,7 +169,7 @@ export async function embedTexts(texts: string[], wikiRoot: string, paths: strin
     const vec = Array.from(output.data as Float32Array).slice(0, EMBEDDING_DIM);
     results.push(vec);
 
-    if (paths[i]) {
+    if (paths[i] && isFiniteVector(vec)) {
       cache.entries[key] = { hash, vector: vec };
       cacheUpdated = true;
     }

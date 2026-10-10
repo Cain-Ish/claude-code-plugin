@@ -1,10 +1,16 @@
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir, partitionPending, pruneProcessed } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, markProcessed, rawDir, partitionPending, pruneProcessed, rawCaptureCliCommand, shellWord } from './raw-inbox.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { cleanEnvPath } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
+
+/** How a person runs this CLI (raw-capture-cli.bundle.js): its own path, as running now. Nothing
+ *  invokes the capture skill (user-invocable:false, disable-model-invocation:true), so hints name
+ *  the CLI itself, never the skill as a slash command; and never `$CLAUDE_PLUGIN_ROOT`, which a
+ *  Bash tool's environment does not set (T6). */
+const RAW_CAPTURE_CLI = rawCaptureCliCommand(process.argv[1]);
 
 function resolveSlug(brainDir: string, flagSlug?: string): string | undefined {
   // Precedence: --slug flag > SB_ACTIVE_SLUG env > resolveActiveSlug
@@ -52,7 +58,7 @@ async function main(): Promise<void> {
       for (const i of items) {
         console.log(`  - ${i.id} [${i.malformed ? 'malformed' : i.status}] ${i.gist || i.source}`);
       }
-      if (items.length === 0) console.log('  (empty — capture something, e.g. /second-brain:capture ./notes.md)');
+      if (items.length === 0) console.log(`  (empty — capture something, e.g. ${RAW_CAPTURE_CLI} capture ./notes.md)`);
     } else if (action === 'discard') {
       const id = rest[0];
       if (!id) { console.log('usage: capture [--slug <project>] discard <id>'); return; }
@@ -76,7 +82,7 @@ async function main(): Promise<void> {
       if (foreign.length) {
         // fail loud: foreign-origin items are NEVER drained silently (the 88-doc misroute class).
         console.error(`pending: held back ${foreign.length} foreign-origin item(s) (origin≠${slug}): ` +
-          `${foreign.map(i => i.id).join(', ')} — re-capture in the right project or /second-brain:capture --discard <id>`);
+          `${foreign.map(i => i.id).join(', ')} — re-capture in the right project or ${RAW_CAPTURE_CLI} --slug ${shellWord(slug)} discard <id>`);
       }
     } else if (action === 'process') {
       const id = rest[0];

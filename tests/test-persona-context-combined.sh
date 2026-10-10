@@ -136,4 +136,84 @@ grep -q 'torn line' "$BRAIN_H/error-log.jsonl" 2>/dev/null \
   || fail "H: torn dismissals line must be logged via sb_log_error"
 pass "H: torn dismissals line logged once via sb_log_error"
 
+# --- Fake combined CLI: the hook's handling of the CLI output contract, isolated from retrieval ---
+# A plugin tree whose context-serve-cli bundle prints $FAKE_CTX_OUT verbatim (no SB_ var: the hook
+# passes its environment through to node).
+FT="$SANDBOX/fake-tree"; mkdir -p "$FT/mcp/dist/tools"
+cp -r "$REPO_ROOT/scripts" "$FT/scripts"
+cp "$REPO_ROOT/kb-schema.json" "$FT/kb-schema.json" 2>/dev/null || true
+printf 'process.stdout.write(process.env.FAKE_CTX_OUT || "");\n' > "$FT/mcp/dist/tools/context-serve-cli.bundle.js"
+fake_run() {  # $1 = brain dir name, $2 = fake CLI output; prints the hook's additionalContext
+  local b="$SANDBOX/$1"; mkdir -p "$b"
+  printf '{"prompt":"implement the tunnel alpha page feature now","session_id":"%s"}' "$1" \
+    | env FAKE_CTX_OUT="$2" CLAUDE_PLUGIN_ROOT="$FT" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" \
+        KNOWLEDGE_DIR="$KD" BRAIN_DIR="$b" bash "$FT/scripts/persona-context.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null | tr -d '\r'
+}
+
+# --- I (D11): a local doc reaches the prompt as a Read line, never as [[basename]] ------------
+# The CLI prints a registered local doc as "Read <absolute path> — gist" (injectedHitLine): it is a
+# file, and knowledge_fetch globs only the wiki. The hook used to keep ONLY [[slug]] tokens, so the
+# doc vanished here (and before the CLI change it arrived as an unopenable [[SKILL]]).
+I_CTX=$(fake_run brain-i "$(printf '### [[tunnel-alpha]] — about tunnels\nRead /repo/skills/tunnel/SKILL.md — Tunnel skill\n%s\n' "$SEP")")
+printf '%s\n' "$I_CTX" | grep -qF '[[tunnel-alpha]]' || fail "I: the wiki slug was lost: $I_CTX"
+printf '%s\n' "$I_CTX" | grep -qxF 'Read /repo/skills/tunnel/SKILL.md' \
+  || fail "I: the local doc did not reach the prompt as its own Read line: $I_CTX"
+printf '%s\n' "$I_CTX" | grep -F 'Wiki — auto-retrieved' | grep -qF 'starting "Read "' \
+  || fail "I: the wiki hint does not say how to open a Read line (hint must stay true): $I_CTX"
+pass "I: a local-doc Read line survives the slug filter on a line of its own, and the hint covers it"
+
+# --- J (D8): the [Past sessions] hint keeps WHOLE lines within its byte cap ------------------------
+# The cap was `${#}` (characters) against `head -c` (bytes) at 300, and the header plus the two
+# served lines is ~305-340 B of plain ASCII, so line 2 was always cut inside its
+# "(project, date, NN%)" provenance — or inside a multibyte character (verify-c2/d8.*).
+E_HDR='[Past sessions — use episodic_search for full context]'
+E_L1='- "how do I calibrate the widget zero point before the span reading in the lab log..." (claude-code-plugin, 2026-10-01, 42%)'
+E_L2='- "naïve café über façade — résumé of the déjà-vu bug in the episodic serve step..." (claude-code-plugin, 2026-10-02, 37%)'
+J_CTX=$(fake_run brain-j "$(printf '%s\n%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_L1" "$E_L2")")
+printf '%s\n' "$J_CTX" | grep -qxF -- "$E_HDR" || fail "J: the [Past sessions] header is missing: $J_CTX"
+printf '%s\n' "$J_CTX" | grep -qxF -- "$E_L1" || fail "J: served line 1 is not whole: $J_CTX"
+printf '%s\n' "$J_CTX" | grep -qxF -- "$E_L2" \
+  || fail "J: served line 2 was cut (provenance or a UTF-8 character): $(printf '%s\n' "$J_CTX" | grep -F 'naïve' | od -c | tail -4)"
+pass "J: header + two served lines (multibyte text) arrive whole"
+# A line that cannot fit is dropped whole, never cut; a header left with no line goes too.
+E_BIG='- "'"$(printf '%0700d' 0 | tr 0 x)"'..." (claude-code-plugin, 2026-10-03, 30%)'
+J2_CTX=$(fake_run brain-j2 "$(printf '%s\n%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_L1" "$E_BIG")")
+printf '%s\n' "$J2_CTX" | grep -qxF -- "$E_L1" || fail "J2: the line that fits was lost: $J2_CTX"
+printf '%s\n' "$J2_CTX" | grep -q '^- "xxx' && fail "J2: an over-cap line was cut instead of dropped"
+J3_CTX=$(fake_run brain-j3 "$(printf '%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_BIG")")
+printf '%s\n' "$J3_CTX" | grep -qF 'Past sessions' && fail "J3: a header with no line that fits was still injected: $J3_CTX"
+pass "J2/J3: an over-cap line is dropped whole; a bare header is not injected"
+
+# --- K (R3 review): what the per-prompt hint drops is recorded, and what it serves is counted -------
+# pack_rows <brain dir name>: the gate=untrusted-pack rows that run left in its audit log.
+pack_rows() { grep -F '"gate=untrusted-pack ' "$SANDBOX/$1/audit-log.jsonl" 2>/dev/null; }
+# S15/D8: an over-cap [Past sessions] line used to vanish with no row. J2 dropped one line, J3 a line
+# and the bare header left behind.
+pack_rows brain-j2 | grep -qF 'section=prompt-episodic dropped=1 ' \
+  || fail "K: J2's dropped episodic line left no gate=untrusted-pack row: $(cat "$SANDBOX/brain-j2/audit-log.jsonl" 2>/dev/null)"
+pack_rows brain-j3 | grep -qF 'section=prompt-episodic dropped=2 ' \
+  || fail "K: J3's dropped line + bare header left no gate=untrusted-pack dropped=2 row: $(pack_rows brain-j3)"
+# T1 class: a line that does not fit no longer ends the hint; a later line that fits is still served.
+K1_CTX=$(fake_run brain-k1 "$(printf '%s\n%s\n%s\n%s\n' "$SEP" "$E_HDR" "$E_BIG" "$E_L1")")
+printf '%s\n' "$K1_CTX" | grep -qxF -- "$E_L1" || fail "K1: the line after an over-cap one was lost: $K1_CTX"
+pass "K: an over-cap episodic line is skipped (not the end of the hint) and every drop leaves a row"
+# S15/D11: a Read line that does not fit CAP_WIKI (600 B) used to vanish with no row.
+K2_PATH="/repo/docs/$(printf '%0640d' 0 | tr 0 p).md"
+K2_CTX=$(fake_run brain-k2 "$(printf '### [[tunnel-alpha]] — about tunnels\nRead %s — big\n%s\n' "$K2_PATH" "$SEP")")
+printf '%s\n' "$K2_CTX" | grep -qF "$K2_PATH" && fail "K2: a Read line over CAP_WIKI was served"
+pack_rows brain-k2 | grep -qF 'section=prompt-wiki dropped=1 ' \
+  || fail "K2: the dropped Read line left no gate=untrusted-pack row: $(cat "$SANDBOX/brain-k2/audit-log.jsonl" 2>/dev/null)"
+pass "K2: a Read line over CAP_WIKI is dropped and leaves a row"
+# T8: the manifest counted only [[slug]] tokens; a served Read line is now a codemap-kind id (stop-
+# extract matches those against Read paths), with / separators (the manifest refuses a backslash).
+K3_CTX=$(fake_run brain-k3 "$(printf '### [[tunnel-alpha]] — about tunnels\nRead /repo/skills/tunnel/SKILL.md — Tunnel skill\nRead C:\\repo\\docs\\w b.md — win\n%s\n' "$SEP")")
+K3_MF="$SANDBOX/brain-k3/.injected-manifest-brain-k3.jsonl"
+grep -qxF '{"kind":"wiki","id":"tunnel-alpha"}' "$K3_MF" 2>/dev/null || fail "K3: the slug is not in the manifest: $(cat "$K3_MF" 2>/dev/null)"
+grep -qxF '{"kind":"codemap","id":"/repo/skills/tunnel/SKILL.md"}' "$K3_MF" 2>/dev/null \
+  || fail "K3: a served Read line is not in the manifest: $(cat "$K3_MF" 2>/dev/null)"
+grep -qxF '{"kind":"codemap","id":"C:/repo/docs/w b.md"}' "$K3_MF" 2>/dev/null \
+  || fail "K3: a Windows Read path (with a space) is not counted with / separators: $(cat "$K3_MF" 2>/dev/null)"
+pass "K3: the manifest counts each served Read line"
+
 echo "ALL PASS"

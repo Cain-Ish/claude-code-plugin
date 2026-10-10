@@ -40,13 +40,32 @@ set -u
 [ "${SB_NESTED_SPAWN:-0}" != "1" ] && [ "${SB_HEADLESS_CONTEXT:-off}" != "on" ] && { [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = "0" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "sdk-cli" ]; } && { source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" && sb_headless_trace subagent-capture; exit 0; }  # sb-headless-inline
 source "$(dirname "$0")/lib.sh"
 
-# Kill switch + jq dependency (no jq => silently no-op, like other hooks).
+# Kill switch + jq dependency. No jq: nothing can be parsed, so nothing is archived, and ONE error
+# row says so per outage, not one per subagent (the marker remembers it; the first run with jq
+# back clears it, so the next outage is reported again). This exit used to be silent.
 [ "${SB_SUBAGENT_CAPTURE:-on}" = "off" ] && exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+_sc_nojq="$BRAIN_DIR/.subagent-capture-no-jq"
+if ! command -v jq >/dev/null 2>&1; then
+  if [ ! -e "$_sc_nojq" ]; then
+    : > "$_sc_nojq" 2>/dev/null
+    sb_log_error "subagent-capture.sh" "jq not found on PATH: subagent results are not archived until it is installed (reported once per outage)" 1
+  fi
+  exit 0
+fi
+[ -e "$_sc_nojq" ] && rm -f "$_sc_nojq"
 
 RAW=$(cat 2>/dev/null || true)
 [ -n "$RAW" ] || exit 0
-echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
+# jq -e: 1 = parsed but not an object, 4/5 = no value / not JSON (2: jq 1.6's parse error): nothing to
+# capture. Any other status (126 not executable, 128+N killed, 3 a broken jq) is jq failing, not the
+# payload (R3-C P-F4, stop-extract.sh's case): an error row with the status; the result is not archived.
+echo "$RAW" | jq -e 'type == "object"' >/dev/null 2>&1; _sc_jq_rc=$?
+case "$_sc_jq_rc" in
+  0) ;;
+  1|2|4|5) exit 0 ;;
+  *) sb_log_error "subagent-capture.sh" "jq exited $_sc_jq_rc checking the SubagentStop payload (jq not executable or killed); this subagent's result is not archived" 1
+     exit 0 ;;
+esac
 
 # The SUBAGENT's own transcript is `.agent_transcript_path`. `.transcript_path` on a
 # SubagentStop payload is the PARENT session's file (verified against the Claude Code 2.1.241
@@ -66,7 +85,9 @@ CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 
 # Need a readable transcript to capture anything.
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
-[ -n "$AGENT_ID" ] || AGENT_ID="unknown"
+# No agent_id: a name of its own per invocation (S8). A shared "unknown" put unrelated agents into
+# one sub-unknown_* archive, each overwriting (now: appending to) the other's result.
+[ -n "$AGENT_ID" ] || AGENT_ID="unknown-$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null)-$$"
 
 # --- Fail closed when the agent cannot be identified (0.45.0) -----------------
 # LIVE INCIDENT 2026-08-21: payloads arrived with agent_type EMPTY. The
@@ -77,8 +98,10 @@ CWD=$(echo "$RAW"        | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r')
 # extraction queue that the drainer is already starved on. If we cannot name the
 # agent we cannot prove it is not self, so we skip. Covered by test 15.
 if [ -z "$AGENT_TYPE" ]; then
-  # Loud, not silent: one audit row per skipped untyped agent (fail-loud rule).
-  sb_log_audit "subagent-capture.sh" "flag" "no-agent-type" "${AGENT_ID:-?}" "payload carried no agent_type; cannot prove not-self; skipped" "$SESSION_ID" 2>/dev/null || true
+  # Loud, not silent: one audit row per skipped untyped agent (fail-loud rule). A row that cannot be
+  # appended (sb_log_audit returns 1) is said in the error-log instead of vanishing (R3-C P-F4).
+  sb_log_audit "subagent-capture.sh" "flag" "no-agent-type" "${AGENT_ID:-?}" "payload carried no agent_type; cannot prove not-self; skipped" "$SESSION_ID" \
+    || sb_log_error "subagent-capture.sh" "the no-agent-type audit row for agent ${AGENT_ID:-?} could not be written to $SB_AUDIT_FILE (the skip itself stands)" 1
   exit 0
 fi
 
@@ -98,12 +121,48 @@ _t_base="${TRANSCRIPT##*/}"; _t_base="${_t_base##*\\}"; _t_base="${_t_base%.json
 [ -n "$SESSION_ID" ] && [ "$_t_base" = "$SESSION_ID" ] && exit 0
 
 # --- Self-exclude: never archive the plugin's OWN agents (mining-self = noise
-# feeding itself). Match the bare name and the namespaced plugin:...:name form. ---
-SELF_AGENTS="dream-runner knowledge-maintainer search-conversations"
-bare_type="${AGENT_TYPE##*:}"   # strip any plugin:second-brain: prefix
-for self in $SELF_AGENTS; do
-  [ "$bare_type" = "$self" ] && exit 0
+# feeding itself). Match the bare name and the namespaced plugin:...:name form.
+# The names are the `name:` lines of the plugin's own agents/*.md frontmatter, read with builtins
+# (no spawn), so an agent is excluded the day it ships: the old hand list missed raw-drainer, whose
+# drain reports were archived as sub-*.txt and re-mined by the drainer. The literal list is the
+# floor when agents/ cannot be read; tests/test-subagent-capture.sh (3d) locks it to agents/*.md.
+# X9: a UTF-8 BOM before the opening --- no longer hides an agent's name; a name: that collides with
+# a built-in agent type (it would drop the result of every subagent of that type) is refused and
+# logged; membership is a quoted, glob-free match; each self-skip leaves one audit row. ---
+SELF_AGENTS="dream-runner knowledge-maintainer raw-drainer search-conversations"
+_SC_BUILTINS=" general-purpose Explore Plan statusline-setup output-style-setup claude-code-guide "
+_sc_dir="${BASH_SOURCE[0]%/*}"; [ "$_sc_dir" = "${BASH_SOURCE[0]}" ] && _sc_dir=.
+_sc_cr=$'\r' _sc_bom=$'\xef\xbb\xbf'
+for _sc_af in "$_sc_dir/../agents/"*.md; do
+  [ -f "$_sc_af" ] || continue
+  _sc_fm=0
+  while IFS= read -r _sc_l || [ -n "$_sc_l" ]; do
+    _sc_l="${_sc_l%"$_sc_cr"}"
+    [ "$_sc_fm" -eq 0 ] && _sc_l="${_sc_l#"$_sc_bom"}"
+    if [ "$_sc_l" = "---" ]; then
+      _sc_fm=$((_sc_fm + 1)); [ "$_sc_fm" -ge 2 ] && break; continue
+    fi
+    [ "$_sc_fm" -eq 1 ] || break   # no opening --- on line 1: no frontmatter, no name
+    case "$_sc_l" in
+      name:*) _sc_n="${_sc_l#name:}"; _sc_n="${_sc_n//[[:space:]\"\']/}"
+              case "$_SC_BUILTINS" in
+                *" $_sc_n "*) sb_log_error "subagent-capture.sh" "agents/${_sc_af##*/} is named '$_sc_n', a built-in agent type: not self-excluded (that would drop the result of every $_sc_n subagent); rename the agent" 1 ;;
+                *) [ -n "$_sc_n" ] && SELF_AGENTS="$SELF_AGENTS $_sc_n" ;;
+              esac
+              break ;;
+    esac
+  done < "$_sc_af"
 done
+bare_type="${AGENT_TYPE##*:}"   # strip any plugin:second-brain: prefix
+case "$bare_type" in
+  ''|*[[:space:]]*) ;;   # never a self name (and never matches across two list entries)
+  *) case " $SELF_AGENTS " in
+       *" $bare_type "*)
+         sb_log_audit "subagent-capture.sh" "allow" "self-agent-skip" "$AGENT_ID" "agent_type=$AGENT_TYPE is one of the plugin's own agents: its result is not archived (no mining-self)" "$SESSION_ID" \
+           || sb_log_error "subagent-capture.sh" "the self-agent-skip audit row for agent $AGENT_ID could not be written to $SB_AUDIT_FILE (the skip itself stands)" 1
+         exit 0 ;;
+     esac ;;
+esac
 
 # --- Substantive gate 1: at least one tool_use in the subagent transcript. ---
 TOOL_COUNT=$(jq -r '
@@ -243,8 +302,13 @@ fi
 # awk, never `<<<`: PAYLOAD can pass 64 KiB (last_assistant_message is uncapped)
 # and an MSYS here-string hangs for good at 65,536..~65,650 bytes. Cost: 2 B
 # per line (an all-empty-lines 64 KiB payload is the worst case, ~3x).
+# The secret scrub runs BEFORE the quote (fix round A): a "> " prefix put every PEM body line out
+# of the scrub's reach, so only the BEGIN line was redacted. sb_archive_subagent_result scrubs the
+# quoted text again (idempotent). Any stage failing fails the quote.
 sbc_quote() {
-  printf '%s\n' "$1" | LC_ALL=C awk '{ gsub(/\r/, ""); print "> " $0 }'
+  printf '%s\n' "$1" | sb_scrub_secrets | LC_ALL=C awk '{ gsub(/\r/, ""); print "> " $0 }'
+  local ps="${PIPESTATUS[*]}"
+  [ "$ps" = "0 0 0" ]
 }
 RESULT=$(sbc_quote "$PAYLOAD"); QUOTE_RC=$?
 # The quote's own status was never read: an awk that died or wrote nothing left RESULT empty, and

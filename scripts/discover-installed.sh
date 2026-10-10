@@ -3,10 +3,13 @@
 # Usage: discover-installed.sh [plugins-root]            (SessionStart hook)
 #        discover-installed.sh --refresh [plugins-root]  (internal: the detached refresh)
 # Defaults: plugins-root=${CLAUDE_PLUGINS_DIR:-$HOME/.claude/plugins/cache}
-# Writes JSON catalog to ${BRAIN_DIR:-~/.second-brain}/.installed-catalog.json and stdout.
+# Writes JSON catalog to ${BRAIN_DIR:-~/.second-brain}/.installed-catalog.json; prints NOTHING.
+# Its readers (persona-stats, /status) read the file. Until D5 (2026-10-07) the hook also printed
+# the whole catalog (440,513 B live) at every SessionStart: Claude Code injected none of it
+# (content=0) but stored it in the session transcript, and nothing consumed it.
 #
-# OFF THE STARTUP PATH (S0 B7, 2026-09-28). With a cached catalog the hook prints it and
-# returns: no tree walk, no jq, no lib.sh. The freshness check and any rebuild run in ONE
+# OFF THE STARTUP PATH (S0 B7, 2026-09-28). With a cached catalog the hook returns at once:
+# no tree walk, no jq, no lib.sh. The freshness check and any rebuild run in ONE
 # detached `--refresh` process guarded by an mkdir lock, so the hook cannot be killed at its
 # 10s timeout however loaded the machine is. Measured before this: cancelled in 12 of 25
 # sessions (avg 34s when cancelled), and the live catalog frozen at its 2026-09-24 copy —
@@ -317,7 +320,6 @@ schedule_refresh() {
 }
 
 if [ "$MODE" = serve ] && [ -s "$OUT_FILE" ]; then
-  cat "$OUT_FILE"
   schedule_refresh
   exit 0
 fi
@@ -478,13 +480,12 @@ if [ "$DI_RC" -ne 0 ] || [ -z "$CATALOG" ]; then
   exit 0   # SessionStart must not block; the row above is the signal
 fi
 
-# Atomic replace (tmp + mv in the same dir): the hook may `cat` the cache at any moment.
+# Atomic replace (tmp + mv in the same dir): a reader (persona-stats, /status, another hook's
+# validity check) may open the cache at any moment.
 if ! { echo "$CATALOG" > "$OUT_FILE.tmp.$$" && mv -f "$OUT_FILE.tmp.$$" "$OUT_FILE"; }; then
   di_log "$DI_WHAT failed: could not write $OUT_FILE — kept the previous catalog" 1
   exit 0
 fi
-if [ "$MODE" = refresh ]; then
-  di_log "gate=installed-catalog-refresh bytes=${#CATALOG} secs=$(( $(date +%s) - DI_T0 )) reclaimed=${SB_DI_RECLAIMED:-0}" 0
-else
-  echo "$CATALOG"
-fi
+[ "$MODE" = refresh ] \
+  && di_log "gate=installed-catalog-refresh bytes=${#CATALOG} secs=$(( $(date +%s) - DI_T0 )) reclaimed=${SB_DI_RECLAIMED:-0}" 0
+exit 0   # serve mode's first (synchronous) build prints nothing either: the file is the output

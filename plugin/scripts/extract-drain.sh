@@ -3,14 +3,30 @@
 # transcripts that were skipped by the in-session extractor (OAuth recursive
 # lock). Run by a systemd user timer, OUTSIDE any Claude session.
 #
-#   SB_DRAIN_BATCH      transcripts per run (default 5)
-#   SB_DRAIN_MAX_FAILS  retries before giving up on a transcript (default 3)
-#   SB_EXTRACT_STUB     test-only: path to a stub called instead of the real
-#                       extractor, as `$SB_EXTRACT_STUB <txt> <slug>`.
+#   SB_DRAIN_BATCH      extractor calls per run (default 5): one forward chunk per call, and a
+#                       failed attempt takes a slot too
+#   SB_DRAIN_MAX_FAILS  retries before a window is dead-lettered (default 3)
+#   SB_DRAIN_QUIET_S    an archive quiet this long (mtime) is settled (default 3600)
+#   SB_DRAIN_DELTA_MIN_BYTES  a LIVE archive is extracted once this much is new (default 4096)
+#   SB_DRAIN_MIN_BYTES  a settled, never-extracted archive smaller than this is marked done without an LLM call
+#                       (too-small, default 1024)
+#   SB_SCRUB_MIGRATE_MAX_FILES  one-time archive scrub: files per run (default 50)
+#   SB_SCRUB_MIGRATE_MAX_S      one-time archive scrub: no new scrub starts past this many seconds of a
+#                               run (default 20; one scrub always runs)
+#   SB_EXTRACT_STUB     test-only: path to a stub called instead of the real extractor, as
+#                       `$SB_EXTRACT_STUB <txt> <slug> <from> <to>` (archive lines (from, to]).
 # Exits 0 on every out-of-session path (fail-soft for the scheduler). Exits 3 ONLY when run
 # INSIDE a Claude Code session (CLAUDECODE=1) — that refusal used to exit 0 and read as success.
+#
+# --scrub-only: run ONLY the one-time archive scrub (drain_scrub_migrate), under the same drain
+# lock (skipped while it is held), then exit 0. LLM-free, so it is allowed inside a session:
+# session-load.sh forks it detached at SessionStart until the migration is done, because the
+# drainer timer is opt-in and absent on some installs. It writes neither the done-set nor the
+# extractor health (the loop-dead and dead-man banners read those as drainer progress).
 set -u
 source "$(dirname "$0")/lib.sh"
+DRAIN_SCRUB_ONLY=""
+[ "${1:-}" = "--scrub-only" ] && DRAIN_SCRUB_ONLY=1
 
 # Defer if an interactive claude session is active for this uid. The recursive-
 # claude OAuth lock is GLOBAL (held by any live interactive session), so a
@@ -132,24 +148,15 @@ sb_drain_tick() {  # $1 = verdict, $2 = detail
   sb_log_audit "extract-drain.sh" "flag" "drain-tick" "${1:-?}" "${2:-}" "" 2>/dev/null || true
 }
 
-# Age (seconds) of the OLDEST not-yet-done .txt in TX_DIR; 0 if none pending.
-# mtime via stat -c %Y (GNU) || stat -f %m (BSD/macOS); now via date +%s. The
-# oldest-first ls -1tr mirrors the batch loop's own ordering.
+# Age (seconds) of the OLDEST archive still holding unextracted, not-dead-lettered lines; 0 if
+# none. Reads DRAIN_MAP (one sb_drain_cursor_map per tick: oldest-first, mtime included), so there
+# is no per-file stat or done-set scan here.
 sb_drain_oldest_pending_age() {
-  local txd="$BRAIN_DIR/transcripts" state="$BRAIN_DIR/.extraction-state.jsonl"
-  [ -d "$txd" ] || { printf '0'; return; }
-  local now mt tf base age
-  now=$(date +%s)
-  while IFS= read -r tf; do
-    [ -n "$tf" ] || continue
-    base="${tf##*/}"
-    sb_extraction_done "$base" "$state" && continue
-    mt=$(stat -c %Y "$tf" 2>/dev/null || stat -f %m "$tf" 2>/dev/null || echo "$now")
-    case "$mt" in ''|*[!0-9]*) mt="$now" ;; esac
-    age=$(( now - mt )); [ "$age" -lt 0 ] && age=0
-    printf '%d' "$age"; return        # ls -1tr is oldest-first -> first pending is oldest
-  done < <(ls -1tr "$txd"/*.txt 2>/dev/null)
-  printf '0'
+  sb_drain_map_counts "${DRAIN_MAP:-}"
+  [ "$SB_DM_OLDEST_PENDING_MTIME" -gt 0 ] || { printf '0'; return; }
+  local age=$(( $(date +%s) - SB_DM_OLDEST_PENDING_MTIME ))
+  [ "$age" -lt 0 ] && age=0
+  printf '%d' "$age"
 }
 
 # The forced escape is SAFE because every attempt is TIME-BOUNDED: with ANTHROPIC_API_KEY the
@@ -205,8 +212,9 @@ sb_drain_starved() {
   return 1
 }
 
-# The whole point is to run outside a session — refuse the recursive-lock context.
-if [ "${CLAUDECODE:-}" = "1" ]; then
+# The whole point is to run outside a session — refuse the recursive-lock context. The LLM-free
+# --scrub-only run is exempt (it never spawns claude).
+if [ "${CLAUDECODE:-}" = "1" ] && [ -z "$DRAIN_SCRUB_ONLY" ]; then
   # Exit 3, NOT 0. A hand-run from inside a session (which is exactly what the dead-man banner
   # used to tell operators to do) printed this line and exited 0 — indistinguishable from
   # "drained fine" to any caller or eyeball, so a dead pipeline read as healthy. The scheduler
@@ -272,6 +280,243 @@ else
   export SB_BRAIN_OS_DEADLINE=$(( $(date +%s) + STALE - 300 ))
 fi
 
+# --- R2 drain accounting (0.56.0): line cursors, not a basename set --------------------------
+# The done-set rows carry archive_line windows (R2 contract in lib.sh). sb_drain_cursor_map is the
+# ONE reader: one wc -l + one stat + one jq per call, never a per-archive loop. DRAIN_MAP holds its
+# output for the tick: basename cursor lines state next fails mtime flag dead_windows dead_lines.
+STATE="$BRAIN_DIR/.extraction-state.jsonl"   # TX_DIR set + checked (loudly) above the lock
+now() { date -u +%FT%TZ; }
+# drain_clock: DRAIN_TS (row ts) + DRAIN_NOW_S (epoch) from ONE date spawn.
+drain_clock() { read -r DRAIN_TS DRAIN_NOW_S <<< "$(date -u '+%Y-%m-%dT%H:%M:%SZ %s')"; }
+drain_clock
+# A map failure (logged by sb_drain_cursor_map) leaves an EMPTY map, which the batch loop reads as
+# "nothing pending": DRAIN_MAP_FAILED keeps that apart, so the reconcile row and the extractor
+# health say the accounting failed instead of "drained 0, 0/0/0". Re-evaluated on every call.
+DRAIN_MAP_FAILED=""
+drain_map() {
+  if DRAIN_MAP=$(sb_drain_cursor_map "$STATE" "$TX_DIR"); then DRAIN_MAP_FAILED=""
+  else DRAIN_MAP=""; DRAIN_MAP_FAILED=1; fi
+}
+# A basename as a JSON string, builtins only (was one `jq -Rn` spawn per row written).
+drain_json_str() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; DRAIN_JSON="\"$s\""; }
+# drain_row OUTCOME REASON FROM LINES [TRAILING]: append one row for $base. REASON '' = none;
+# TRAILING = more members, each with a leading comma. A failed append is logged loud: the window
+# is then simply redone next tick (the merge dedups).
+drain_row() {
+  local r=""; [ -n "$2" ] && r=",\"reason\":\"$2\""
+  drain_json_str "$base"
+  printf '{"basename":%s,"ts":"%s","outcome":"%s"%s,"from":%s,"lines":%s%s}\n' \
+    "$DRAIN_JSON" "$DRAIN_TS" "$1" "$r" "$3" "$4" "${5:-}" >> "$STATE" \
+    || sb_log_error "extract-drain.sh" "done-set append failed ($1 $base $3..$4) — the window is redone next tick" 1
+}
+
+# --- One-time archive scrub (0.56.0, R2-F#4; per-archive holds and rotation, X2#3) ---------------
+# Archives written before 0.56.0 hold secrets in clear (the appender scrubs every window since), and
+# so do the transcript copies already staged in dream dirs (the dream-runner reads them). The first
+# ticks scrub each one in place with sb_scrub_archive_file (atomic, mtime and line count kept,
+# under the per-archive lock the Stop appender takes too), then .archive-scrub-v1 marks the
+# migration done for good. LLM-free: it runs under the drain lock, from sb_drain_migrate before
+# the defer gate, and on its own from --scrub-only, which session-load.sh forks at every start
+# until the marker exists (an install with no drainer timer still migrates). A scrub is cheap (no LLM call), so a run is bounded by its own budget, not by
+# SB_DRAIN_BATCH: at most SB_SCRUB_MIGRATE_MAX_FILES (50) files, and no scrub starts once the run
+# has taken SB_SCRUB_MIGRATE_MAX_S (20 s, counted from the routine's start, the listing grep
+# included); one scrub always runs, so every run makes progress.
+# The to-do list .archive-scrub-v1.todo is a snapshot, taken by ONE grep -lE over every archive and
+# every dream copy, of those holding text sb_scrub_secrets would change (_SB_SCRUB_ERE, lib.sh: the
+# real formats). Not the bare literals (_SB_SCRUB_LITERALS): `sk-` alone hits every task-/disk- id,
+# so that list named most archives, and a listed archive is held out of extraction and of recall
+# (the episodic indexer skips it) until its scrub. The literals stay where a hit only costs a
+# scrub call. Archives created later are scrubbed by the appender, and the drainer scrubs any
+# archive whose literal grep hits right before extracting it (X2 S6). Format, one line per file
+# still to scrub (the episodic indexer reads it to skip those archives):
+#   <path relative to BRAIN_DIR>\t<failed scrub attempts>
+#   path: transcripts/<name>.txt | dreams/<id>/transcripts/<name>.txt
+# Each run picks up to the cap, fewest failed attempts first (a scrub that keeps failing rotates to
+# the back instead of blocking the rest), then archives with lines still to extract, then list
+# order; drops the scrubbed and vanished ones; counts a failed attempt (the scrub logs why); an
+# entry the time bound left unattempted keeps its count. Holds are per archive: until a
+# transcripts/ entry leaves the list the batch loop does not extract that archive
+# (DRAIN_SCRUB_TODO), and nothing else is held. A list that cannot be read is rebuilt; an archive
+# the listing grep cannot read is listed (held, retried); a listing error that names no file keeps
+# the list in memory for this run only, so nothing unseen is marked scrubbed.
+SCRUB_MARK="$BRAIN_DIR/.archive-scrub-v1"
+SCRUB_TODO="$SCRUB_MARK.todo"
+DRAIN_SCRUB_TODO=""   # transcripts/ basenames still to scrub, one per line: held from extraction
+drain_scrub_migrate() {
+  [ -f "$SCRUB_MARK" ] && return 0
+  local t0="$SECONDS" todo="" raw="" rebuild="" persist=1 p fc l
+  local cap="${SB_SCRUB_MIGRATE_MAX_FILES:-50}" max_s="${SB_SCRUB_MIGRATE_MAX_S:-20}"
+  case "$cap" in ''|*[!0-9]*) cap=50 ;; esac
+  [ "$cap" -ge 1 ] || cap=1
+  case "$max_s" in ''|*[!0-9]*) max_s=20 ;; esac
+  if [ -f "$SCRUB_TODO" ]; then
+    if ! raw=$(cat "$SCRUB_TODO" 2>/dev/null); then
+      sb_log_error "extract-drain.sh" "archive scrub: cannot read $SCRUB_TODO; rebuilt from the archives (attempt counts restart)" 1
+      rebuild=1
+    fi
+  else
+    rebuild=1
+  fi
+  if [ -n "$rebuild" ]; then
+    local -a cand=()
+    local out rc unread="" errf="$SCRUB_TODO.tmp.err.$$"
+    for p in "$BRAIN_DIR"/transcripts/*.txt "$BRAIN_DIR"/dreams/*/transcripts/*.txt; do
+      [ -f "$p" ] && cand+=("${p#"$BRAIN_DIR"/}")
+    done
+    raw=""
+    if [ "${#cand[@]}" -gt 0 ]; then
+      out=$(cd "$BRAIN_DIR" && LC_ALL=C grep -lE "${_SB_SCRUB_ERE[@]}" -- "${cand[@]}" 2>"$errf"); rc=$?
+      if [ "$rc" -gt 1 ]; then
+        # grep lists every match among the files it could read and names each one it could not
+        # (`grep: <path>: <reason>`, GNU/BSD/MSYS alike): those are listed too. Only a name that
+        # IS one of the files handed to grep counts; any other error line (or none) means the
+        # listing is incomplete in a way nobody can name.
+        local cl nerr=0
+        cl=$'\n'$(printf '%s\n' "${cand[@]}")$'\n'
+        while IFS= read -r l; do
+          l="${l%$'\r'}"; [ -n "$l" ] || continue
+          nerr=$((nerr + 1))
+          case "$l" in "grep: "*) l="${l#grep: }"; l="${l%%: *}" ;; *) l="" ;; esac
+          case "$cl" in *$'\n'"$l"$'\n'*) [ -n "$l" ] && unread="$unread$l"$'\n' && nerr=$((nerr - 1)) ;; esac
+        done < "$errf"
+        { [ -n "$unread" ] && [ "$nerr" -eq 0 ]; } || persist=""
+        sb_log_error "extract-drain.sh" "archive scrub: the listing grep failed (rc=$rc)$( [ -n "$persist" ] && printf '; the unreadable files are listed and held' || printf '; it named no file, so the list is kept for this tick only and rebuilt next tick')" 1
+      fi
+      rm -f "$errf" 2>/dev/null
+      raw="${out//$'\r'/}"$'\n'"$unread"
+    fi
+  fi
+  # Normalize: every entry `path<TAB>attempts` (a bare name from a 0.56 pre-release list is a
+  # transcripts/ entry). One awk (the list can hold every archive: no per-entry bash string work).
+  todo=$(printf '%s\n' "$raw" | LC_ALL=C awk -F'\t' '
+    { sub(/\r$/, "") } $1 == "" || ($1 in seen) { next }
+    { seen[$1] = 1; p = $1; if (p !~ /\//) p = "transcripts/" p; print p "\t" (($2 ~ /^[0-9]+$/) ? $2 + 0 : 0) }')
+  [ -z "$todo" ] || todo="$todo"$'\n'
+  if [ -n "$todo" ] && [ -n "$persist" ] && [ -n "$rebuild" ] \
+     && ! { printf '%s' "$todo" > "$SCRUB_TODO.tmp.$$" && mv -f "$SCRUB_TODO.tmp.$$" "$SCRUB_TODO"; } 2>/dev/null; then
+    rm -f "$SCRUB_TODO.tmp.$$" 2>/dev/null
+    sb_log_error "extract-drain.sh" "archive scrub: cannot write $SCRUB_TODO; the list is kept for this tick and rebuilt next tick" 1
+  fi
+  # This run's pick: fewest failed attempts, then archives with lines to extract (map order:
+  # oldest first), then list order; up to the cap. A selection over a fixed-width key (awk has no
+  # portable sort): one pass over the list per pick.
+  local pick
+  pick=$({ printf '%s\n' "$DRAIN_MAP"; printf '%s\n' '--todo--'; printf '%s' "$todo"; } \
+    | LC_ALL=C awk -F'\t' -v n="$cap" '
+        sec == 0 && $0 == "--todo--" { sec = 1; next }
+        sec == 0 { if ($1 != "" && $4 == "pending") pq["transcripts/" $1] = ++np; next }
+        $1 != "" {
+          t[++nt] = $1
+          key[nt] = sprintf("%09d %d %09d", $2 + 0, (($1 in pq) ? 0 : 1), (($1 in pq) ? pq[$1] : nt))
+        }
+        END {
+          for (k = 1; k <= n; k++) {
+            b = 0
+            for (i = 1; i <= nt; i++) if (!(i in used) && (b == 0 || key[i] < key[b])) b = i
+            if (b == 0) break
+            used[b] = 1; print t[b]
+          }
+        }')
+  local scrubbed="" failed="" tried=0
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    # The time bound: one scrub always runs (progress), none starts past MAX_S. An entry not
+    # attempted stays listed with its attempt count unchanged.
+    [ "$tried" -gt 0 ] && [ $((SECONDS - t0)) -ge "$max_s" ] && break
+    tried=$((tried + 1))
+    if [ ! -f "$BRAIN_DIR/$p" ] || sb_scrub_archive_file "$BRAIN_DIR/$p"; then scrubbed="$scrubbed$p"$'\n'
+    else failed="$failed$p"$'\n'; fi
+  done < <(printf '%s\n' "$pick")
+  # What is left: the list minus the scrubbed (and vanished) entries, a failed attempt counted.
+  local left nleft=0 nstuck=0 c1 c2
+  left=$({ printf '%s\n' "$scrubbed" '--failed--' "$failed" '--todo--'; printf '%s' "$todo"; } | LC_ALL=C awk -F'\t' '
+    $0 == "--failed--" { s = 1; next } $0 == "--todo--" { s = 2; next }
+    s == 0 { if ($0 != "") gone[$0] = 1; next }
+    s == 1 { if ($0 != "") bad[$0] = 1; next }
+    $1 != "" && !($1 in gone) { print $1 "\t" ($2 + (($1 in bad) ? 1 : 0)) }')
+  [ -z "$left" ] || left="$left"$'\n'
+  read -r c1 c2 <<< "$(printf '%s' "$left" | LC_ALL=C awk -F'\t' '$1 != "" { n++; if ($2 >= 3) k++ } END { print n + 0, k + 0 }')"   # <<<-bounded: two integers
+  nleft="${c1:-0}"; nstuck="${c2:-0}"
+  # The batch loop's holds: the transcripts/ entries still listed, as bare basenames.
+  DRAIN_SCRUB_TODO=$(printf '%s' "$left" | LC_ALL=C awk -F'\t' 'substr($1, 1, 12) == "transcripts/" { print substr($1, 13) }')
+  [ -z "$DRAIN_SCRUB_TODO" ] || DRAIN_SCRUB_TODO="$DRAIN_SCRUB_TODO"$'\n'
+  if [ -z "$left" ] && [ -n "$persist" ]; then
+    if : 2>/dev/null > "$SCRUB_MARK"; then
+      rm -f "$SCRUB_TODO" 2>/dev/null
+      sb_drain_tick archive-scrub "done: every archive and dream copy written before 0.56.0 is secret-scrubbed"
+    else
+      sb_log_error "extract-drain.sh" "archive scrub: cannot write $SCRUB_MARK; the (idempotent) migration re-runs next tick" 1
+    fi
+    return 0
+  fi
+  [ -n "$left" ] || return 0
+  if [ -n "$persist" ] && ! { printf '%s' "$left" > "$SCRUB_TODO.tmp.$$" && mv -f "$SCRUB_TODO.tmp.$$" "$SCRUB_TODO"; } 2>/dev/null; then
+    rm -f "$SCRUB_TODO.tmp.$$" 2>/dev/null
+    sb_log_error "extract-drain.sh" "archive scrub: cannot rewrite $SCRUB_TODO; the scrubbed archives are re-checked next tick (idempotent)" 1
+  fi
+  sb_drain_tick archive-scrub "${nleft} file(s) still to scrub (${nstuck} failed 3+ attempts); those archives are not extracted until then"
+  return 0
+}
+
+# --- First-tick migration + recreate purge (LLM-free, so it runs BEFORE the defer gate) --------
+# A legacy row (no `lines`) advances nothing. sb_drain_cursor_map flags each such archive:
+#   baseline    legacy ok, archive unchanged since the row (mtime <= ts, no forward slack: lines a
+#               live session appended after the row must be re-mined, X2 S7): a cursor-baseline
+#               row at the current line count, no LLM call;
+#   legacy-dead legacy error, unchanged: an error row over the whole archive, so it stays
+#               dead-lettered (never baselined: that would mark never-extracted lines done) and
+#               only later growth is retried;
+#   regrow      grown since: nothing here. The batch loop re-mines it chunk-forward from the
+#               header end, tagged legacy-regrow (the merge dedup guards the re-read part).
+# recreated (line count below its rows): the basename's rows are PURGED, so the stale cursor can
+# never resurface once the new file grows past it. Not batch-bounded: it makes no LLM call, and
+# a deferred tick on an always-on desk must not leave every legacy archive reading as pending.
+sb_drain_migrate() {
+  local b c n s nx f mt fl rows="" drop="" ndrop=0 tmp
+  drain_scrub_migrate   # changes neither a line count nor an mtime: the map stays valid
+  while IFS=$'\t' read -r b c n s nx f mt fl _rest; do
+    case "$fl" in
+      baseline)
+        drain_json_str "$b"
+        rows="$rows{\"basename\":$DRAIN_JSON,\"ts\":\"$DRAIN_TS\",\"outcome\":\"baseline\",\"reason\":\"cursor-baseline\",\"from\":0,\"lines\":$n}"$'\n' ;;
+      legacy-dead)
+        drain_json_str "$b"
+        rows="$rows{\"basename\":$DRAIN_JSON,\"ts\":\"$DRAIN_TS\",\"outcome\":\"error\",\"reason\":\"legacy-dead-letter\",\"from\":0,\"lines\":$n}"$'\n' ;;
+      recreated)
+        drain_json_str "$b"; drop="$drop${drop:+,}$DRAIN_JSON"; ndrop=$((ndrop + 1)) ;;
+    esac
+  done < <(printf '%s\n' "$DRAIN_MAP")
+  [ -n "$rows$drop" ] || return 1
+  if [ -n "$drop" ]; then
+    tmp="$STATE.tmp.$$"
+    # tr -d '\r': Windows jq writes CRLF. Gated on the whole pipe (X2#9): through the pipe a jq
+    # failure would otherwise pass for success and replace the ledger with nothing.
+    jq -cR --argjson drop "[$drop]" 'fromjson? | select((.basename as $b | $drop | index($b)) == null)' \
+      "$STATE" 2>/dev/null | tr -d '\r' > "$tmp"
+    if [ "${PIPESTATUS[*]}" = "0 0" ] && mv "$tmp" "$STATE"; then
+      sb_drain_tick recreated "purged the done-set rows of $ndrop archive(s) whose line count fell below their cursor"
+    else
+      rm -f "$tmp" 2>/dev/null
+      DRAIN_PURGE_FAILED=1
+      sb_log_error "extract-drain.sh" "recreate purge failed for $ndrop archive(s): skipped this tick (no re-extract loop)" 1
+    fi
+  fi
+  if [ -n "$rows" ]; then
+    printf '%s' "$rows" >> "$STATE" \
+      || sb_log_error "extract-drain.sh" "migration append failed: legacy archives stay unmigrated this tick" 1
+  fi
+  return 0
+}
+DRAIN_PURGE_FAILED=""
+if [ -n "$DRAIN_SCRUB_ONLY" ]; then   # the scrub alone (see the header); the map only orders its pick
+  [ -f "$SCRUB_MARK" ] && exit 0
+  drain_map
+  drain_scrub_migrate
+  exit 0
+fi
+drain_map
+if sb_drain_migrate; then drain_map; fi   # an empty map still runs the scrub (it writes the marker)
+
 if [ "${SB_DRAIN_DEFER_PMODE_ONLY:-0}" = "1" ]; then
   _sb_defer_verdict() { sb_drain_pmode_present; }
 else
@@ -306,101 +551,162 @@ BATCH="${SB_DRAIN_BATCH:-5}"
 case "$BATCH" in ''|*[!0-9]*) BATCH=5 ;; esac
 MAX_FAILS="${SB_DRAIN_MAX_FAILS:-3}"
 case "$MAX_FAILS" in ''|*[!0-9]*) MAX_FAILS=3 ;; esac
+MAXB="${SB_EXTRACT_MAX_BYTES:-200000}";        case "$MAXB" in ''|*[!0-9]*) MAXB=200000 ;; esac
+QUIET_S="${SB_DRAIN_QUIET_S:-3600}";           case "$QUIET_S" in ''|*[!0-9]*) QUIET_S=3600 ;; esac
+DELTA_MIN="${SB_DRAIN_DELTA_MIN_BYTES:-4096}"; case "$DELTA_MIN" in ''|*[!0-9]*) DELTA_MIN=4096 ;; esac
+# Too-small (HOOK-5): a SETTLED, never-extracted archive whose body is tiny (e.g. a 378-byte
+# workflow-subagent stub) has nothing extractable. It gets an ok/too-small row covering it, without
+# an LLM spawn and without taking a batch slot, and stays on disk for episodic search. A tiny tail
+# AFTER extracted windows is extracted (X2 S5).
+MIN_BODY="${SB_DRAIN_MIN_BYTES:-1024}";        case "$MIN_BODY" in ''|*[!0-9]*) MIN_BODY=1024 ;; esac
 
-STATE="$BRAIN_DIR/.extraction-state.jsonl"   # TX_DIR set + checked (loudly) above the lock
-
-
-do_extract() {  # $1 = txt, $2 = slug ; honors the test stub
+do_extract() {  # $1 = txt, $2 = slug, $3 = from, $4 = to (archive lines); honors the test stub
   if [ -n "${SB_EXTRACT_STUB:-}" ]; then
-    "$SB_EXTRACT_STUB" "$1" "$2"
+    "$SB_EXTRACT_STUB" "$1" "$2" "$3" "$4"
   else
-    sb_extract_transcript "$1" "$2"
+    sb_extract_transcript "$1" "$2" "$3" "$4"
   fi
 }
-
-now() { date -u +%FT%TZ; }
-
-# --- Too-small fast-path (HOOK-5) ---
-# Archives whose post-header body is tiny (e.g. 378-byte workflow-subagent
-# stubs) have nothing extractable: mark them done WITHOUT an LLM spawn. They
-# stay on disk for episodic search — only extraction is skipped. Runs before
-# the batch loop so stubs never consume batch slots.
-MIN_BODY="${SB_DRAIN_MIN_BYTES:-1024}"
-case "$MIN_BODY" in ''|*[!0-9]*) MIN_BODY=1024 ;; esac
-if [ "$MIN_BODY" -gt 0 ]; then
-  while IFS= read -r tf; do
-    [ -n "$tf" ] || continue
-    base="${tf##*/}"
-    sb_extraction_done "$base" "$STATE" && continue
-    # Header guard (deep-review): on a file with no ^---$ terminator the sed
-    # below deletes to EOF and reports 0 bytes — a malformed/foreign archive
-    # would be silently misclassified as too-small. Leave it to the batch path.
-    grep -q '^---$' "$tf" 2>/dev/null || continue
-    body_bytes=$(sed '1,/^---$/d' "$tf" 2>/dev/null | wc -c | tr -d ' ')
-    if [ "${body_bytes:-0}" -lt "$MIN_BODY" ]; then
-      printf '{"basename":%s,"ts":"%s","outcome":"ok","reason":"too-small"}\n' \
-        "$(jq -Rn --arg b "$base" '$b')" "$(now)" >> "$STATE"
-    fi
-  done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
-fi
 
 processed=0
 failed=0
-# P8 silence-latency (0.48.0): produced-at = archive-file mtime (stamped by
-# sb_archive_transcript), captured-at = the ledger row's ts. The gap is the
-# window a session's knowledge sat captured-but-unextracted — the silent-
-# degradation metric no green/red status can show.
+attempts=0
+# P8 silence-latency (0.48.0): produced-at = archive mtime (from the map), captured-at = the row's
+# ts. The gap is the window a session's knowledge sat captured-but-unextracted. An unknown mtime
+# reports -1 (unmeasured), never the best-possible 0: the reconcile stats drop -1 rows.
 sb_drain_latency_s() {
-  local mt now
-  now=$(date +%s)
-  # A stat failure must NOT report the best-possible value (0s): emit -1 = unmeasured.
-  # The reconcile stats filter to ^[0-9]+$, so -1 rows are excluded from max/p50
-  # instead of biasing the silent-degradation metric toward "everything is fine".
-  mt=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo "")
-  case "$mt" in ''|*[!0-9]*) printf '%d' -1; return ;; esac
-  local l=$(( now - mt )); [ "$l" -lt 0 ] && l=0
+  case "$1" in ''|0|*[!0-9]*) printf '%d' -1; return ;; esac
+  local l=$(( DRAIN_NOW_S - $1 )); [ "$l" -lt 0 ] && l=0
   printf '%d' "$l"
 }
-# oldest-first by mtime (least-recently-modified). Sufficient for a drainer —
-# everything pending is processed within a few batches regardless of order.
-while IFS= read -r tf; do
-  [ -n "$tf" ] || continue
-  [ "$processed" -ge "$BATCH" ] && break
-  base="${tf##*/}"
-  sb_extraction_done "$base" "$STATE" && continue
+# Oldest-first by mtime (the map's order). A pending archive's window is (next, lines]: next skips
+# dead-lettered regions. Eligible when >= DELTA_MIN bytes are new or the archive has been quiet
+# QUIET_S. Extracted one forward chunk per call; every attempt, failed or not, takes a batch slot.
+drain_clock
+while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
+  [ -n "$base" ] || continue
+  [ "$attempts" -ge "$BATCH" ] && break
+  [ "$st" = "pending" ] || continue
+  [ "$flag" = "recreated" ] && [ -n "$DRAIN_PURGE_FAILED" ] && continue
+  # Never extract an archive still awaiting its one-time scrub (R2-F#4): the window holds secrets.
+  # Held one by one (X2#3): nothing else waits for it.
+  case $'\n'"$DRAIN_SCRUB_TODO" in *$'\n'"$base"$'\n'*) continue ;; esac
+  tf="$TX_DIR/$base"
+  case "$mt" in ''|*[!0-9]*) mt=0 ;; esac
+  win=$(sb_archive_window "$tf" "$next" "$lines" "$MAXB") || continue   # vanished since the map
+  read -r _hdr wbytes cend <<< "$win"
+  if [ $(( DRAIN_NOW_S - mt )) -ge "$QUIET_S" ]; then
+    # too-small is for a NEVER-extracted archive (cursor 0, the 0.55 meaning: a stub with nothing
+    # to mine). A short settled tail after extracted windows is often the decision that closes the
+    # session: it goes to the extractor (X2 S5). An empty window (header only) is done either way.
+    case "$cur" in ''|*[!0-9]*) cur=0 ;; esac
+    if [ "$wbytes" -eq 0 ] || { [ "$cur" -eq 0 ] && [ "$wbytes" -lt "$MIN_BODY" ]; }; then
+      drain_row ok too-small "$next" "$lines"
+      continue
+    fi
+  elif [ "$wbytes" -eq 0 ] || [ "$wbytes" -lt "$DELTA_MIN" ]; then
+    continue   # a live archive with a small new tail: wait for more lines, or for it to settle
+  fi
+  # X2 S6: the one-time migration scrubbed the archives that existed then, but a session still
+  # running 0.55 hooks (no scrub) can append keys in clear after the marker. ONE grep per archive
+  # about to be extracted (_SB_SCRUB_ERE: exactly what the scrub changes, any-case words included);
+  # on a hit it is scrubbed in place first (sb_scrub_archive_file: atomic, mtime and line count
+  # kept, under its archive lock) and the window recomputed (line lengths changed). A failed scrub,
+  # or an archive the grep cannot read, is skipped this tick.
+  LC_ALL=C grep -qE "${_SB_SCRUB_ERE[@]}" -- "$tf" 2>/dev/null; src=$?
+  if [ "$src" -eq 0 ]; then
+    sb_scrub_archive_file "$tf" || continue   # logged by the scrub
+    win=$(sb_archive_window "$tf" "$next" "$lines" "$MAXB") || continue
+    read -r _hdr wbytes cend <<< "$win"
+  elif [ "$src" -gt 1 ]; then
+    sb_log_error "extract-drain.sh" "cannot read $base for the pre-extraction secret check (grep rc=$src); not extracted this tick" 1
+    continue
+  fi
   slug=$(sb_slug_from_archived_transcript "$tf")
   [ -n "$slug" ] || slug="unknown"
-  if do_extract "$tf" "$slug"; then
-    printf '{"basename":%s,"ts":"%s","outcome":"ok","latency_s":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$(sb_drain_latency_s "$tf")" >> "$STATE"
-    processed=$((processed+1))
-  else
-    fails=$(sb_extraction_fails "$base" "$STATE"); fails=$((fails+1))
-    if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" != "off" ] && sb_floor_transcript "$tf" "$slug"; then
-      # Last-resort deterministic floor (P1): the LLM backend has failed MAX_FAILS times — rather
-      # than quarantine this code-changing session with NOTHING captured, write the files-changed
-      # baseline (no LLM) and mark it done. Counts as a real capture (processed), so the health
-      # banner stays honest. Falls through to 'error' only if even the floor found no file change.
-      printf '{"basename":%s,"ts":"%s","outcome":"ok","reason":"deterministic-floor","latency_s":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$(sb_drain_latency_s "$tf")" >> "$STATE"
-      processed=$((processed+1))
-    elif [ "$fails" -ge "$MAX_FAILS" ]; then
-      failed=$((failed+1))
-      printf '{"basename":%s,"ts":"%s","outcome":"error","fails":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$fails" >> "$STATE"
+  reason=""; [ "$flag" = "regrow" ] && reason="legacy-regrow"
+  from="$next"
+  while :; do
+    attempts=$((attempts + 1))
+    if do_extract "$tf" "$slug" "$from" "$cend" </dev/null; then
+      drain_clock
+      drain_row ok "$reason" "$from" "$cend" ",\"latency_s\":$(sb_drain_latency_s "$mt")"
+      processed=$((processed + 1)); fails=0; from="$cend"
+      { [ "$from" -lt "$lines" ] && [ "$attempts" -lt "$BATCH" ]; } || break
+      win=$(sb_archive_window "$tf" "$from" "$lines" "$MAXB") || break
+      read -r _hdr wbytes cend <<< "$win"
+      [ "$cend" -gt "$from" ] || break
     else
-      failed=$((failed+1))
-      printf '{"basename":%s,"ts":"%s","outcome":"retry","fails":%s}\n' "$(jq -Rn --arg b "$base" '$b')" "$(now)" "$fails" >> "$STATE"
+      fails=$((fails + 1)); drain_clock
+      if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" != "off" ] && sb_floor_transcript "$tf" "$slug"; then
+        # Last-resort deterministic floor (P1): the LLM backend has failed MAX_FAILS times on this
+        # window. Rather than dead-letter a code-changing session with NOTHING captured, write the
+        # files-changed baseline (no LLM; it reads the WHOLE archive, not just the window) and mark
+        # the window done. Counts as a real capture (processed). Falls through to 'error' only if
+        # even the floor found no file change.
+        drain_row ok deterministic-floor "$from" "$cend" ",\"latency_s\":$(sb_drain_latency_s "$mt")"
+        processed=$((processed + 1))
+      elif [ "$fails" -ge "$MAX_FAILS" ]; then
+        # Dead-letter THIS window only: the error row moves `next` past it, so later growth is
+        # still extracted, but never the cursor (D177): its lines stay counted as not extracted.
+        failed=$((failed + 1))
+        drain_row error "" "$from" "$cend" ",\"fails\":$fails"
+      else
+        failed=$((failed + 1))
+        drain_row retry "" "$from" "$cend" ",\"fails\":$fails"
+      fi
+      break
     fi
-  fi
-done < <(ls -1tr "$TX_DIR"/*.txt 2>/dev/null)
+  done
+done < <(printf '%s\n' "$DRAIN_MAP")
 
 # --- GC sweeps ---
 # Session-keyed extraction markers accumulate one file per session; sweep those
 # untouched for 30+ days (kept past the review skill's 14-day staleness window,
 # and past week-long idle sessions, per deep-review). Also sweeps legacy
 # slug-keyed markers (the retired marker-key scheme).
-find "$BRAIN_DIR" -maxdepth 1 -name '.last-extracted-line-*' -mtime +30 -delete 2>/dev/null || true
+# R2: the raw_line cursors (.last-archived-line-<slug>--<sid>, archive-first) age out the same way,
+# except a session that can still resume (X2#8): a .last-archived-line-<key> whose recorded raw
+# transcript path still exists is kept, with its legacy .last-extracted-line-<key> sibling;
+# deleting it re-archived the resumed session from raw line 0 (a duplicate window). ONE find
+# lists the stale ones, builtins read each recorded path, ONE rm.
+_gc_stale=$(find "$BRAIN_DIR" -maxdepth 1 \( -name '.last-extracted-line-*' -o -name '.last-archived-line-*' \) -mtime +30 2>/dev/null)
+if [ -n "$_gc_stale" ]; then
+  _gc_live=$'\n'; _gc_del=()
+  while IFS= read -r _gc_f; do      # pass 1: archive cursors whose raw transcript still exists
+    case "${_gc_f##*/}" in .last-archived-line-*) ;; *) continue ;; esac
+    _gc_p=""; IFS=$'\t' read -r _ _gc_p < "$_gc_f" 2>/dev/null; _gc_p="${_gc_p%$'\r'}"
+    [ -n "$_gc_p" ] && [ -e "$_gc_p" ] && _gc_live="$_gc_live${_gc_f##*/.last-archived-line-}"$'\n'
+  done < <(printf '%s\n' "$_gc_stale")
+  while IFS= read -r _gc_f; do      # pass 2: delete everything else that is stale
+    [ -n "$_gc_f" ] || continue
+    _gc_k="${_gc_f##*/}"; _gc_k="${_gc_k#.last-archived-line-}"; _gc_k="${_gc_k#.last-extracted-line-}"
+    case "$_gc_live" in *$'\n'"$_gc_k"$'\n'*) continue ;; esac
+    _gc_del+=("$_gc_f")
+  done < <(printf '%s\n' "$_gc_stale")
+  [ "${#_gc_del[@]}" -eq 0 ] || rm -f -- "${_gc_del[@]}" 2>/dev/null \
+    || sb_log_error "extract-drain.sh" "GC: cannot remove ${#_gc_del[@]} stale extraction cursor file(s) in $BRAIN_DIR" 1
+fi
+# Per-archive locks (sb_archive_lock, R2-F#3) left by a writer that died: the next writer steals
+# one after 60 s, but an archive nobody writes again keeps its lock file. Eviction tombstones
+# (.<name>.evicted, X2 S2) protect only a same-day re-creation and are consumed by the compaction
+# below; a stale one (an empty ledger skips the compaction) goes too. Both after two days
+# (-mtime +1). Scratch files of a hook killed mid-append (.stage-<sid>-<pid>.part) or mid-scrub
+# (<archive>.txt.scrub-<pid>.part) sit outside every cap (X2#4): after a day (-mtime +0), well
+# past any live writer. ONE find; a failing one is logged.
+if ! find "$TX_DIR" -maxdepth 1 -type f \( \( \( -name '.*.txt.lock' -o -name '.*.txt.evicted' \) -mtime +1 \) \
+       -o \( -name '*.part' -mtime +0 \) \) -delete 2>/dev/null; then
+  sb_log_error "extract-drain.sh" "GC: the lock / tombstone / *.part sweep (find -delete) failed in $TX_DIR" 1
+fi
 # Observation ledgers (P0 rec 5): one file per session; after 7 days the
 # session's transcript has been drained (or pruned past recovery) — sweep.
-find "$BRAIN_DIR/observations" -maxdepth 1 -name '*.jsonl' -mtime +7 -delete 2>/dev/null || true
+# Their sent-line markers (<sid>.sent, X2#5) and the hook's once-per-session loud-row flags
+# (<sid>.<condition>.flag, observe-tool-use.sh) age out with them.
+find "$BRAIN_DIR/observations" -maxdepth 1 \( -name '*.jsonl' -o -name '*.sent' -o -name '*.flag' \) -mtime +7 -delete 2>/dev/null || true
+# The hook's fallback flags ($BRAIN_DIR/.obs-<sid>.<condition>.flag, written when observations/
+# itself fails) age out the same way. Name-anchored: BRAIN_DIR's own logs sit at this depth.
+find "$BRAIN_DIR" -maxdepth 1 -type f -name '.obs-*.flag' -mtime +7 -delete 2>/dev/null \
+  || sb_log_error "extract-drain.sh" "GC: the observation fallback-flag sweep (find -delete) failed in $BRAIN_DIR" 1
 # Transcripts of our own nested extractor spawns (cwd = BRAIN_DIR/scratch →
 # one ~/.claude/projects entry). Derive the encoded name from the live BRAIN_DIR
 # (CC encodes '/' and '.' as '-'); keep the substring glob as a fallback for
@@ -409,50 +715,47 @@ SCRATCH_ENC=$(printf '%s' "$BRAIN_DIR/scratch" | sed 's|[/.]|-|g')
 for pd in "$HOME/.claude/projects/$SCRATCH_ENC" "$HOME"/.claude/projects/*second-brain-scratch*; do
   [ -d "$pd" ] && find "$pd" -name '*.jsonl' -mtime +3 -delete 2>/dev/null
 done
-# .extraction-state.jsonl ledger GC (state hygiene): the append-only done-set keeps
-# one row per transcript forever, but transcripts are pruned by the 100-file / 5MB
-# archive cap (sb_prune_transcripts) — leaving dead rows that grow the ledger without
-# bound. Rewrite it keeping only rows whose basename still exists under transcripts/.
-# Atomic tmp+mv; a torn/corrupt row is dropped by fromjson? (same tolerance the
-# done/fails readers use). Lossless: a live transcript's terminal state is preserved.
-if [ -s "$STATE" ]; then
-  LIVE_BN=$(ls -1 "$TX_DIR" 2>/dev/null | jq -Rsc 'split("\n") | map(select(length>0))' 2>/dev/null)
-  [ -n "$LIVE_BN" ] || LIVE_BN='[]'
-  STATE_TMP="$STATE.tmp.$$"
-  if jq -cR --argjson live "$LIVE_BN" \
-       'fromjson? | select(.basename as $b | $live | index($b) != null)' \
-       "$STATE" > "$STATE_TMP" 2>/dev/null; then
-    mv "$STATE_TMP" "$STATE" 2>/dev/null || rm -f "$STATE_TMP" 2>/dev/null
-  else
-    rm -f "$STATE_TMP" 2>/dev/null
-  fi
-fi
+# .extraction-state.jsonl ledger GC (state hygiene), under this tick's drain lock (the ledger's
+# only writer). The append-only done-set gains a row per extracted WINDOW (R2 delta drain) and
+# keeps rows of archives the cap (sb_prune_transcripts) already evicted, and every SessionStart
+# parses it. sb_compact_done_set (lib.sh) drops the rows of vanished archives and unparseable
+# rows, and keeps, per live archive, only the rows sb_drain_cursor_map reads: lossless, its output
+# is identical before and after (R2-F#10). Atomic tmp+mv; a failure leaves the ledger as it was
+# and is logged.
+sb_compact_done_set "$STATE" "$TX_DIR" || true
 
 # --- P8 capture reconciliation (0.48.0): one declared-vs-observed row per tick. -----
-# declared = archived transcripts on disk; observed = distinct ledger basenames in a
-# TERMINAL state (ok, or error — error rows are only written at MAX_FAILS); pending =
-# the gap the next ticks must close. Latency stats read the latency_s field the ok
-# rows now carry. The AUDIT row — not the ledger — is the durable metric series: the
-# ledger GC above drops rows with their pruned transcripts. Fail-soft: a stats miss
-# degrades to zeros, never blocks the tick.
-RECON_DECLARED=$(ls -1 "$TX_DIR"/*.txt 2>/dev/null | wc -l | tr -d ' ')
-RECON_OBSERVED=0
-RECON_LAT="0 0"
-if [ -s "$STATE" ]; then
-  RECON_OBSERVED=$(jq -cR 'fromjson? | select(.outcome == "ok" or .outcome == "error") | .basename' "$STATE" 2>/dev/null | sort -u | wc -l | tr -d ' ')
-  case "$RECON_OBSERVED" in ''|*[!0-9]*) RECON_OBSERVED=0 ;; esac
-  # sampled_n distinguishes "0 0" from real all-zero latency: too-small rows and
-  # -1 (unmeasured) sentinels carry no usable latency_s and are excluded here.
-  RECON_LAT=$(jq -cR 'fromjson? | select(.outcome == "ok") | .latency_s // empty' "$STATE" 2>/dev/null \
-    | grep -E '^[0-9]+$' | sort -n \
-    | awk '{ a[NR] = $1 } END { if (NR == 0) print "0 0 0"; else print a[NR], a[int((NR + 1) / 2)], NR }')
-  [ -n "$RECON_LAT" ] || RECON_LAT="0 0 0"
+# declared = archives on disk; observed = archives with nothing left to extract (cursor reached
+# the line count, or the rest is dead-lettered); pending = the gap the next ticks must close. All
+# three come from ONE sb_drain_cursor_map after the GC (R2: a grown archive is pending again; the
+# old basename set called it done forever). Latency stats read the latency_s the ok rows carry.
+# The AUDIT row, not the ledger, is the durable metric series: the ledger GC above drops rows
+# with their pruned transcripts. Fail-soft: a stats miss degrades to zeros, never blocks the tick.
+drain_map
+if [ -n "$DRAIN_MAP_FAILED" ]; then
+  sb_drain_tick reconcile "map=failed declared=? observed=? pending=? (sb_drain_cursor_map failed, see error-log.jsonl)"
+else
+  sb_drain_map_counts "$DRAIN_MAP"
+  RECON_DECLARED=$SB_DM_TOTAL
+  RECON_OBSERVED=$(( SB_DM_DONE + SB_DM_DEAD ))
+  RECON_PENDING=$SB_DM_PENDING
+  RECON_LAT="0 0 0"
+  if [ -s "$STATE" ]; then
+    # sampled_n distinguishes "0 0" from real all-zero latency: too-small rows and
+    # -1 (unmeasured) sentinels carry no usable latency_s and are excluded here.
+    RECON_LAT=$(jq -cR 'fromjson? | select(.outcome == "ok") | .latency_s // empty' "$STATE" 2>/dev/null \
+      | grep -E '^[0-9]+$' | sort -n \
+      | awk '{ a[NR] = $1 } END { if (NR == 0) print "0 0 0"; else print a[NR], a[int((NR + 1) / 2)], NR }')
+    [ -n "$RECON_LAT" ] || RECON_LAT="0 0 0"
+  fi
+  RECON_MAX=$(printf '%s' "$RECON_LAT" | cut -d' ' -f1)
+  RECON_P50=$(printf '%s' "$RECON_LAT" | cut -d' ' -f2)
+  RECON_N=$(printf '%s' "$RECON_LAT" | cut -d' ' -f3); : "${RECON_N:=0}"
+  # dead_*: every dead-lettered window, whatever the archive's state (X2#1), so a dead window
+  # under the cursor stays visible in the durable metric series.
+  RECON_DEAD="dead_archives=$SB_DM_DEAD_ARCHIVES dead_windows=$SB_DM_DEAD_WINDOWS dead_lines=$SB_DM_DEAD_LINES"
+  sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50 sampled_n=$RECON_N $RECON_DEAD"
 fi
-RECON_PENDING=$(( RECON_DECLARED - RECON_OBSERVED )); [ "$RECON_PENDING" -lt 0 ] && RECON_PENDING=0
-RECON_MAX=$(printf '%s' "$RECON_LAT" | cut -d' ' -f1)
-RECON_P50=$(printf '%s' "$RECON_LAT" | cut -d' ' -f2)
-RECON_N=$(printf '%s' "$RECON_LAT" | cut -d' ' -f3); : "${RECON_N:=0}"
-sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pending=$RECON_PENDING oldest_pending_s=$(sb_drain_oldest_pending_age) max_latency_s=$RECON_MAX p50_latency_s=$RECON_P50 sampled_n=$RECON_N"
 
 # Don't clobber a real failure marker: only report ok if anything succeeded.
 # A run where every extraction failed must surface status=fail so the
@@ -460,7 +763,9 @@ sb_drain_tick reconcile "declared=$RECON_DECLARED observed=$RECON_OBSERVED pendi
 # Report the REAL backend the per-transcript extractor recorded (local | claude-cli |
 # anthropic-api), not a hardcoded label; default to "drainer" if none was written.
 DRAIN_BACKEND=$(jq -r '.backend // "drainer"' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null); : "${DRAIN_BACKEND:=drainer}"
-if [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then
+if [ -n "$DRAIN_MAP_FAILED" ]; then
+  sb_write_extractor_health "$DRAIN_BACKEND" "fail" "cursor map unavailable: drain accounting failed (drained $processed, $failed failed this run; see error-log.jsonl)"
+elif [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then
   sb_write_extractor_health "$DRAIN_BACKEND" "fail" "drained 0, $failed failed this run"
 else
   sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"

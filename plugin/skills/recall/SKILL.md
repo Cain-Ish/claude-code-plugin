@@ -48,13 +48,14 @@ Write a focused response that:
 
 If no results found:
 1. Tell the user no matching conversations were found in the transcript archive
-2. Note that only sessions with substantive tool use are archived (trivial sessions are skipped)
+2. Note that every Stop and PreCompact window is archived, including windows with no tool use (since 0.56.0); earlier sessions that used no tools were skipped, and the oldest archives are pruned past the caps
 3. Suggest narrowing the search with different keywords or broadening with a project filter
 
 ## Notes
 
 - Transcripts are archived automatically by Stop and PreCompact hooks
-- Archive cap: 100 files, 5MB total — oldest files pruned first
+- Archive cap: 400 files / 25 MB (hard ceiling 1200 files / 75 MB), already-extracted archives pruned first, oldest first
+- Archived text has credential formats redacted as `[redacted:<kind>]`
 - Search uses hybrid vector (ONNX embeddings) + text matching
 - Exchanges are indexed at the user↔assistant turn level
 - The episodic index is rebuilt incrementally after each session

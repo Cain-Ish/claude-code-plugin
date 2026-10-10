@@ -11,8 +11,12 @@
 #   calling shell can't leak into protocol-guard.sh's own re-entrancy guard under test.
 # pins: SB_RULES_LAYERS — =off in ONE T7 case: the raw user rules file is the only path on which
 #   pg_rc_build's own `.enabled != false` filter is reachable (the layered merge drops them first).
-# run-all-timeout: 480   (~90 protocol-guard.sh runs, many doing the full live role-card build,
-#   plus waits on detached precomputes; 139-189 s measured on MSYS under heavy load, 2026-09-29)
+# pins: SB_BRAIN_DIR — set in ONE K12 case: pg_dream_confine accepts a dream dir under it (the
+#   runner's own root chain); scrubbed in run() otherwise.
+# run-all-timeout: 480   (~115 protocol-guard.sh runs, many doing the full live role-card build,
+#   plus waits on detached precomputes; 139-189 s measured on MSYS under heavy load, 2026-09-29;
+#   the ~47 K12 dream-confine runs are light pre-mode calls. 2026-10-07 after R3-B's +22 K12 runs,
+#   alone on MSYS: 78 s (jq 1.8.1) / 99 s (jq 1.7.1), 14.3 GB free, 407 processes)
 #
 # docs/plans/2026-09-24-repo-brain.md Slice 1: SessionStart protocol card, PreToolUse
 # Agent/Task delegation-tier warn (+ opt-in rewrite), SubagentStart role cards, and the
@@ -53,6 +57,7 @@ run() {
     -u SB_MODEL_TIER_FAST -u SB_MODEL_TIER_MID -u SB_MODEL_TIER_DEEP -u SB_MODEL_ELASTIC \
     -u SB_DELEGATION_REWRITE -u SB_NESTED_SPAWN -u SB_HOOK_PROFILE -u SB_PROTOCOL_GUARD \
     -u SB_PROTOCOL_CARD -u SB_DELEGATION_CHECK -u SB_ROLE_CARDS -u SB_RULES_LAYERS -u CLAUDE_PROJECT_DIR \
+    -u SB_BRAIN_DIR \
     "$@" HOME="$SB_HOME" BRAIN_DIR="$BRAIN" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
     SB_MODEL_LADDER="$LADDER" bash "$SCRIPT" "$mode"
 }
@@ -871,6 +876,157 @@ J_MAN=$(grep -cxF '{"kind":"jit","id":"p1"}' "$JB/.injected-manifest-sj.jsonl" 2
 # RED (paste in PR): against the scaffold's stub `pg_subagent() { :; }`, every case in
 # this section prints nothing and every audit-row assertion fails — RED on all of it.
 
+# ===== K12: the dream-runner writes only inside its own dream directory ======================
+# agents/dream-runner.md grants Write and Edit with no path rule, while its prose promised
+# "staging only". PreToolUse inside a subagent carries agent_type (CLI 2.1.292: the common hook
+# input is {session_id, …, agent_id, agent_type}); a Write/Edit/MultiEdit from the dream-runner
+# (bare or plugin-prefixed name) outside $BRAIN_DIR/dreams/<existing drm_ id>/ is denied. Inside it
+# (staging/, the status.json heartbeat, forget-manifest.tsv) and every other agent: no verdict.
+DCD="$BRAIN/dreams/drm_20261007T000000Z"; mkdir -p "$DCD/staging/wiki/entities"
+dc_payload() {  # $1 tool, $2 agent_type ("" = main thread), $3 file_path
+  jq -nc --arg t "$1" --arg a "$2" --arg p "$3" \
+    '{hook_event_name:"PreToolUse",tool_name:$t,session_id:"sdc",cwd:"/",tool_input:{file_path:$p,content:"x"}}
+     + (if $a == "" then {} else {agent_id:"agdc",agent_type:$a} end)' | tr -d '\r'
+}
+dc_check() {  # $1 label, $2 want (deny|ask|none), $3 payload, [$4…] extra env for run (e.g. PATH=…)
+  local label="$1" want="$2" payload="$3" out got rc; shift 3
+  out=$(run pre "$payload" "$@" 2>"$SANDBOX/dc.err"); rc=$?
+  # A malformed envelope does not parse, so it reads as `none` and a deny/ask case fails.
+  got=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null | tr -d '\r')
+  [ -n "$got" ] || got=none
+  # P-Q8 (R3-C): a guard that crashed also prints no verdict, so `none` holds only for a run that
+  # exited 0 and wrote nothing to stderr.
+  if [ "$want" = none ] && { [ "$rc" -ne 0 ] || [ -s "$SANDBOX/dc.err" ]; }; then
+    fail "dream-confine: $label -> no verdict, but the guard exited $rc with stderr (a crash is not a pass)" "$(head -c 400 "$SANDBOX/dc.err")"
+    return
+  fi
+  [ "$got" = "$want" ] && pass "dream-confine: $label -> $want" || fail "dream-confine: $label -> got $got, want $want" "$out"
+}
+dc_case() {  # $1 label, $2 want (deny|ask|none), $3 tool, $4 agent_type, $5 file_path, [$6…] extra env
+  local label="$1" want="$2" payload; payload=$(dc_payload "$3" "$4" "$5"); shift 5
+  dc_check "$label" "$want" "$payload" "$@"
+}
+reset_audit
+dc_case "Write into its staging wiki" none Write second-brain:dream-runner "$DCD/staging/wiki/entities/a.md"
+dc_case "status.json heartbeat" none Write second-brain:dream-runner "$DCD/status.json"
+dc_case "forget-manifest.tsv" none Write second-brain:dream-runner "$DCD/forget-manifest.tsv"
+dc_case "Write to ~/.claude/settings.json" deny Write second-brain:dream-runner "$SB_HOME/.claude/settings.json"
+DC_ROW=$(audit_all | grep -c 'gate=dream-confine tool=Write verdict=deny reason=outside-dream-dir agent=second-brain:dream-runner')
+[ "${DC_ROW:-0}" = 1 ] && pass "dream-confine: the deny leaves one gate=dream-confine audit row" \
+  || fail "dream-confine: expected 1 gate=dream-confine deny row, got ${DC_ROW:-0}" "$(audit_all)"
+dc_case "bare dream-runner Edit of the live wiki" deny Edit dream-runner "$SANDBOX/knowledge/wiki/entities/a.md"
+dc_case "MultiEdit of another brain file" deny MultiEdit second-brain:dream-runner "$BRAIN/config.json"
+dc_case ".. out of its dream dir" deny Write second-brain:dream-runner "$DCD/../../config.json"
+dc_case "a dream dir that does not exist" deny Write second-brain:dream-runner "$BRAIN/dreams/drm_nope/staging/wiki/a.md"
+dc_case "the dreams root itself" deny Write second-brain:dream-runner "$BRAIN/dreams/x.md"
+# R3-C P-C4: dream-accept's applied marker sits beside the dream dir so the runner cannot plant it.
+dc_case "dream-accept's applied marker beside its dream dir" deny Write second-brain:dream-runner "$BRAIN/dreams/.applied-drm_20261007T000000Z"
+dc_case "dream-accept's applied marker, Edit" deny Edit dream-runner "$BRAIN/dreams/.applied-drm_20261007T000000Z"
+dc_case "a relative path" deny Write second-brain:dream-runner "staging/wiki/a.md"
+dc_case "another agent writing outside the brain" none Write general-purpose "$SB_HOME/.claude/settings.json"
+dc_case "a name that only ends in dream-runner" none Write my-dream-runner "$SB_HOME/.claude/settings.json"
+dc_case "the main thread (no agent_type)" none Write "" "$SB_HOME/.claude/settings.json"
+dc_case "a Read outside its dream dir (reads are not confined)" none Read second-brain:dream-runner "$SANDBOX/knowledge/wiki/entities/a.md"
+# SB_BRAIN_DIR: the MCP creates the dream under it (brain-paths.ts resolves it before BRAIN_DIR)
+# and the runner writes there, while this script's BRAIN_DIR ignores it. A dream dir under it
+# must not be denied; the same path with SB_BRAIN_DIR unset is outside every root.
+ALTB="$SANDBOX/altbrain"; mkdir -p "$ALTB/dreams/drm_20261007T000001Z/staging/wiki"
+ALT_PAYLOAD=$(dc_payload Write second-brain:dream-runner "$ALTB/dreams/drm_20261007T000001Z/staging/wiki/a.md")
+dc_check "a dream dir under SB_BRAIN_DIR (set)" none "$ALT_PAYLOAD" SB_BRAIN_DIR="$ALTB"
+dc_check "a dream dir under SB_BRAIN_DIR (unset)" deny "$ALT_PAYLOAD"
+# A symlink inside the dream dir would carry the write out of it (its Bash grant has `cp *`, and
+# `cp -s` makes links). Only where ln -s makes a real link (git-bash deep-copies instead).
+mkdir -p "$SB_HOME/.claude"; : > "$SB_HOME/.claude/target"
+if ln -s "$SB_HOME/.claude/target" "$DCD/staging/wiki/link.md" 2>/dev/null && [ -L "$DCD/staging/wiki/link.md" ]; then
+  dc_case "a symlink inside its dream dir" deny Write second-brain:dream-runner "$DCD/staging/wiki/link.md"
+  ln -s "$SB_HOME/.claude" "$DCD/staging/linkdir" 2>/dev/null
+  dc_case "a path through a symlinked dir inside its dream dir" deny Write second-brain:dream-runner "$DCD/staging/linkdir/target"
+else
+  rm -f "$DCD/staging/wiki/link.md"
+  echo "  SKIP  dream-confine: symlink cases (ln -s makes no real link on this host)"
+fi
+if command -v cygpath >/dev/null 2>&1; then
+  # Windows forms of the same paths: C:\… and C:/… (the Write tool takes native paths there).
+  dc_case "C:\\ form inside its dream dir" none Write second-brain:dream-runner "$(cygpath -w "$DCD")\\staging\\wiki\\a.md"
+  dc_case "C:/ form inside its dream dir" none Write second-brain:dream-runner "$(cygpath -m "$DCD")/status.json"
+  # NTFS is case-insensitive: a case variant names the same dream dir (no false deny).
+  dc_case "case variant of its dream dir path" none Write second-brain:dream-runner "$(cygpath -m "$BRAIN")/DREAMS/drm_20261007T000000Z/status.json"
+  dc_case "C:\\ form outside" deny Write second-brain:dream-runner "$(cygpath -w "$SB_HOME")\\.claude\\settings.json"
+  dc_case "C:\\ form with .. out of the dream dir" deny Write second-brain:dream-runner "$(cygpath -w "$DCD")\\..\\..\\config.json"
+else
+  echo "  SKIP  dream-confine: Windows path forms (no cygpath on this host)"
+fi
+
+# R3-B S2/C2/X4: the confinement fails SAFE. The envelope is a static printf: a jq that could not
+# build it used to leave the write allowed (and the deny row was already written). A payload jq
+# cannot read (jq absent, or jq failing) still names its tool and agent_type in the raw text, read
+# with a bash regex. A subagent call whose agent_type is empty (the CLI's remoteCall input omits
+# it) cannot be told apart from the dream-runner, so its write outside every dream dir asks.
+# dc_bin <dir> <tool>...: a PATH dir holding ONLY bash + the named tools (wrappers that exec the
+# real binaries), so a run can lack jq or cygpath on any host.
+dc_bin() {
+  local d="$1" t real; shift; mkdir -p "$d"
+  for t in bash "$@"; do
+    real=$(command -v "$t") || continue
+    printf '#!%s\nexec %q "$@"\n' "$BASH" "$real" > "$d/$t"; chmod +x "$d/$t"
+  done
+}
+DC_TOOLS="date tr sed head tail cat mkdir dirname wc"
+DC_REAL_JQ=$(command -v jq)
+DC_NOJQ="$SANDBOX/bin-nojq"; dc_bin "$DC_NOJQ" $DC_TOOLS
+DC_ENVFAIL="$SANDBOX/bin-jq-envfail"; mkdir -p "$DC_ENVFAIL"   # jq fails only on a permissionDecision envelope
+printf '#!%s\ncase "$*" in *permissionDecision*) echo "jq: simulated failure" >&2; exit 1 ;; esac\nexec %q "$@"\n' \
+  "$BASH" "$DC_REAL_JQ" > "$DC_ENVFAIL/jq"; chmod +x "$DC_ENVFAIL/jq"
+DC_JQFAIL="$SANDBOX/bin-jq-fail"; mkdir -p "$DC_JQFAIL"         # jq fails on everything
+printf '#!%s\necho "jq: simulated failure" >&2\nexit 1\n' "$BASH" > "$DC_JQFAIL/jq"; chmod +x "$DC_JQFAIL/jq"
+dc_row() {  # $1 = a row text expected in the audit log since the last reset_audit
+  audit_all | grep -qF "$1" && pass "dream-confine: row '$1'" || fail "dream-confine: no audit row '$1'" "$(audit_all)"
+}
+DC_OUT="$SB_HOME/notes/outside.md"
+reset_audit
+dc_case "deny envelope when jq cannot build one (static printf)" deny Write second-brain:dream-runner "$DC_OUT" PATH="$DC_ENVFAIL:$PATH"
+dc_row "gate=dream-confine tool=Write verdict=deny reason=outside-dream-dir agent=second-brain:dream-runner"
+reset_audit
+dc_case "no jq on PATH: the raw payload names the dream-runner" deny Write second-brain:dream-runner "$DC_OUT" PATH="$DC_NOJQ"
+dc_row "gate=dream-confine tool=Write verdict=deny reason=no-jq agent=second-brain:dream-runner"
+dc_case "no jq on PATH: a bare dream-runner MultiEdit" deny MultiEdit dream-runner "$DCD/staging/wiki/entities/a.md" PATH="$DC_NOJQ"
+dc_case "no jq on PATH: the main thread is not confined" none Write "" "$DC_OUT" PATH="$DC_NOJQ"
+dc_case "no jq on PATH: another agent is not confined" none Write general-purpose "$DC_OUT" PATH="$DC_NOJQ"
+dc_case "no jq on PATH: a Read is not confined" none Read second-brain:dream-runner "$DC_OUT" PATH="$DC_NOJQ"
+reset_audit
+dc_case "jq fails on the payload: the raw payload names the dream-runner" deny Edit second-brain:dream-runner "$DC_OUT" PATH="$DC_JQFAIL:$PATH"
+dc_row "gate=dream-confine tool=Edit verdict=deny reason=bad-payload agent=second-brain:dream-runner"
+# agent_id set, agent_type absent (remoteCall): ask outside every dream dir, nothing inside one.
+dc_noat() {
+  jq -nc --arg t "$1" --arg p "$2" \
+    '{hook_event_name:"PreToolUse",tool_name:$t,session_id:"sdc",cwd:"/",agent_id:"agrc",tool_input:{file_path:$p,content:"x"}}' | tr -d '\r'
+}
+reset_audit
+dc_check "agent_id without agent_type, outside every dream dir" ask "$(dc_noat Write "$DC_OUT")"
+dc_row "gate=dream-confine tool=Write verdict=ask reason=outside-dream-dir agent=-"
+dc_check "agent_id without agent_type, inside a dream dir" none "$(dc_noat Write "$DCD/status.json")"
+dc_check "agent_id without agent_type, no jq on PATH" ask "$(dc_noat Edit "$DC_OUT")" PATH="$DC_NOJQ"
+dc_check "agent_id without agent_type, a Read" none "$(dc_noat Read "$DC_OUT")"
+
+# R3-B X3/C4/Q-L6: on a case-sensitive filesystem a case variant of the dream dir path names a
+# DIFFERENT directory, so the prefix compares case-sensitively unless the host folds case (cygpath
+# present: Windows; or macOS). Before, nocasematch was on everywhere and the symlink walk started
+# from the brain root's spelling, not the path's. The runs below have jq but no cygpath, so they
+# take the POSIX branch on any host; on macOS the variant is the same dir (APFS folds case).
+# MSYS2_ARG_CONV_EXCL: under Git-Bash the payload's path must stay in BRAIN_DIR's /tmp/... form
+# (a native jq.exe would get it rewritten to C:/..., which only the cygpath branch reconciles);
+# other hosts ignore the variable. The exact-spelling case proves the run can allow at all, so the
+# variant's deny is not a run that denies everything.
+DC_NOCYG="$SANDBOX/bin-nocyg"; dc_bin "$DC_NOCYG" jq $DC_TOOLS
+case "${OSTYPE:-}" in darwin*) DC_VARIANT_WANT=none ;; *) DC_VARIANT_WANT=deny ;; esac
+DC_UP="${BRAIN%/.second-brain}/.SECOND-BRAIN"
+MSYS2_ARG_CONV_EXCL='*' dc_case "no cygpath: its dream dir, exact spelling" none Write second-brain:dream-runner \
+  "$DCD/status.json" PATH="$DC_NOCYG"
+reset_audit
+MSYS2_ARG_CONV_EXCL='*' dc_case "no cygpath: a case variant of its dream dir path (${OSTYPE:-unknown})" "$DC_VARIANT_WANT" \
+  Write second-brain:dream-runner "$DC_UP/DREAMS/drm_20261007T000000Z/status.json" PATH="$DC_NOCYG"
+[ "$DC_VARIANT_WANT" = deny ] && dc_row "gate=dream-confine tool=Write verdict=deny reason=outside-dream-dir agent=second-brain:dream-runner"
+
 # ===== protocol.md content lock =======================================================
 
 PMD="$REPO_ROOT/skills/using-second-brain/protocol.md"
@@ -956,13 +1112,34 @@ SELFTEST_HITS2=$(grep -nE "$WRITE_RE" "$POISON2" 2>/dev/null || true)
 # review fix: the lock grep now covers the jq-object and quoted-key forms this script's own
 # envelope-building style would actually take, not just the two literal strings it used to.
 LOCK_RE='claude -p|"?decision"?[[:space:]]*:[[:space:]]*"block"|settings\.json|"?permissionDecision"?[[:space:]]*:[[:space:]]*"(deny|ask)"|"?permissionDecision"?[[:space:]]*:[[:space:]]*"allow"'
-# The ONE legitimate exception is pg_emit_pre's own rewrite envelope — an unconditional allow,
-# but gated entirely behind the opt-in SB_DELEGATION_REWRITE=1 flag (its own
-# permissionDecisionReason text literally names the flag, which doubles as the exclusion key —
-# no other line in this file may say both "permissionDecision":"allow" and that flag name).
-LOCK_HITS=$(grep -nE "$LOCK_RE" "$REPO_ROOT/scripts/protocol-guard.sh" 2>/dev/null | grep -v 'SB_DELEGATION_REWRITE=1' || true)
-[ -z "$LOCK_HITS" ] && pass "protocol-guard.sh: no claude -p / decision:block / settings.json / deny|ask|allow verdict outside the gated rewrite envelope" \
+# The legitimate exceptions. Each is a keyed SPAN, not a keyed line: the span is cut out and the
+# rest of its line is scanned again, so a verdict appended to a keyed line still trips (R3-B Q-L2:
+# the old line-level exemption hid one; self-tests 7 and 8 below).
+# 1. pg_emit_pre's own rewrite envelope — an unconditional allow, but gated entirely behind the
+#    opt-in SB_DELEGATION_REWRITE=1 flag. The span runs from its allow verdict through its
+#    permissionDecisionReason, which names the flag.
+# 2. K12: pg_dream_confine's verdicts (CONSTITUTION.md lets a working-agreement surface return
+#    deny or ask): a deny or ask verdict followed directly by the dream-runner-confinement reason
+#    prefix. Exactly one line of each (the fail-safe printf pair), counted below; an allow carrying
+#    the token still trips (self-test 6).
+_lk_v='"?permissionDecision"?[[:space:]]*:[[:space:]]*"'
+_lk_r='"[[:space:]]*,[[:space:]]*"?permissionDecisionReason"?[[:space:]]*:[[:space:]]*"protocol-guard: '
+LOCK_REWRITE_SPAN="${_lk_v}allow${_lk_r}"'tier rewrite \(SB_DELEGATION_REWRITE=1\)"'
+LOCK_CONFINE_SPAN="${_lk_v}(deny|ask)${_lk_r}dream-runner-confinement: "
+lock_scan() {  # FILE: every line still holding a forbidden construct once the keyed spans are cut out
+  grep -nE "$LOCK_RE" "$1" 2>/dev/null | sed -E "s/$LOCK_REWRITE_SPAN//g; s/$LOCK_CONFINE_SPAN//g" | grep -E "$LOCK_RE" || true
+}
+LOCK_HITS=$(lock_scan "$REPO_ROOT/scripts/protocol-guard.sh")
+[ -z "$LOCK_HITS" ] && pass "protocol-guard.sh: no claude -p / decision:block / settings.json / deny|ask|allow verdict outside the gated rewrite envelope and the dream-runner confinement verdicts" \
   || fail "protocol-guard.sh: forbidden construct found" "$LOCK_HITS"
+for _lk in deny ask; do
+  _lk_n=$(grep -cE "${_lk_v}${_lk}${_lk_r}dream-runner-confinement: " "$REPO_ROOT/scripts/protocol-guard.sh" 2>/dev/null); _lk_n="${_lk_n:-0}"
+  [ "$_lk_n" = 1 ] && pass "protocol-guard.sh: exactly one keyed dream-runner-confinement $_lk line" \
+    || fail "protocol-guard.sh: expected exactly 1 keyed dream-runner-confinement $_lk line, found $_lk_n"
+done
+_lk_n=$(grep -cE "$LOCK_REWRITE_SPAN" "$REPO_ROOT/scripts/protocol-guard.sh" 2>/dev/null); _lk_n="${_lk_n:-0}"
+[ "$_lk_n" = 1 ] && pass "protocol-guard.sh: exactly one keyed SB_DELEGATION_REWRITE=1 allow line" \
+  || fail "protocol-guard.sh: expected exactly 1 keyed SB_DELEGATION_REWRITE=1 allow line, found $_lk_n"
 
 POISON3="$SANDBOX/poisoned3-protocol-guard.sh"
 cp "$REPO_ROOT/scripts/protocol-guard.sh" "$POISON3"
@@ -981,9 +1158,30 @@ SELFTEST_HITS4=$(grep -nE "$LOCK_RE" "$POISON4" 2>/dev/null || true)
 POISON5="$SANDBOX/poisoned5-protocol-guard.sh"
 cp "$REPO_ROOT/scripts/protocol-guard.sh" "$POISON5"
 printf '%s\n' 'printf {"permissionDecision":"allow"}' >> "$POISON5"
-SELFTEST_HITS5=$(grep -nE "$LOCK_RE" "$POISON5" 2>/dev/null | grep -v 'SB_DELEGATION_REWRITE=1' || true)
+SELFTEST_HITS5=$(lock_scan "$POISON5")
 [ -n "$SELFTEST_HITS5" ] && pass "protocol-guard.sh lock: self-test — scanner FAILS on an injected UNGATED allow line" \
   || fail "protocol-guard.sh lock: self-test — scanner missed the injected ungated allow line (scanner is broken)"
+
+POISON6="$SANDBOX/poisoned6-protocol-guard.sh"
+cp "$REPO_ROOT/scripts/protocol-guard.sh" "$POISON6"
+printf '%s\n' 'printf {"permissionDecision":"allow"} dream-runner-confinement' >> "$POISON6"
+SELFTEST_HITS6=$(lock_scan "$POISON6")
+[ -n "$SELFTEST_HITS6" ] && pass "protocol-guard.sh lock: self-test 6 — the confinement key exempts a deny/ask only, never an allow" \
+  || fail "protocol-guard.sh lock: self-test 6 — an allow line carrying the confinement token slipped through"
+# 7 and 8 (R3-B Q-L2): an allow APPENDED to a keyed line must still trip; only the span is exempt.
+# Each poisons a copy of the real keyed line, so the self-test follows the line if it changes.
+for _lk_t in 7:dream-runner-confinement 8:SB_DELEGATION_REWRITE=1; do
+  _lk_p="$SANDBOX/poisoned${_lk_t%%:*}-protocol-guard.sh"
+  cp "$REPO_ROOT/scripts/protocol-guard.sh" "$_lk_p"
+  _lk_line=$(grep -E "$LOCK_RE" "$REPO_ROOT/scripts/protocol-guard.sh" | grep -F -- "${_lk_t#*:}" | head -1)
+  if [ -z "$_lk_line" ]; then
+    fail "protocol-guard.sh lock: self-test ${_lk_t%%:*} — no keyed ${_lk_t#*:} line to poison"
+    continue
+  fi
+  printf '%s "permissionDecision":"allow"\n' "$_lk_line" >> "$_lk_p"
+  [ -n "$(lock_scan "$_lk_p")" ] && pass "protocol-guard.sh lock: self-test ${_lk_t%%:*} — an allow appended to the keyed ${_lk_t#*:} line trips" \
+    || fail "protocol-guard.sh lock: self-test ${_lk_t%%:*} — an allow appended to the keyed ${_lk_t#*:} line slipped through (the exemption drops the whole line)"
+done
 
 # ===== wiring lock: hooks.json + hooks.notes.md (test-guard-wiring's matcher_for/covers idiom) ====
 

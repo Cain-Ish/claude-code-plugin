@@ -1,5 +1,6 @@
-import { knowledgeSearch, injectableWiki, reportInjectPrecision } from './knowledge-search.js';
+import { knowledgeSearch, injectableWiki, reportInjectPrecision, injectedHitLines, reportInjectDrops } from './knowledge-search.js';
 import { serveEpisodicLines } from './episodic-search.js';
+import { appendErrorLog } from './embeddings.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 
 // R6b (HOOK-7): the per-prompt UserPromptSubmit hook paid TWO node cold-starts
@@ -10,7 +11,7 @@ import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 // episodic section (same line format as episodic-search-cli's). Both sections
 // empty -> no output at all, exit 0.
 // Each side fails OPEN to an empty section: per-prompt context is a hint,
-// never worth blocking the prompt over.
+// never worth blocking the prompt over. The failure itself is logged (error-log.jsonl).
 
 const query = process.argv[2] || '';
 if (!query) { process.exit(0); }
@@ -53,15 +54,21 @@ const brainDir = resolveBrainDir();
 const projectSlug = process.env.SB_ACTIVE_SLUG?.trim() || undefined;
 await reportInjectPrecision(brainDir, 'context-serve-cli');
 
+// A failed section is still served empty (fail open), but never silently (S14): one error-log row
+// per failure, since the hook discards this CLI's stderr.
+const failedOpen = (section: string, e: unknown) => appendErrorLog(brainDir, 'context-serve-cli',
+  `${section} section failed open (empty): ${e instanceof Error ? e.message : String(e)}`, 1);
+
 const wikiLines: string[] = [];
 try {
   const result = await knowledgeSearch({ query, knowledgeDir, brainDir, projectSlug });
-  const top = injectableWiki(result.candidates, { minScore, minRelevance, minGrounded }).slice(0, 2);
-  for (const c of top) {
-    const slug = c.path.replace(/^.*[\\/]/, '').replace(/\.md$/, '');
-    wikiLines.push(`### [[${slug}]]${c.description ? ' — ' + c.description : ''}`);
-  }
-} catch { /* fail-open: empty wiki section */ }
+  // Same renderer as knowledge-search-cli (the wiki-section parity test locks it): folded fields,
+  // a local doc as a Read line, a candidate that must not be printed skipped without losing its
+  // slot (T2), each skip a gate=inject-drop audit row.
+  const { lines, drops } = injectedHitLines(injectableWiki(result.candidates, { minScore, minRelevance, minGrounded }), 2);
+  wikiLines.push(...lines);
+  await reportInjectDrops(brainDir, 'context-serve-cli', drops);
+} catch (e) { await failedOpen('wiki', e); }
 
 // The hook passes the live session id: its own exchanges are already in context, so serving
 // them back is an echo (9 of 76 graded snippet lines were the user's own earlier prompt).
@@ -70,9 +77,10 @@ let epiLines: string[] = [];
 try {
   if (!brainDir) throw new Error('no brain dir resolvable');
   // serveEpisodicLines is the one serve step shared with the fallback episodic-search-cli: the
-  // pool, the hardcoded 0.15 floor (no knob, R1#3) and the servableEpisodes filter live there.
+  // pool, the hardcoded 0.15 floor (no knob, R1#3; it filters vector hits only — a text hit
+  // scores >= 0.25) and the servableEpisodes filter live there.
   epiLines = await serveEpisodicLines(query, brainDir, { sessionId, activeProject: projectSlug });
-} catch { /* fail-open: empty episodic section */ }
+} catch (e) { await failedOpen('episodic', e); }
 
 if (wikiLines.length === 0 && epiLines.length === 0) { process.exit(0); }
 for (const l of wikiLines) console.log(l);

@@ -3,7 +3,9 @@
 # pins: SB_HEADLESS_CONTEXT — opt-in test (36): asserts =on restores capture for a foreign headless child
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
-# run-all-timeout: 240   (~40 hook runs plus two real episodic-indexer runs; 48-52 s alone on an idle MSYS box, over half of run-all's 120 s default)
+# pins: SB_SUBAGENT_ARCHIVE_CAP — Test 11 lowers the subagent prune cap to 5 so 7 calls prove the cap
+#   evicts sub-* archives only (the cap is the subject, not a gate bypass)
+# run-all-timeout: 300   (~61 hook runs plus two real episodic-indexer runs; 2026-10-07 R3-B, alone on the MSYS dev box: 120 s (jq 1.8.1) / 94 s (jq 1.7.1), ~12-13 GB free, ~380-415 processes; 2026-10-08 R3-C (+3f/3g), alone: 127 s / 144 s; the round-3 review saw 441-1849 s under heavy parallel load, which no per-file budget covers)
 # Tests for scripts/subagent-capture.sh — the SubagentStop hook that archives a
 # substantive, non-self subagent's FINAL RESULT into ~/.second-brain/transcripts/.
 # Each case runs with an isolated BRAIN_DIR sandbox; the script must ALWAYS exit 0
@@ -79,6 +81,132 @@ run_hook "$B" "plugin:second-brain:knowledge-maintainer" "aid333" "$T" >/dev/nul
 [ -z "$(arc "$B")" ] || fail "3: namespaced self agent should be skipped"
 pass "namespaced self agent: skipped"
 
+# --- Test 3b (C1 audit, R3): raw-drainer is one of the plugin's four agents (README), but the hand
+# list missed it, so its drain reports were archived as sub-*.txt and the drainer re-mined them
+# (mining-self). Bare, plugin-namespaced and fully namespaced forms are all skipped.
+for at3b in raw-drainer second-brain:raw-drainer plugin:second-brain:raw-drainer; do
+  B="$TMP/b3b-${at3b//:/_}"; mkdir -p "$B"; T="$TMP/t3b-${at3b//:/_}.jsonl"; mk_transcript "$T" 1 "$LONG"
+  run_hook "$B" "$at3b" "aid3b" "$T" >/dev/null 2>&1
+  [ -z "$(arc "$B")" ] || fail "3b: the plugin's own agent $at3b was archived (mining-self)"
+done
+pass "raw-drainer (bare and namespaced) is a self agent: skipped"
+
+# --- Test 3c: the self list is the plugin's agents/*.md frontmatter names, read at run time, so an
+# agent is excluded the day it ships. A scratch plugin root (the hook plus lib.sh, which it sources
+# beside itself) carries one extra agent; a subagent of that type is skipped, any other is archived.
+P3C="$TMP/plug3c"; mkdir -p "$P3C/scripts" "$P3C/agents"
+cp "$SCRIPT" "$ROOT/scripts/lib.sh" "$ROOT/scripts/kb-schema.sh" "$P3C/scripts/"
+cp "$ROOT/agents/"*.md "$P3C/agents/"
+printf -- '---\r\nname: zz-new-agent\r\ndescription: a test agent with CRLF frontmatter\r\n---\r\nname: not-this-one\r\n' > "$P3C/agents/zz-new-agent.md"
+# A frontmatter without a name: the body's name: line must not count either.
+printf -- '---\ndescription: no name here\n---\nname: body-only-name\n' > "$P3C/agents/zz-noname.md"
+for at3c in zz-new-agent second-brain:zz-new-agent not-this-one body-only-name; do
+  B="$TMP/b3c-${at3c//:/_}"; mkdir -p "$B"; T="$TMP/t3c-${at3c//:/_}.jsonl"; mk_transcript "$T" 1 "$LONG"
+  printf '%s' "$(jq -nc --arg at "$at3c" --arg tp "$T" --arg cw "$TMP/repo" \
+      '{hook_event_name:"SubagentStop", agent_type:$at, agent_id:"aid3c", transcript_path:$tp, cwd:$cw, session_id:"sess1"}')" \
+    | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$P3C" bash "$P3C/scripts/subagent-capture.sh" >/dev/null 2>&1
+done
+[ -z "$(arc "$TMP/b3c-zz-new-agent")" ] || fail "3c: an agent shipped in agents/*.md (zz-new-agent) was archived; the self list is not read from the frontmatter"
+[ -z "$(arc "$TMP/b3c-second-brain_zz-new-agent")" ] || fail "3c: the namespaced form of a shipped agent was archived"
+[ -n "$(arc "$TMP/b3c-not-this-one")" ] || fail "3c: a name: line in an agent's BODY made that name a self agent (only the frontmatter counts)"
+[ -n "$(arc "$TMP/b3c-body-only-name")" ] || fail "3c: a body name: line of an agent whose frontmatter has no name made it a self agent"
+pass "self agents are read from agents/*.md frontmatter (CRLF-safe, body ignored)"
+
+# --- Test 3d: the literal floor (used when agents/ cannot be read) names every shipped agent.
+FLOOR3D=$(sed -n 's/^SELF_AGENTS="\([^"]*\)".*/\1/p' "$SCRIPT" | head -1 | tr ' ' '\n' | grep . | LC_ALL=C sort | tr '\n' ' ')
+SHIPPED3D=$(sed -n 's/^name:[[:space:]]*//p' "$ROOT/agents/"*.md | tr -d '\r' | LC_ALL=C sort | tr '\n' ' ')
+[ -n "$SHIPPED3D" ] || fail "3d: no agents/*.md frontmatter names found (the case proves nothing)"
+[ "$FLOOR3D" = "$SHIPPED3D" ] || fail "3d: SELF_AGENTS floor [$FLOOR3D] != agents/*.md names [$SHIPPED3D]"
+pass "the SELF_AGENTS literal floor equals the agents/*.md names"
+
+# --- Test 3e (R3-B, X9/S16): the self list's edge cases. A scratch plugin root (as in 3c) carries
+# (a) an agent whose file starts with a UTF-8 BOM: its name was never read, so it was archived;
+# (b) an agent named like a built-in type (general-purpose): every general-purpose result was
+#     dropped in silence; the name is now refused with an error row;
+# (c) an agent named `*`: the unquoted `for self in $SELF_AGENTS` globbed it into the hook's cwd
+#     file names, so a subagent whose type matched a file there was skipped.
+# Every self-skip leaves one audit row (rule self-agent-skip).
+P3E="$TMP/plug3e"; mkdir -p "$P3E/scripts" "$P3E/agents"
+cp "$SCRIPT" "$ROOT/scripts/lib.sh" "$ROOT/scripts/kb-schema.sh" "$P3E/scripts/"
+cp "$ROOT/agents/"*.md "$P3E/agents/"
+printf '\357\273\277---\nname: zz-bom-agent\ndescription: BOM before the frontmatter\n---\n' > "$P3E/agents/zz-bom.md"
+printf -- '---\nname: general-purpose\ndescription: collides with a built-in type\n---\n' > "$P3E/agents/zz-collide.md"
+printf -- '---\nname: *\ndescription: a glob character as a name\n---\n' > "$P3E/agents/zz-glob.md"
+G3E="$TMP/cwd3e"; mkdir -p "$G3E"; : > "$G3E/zz-globbed"
+run3e() {  # <agent_type>: one hook run from the scratch root, cwd $G3E
+  B="$TMP/b3e-${1//[:*]/_}"; mkdir -p "$B"; T="$TMP/t3e-${1//[:*]/_}.jsonl"; mk_transcript "$T" 1 "$LONG"
+  ( cd "$G3E" && printf '%s' "$(jq -nc --arg at "$1" --arg tp "$T" --arg cw "$TMP/repo" \
+      '{hook_event_name:"SubagentStop", agent_type:$at, agent_id:"aid3e", transcript_path:$tp, cwd:$cw, session_id:"sess1"}')" \
+    | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$P3E" bash "$P3E/scripts/subagent-capture.sh" >/dev/null 2>&1 )
+}
+for at3e in zz-bom-agent general-purpose zz-globbed; do run3e "$at3e"; done
+[ -z "$(arc "$TMP/b3e-zz-bom-agent")" ] || fail "3e: an agent whose file starts with a BOM (zz-bom-agent) was archived; its name was not read"
+grep -q '"rule":"self-agent-skip"' "$TMP/b3e-zz-bom-agent/audit-log.jsonl" 2>/dev/null || fail "3e: a self-skip left no self-agent-skip audit row"
+[ -n "$(arc "$TMP/b3e-general-purpose")" ] || fail "3e: an agents/*.md name colliding with the built-in general-purpose dropped every general-purpose result"
+grep -q "zz-collide.md is named 'general-purpose', a built-in agent type" "$TMP/b3e-general-purpose/error-log.jsonl" 2>/dev/null \
+  || fail "3e: the refused built-in name left no error row"
+[ -n "$(arc "$TMP/b3e-zz-globbed")" ] || fail "3e: an agent named '*' was globbed into the cwd's file names (zz-globbed skipped)"
+pass "self list: BOM-safe, built-in names refused loudly, glob-free; each self-skip leaves an audit row"
+
+# --- Test 3e (C1 audit, R3): with no jq the hook archived nothing and said nothing. It still archives
+# nothing (it cannot parse the payload), but one error row says why: once, not per subagent. The
+# host without jq is simulated by an exported `command` that denies `command -v jq` to the hook
+# (and to lib.sh's sb_log_error, which then takes its jq-free writer); jq itself stays on PATH for
+# this test's own payload building.
+B="$TMP/b3e"; mkdir -p "$B"; T="$TMP/t3e.jsonl"; mk_transcript "$T" 1 "$LONG"
+nojq_hook() {
+  ( command() { if [ "${1:-}" = -v ] && [ "${2:-}" = jq ]; then return 1; fi; builtin command "$@"; }
+    export -f command
+    run_hook "$B" "general-purpose" "aid3e" "$T" ) >/dev/null 2>&1
+}
+nojq_hook; RC=$?; nojq_hook
+[ "$RC" -eq 0 ] || fail "3e: the hook exited $RC without jq (must always exit 0)"
+[ -z "$(arc "$B")" ] || fail "3e: something was archived without jq"
+N3E=$(grep -c 'subagent-capture.sh.*jq' "$B/error-log.jsonl" 2>/dev/null | tr -d ' \r')
+[ "${N3E:-0}" = 1 ] || fail "3e: want exactly 1 error row naming the missing jq after 2 runs, got ${N3E:-0} ($(cat "$B/error-log.jsonl" 2>/dev/null))"
+run_hook "$B" "general-purpose" "aid3e" "$T" >/dev/null 2>&1
+[ -n "$(arc "$B")" ] || fail "3e: with jq back the result was not archived"
+: > "$B/error-log.jsonl"; nojq_hook
+[ "$(grep -c 'subagent-capture.sh.*jq' "$B/error-log.jsonl" | tr -d ' \r')" = 1 ] || fail "3e: a later jq outage (after jq came back) was not reported again"
+pass "no jq: nothing archived, one error row per outage (not per subagent), hook exits 0"
+
+# --- Test 3f (R3-C P-F4): the payload check `jq -e 'type == "object"' || exit 0` read a jq that could
+# not run (126) or was killed (137) as a bad payload: nothing archived, nothing said. stop-extract's
+# exit-status case now applies: 1|2|4|5 = not an object / not JSON (silent, as before); any other
+# status is an exit_code-1 row naming it. The shim fails only that program; every other jq call
+# (the error row's own included) reaches the real jq.
+SC_REAL_JQ=$(command -v jq)
+SC_JQ_SHIM="$TMP/sc-jq-shim"; mkdir -p "$SC_JQ_SHIM"
+printf '#!/bin/bash\ncase "$*" in *"type == \\"object\\""*) exit "${SC_JQ_RC:-137}" ;; esac\nexec "%s" "$@"\n' "$SC_REAL_JQ" > "$SC_JQ_SHIM/jq"
+chmod +x "$SC_JQ_SHIM/jq"
+for sc_rc in 126 137; do
+  B="$TMP/b3f-$sc_rc"; mkdir -p "$B"; T="$TMP/t3f.jsonl"; mk_transcript "$T" 1 "$LONG"
+  run_hook "$B" "general-purpose" "aid3f" "$T" PATH="$SC_JQ_SHIM:$PATH" SC_JQ_RC="$sc_rc" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] || fail "3f: the hook exited $RC when jq exited $sc_rc (must always exit 0)"
+  [ -z "$(arc "$B")" ] || fail "3f: archived a payload jq never read (jq exit $sc_rc)"
+  grep -F "jq exited $sc_rc" "$B/error-log.jsonl" 2>/dev/null | grep -q '"exit_code":1' \
+    || fail "3f: jq exit $sc_rc on the payload check left no exit_code-1 row naming it ($(cat "$B/error-log.jsonl" 2>/dev/null))"
+done
+B="$TMP/b3f-ctl"; mkdir -p "$B"
+for sc_in in 'not json' '[1]'; do
+  printf '%s' "$sc_in" | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$SCRIPT" >/dev/null 2>&1 || fail "3f control: '$sc_in' exited non-zero"
+done
+grep -qF 'jq exited' "$B/error-log.jsonl" 2>/dev/null && fail "3f control: a payload that is not an object was reported as a jq failure"
+pass "a jq that cannot run or was killed on the payload check is an error row (126/137); a non-object payload stays silent"
+
+# --- Test 3g (R3-C P-F4): the self-skip and no-agent-type audit rows were written `2>/dev/null || true`,
+# so a row that could not be appended (audit-log.jsonl unwritable: here a directory) vanished with
+# no trace. sb_log_audit returns 1 then; the hook now says so in the error-log, and still exits 0.
+for sc_at in second-brain:dream-runner ""; do
+  sc_sfx="${sc_at:-untyped}"; B="$TMP/b3g-${sc_sfx//:/_}"; mkdir -p "$B/audit-log.jsonl"; T="$TMP/t3g.jsonl"; mk_transcript "$T" 1 "$LONG"
+  run_hook "$B" "$sc_at" "aid3g" "$T" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] || fail "3g (${sc_at:-no agent_type}): the hook exited $RC"
+  [ -z "$(arc "$B")" ] || fail "3g (${sc_at:-no agent_type}): a skipped agent was archived"
+  grep -F 'audit row' "$B/error-log.jsonl" 2>/dev/null | grep -F 'aid3g' | grep -q '"exit_code":1' \
+    || fail "3g (${sc_at:-no agent_type}): a skip whose audit row could not be written left no error row ($(cat "$B/error-log.jsonl" 2>/dev/null))"
+done
+pass "a self-skip or untyped-skip whose audit row cannot be written leaves an error row (hook exits 0)"
+
 # --- Test 4: below tool-gate (0 tool_use) => skipped ---
 B="$TMP/b4"; mkdir -p "$B"; T="$TMP/t4.jsonl"; mk_transcript "$T" 0 "$LONG"
 run_hook "$B" "general-purpose" "aid444" "$T" >/dev/null 2>&1
@@ -134,20 +262,26 @@ pass "archive is episodic-parseable (meta header + ASSISTANT body)"
 # their OWN prune budget so they can never crowd out real session memory.
 # Cross-OS note: each run_hook call spawns bash+jq several times; on Windows/
 # Git-Bash that costs ~2s/call so 60 calls (the original loop) runs ~120s and
-# times out.  We override SB_SUBAGENT_ARCHIVE_CAP=5 and use 7 calls (cap+2) to
-# prove the cap enforces WITHOUT blowing the 90s wall-clock budget. ---
+# times out.  We override SB_SUBAGENT_ARCHIVE_CAP and use 7 calls to prove the cap enforces
+# WITHOUT blowing the 90s wall-clock budget.
+# 0.56.0 (X2 S4) changed WHICH cap applies: a sub-*.txt still waiting for extraction (every
+# archive here: no drainer ran) is evicted only past the HARD sub-cap, 3 x SB_SUBAGENT_ARCHIVE_CAP,
+# and loudly (migrations/0.56.0.md). The old oracle (cap 5, at most 5 left) asserted the pre-0.56
+# oldest-first rule and failed at e78111c already (7 left; found in R3). Cap 2 -> hard 6, so 7
+# un-extracted results cross the hard cap. ---
 B="$TMP/b11"; mkdir -p "$B/transcripts"; T="$TMP/t11.jsonl"; mk_transcript "$T" 1 "$LONG"
 echo "PRECIOUS MAIN SESSION ARCHIVE" > "$B/transcripts/s1_repo_2026-01-01.txt"  # old, must survive
-T11_CAP=5  # small cap so we only need cap+2 = 7 calls to prove the cap fires
-# write cap+2 distinct substantive subagent results (> the cap)
-for i in $(seq 1 $((T11_CAP + 2))); do
+T11_CAP=2; T11_HARD=$((T11_CAP * 3))
+for i in $(seq 1 $((T11_HARD + 1))); do
   run_hook "$B" "general-purpose" "aid${i}" "$T" SB_SUBAGENT_ARCHIVE_CAP="$T11_CAP" >/dev/null 2>&1
 done
 [ -f "$B/transcripts/s1_repo_2026-01-01.txt" ] || fail "11: main-session archive was EVICTED by a subagent flood"
 grep -q "PRECIOUS" "$B/transcripts/s1_repo_2026-01-01.txt" || fail "11: main-session archive corrupted"
 SUBN=$(ls "$B/transcripts/"sub-*.txt 2>/dev/null | wc -l | tr -d ' ')
-[ "$SUBN" -le "$T11_CAP" ] || fail "11: subagent archives exceeded their own cap (got $SUBN, cap $T11_CAP)"
-pass "subagent flood capped separately (got $SUBN sub-files); main-session archive survived"
+[ "$SUBN" -le "$T11_HARD" ] || fail "11: un-extracted subagent archives exceeded their hard cap (got $SUBN, hard cap $T11_HARD)"
+grep -q 'UN-EXTRACTED archive(s) past the hard ceiling' "$B/error-log.jsonl" 2>/dev/null \
+  || fail "11: evicting un-extracted subagent archives past the hard cap left no error row"
+pass "subagent flood capped separately (got $SUBN sub-files, hard cap $T11_HARD, eviction logged); main-session archive survived"
 
 # --- Test 12 (R1.2, HOOK-5 — updated for B1 finding #2): workflow "holding"
 # stub — the FINAL assistant record is tool_use-only (StructuredOutput carries
@@ -652,5 +786,64 @@ B="$TMP/b36-optin"; mkdir -p "$B"; T="$TMP/t36.jsonl"; mk_transcript "$T" 1 "$LO
 run_hook "$B" "general-purpose" "aid36o" "$T" SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 >/dev/null 2>&1
 [ -n "$(arc "$B")" ] || fail "36: SB_HEADLESS_CONTEXT=on did not restore capture for a headless child"
 pass "foreign headless child: subagent result not archived, one gate=headless-child row; SB_HEADLESS_CONTEXT=on opts back in"
+
+# --- Test 37 (fix round A, security review): a private key in a subagent result is redacted on
+# EVERY line. The hook quoted each line with "> " before sb_archive_subagent_result scrubbed it,
+# and the PEM body regex rejected the prefix: only the BEGIN line was redacted, the body and the
+# END line reached the archive. The line count must not change (the drain cursor counts lines).
+# Fixture key material is assembled at run time.
+rep37() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
+PEM37="here is the deploy key
+-----BEGIN RSA PRIV""ATE KEY-----
+MIIEow$(rep37 Ab 30)
+$(rep37 Qz9+ 16)/=
+-----END RSA PRIV""ATE KEY-----
+and that was all of it, nothing else in this result worth keeping beyond the key"
+B="$TMP/b37"; mkdir -p "$B"; T="$TMP/t37.jsonl"; mk_transcript "$T" 1 "$PEM37"
+# The quoting awk (the one naming gsub(/\r/), as in test 34) records its input: the scrub must
+# have run BEFORE it, not only after it inside sb_archive_subagent_result.
+SHIM37="$TMP/awkshim37"; mkdir -p "$SHIM37"
+cat > "$SHIM37/awk" <<EOF
+#!/bin/bash
+case "\$*" in *'gsub(/\\r/'*) tee "$TMP/quote37.in" | "$REAL_AWK" "\$@"; exit "\${PIPESTATUS[1]}" ;; esac
+exec "$REAL_AWK" "\$@"
+EOF
+chmod +x "$SHIM37/awk"
+payload37=$(jq -nc --arg tp "$T" --arg cw "$TMP/repo" --arg msg "$PEM37" \
+  '{hook_event_name:"SubagentStop", agent_type:"general-purpose", agent_id:"aid37", transcript_path:$tp, cwd:$cw, session_id:"sess1", last_assistant_message:$msg}')
+printf '%s' "$payload37" | env BRAIN_DIR="$B" CLAUDE_PLUGIN_ROOT="$ROOT" PATH="$SHIM37:$PATH" bash "$SCRIPT" >/dev/null 2>&1; RC=$?
+[ -s "$TMP/quote37.in" ] || fail "37: the quoting step's input was not recorded (the case proves nothing)"
+grep -q 'MIIEow\|Qz9+' "$TMP/quote37.in" && fail "37: the key reached the quoting step unscrubbed (scrub must run before the quote)"
+[ "$RC" -eq 0 ] || fail "37: hook exited non-zero ($RC)"
+F=$(arc "$B"); [ -n "$F" ] || fail "37: the result was not archived (the case proves nothing)"
+grep -q 'MIIEow\|Qz9+\|PRIV''ATE KEY' "$F" && fail "37: private key material reached the archive: $(grep -n 'MIIE\|Qz9\|KEY' "$F")"
+[ "$(grep -c '^> \[redacted:private-key\]' "$F")" -eq 4 ] || fail "37: the BEGIN, 2 body and END lines are not each one quoted marker: $(cat "$F")"
+[ "$(grep -c '^> ' "$F")" -eq 6 ] || fail "37: the quoted body is not 6 lines (line count changed): $(grep -c '^> ' "$F")"
+grep -q '^> and that was all of it' "$F" || fail "37: the text after the key was lost"
+pass "a private key in a subagent result is redacted on every line, quote prefix and line count kept (fix round A)"
+
+# --- Test 38 (saboteur S8): a second SubagentStop for the same agent_id (a continued agent keeps
+# its id) APPENDS its result: the overwrite destroyed the first result, and the drainer's line cursor
+# then covered part of the second. A payload without agent_id gets its own file per invocation:
+# every such agent shared sub-unknown_*.txt.
+B="$TMP/b38"; mkdir -p "$B"; T="$TMP/t38.jsonl"; mk_transcript "$T" 1 "$LONG"
+run_hook_msg "$B" "general-purpose" "aid38" "$T" "FIRST result of the agent: it decided to keep the cache, with enough words to pass the minimum-length gate of the hook" >/dev/null 2>&1
+F=$(arc "$B"); [ -n "$F" ] || fail "38: the first result was not archived"
+L38=$(wc -l < "$F"); cp "$F" "$TMP/b38.first"
+run_hook_msg "$B" "general-purpose" "aid38" "$T" "SECOND result after a SendMessage: it then dropped the cache again, with enough words to pass the minimum-length gate" >/dev/null 2>&1
+[ "$(arc "$B" | wc -l | tr -d ' ')" -eq 1 ] || fail "38: a continued agent got a second file"
+grep -q '^> FIRST result of the agent' "$F" || fail "38: the second SubagentStop OVERWROTE the first result"
+grep -q '^> SECOND result after a SendMessage' "$F" || fail "38: the second result was not archived"
+[ "$(wc -l < "$F")" -gt "$L38" ] || fail "38: the archive did not grow (an overwrite moves content under the drain cursor)"
+[ "$(head -n "$L38" "$F" | cksum)" = "$(cksum < "$TMP/b38.first")" ] \
+  || fail "38: the lines the drain cursor may already cover (1-$L38) changed"
+[ "$(grep -c '^--- session-meta ---$' "$F")" -eq 1 ] || fail "38: the header was written twice"
+[ -z "$(find "$B/transcripts" -name '.*.lock')" ] || fail "38: the archive lock was left behind"
+B="$TMP/b38u"; mkdir -p "$B"
+run_hook_msg "$B" "general-purpose" "" "$T" "$LONG one" >/dev/null 2>&1
+run_hook_msg "$B" "general-purpose" "" "$T" "$LONG two" >/dev/null 2>&1
+[ "$(arc "$B" | wc -l | tr -d ' ')" -eq 2 ] || fail "38: two agents without an agent_id shared one archive: $(arc "$B")"
+arc "$B" | grep -q 'sub-unknown_' && fail "38: an agent without an id still writes the shared sub-unknown_ file"
+pass "a continued agent appends its next result (first kept, archive only grows); an id-less agent gets its own file (S8)"
 
 echo; echo "ALL PASS"

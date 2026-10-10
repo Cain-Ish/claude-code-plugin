@@ -155,6 +155,28 @@ _page_list() {   # sorted relative page paths under $1; non-zero when find itsel
   _out=$(cd "$1" && find . -type f -name '*.md' ! -name 'index.md') || return 1
   printf '%s\n' "$_out" | LC_ALL=C sort
 }
+# _cp_err_vanished_only <cp stderr file>: 0 when every line is a SOURCE-side "No such file or
+# directory" (an entry renamed away mid-copy). GNU cp names the side: "cannot stat '…'" and
+# "cannot open '…' for reading" are the source; "cannot create regular file '…'" is the
+# destination. BSD cp (macOS) prints only "cp: <path>: No such file or directory", so the path
+# decides (R3-C P-F2): one under "$WIKI_DIR/" (cp's own "<wiki>/./…" spelling) is the source, and
+# one under the dream dir is the staging copy. The paths match as literal strings in `case`, never
+# as a regex, so metacharacters in them cannot widen the match. Builtins only, no spawn.
+_cp_err_vanished_only() {
+  local _l _n=0
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    _l="${_l%$'\r'}"
+    case "$_l" in
+      "cp: $DREAM_DIR/"*) return 1 ;;
+      "cp: cannot stat '"*"': No such file or directory") ;;
+      "cp: cannot open '"*"' for reading: No such file or directory") ;;
+      "cp: $WIKI_DIR/"*": No such file or directory") ;;
+      *) return 1 ;;
+    esac
+    _n=$((_n + 1))
+  done < "$1"
+  [ "$_n" -gt 0 ]
+}
 SNAPSHOT_ATTEMPTS=3
 SNAPSHOT_FAIL_REASON=""
 CP_RC=0; LIST_RC=0; LIVE_RC=0; WIKI_PAGE_COUNT=0; LIVE_PAGE_COUNT=0
@@ -174,9 +196,13 @@ while :; do
   # A cp error made only of vanished entries (ENOENT) is a race, not a fault: the embeddings cache
   # and index.md are rewritten through tmp+rename by every search, so their temp file can disappear
   # between cp's readdir and its copy while the page lists stay identical. Any other error — ENOSPC,
-  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once.
+  # EIO, EACCES, even "cannot stat …: Input/output error" — still fails at once. Only SOURCE-side
+  # ENOENT counts (R3-B S11): a destination ENOENT (the staging dir gone under cp) is a fault.
+  # See _cp_err_vanished_only for the GNU and BSD forms.
   _vanished=0
-  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && ! grep -qv ': No such file or directory$' "$_cperr"; then _vanished=1; fi
+  if [ "$CP_RC" -ne 0 ] && [ -s "$_cperr" ] && _cp_err_vanished_only "$_cperr"; then
+    _vanished=1
+  fi
   [ -s "$_cperr" ] && cat "$_cperr" >&2   # cp's own diagnostics stay visible
   rm -f "$_cperr"
   _staged=$(_page_list "$DREAM_DIR/staging/wiki") || LIST_RC=1
@@ -184,11 +210,16 @@ while :; do
   WIKI_PAGE_COUNT=$(printf '%s\n' "$_staged" | grep -c .)
   LIVE_PAGE_COUNT=$(printf '%s\n' "$_after" | grep -c .)
   _tries="$_tries $WIKI_PAGE_COUNT/$LIVE_PAGE_COUNT"
+  # K4: a cp error made only of vanished entries copied every page that still exists, so with the
+  # staged list equal to live it is a complete snapshot. Requiring CP_RC=0 here retried it, and a
+  # temp file that vanished on all three attempts failed the dream.
+  _cp_ok=0
+  { [ "$CP_RC" -eq 0 ] || [ "$_vanished" = 1 ]; } && _cp_ok=1
   # Retry only on a race: the live list moved (a page unlinked mid-copy by a reindex/autofix also
   # makes cp exit 1 with "cannot stat"), cp lost only vanished entries, or the live listing failed.
   _race=0
   { [ "$_before" != "$_after" ] || [ "$_vanished" = 1 ] || [ "$LIVE_RC" -ne 0 ]; } && _race=1
-  if [ "$LIST_RC" -ne 0 ] || { [ "$CP_RC" -eq 0 ] && [ "$LIVE_RC" -eq 0 ] && [ "$_staged" = "$_after" ]; } \
+  if [ "$LIST_RC" -ne 0 ] || { [ "$_cp_ok" = 1 ] && [ "$LIVE_RC" -eq 0 ] && [ "$_staged" = "$_after" ]; } \
      || [ "$_race" = 0 ] || [ "$_attempt" -ge "$SNAPSHOT_ATTEMPTS" ]; then
     break
   fi
@@ -198,15 +229,23 @@ while :; do
 done
 SNAPSHOT_BYTES=$(find "$DREAM_DIR/staging/wiki" -type f -name '*.md' -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')
 if [ -z "$SNAPSHOT_FAIL_REASON" ]; then
-  if [ "$CP_RC" -ne 0 ]; then
+  if [ "$CP_RC" -ne 0 ] && [ "$_vanished" != 1 ]; then
     SNAPSHOT_FAIL_REASON="cp -rp of wiki exited $CP_RC (partial snapshot) on attempt $_attempt/$SNAPSHOT_ATTEMPTS (staged/live per attempt:$_tries)"
   elif [ "$LIST_RC" -ne 0 ] || [ "$LIVE_RC" -ne 0 ]; then
     SNAPSHOT_FAIL_REASON="could not list wiki pages to verify the snapshot (find failed)"
   elif [ "$_staged" != "$_after" ]; then
     SNAPSHOT_FAIL_REASON="wiki snapshot incomplete: staged $WIKI_PAGE_COUNT of $LIVE_PAGE_COUNT live pages, page lists differ (staged/live per attempt:$_tries)"
+  elif [ "$CP_RC" -ne 0 ]; then
+    sb_log_error "dream-snapshot.sh" "cp -rp of wiki exited $CP_RC with only vanished entries (No such file or directory) on attempt $_attempt/$SNAPSHOT_ATTEMPTS; staged page list matches live ($WIKI_PAGE_COUNT pages), snapshot accepted" 0
   fi
 fi
 if [ -n "$SNAPSHOT_FAIL_REASON" ]; then
+  # K11: transcripts/ was made above, before the copy, and no transcript was selected. Left behind
+  # empty, it is a "create-time" anchor dream-autostage.sh takes for the new-transcripts watermark,
+  # stamped at the failure: every transcript older than this failed dream would stop counting.
+  if [ -d "$DREAM_DIR/transcripts" ] && ! rmdir "$DREAM_DIR/transcripts"; then
+    sb_log_error "dream-snapshot.sh" "could not remove the empty transcripts/ of failed dream $DREAM_ID; dream-autostage will anchor its watermark on it" 1
+  fi
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq -nc --arg id "$DREAM_ID" --arg now "$NOW" --arg e "$SNAPSHOT_FAIL_REASON" \
     '{id:$id, status:"failed", created_at:$now, started_at:null, ended_at:$now, archived_at:null,
@@ -270,6 +309,31 @@ if [ -d "$TRANSCRIPT_DIR" ]; then
     sb_strip_invisible_copy "$tf" "$_dst"
     SELECTED=$((SELECTED + 1))
   done < <(printf '%s' "$TRANSCRIPT_INDEX" | sort -k1,1r -k2,2rn | sed 's/^[^ ]* [^ ]* //')
+
+  # Secret scrub of the staged copies (0.56.0, security review: pre-migration exposure). The
+  # dream-runner LLM reads them, and an archive written before 0.56.0 (until the drainer's one-time
+  # migration reaches it), or appended by a 0.55 hook after it, holds keys in clear. ONE grep
+  # (_SB_SCRUB_ERE: exactly what the scrub changes, any-case words included) over the copies, then
+  # sb_scrub_archive_file on each hit (atomic, mtime kept: the autostage watermark reads it). Fail
+  # closed: a copy that cannot be scrubbed, or a grep that cannot read the copies, removes them
+  # from the dream, loudly.
+  if [ "$SELECTED" -gt 0 ]; then
+    _hits=$(cd "$DREAM_DIR/transcripts" && LC_ALL=C grep -lE "${_SB_SCRUB_ERE[@]}" -- *.txt 2>/dev/null); _grc=$?
+    if [ "$_grc" -gt 1 ]; then
+      sb_log_error "dream-snapshot.sh" "secret check of the staged transcripts failed (grep rc=$_grc); none are staged for dream $DREAM_ID" 1
+      rm -f "$DREAM_DIR/transcripts"/*.txt 2>/dev/null
+      SELECTED=0
+    elif [ -n "$_hits" ]; then
+      while IFS= read -r _h; do
+        _h="${_h%$'\r'}"; [ -n "$_h" ] || continue
+        if ! sb_scrub_archive_file "$DREAM_DIR/transcripts/$_h"; then
+          rm -f "$DREAM_DIR/transcripts/$_h" 2>/dev/null
+          SELECTED=$((SELECTED - 1))
+          sb_log_error "dream-snapshot.sh" "cannot secret-scrub the staged copy of $_h; left out of dream $DREAM_ID" 1
+        fi
+      done < <(printf '%s\n' "$_hits")
+    fi
+  fi
 fi
 
 # Write status.json. created_at is the pre-copy SNAP_AT, not now (see the snapshot block).

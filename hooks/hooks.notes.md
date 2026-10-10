@@ -201,7 +201,16 @@ Task/Agent gets a tier-mismatch delegation check (warn-only unless
 SB_DELEGATION_REWRITE=1 rewrites `tool_input.model`); Read/Edit/Write/MultiEdit
 gets path-triggered repo memory (Slice 2) and Write of a new path gets a
 search-before-create nudge (Slice 3). At most one `hookSpecificOutput` envelope
-per call. Never `deny`/`ask`, never blocks. Kill switches SB_PROTOCOL_GUARD=off,
+per call. Two verdicts, nothing else blocks (pg_dream_confine, K12): `deny` for
+an Edit/Write/MultiEdit from the dream-runner agent outside its own
+`$BRAIN_DIR/dreams/<id>/`, and `ask` for one from a subagent whose
+`agent_type` is missing (agent_id set; the CLI's remoteCall input omits it), so
+it may be the dream-runner. The check fails SAFE: a static printf verdict, and a
+payload jq cannot read (jq absent or failing) is matched by a bash regex on the
+raw text (deny for the dream-runner, ask for a missing agent_type). Residuals: a
+hook killed at its 5 s budget answers nothing; Bash writes are not matched;
+SB_PROTOCOL_GUARD=off or SB_HOOK_PROFILE=minimal turns the confinement off with
+the rest of the script. Kill switches SB_PROTOCOL_GUARD=off,
 SB_DELEGATION_CHECK=off, SB_DELEGATION_REWRITE (default off), SB_JIT=off,
 SB_SEARCH_FIRST=off.
 

@@ -1,9 +1,61 @@
 import { describe, it, expect } from 'vitest';
-import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { promises as fs, mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed, stripInvisible } from './raw-inbox.js';
+import { captureItem, listItems, setStatus, unprocessedCount, rawDir, markProcessed, partitionPending, pruneProcessed, stripInvisible, rawCaptureCliCommand, shellWord } from './raw-inbox.js';
 import type { RawItem } from './raw-inbox.js';
+import { installVectorDepsCommand } from './embeddings.js';
+
+// T6 (R3-B): the CLI hints named `node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"`,
+// but $CLAUDE_PLUGIN_ROOT is not set in a Bash tool's environment, so the pasted hint resolved to
+// /mcp/dist/... and failed with MODULE_NOT_FOUND. The hint is built from the running script's path.
+describe('rawCaptureCliCommand / shellWord (CLI hints)', () => {
+  it('names the sibling raw-capture bundle of the running script, forward-slashed and quoted', () => {
+    expect(rawCaptureCliCommand('/opt/plug/mcp/dist/tools/raw-scan-cli.bundle.js'))
+      .toBe('node "/opt/plug/mcp/dist/tools/raw-capture-cli.bundle.js"');
+    expect(rawCaptureCliCommand('C:\\Users\\u\\plug\\mcp\\dist\\tools\\raw-capture-cli.bundle.js'))
+      .toBe('node "C:/Users/u/plug/mcp/dist/tools/raw-capture-cli.bundle.js"');
+  });
+  it('never emits the unset $CLAUDE_PLUGIN_ROOT when the script path is known', () => {
+    expect(rawCaptureCliCommand('/a/b/raw-capture-cli.bundle.js')).not.toContain('CLAUDE_PLUGIN_ROOT');
+  });
+  it('escapes the characters a double-quoted shell word would expand', () => {
+    expect(rawCaptureCliCommand('/a/$HOME/`x`/"q"/raw-capture-cli.bundle.js'))
+      .toBe('node "/a/\\$HOME/\\`x\\`/\\"q\\"/raw-capture-cli.bundle.js"');
+  });
+  it('falls back to the documented plugin-root form only without a script path', () => {
+    expect(rawCaptureCliCommand(undefined)).toBe('node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"');
+    expect(rawCaptureCliCommand('')).toBe('node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"');
+  });
+  it('shellWord leaves a plain slug bare and quotes anything else', () => {
+    expect(shellWord('my-proj_2.0')).toBe('my-proj_2.0');
+    expect(shellWord('my proj')).toBe("'my proj'");
+    expect(shellWord("it's")).toBe("'it'\\''s'");
+    expect(shellWord('')).toBe("''");
+  });
+});
+
+// P-T10 (review 2, the T6 sibling): the embeddings load-error row told the user to run
+// `bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh`, which a Bash tool's environment does not
+// resolve. The hint names the plugin root the running bundle sits in (<root>/mcp/dist/...).
+describe('installVectorDepsCommand (the embeddings load-error hint, P-T10)', () => {
+  it('names install-vector-deps.sh under the plugin root of the running bundle', () => {
+    expect(installVectorDepsCommand('/opt/plug/mcp/dist/server.bundle.js')).toBe('bash "/opt/plug/bin/install-vector-deps.sh"');
+    expect(installVectorDepsCommand('C:\\Users\\u\\plug\\mcp\\dist\\tools\\knowledge-search-cli.bundle.js'))
+      .toBe('bash "C:/Users/u/plug/bin/install-vector-deps.sh"');
+    expect(installVectorDepsCommand('/a/$HOME/`x`/"q"/mcp/dist/server.bundle.js'))
+      .toBe('bash "/a/\\$HOME/\\`x\\`/\\"q\\"/bin/install-vector-deps.sh"');
+  });
+  it('falls back to the documented plugin-root form only when the script path does not name one', () => {
+    expect(installVectorDepsCommand(undefined)).toBe('bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"');
+    expect(installVectorDepsCommand('/usr/lib/node_modules/vitest/vitest.mjs')).toBe('bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"');
+  });
+  it('the load-error hint is built from it', () => {
+    const src = readFileSync(new URL('./embeddings.ts', import.meta.url), 'utf-8');
+    expect(src).not.toMatch(/run: bash \$CLAUDE_PLUGIN_ROOT/);
+    expect(src).toMatch(/installVectorDepsCommand\(process\.argv\[1\]\)/);
+  });
+});
 
 async function brain(): Promise<{ brainDir: string; slug: string }> {
   const brainDir = await fs.mkdtemp(join(tmpdir(), 'raw-'));

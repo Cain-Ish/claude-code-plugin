@@ -72,6 +72,13 @@ var lastLoadError = null;
 function brainDirFromEnv() {
   return resolveBrainDir();
 }
+function installVectorDepsCommand(scriptPath) {
+  const p = (scriptPath ?? "").replace(/\\/g, "/");
+  const cut = p.lastIndexOf("/mcp/dist/");
+  if (cut < 0) return 'bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"';
+  const script = `${p.slice(0, cut)}/bin/install-vector-deps.sh`;
+  return `bash "${script.replace(/(["$`])/g, "\\$1")}"`;
+}
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
     lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
@@ -117,7 +124,7 @@ async function getPipeline() {
     return pipelineInstance;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    const hint = msg.includes("Cannot find package") ? ` \u2014 run: ${installVectorDepsCommand(process.argv[1])}` : "";
     await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
@@ -141,23 +148,27 @@ async function loadCache(wikiRoot) {
 async function saveCache(wikiRoot, cache) {
   await atomicWriteJson(join2(wikiRoot, CACHE_FILE), cache);
 }
+function isFiniteVector(v) {
+  return Array.isArray(v) && v.every(Number.isFinite);
+}
 async function embedTexts(texts, wikiRoot, paths) {
   const pipe = await getPipeline();
   if (!pipe) return null;
-  const cache = await loadCache(wikiRoot);
+  const cache = paths.some((p) => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results = [];
   let cacheUpdated = false;
   for (let i = 0; i < texts.length; i++) {
     const hash = simpleHash(texts[i]);
     const key = paths[i] || `query-${i}`;
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
+    const hit = cache.entries[key];
+    if (hit?.hash === hash && isFiniteVector(hit.vector)) {
+      results.push(hit.vector);
       continue;
     }
     const output = await pipe(texts[i], { pooling: "mean", normalize: true });
     const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
     results.push(vec);
-    if (paths[i]) {
+    if (paths[i] && isFiniteVector(vec)) {
       cache.entries[key] = { hash, vector: vec };
       cacheUpdated = true;
     }
@@ -165,16 +176,50 @@ async function embedTexts(texts, wikiRoot, paths) {
   if (cacheUpdated) await saveCache(wikiRoot, cache);
   return results;
 }
-function cosineSimilarity(a, b) {
-  let dot = 0;
-  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
-  return dot;
-}
 
 // src/tools/episodic-search.ts
 var INDEX_FILE = "episodic-index.json";
 var DEFAULT_LIMIT = 10;
 var MAX_LIMIT = 30;
+function quantizeEmbedding(vec) {
+  let maxAbs = 0;
+  for (let i = 0; i < vec.length; i++) {
+    const a = Math.abs(vec[i]);
+    if (a > maxAbs) maxAbs = a;
+  }
+  const es = maxAbs / 127;
+  const q = new Int8Array(vec.length);
+  if (es > 0) for (let i = 0; i < vec.length; i++) q[i] = Math.max(-127, Math.min(127, Math.round(vec[i] / es)));
+  return { e8: Buffer.from(q.buffer, q.byteOffset, q.byteLength).toString("base64"), es };
+}
+function decodeE8(e8) {
+  const b = Buffer.from(e8, "base64");
+  return new Int8Array(b.buffer, b.byteOffset, b.byteLength);
+}
+function dotDequantized(query2, v, es) {
+  let dot = 0;
+  const n = Math.min(query2.length, v.length);
+  for (let i = 0; i < n; i++) dot += query2[i] * v[i];
+  return dot * es;
+}
+function embeddingSimilarity(query2, row) {
+  return dotDequantized(query2, decodeE8(row.e8), row.es);
+}
+function hasVector(e) {
+  return typeof e.e8 === "string" && e.e8.length > 0;
+}
+function currentRow(stored) {
+  const { embedding, e8, es, ...row } = stored;
+  if (typeof e8 === "string" && e8) {
+    const ok = typeof es === "number" && Number.isFinite(es) && es >= 0 && decodeE8(e8).length === EMBEDDING_DIM;
+    return ok ? { row: { ...row, e8, es }, dropped: false } : { row, dropped: true };
+  }
+  if (Array.isArray(embedding) && embedding.length > 0) {
+    const ok = embedding.length === EMBEDDING_DIM && embedding.every((x) => typeof x === "number" && Number.isFinite(x));
+    return ok ? { row: { ...row, ...quantizeEmbedding(embedding) }, dropped: false } : { row, dropped: true };
+  }
+  return { row, dropped: false };
+}
 var PEER_PREFIX = "Another Claude session sent a message:";
 var MACHINE_TAG_PREFIXES = [
   "<task-notification>",
@@ -237,16 +282,89 @@ function peerReportBody(rest) {
   const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
   return mark + [report, ...flags].join("\n");
 }
-var FOLD_TO_SPACE = /* @__PURE__ */ new Set([9, 10, 11, 12, 13, 133, 8232, 8233]);
-var FOLD_TO_OPEN = /* @__PURE__ */ new Set([91, 65339, 12304, 10214, 12314, 8261, 65095, 12308]);
-var FOLD_TO_CLOSE = /* @__PURE__ */ new Set([93, 65341, 12305, 10215, 12315, 8262, 65096, 12309]);
-function foldServedSnippet(text) {
-  let out = "";
-  for (const ch of text) {
-    const c = ch.codePointAt(0);
-    out += FOLD_TO_SPACE.has(c) ? " " : FOLD_TO_OPEN.has(c) ? "(" : FOLD_TO_CLOSE.has(c) ? ")" : ch;
+var cps = (...xs) => String.fromCodePoint(...xs);
+var ZWNJ = cps(8204);
+var ZWJ = cps(8205);
+var FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
+var FOLD_OPEN_EXTRA = cps(9121, 9122, 9123, 8988, 8990, 9150, 9151, 9484, 9492, 9500);
+var FOLD_CLOSE_EXTRA = cps(9124, 9125, 9126, 8989, 8991, 9163, 9164, 9488, 9496, 9508);
+var FOLD_OPEN_RE = new RegExp(`[\\p{Ps}\\p{Pi}${FOLD_OPEN_EXTRA}]`, "gu");
+var FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}\\p{Pf}${FOLD_CLOSE_EXTRA}]`, "gu");
+var FOLD_QUOTE_KEEP = new Set(cps(
+  8218,
+  8222,
+  11842,
+  12317,
+  12318,
+  12319,
+  171,
+  187,
+  8216,
+  8217,
+  8219,
+  8220,
+  8221,
+  8223,
+  8249,
+  8250
+));
+var FRAME_PHRASE_SKELETON = "untrustedreference";
+var CONFUSABLE = /* @__PURE__ */ new Map();
+for (const [latin, from] of [
+  ["c", [1089, 962, 963, 7428, 42202]],
+  ["d", [1281, 7429, 42195]],
+  ["e", [1077, 949, 1108, 7431, 42224]],
+  ["f", [989, 42800, 42205]],
+  ["n", [951, 957, 1087, 1400, 628, 42208]],
+  ["r", [1075, 640, 638, 42211]],
+  ["s", [1109, 42801, 42210]],
+  ["t", [964, 1090, 7451, 42196]],
+  ["u", [965, 1405, 7452, 651, 42228]]
+]) {
+  for (const c of from) CONFUSABLE.set(cps(c), latin);
+}
+var LETTER_OR_DIGIT_RE = /^[\p{L}\p{N}]$/u;
+var SKELETON_CACHE = /* @__PURE__ */ new Map();
+function skeletonOf(ch) {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c < 128) {
+    if (c >= 97 && c <= 122 || c >= 48 && c <= 57) return ch;
+    return c >= 65 && c <= 90 ? String.fromCharCode(c + 32) : "";
   }
-  return out;
+  let s = SKELETON_CACHE.get(c);
+  if (s === void 0) {
+    s = "";
+    for (const d of ch.normalize("NFKD").toLowerCase().normalize("NFKD")) {
+      const m = CONFUSABLE.get(d) ?? d;
+      if (LETTER_OR_DIGIT_RE.test(m)) s += m;
+    }
+    if (SKELETON_CACHE.size < 4096) SKELETON_CACHE.set(c, s);
+  }
+  return s;
+}
+function neutraliseFramePhrase(text) {
+  let skeleton = "";
+  for (const ch of text) skeleton += skeletonOf(ch);
+  if (!skeleton.includes(FRAME_PHRASE_SKELETON)) return text;
+  const start = [], end = [];
+  let i = 0;
+  for (const ch of text) {
+    const n = skeletonOf(ch).length;
+    for (let k = 0; k < n; k++) {
+      start.push(i);
+      end.push(i + ch.length);
+    }
+    i += ch.length;
+  }
+  let out = "", last = 0;
+  for (let j = skeleton.indexOf(FRAME_PHRASE_SKELETON); j >= 0; j = skeleton.indexOf(FRAME_PHRASE_SKELETON, j + FRAME_PHRASE_SKELETON.length)) {
+    out += `${text.slice(last, Math.max(start[j], last))}untrusted-reference`;
+    last = end[j + FRAME_PHRASE_SKELETON.length - 1];
+  }
+  return out + text.slice(last);
+}
+function foldServedSnippet(text) {
+  return neutraliseFramePhrase(text.replace(FOLD_SPACE_RE, (m) => m === ZWNJ || m === ZWJ ? m : " ").replace(FOLD_OPEN_RE, (m) => m === "(" || m === "{" || FOLD_QUOTE_KEEP.has(m) ? m : "(").replace(FOLD_CLOSE_RE, (m) => m === ")" || m === "}" || FOLD_QUOTE_KEEP.has(m) ? m : ")"));
 }
 function cleanUserText(text) {
   if (!isMachineTurnText(text)) return text;
@@ -301,19 +419,26 @@ async function serveEpisodicLines(query2, brainDir2, o) {
   })];
 }
 var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
+var ROW_STRING_FIELDS = ["id", "sessionId", "project", "date", "userSnippet", "assistantSnippet", "archivePath"];
+function isStoredRow(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const o = v;
+  return ROW_STRING_FIELDS.every((k) => typeof o[k] === "string");
+}
 async function loadIndex(brainDir2) {
   const indexPath = join3(brainDir2, INDEX_FILE);
+  const reset = { index: emptyIndex(), dropped: 0, malformed: 0 };
   let data;
   try {
     data = await fs3.readFile(indexPath, "utf-8");
   } catch (e) {
-    if (e.code === "ENOENT") return emptyIndex();
+    if (e.code === "ENOENT") return reset;
     await appendErrorLog(
       brainDir2,
       "episodic-index",
       `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
     );
-    return emptyIndex();
+    return reset;
   }
   let parsed;
   try {
@@ -324,7 +449,7 @@ async function loadIndex(brainDir2) {
       "episodic-index",
       `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
     );
-    return emptyIndex();
+    return reset;
   }
   const o = parsed;
   if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
@@ -333,17 +458,38 @@ async function loadIndex(brainDir2) {
       "episodic-index",
       `corrupt episodic index reset: ${indexPath} has no exchanges array`
     );
-    return emptyIndex();
+    return reset;
   }
   const files = o.indexed_files;
+  const indexedFiles = files && typeof files === "object" && !Array.isArray(files) ? files : {};
+  let dropped = 0;
+  let malformed = 0;
+  const exchanges = [];
+  for (const stored of o.exchanges) {
+    if (!isStoredRow(stored)) {
+      malformed++;
+      const archivePath = stored?.archivePath;
+      if (typeof archivePath === "string") delete indexedFiles[basename(archivePath)];
+      continue;
+    }
+    const r = currentRow(stored);
+    if (r.dropped) dropped++;
+    exchanges.push(r.row);
+  }
   return {
-    model: typeof o.model === "string" ? o.model : emptyIndex().model,
-    indexed_files: files && typeof files === "object" && !Array.isArray(files) ? files : {},
-    exchanges: o.exchanges
+    index: {
+      model: typeof o.model === "string" ? o.model : emptyIndex().model,
+      indexed_files: indexedFiles,
+      exchanges
+    },
+    dropped,
+    malformed
   };
 }
+var SCRUB_MARK = ".archive-scrub-v1";
+var SCRUB_TODO = `${SCRUB_MARK}.todo`;
 async function episodicSearch(args, brainDir2) {
-  const index = await loadIndex(brainDir2);
+  const { index } = await loadIndex(brainDir2);
   if (index.exchanges.length === 0) return { results: [] };
   const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
   const query2 = args.query;
@@ -395,7 +541,7 @@ async function episodicSearch(args, brainDir2) {
 }
 async function vectorSearch(query2, index, limit, filters, brainDir2) {
   const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
+  const withEmbeddings = filtered.filter(hasVector);
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
   const queryEmbedding = await embedTexts(
     [query2],
@@ -405,7 +551,7 @@ async function vectorSearch(query2, index, limit, filters, brainDir2) {
   if (!queryEmbedding) return { hits: [], unavailable: true };
   const qVec = queryEmbedding[0];
   return {
-    hits: withEmbeddings.map((e) => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit),
+    hits: withEmbeddings.map((e) => ({ ...e, similarity: embeddingSimilarity(qVec, e) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit),
     unavailable: false
   };
 }
@@ -436,7 +582,7 @@ function textSearch(query2, index, limit, filters) {
 }
 async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
+  const withEmbeddings = filtered.filter(hasVector);
   if (withEmbeddings.length === 0) {
     return { results: [], ...filtered.length > 0 ? { degraded: "vector-unavailable" } : {} };
   }
@@ -447,7 +593,8 @@ async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
   );
   if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
   const scored = withEmbeddings.map((e) => {
-    const similarities = conceptEmbeddings.map((cv) => cosineSimilarity(cv, e.embedding));
+    const v = decodeE8(e.e8);
+    const similarities = conceptEmbeddings.map((cv) => dotDequantized(cv, v, e.es));
     const minSim = Math.min(...similarities);
     const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
     return { ...e, similarity: avgSim, minSimilarity: minSim };

@@ -14,12 +14,11 @@ permissions:
 
 jobs:
   linux:
-    # Turned off 2026-09-28 at the user's request (CI time). This was the only lane running
-    # the full run-all and the only one on jq 1.7 (Ubuntu's version); re-enable by removing
-    # the `if:` line. Until then, check jq 1.7 compatibility locally before a release.
-    if: false
+    # Re-enabled 2026-10-08 at the user's request (it was off since 2026-09-28 to cut CI time): the
+    # only lane running the full run-all and the only one on jq 1.7 (Ubuntu's version), and the first
+    # glibc run of the 0.56.0 guard alias/credential code and the protocol-guard case-variant deny.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -94,7 +93,7 @@ jobs:
           rc=0
           for t in persona-tool-guard symlink-guard flow-guard wiki-write-guard guard-wiring \
                    protocol-guard stop-verify-gate script-portability \
-                   discover-installed subagent-capture session-load-graph sar-summary \
+                   discover-installed subagent-capture session-load-graph sar-summary hook-latency \
                    telemetry-loop transcript-archive real-kb-isolation jq-e-empty-guard; do
             echo "::group::test-$t"
             if bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
@@ -115,7 +114,10 @@ jobs:
     # test-merge-project-update.sh alone is costed at up to ~776s on a heavily loaded MSYS box
     # (its own run-all-timeout header) -- macOS forks natively and should be far faster, but there
     # was no prior macOS-lane data point for it, so the raise buys headroom rather than guessing.
-    timeout-minutes: 25
+    # Raised 25 -> 40 (0.56.0): the drain + archive step below adds test-extract-drain.sh (its
+    # run-all-timeout header declares 600 s on MSYS: ~80 drainer ticks) and
+    # test-transcript-archive.sh (300 s); again no prior macOS data point, so headroom, not a guess.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: dream lifecycle on bash 3.2 / BSD coreutils
@@ -156,6 +158,23 @@ jobs:
         run: |
           /bin/bash tests/test-extraction-helpers.sh
           /bin/bash tests/test-merge-project-update.sh
+      # 0.56.0 (R2 "nothing captured is lost"): the drain accounting and the archive side on bash
+      # 3.2 + BSD userland, which no other lane runs: the cursor map's BSD `stat -f` / `wc -l`
+      # paths, the secret-scrub awk under BWK awk, the per-archive lock, eviction under that lock
+      # with its tombstones, the scrub migration. The drainer is spawned as plain `bash`, so the
+      # guards step's PATH shim pins it to /bin/bash 3.2; the step fails if the shim does not take.
+      - name: drain + archive units (cursor map, scrub, archive lock, eviction) on bash 3.2
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32" && ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          export PATH="$RUNNER_TEMP/bash32:$PATH"
+          bash -c 'echo "bash $BASH_VERSION"; [ "${BASH_VERSINFO[0]}" -lt 4 ]' || { echo "::error::PATH bash is not 3.2"; exit 1; }
+          rc=0
+          for t in transcript-archive extract-drain; do
+            echo "::group::test-$t"
+            if /bin/bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
+            echo "::endgroup::"
+          done
+          exit $rc
       # S0 (0.54.1): the PreToolUse guards' shared fast path has bash < 4.3 branches (the O(n^2)
       # ${v//pat/rep} fallback, read -N absent before 4.1, CTLESC IFS) that ran on no CI lane --
       # the devils-advocate pass found them unexercised (chronicle §3 skip class). The tests spawn

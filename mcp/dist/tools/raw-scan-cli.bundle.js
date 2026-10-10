@@ -6066,7 +6066,7 @@ var glob = Object.assign(glob_, {
 glob.glob = glob;
 
 // src/tools/doc-sources.ts
-import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
+import { join, relative, resolve, sep as sep2, isAbsolute, parse, win32 as win322 } from "path";
 import { spawnSync } from "child_process";
 
 // src/path-guard.ts
@@ -6285,6 +6285,17 @@ function isEmptySignature(sig) {
 }
 
 // src/tools/raw-inbox.ts
+function rawCaptureCliCommand(scriptPath) {
+  const p = (scriptPath ?? "").replace(/\\/g, "/");
+  const cut = p.lastIndexOf("/");
+  if (cut < 0) return 'node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js"';
+  const cli = `${p.slice(0, cut)}/raw-capture-cli.bundle.js`;
+  return `node "${cli.replace(/(["$`])/g, "\\$1")}"`;
+}
+function shellWord(s) {
+  if (/^[A-Za-z0-9._/:@+=-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
 function rawDir(brainDir, slug) {
   return join2(brainDir, "projects", slug, "raw");
 }
@@ -6324,7 +6335,7 @@ function serialize(item) {
   fm.push("---", "", stripInvisible(item.body), "");
   return fm.join("\n");
 }
-function parse(content, id) {
+function parse2(content, id) {
   const m = matchFrontmatter(content);
   const base = {
     id,
@@ -6378,7 +6389,7 @@ async function readItems(brainDir, slug) {
   for (const name of names.sort()) {
     try {
       const content = await fs.readFile(join2(dir, name), "utf-8");
-      items.push(parse(content, name.replace(/\.md$/, "")));
+      items.push(parse2(content, name.replace(/\.md$/, "")));
     } catch {
     }
   }
@@ -6767,6 +6778,7 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
 }
 
 // src/tools/raw-scan-cli.ts
+var RAW_CAPTURE_CLI = rawCaptureCliCommand(process.argv[1]);
 function resolveSlug(brainDir) {
   return process.env.SB_ACTIVE_SLUG || resolveActiveSlug(brainDir);
 }
@@ -6798,7 +6810,7 @@ async function main() {
     } else {
       const more = r.truncated ? `, ${r.truncated} over the cap (raise SB_SCAN_MAX or /second-brain:track them)` : "";
       const errNote = r.errored ? ` (${r.errored} unreadable)` : "";
-      console.log(`Captured ${r.captured}, skipped ${r.skipped} already-in-inbox${errNote}${more}. Review: /second-brain:capture --list`);
+      console.log(`Captured ${r.captured}, skipped ${r.skipped} already-in-inbox${errNote}${more}. Review: ${RAW_CAPTURE_CLI} --slug ${shellWord(slug)} list (/second-brain:maintain drains them)`);
     }
   } catch (e) {
     console.log(`scan error: ${e instanceof Error ? e.message : String(e)}`);

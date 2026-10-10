@@ -73,6 +73,24 @@ D5=$(sb_extract_deterministic "$TX5" 1 1)
 [ "$(echo "$D5" | jq -r '.files_touched | length')" = "0" ] || fail "D111: macOS \$TMPDIR (/var/folders/...) path not excluded: $D5"
 pass "D111: macOS \$TMPDIR (/var/folders/...) scratch path excluded"
 
+# C1 audit (R3): a record cut mid-write (a half-flushed last line, a torn append) must not empty the
+# floor. `jq -s` over the window failed whole on it and the `|| echo '[]'` fallback dropped every
+# real file. Each line is parsed on its own now; non-object records and a non-string path are
+# skipped too.
+TX6="$TMP/t6.jsonl"
+cat > "$TX6" <<'EOF'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/before.ts"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"te
+42
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":7}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"MultiEdit","input":{"file_path":"src/after.ts"}}]}}
+EOF
+D6=$(sb_extract_deterministic "$TX6" 1 5)
+[ "$(printf '%s' "$D6" | jq -c '.files_touched')" = '["src/after.ts","src/before.ts"]' ] \
+  || fail "a cut record emptied or truncated the floor (want src/after.ts + src/before.ts): $D6"
+[ "$(printf '%s' "$D6" | jq -r '.recent_decisions | length')" = 1 ] || fail "no grounded decision behind the cut record: $D6"
+pass "a cut record, a non-object line and a non-string path are skipped; the floor keeps every real file"
+
 # Twin: sb_extract_archived_deterministic (out-of-band drainer) reads preprocessed text,
 # not JSONL — same scratch-path exclusion must apply there.
 ARCHIVED_TXT="$TMP/archived.txt"
@@ -85,5 +103,38 @@ DA=$(sb_extract_archived_deterministic "$ARCHIVED_TXT")
 [ "$(echo "$DA" | jq -r '.files_touched | length')" = "1" ] || fail "D111 (archived twin): expected only src/real.ts to survive: $DA"
 [ -n "$DA" ] && echo "$DA" | jq -e '.files_touched | index("src/real.ts")' >/dev/null 2>&1 || fail "D111 (archived twin): src/real.ts missing: $DA"
 pass "D111: archived-transcript twin excludes Windows AppData\\Local\\Temp and macOS \$TMPDIR forms too"
+
+# S7/S8 (R3-B): the floor's own failures are loud. sb_extract_deterministic's two `|| echo '[]'`
+# fallbacks emptied the file list in silence when jq failed (killed, missing); sb_degraded_floor's
+# breadcrumb append and 50-line trim were `|| true` / `|| rm`. Each failure is now an error row, and
+# the delta is still a valid object. The rows go to a sandbox BRAIN_DIR (read at call time).
+export BRAIN_DIR="$TMP/brain"; mkdir -p "$BRAIN_DIR"
+ERRLOG="$BRAIN_DIR/error-log.jsonl"
+FLOOR_SHIM="$TMP/floor-jq-shim"; mkdir -p "$FLOOR_SHIM"
+printf '#!/bin/bash\ncase "$*" in *"$FLOOR_JQ_FAIL"*) exit 137 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$FLOOR_SHIM/jq"
+chmod +x "$FLOOR_SHIM/jq"
+for s7 in '.input.file_path?|jq failed reading raw lines' '.[0:5]|jq failed capping the file list'; do
+  : > "$ERRLOG"
+  D7=$(export PATH="$FLOOR_SHIM:$PATH" FLOOR_JQ_FAIL="${s7%%|*}"; hash -r; sb_extract_deterministic "$TX" 1 3)
+  [ -n "$D7" ] && echo "$D7" | jq -e 'type == "object" and .files_touched == []' >/dev/null 2>&1 \
+    || fail "S7 (${s7%%|*}): want a valid delta with no files after the failed jq, got: $D7"
+  grep -F "${s7#*|}" "$ERRLOG" 2>/dev/null | grep -q '"exit_code":1' \
+    || fail "S7 (${s7%%|*}): the failed jq left no error row ($(cat "$ERRLOG" 2>/dev/null))"
+done
+pass "S7: a jq failure in the deterministic floor is an error row; the delta stays valid"
+
+P8="$TMP/p8/proj"; mkdir -p "$P8/pending-extraction.log"   # a directory squats on the sidecar
+: > "$ERRLOG"
+D8=$(sb_degraded_floor "$TX" 1 3 "$P8/PROJECT.md")
+[ -n "$D8" ] && echo "$D8" | jq -e '.files_touched | index("src/a.ts")' >/dev/null 2>&1 || fail "S8: the delta was lost with the breadcrumb: $D8"
+grep -F 'breadcrumb could not be written' "$ERRLOG" 2>/dev/null | grep -q '"exit_code":1' \
+  || fail "S8: a breadcrumb that could not be written left no error row ($(cat "$ERRLOG" 2>/dev/null))"
+P8B="$TMP/p8b/proj"; mkdir -p "$P8B/pending-extraction.log.tmp"   # the trim's temp file cannot be written
+: > "$ERRLOG"
+sb_degraded_floor "$TX" 1 3 "$P8B/PROJECT.md" >/dev/null
+grep -qF '[degraded]' "$P8B/pending-extraction.log" 2>/dev/null || fail "S8: the breadcrumb itself was not appended"
+grep -F 'trimming' "$ERRLOG" 2>/dev/null | grep -q '"exit_code":1' \
+  || fail "S8: a failed 50-line trim left no error row ($(cat "$ERRLOG" 2>/dev/null))"
+pass "S8: a breadcrumb or trim that fails is an error row; the delta is still returned"
 
 echo "ALL PASS"

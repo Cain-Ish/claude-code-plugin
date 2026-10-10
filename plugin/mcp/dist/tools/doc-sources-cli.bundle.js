@@ -1,6 +1,6 @@
 // src/tools/doc-sources.ts
-import { promises as fs } from "fs";
-import { join, relative, resolve, sep as sep2, isAbsolute } from "path";
+import { promises as fs, realpathSync as realpathSync2, existsSync } from "fs";
+import { join, relative, resolve, sep as sep2, isAbsolute, parse, win32 as win322 } from "path";
 import { spawnSync } from "child_process";
 
 // node_modules/balanced-match/dist/esm/index.js

@@ -283,7 +283,9 @@ cd "$SCAN_ROOT_DIR" || { echo "setup: cannot cd into $SCAN_ROOT_DIR"; exit 1; }
 SCAN_ROOT="$SCAN_ROOT_DIR" node "$SCAN_CLI"
 ```
 
-Report the captured/skipped counts and point the user to `/second-brain:capture --list`.
+Report the captured/skipped counts and tell the user the items wait in the raw inbox until
+`/second-brain:maintain` runs; they can list them with
+`node "${CLAUDE_PLUGIN_ROOT}/mcp/dist/tools/raw-capture-cli.bundle.js" list`.
 If the preview was empty, say there were no high-signal docs to seed and move on.
 
 ### 6b. Companion-plugin check (superpowers)

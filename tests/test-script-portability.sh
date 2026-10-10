@@ -527,4 +527,46 @@ h=$(c19_scan $ALL_SH 2> "$C17T/err"); rc=$?
 [ -z "$h" ] && pass "no =~ against an unanchored trailing-run regex like (X+)\$ (glibc O(run^2): F8 fail-open)" \
   || fail "=~ against an unanchored trailing-run regex — O(run^2) on glibc for a run followed by other text; trim/measure without a regex, or annotate a bounded slice with # =~-bounded: <why>" "$h"
 
+# 20. No backgrounded subshell or brace group inherits the caller's STDOUT. A reader of a pipe
+#     sees EOF only once every holder closes it, so a hook's `( slow job ) &` keeps Claude Code
+#     waiting on the hook's response until the job ends (D179's class). D179 redirected only the
+#     node process inside `( node … >>log 2>&1; … ) &`, and the waiting subshell still held the
+#     pipe: Stop/PreCompact waited for the whole episodic index build, and session-load for the
+#     wiki reindex, until 0.56.0. The line that closes the group (or a one-line `( … ) &`) must
+#     redirect stdout itself (`>`, `>>`, `1>` or `&>`; `2>` alone is not stdout).
+c20_scan() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    {
+      s = $0; sub(/[[:space:]]+#.*$/, "", s)
+      if (s ~ /&&[[:space:]]*$/ || s !~ /[^&]&[[:space:]]*$/) next
+      closing = (s ~ /^[[:space:]]*[)}]/) || (s ~ /^[[:space:]]*\(.*\)[^)]*&[[:space:]]*$/)
+      if (!closing) next
+      t = s; sub(/.*[)}]/, "", t)
+      if (t !~ /(^|[^0-9&<])>|1>|&>/) print FILENAME ":" FNR ": " $0
+    }
+  ' "$@"
+}
+# Self-test: exactly the backgrounded groups of this canary that keep stdout, nothing else.
+cat > "$C17T/c20.sh" <<'EOF'
+) &
+  ) </dev/null >/dev/null 2>&1 &
+} 2>/dev/null &
+( sleep 1 ) &
+( sleep 1 ) >>"$LOG" 2>&1 &
+cmd && other
+# ) &
+node "$X" "${args}" &
+  } &   # closes a brace group
+EOF
+c20_scan "$C17T/c20.sh" > "$C17T/c20.out" 2> "$C17T/err"; c20_rc=$?
+[ "$c20_rc" -eq 0 ] || fail "check 20 self-test: awk exited $c20_rc" "$(cat "$C17T/err")"
+c20_got=$(cut -d: -f2 "$C17T/c20.out" | tr '\n' ' ')
+[ "$c20_got" = "1 3 4 9 " ] \
+  || fail "check 20 self-test: the scan must flag exactly canary lines 1 3 4 9 (a bare close, a stderr-only close, a one-line subshell, a commented close)" "got: [$c20_got] $(cat "$C17T/c20.out")"
+h=$(c20_scan $ALL_SH 2> "$C17T/err"); rc=$?
+[ "$rc" -eq 0 ] || fail "check 20: the scan failed (rc=$rc) — a scan that cannot run must not pass" "$(cat "$C17T/err")"
+[ -z "$h" ] && pass "no backgrounded subshell or brace group keeps the caller's stdout (a hook's reader would wait for the job)" \
+  || fail "a backgrounded ( … ) & / { … } & keeps the caller's stdout open — redirect it on the closing line: ) </dev/null >/dev/null 2>&1 &" "$h"
+
 echo; echo "ALL PASS"

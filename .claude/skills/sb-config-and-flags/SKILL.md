@@ -223,13 +223,13 @@ drainer-timer self-heal): catalog §3.
 | `SB_EXTRACTOR_ENGINE` | `auto` | Backend pin: auto / local / cli / bare | P | bash |
 | `SB_EXTRACTOR_LOCAL_URL` | empty | OpenAI-compatible `/v1` endpoint; when set, tried FIRST (offline-capable, no OAuth lock) | O (inert until set) | bash |
 | `SB_EXTRACT_TIMEOUT` | `25`/`30` s | In-hook extraction budget (stop-extract/pre-compact) — deliberately NOT shared with the drainer | P | none |
-| `SB_DRAIN_EXTRACT_TIMEOUT` | `240` s | Drainer per-attempt budget. BUDGET PROOF at lib.sh:1612-1625: 5×3×240 = 3600s = half the lock steal-threshold. Do NOT raise without raising `SB_DRAIN_LOCK_STALE` | P | bash |
+| `SB_DRAIN_EXTRACT_TIMEOUT` | `240` s | Drainer per-attempt budget. BUDGET PROOF at lib.sh:3455-3465: 5×3×240 = 3600s = half the lock steal-threshold. Do NOT raise without raising `SB_DRAIN_LOCK_STALE` | P | bash |
 | `SB_DRAIN_BATCH` / `SB_DRAIN_MAX_FAILS` | `5` / `3` | Transcripts per cycle / fails before terminal `error` (or floor) | P | bash |
 | `SB_DRAIN_LOCK_STALE` | `7200` s | Steal a drain lock older than this | P | bash |
 | `SB_DRAIN_FLOOR` | `on` | After MAX_FAILS write the deterministic files-changed baseline instead of losing the session | P | none |
 | `SB_DREAM_KEEP_COUNT` | `5` (via config) | Dream snapshots retained — the only layered knob | P | none |
 | `SB_DREAM_ACCEPT_MIN_RATIO` | `50` % | Refuse accept when staging < N% of live pages ("a broken dream must not --delete the live wiki") | P (guard) | bash |
-| `SB_DREAM_ACCEPT_NO_DELETE` | `0` | `1` refuses accepts that remove live pages (set by `auto_accept=safe`) | P (guard) | bash |
+| `SB_DREAM_ACCEPT_NO_DELETE` | `0` | `1` refuses accepts whose apply would delete a live page; post-snapshot live pages are not counted, and a merge-only apply (no rsync / no `created_at`) skips the check (set by `auto_accept=safe`) | P (guard) | bash |
 | `SB_DREAM_SUMMARIZE` / `SB_DREAM_REFLECT` | `on`/`on` | Theme-MOC / reflection ops; each independently gates graph-cluster.sh to `[]` | P | bash |
 | `SB_WIKI_FORGET` | `on` | Dream FORGET phase | P, **A** | bash |
 | `SB_PROJECT_SCOPE` | on | Project-scoped tiering of knowledge_search | P | bash+vitest |

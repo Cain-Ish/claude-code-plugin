@@ -2,6 +2,10 @@
 # pins: SB_DREAM_ACCEPT_MIN_RATIO — opens the unrelated deletion-ratio gate to 0 to isolate the NO_DELETE/SKIP_BACKUP guards this file actually tests
 # pins: SB_DREAM_ACCEPT_NO_DELETE — the flag itself is the subject of this subtest (dry-run no-delete mode)
 # pins: SB_DREAM_ACCEPT_SKIP_BACKUP — the flag itself is the subject of subtest B3 (skip-backup auto path)
+# run-all-timeout: 240   (~31 dream-accept.sh runs; measured alone on MSYS 2026-10-07 after R3-B's
+#   C1/F3c cases and the first real run of the D084 follow-up: 79 s jq 1.8.1 / 83 s jq 1.7.1,
+#   15.1 GB free, 377 processes; the 120 s default was under 2x that. 2026-10-08 after R3-C's P-C4
+#   case, alone: 75 s jq 1.8.1 / 88 s jq 1.7.1)
 # Premise-review fixes (0.25.0 autonomy): dream-accept must never let a broken/
 # truncated dream destroy the LIVE wiki, and auto_accept=safe must truly forbid
 # deletions. ORACLE: the real live-wiki page count on disk BEFORE vs AFTER a
@@ -63,13 +67,84 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && pass "F1c: a complete staging (== live) is accepted (rc=0)" || fail "F1c: a valid full consolidation was refused (rc=$rc)"
 rm -rf "$SB"
 
-# --- F3a: safe-mode (NO_DELETE) refuses a dream that drops a live page -------
+# --- F3a: safe-mode (NO_DELETE) refuses a dream that drops a PRE-snapshot live page ------
+# Only an apply that can delete is refused: rsync --delete with a usable created_at. Without
+# either the apply is merge-only and deletes nothing, so there is nothing to refuse (K1, F3c).
+# The pre-K1 F3a ran with no created_at, so it asserted a refusal that guarded nothing. A host
+# without rsync gets a stub on PATH: the refusal comes before the apply, so the stub never runs
+# there (gate-only), and where it does run (F3d) the case asserts the gate's verdict only.
+RSYNC_STUB=""
+if ! command -v rsync >/dev/null 2>&1; then
+  RSYNC_STUB=$(mktemp -d); printf '#!/bin/bash\nexit 0\n' > "$RSYNC_STUB/rsync"; chmod +x "$RSYNC_STUB/rsync"
+fi
+with_rsync() { if [ -n "$RSYNC_STUB" ]; then PATH="$RSYNC_STUB:$PATH" "$@"; else "$@"; fi; }
+# old_snapshot: created_at in the past, every live page older than it (all pre-snapshot).
+old_snapshot() {
+  jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' \
+    > "$BRAIN_DIR/dreams/drm_test/status.json"
+  find "$KNOWLEDGE_DIR/wiki" -name '*.md' -type f -exec touch -t 202512010000 {} +
+}
 setup 4 "p1 p2 p3"   # staging missing p4 → a deletion
+old_snapshot
 BEFORE=$(count "$KNOWLEDGE_DIR/wiki")
-CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+with_rsync env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
 AFTER=$(count "$KNOWLEDGE_DIR/wiki")
-[ "$rc" -ne 0 ] && [ "$AFTER" = "4" ] && pass "F3a: safe-mode refuses a deleting dream, all 4 live pages intact" || fail "F3a: safe-mode allowed a deletion (rc=$rc, live $BEFORE→$AFTER)"
+[ "$rc" -ne 0 ] && [ "$AFTER" = "4" ] && pass "F3a: safe-mode refuses a dream that drops a pre-snapshot page, all 4 live pages intact" || fail "F3a: safe-mode allowed a deletion (rc=$rc, live $BEFORE→$AFTER)"
 rm -rf "$SB"
+
+# --- F3c (K1): no usable created_at → merge-only apply → the deletion check is skipped, logged ---
+# A refused auto-accept stays completed and unarchived, and the lane's no-stacking check then
+# stops every later run, so refusing an apply that cannot delete was a permanent stall.
+# The skip is routine (every safe accept on a host without rsync takes it), so its row is a gate=
+# trace in the audit-log, not an error-log line (R3-B S12). The created_at arm runs under
+# with_rsync, so a host without rsync exercises it too instead of passing on the rsync arm (Q-L5);
+# the rsync arm is asserted where rsync is really absent.
+f3c_row() {  # $1 = log file: the NO_DELETE skip row(s), compact
+  jq -c 'select(.script == "dream-accept" and ((.message // "") | test("NO_DELETE check skipped")))' "$1" 2>/dev/null | tr -d '\r'
+}
+setup 4 "p1 p2 p3"   # staging missing p4, but NO created_at: the apply cannot delete it
+with_rsync env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+SKIPROW=$(f3c_row "$BRAIN_DIR/audit-log.jsonl")
+[ "$rc" -eq 0 ] && [ -f "$KNOWLEDGE_DIR/wiki/entities/p4.md" ] && [ "$(count "$KNOWLEDGE_DIR/wiki")" = "4" ] \
+  && printf '%s' "$SKIPROW" | grep -q '"message":"gate=no-delete-check [^"]*created_at '"'"'<empty>'"'"' unusable' \
+  && [ -z "$(f3c_row "$BRAIN_DIR/error-log.jsonl")" ] \
+  && pass "F3c: no usable created_at → merge-only safe accept goes through, deletes nothing, logs the skip (created_at reason) as an audit trace" \
+  || fail "F3c: merge-only safe accept (rc=$rc, p4=$([ -f "$KNOWLEDGE_DIR/wiki/entities/p4.md" ] && echo kept || echo GONE), audit row=${SKIPROW:-none}, error-log row=$(f3c_row "$BRAIN_DIR/error-log.jsonl"))"
+rm -rf "$SB"
+if [ -n "$RSYNC_STUB" ]; then   # rsync really absent: the other arm, with a usable created_at
+  setup 4 "p1 p2 p3"; old_snapshot
+  CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+  SKIPROW=$(f3c_row "$BRAIN_DIR/audit-log.jsonl")
+  [ "$rc" -eq 0 ] && [ -f "$KNOWLEDGE_DIR/wiki/entities/p4.md" ] && printf '%s' "$SKIPROW" | grep -q 'rsync not installed' \
+    && pass "F3c: no rsync → merge-only safe accept goes through and logs the skip (rsync reason)" \
+    || fail "F3c: no-rsync safe accept (rc=$rc, audit row=${SKIPROW:-none})"
+  rm -rf "$SB"
+fi
+
+# --- F3d (K1): a page created LIVE after the snapshot is not a deletion ----------------------
+# Staging mirrors the wiki at created_at; a live page newer than that is protected by the apply
+# (never deleted, never overwritten). The deletion check ran before that protection was computed,
+# so safe mode refused every dream that sat while the drainer wrote a page.
+k1_fixture() {
+  setup 3 SAME          # staging == live p1..p3
+  old_snapshot          # p1..p3 predate created_at
+  printf -- '---\ntitle: p4\ntype: entities\nrelated: []\n---\n\n# p4\n\nlive after the snapshot\n' \
+    > "$KNOWLEDGE_DIR/wiki/entities/p4.md"   # mtime now > created_at, absent from staging
+}
+k1_fixture
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$KNOWLEDGE_DIR/wiki/entities/p4.md" ] \
+  && pass "F3d: a post-snapshot live page is not counted as a deletion (rc=0, p4 kept; this host's apply path)" \
+  || fail "F3d: safe mode refused over a page created after the snapshot (rc=$rc)"
+rm -rf "$SB"
+if [ -n "$RSYNC_STUB" ]; then
+  k1_fixture
+  PATH="$RSYNC_STUB:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 0 ] \
+    && pass "F3d: with rsync on PATH the deletion check subtracts the protected page (gate-only: stub rsync)" \
+    || fail "F3d: with rsync on PATH, safe mode refused over a post-snapshot page (rc=$rc)"
+  rm -rf "$SB"
+fi
 
 # --- F3b: safe-mode accepts an additive/modifying dream (no deletion) -------
 setup 3 "p1 p2 p3 p4new"   # all live present + one new → no deletion
@@ -109,6 +184,17 @@ supports_chmod_restrict() {
   # touch_rc=0 means touch SUCCEEDED → chmod did NOT restrict → return 1 (false)
   # touch_rc≠0 means touch FAILED  → chmod DID restrict     → return 0 (true)
   [ "$touch_rc" -ne 0 ]
+}
+# supports_chmod_file_restrict: true only if chmod 444 on a FILE actually blocks overwriting it
+# (Git-Bash maps it to the read-only attribute, so it does there; root on Linux ignores it). The
+# D084 follow-up below called this without a definition, so "command not found" sent every host
+# to its SKIP branch (R3-B).
+supports_chmod_file_restrict() {
+  local d rc; d=$(mktemp -d)
+  printf 'a\n' > "$d/probe"; chmod 444 "$d/probe" 2>/dev/null
+  ( printf 'b\n' > "$d/probe" ) 2>/dev/null; rc=$?
+  chmod 644 "$d/probe" 2>/dev/null; rm -f "$d/probe"; rmdir "$d" 2>/dev/null
+  [ "$rc" -ne 0 ]
 }
 if supports_chmod_restrict; then
   setup 4 SAME
@@ -208,13 +294,23 @@ jq -nc '{id:"drm_test",status:"completed",archived_at:null}' \
   > "$BRAIN_DIR/dreams/drm_test/status.json"     # NO created_at at all
 printf -- '---\ntitle: newpage\ntype: entities\nrelated: []\n---\n\n# newpage\n' \
   > "$KNOWLEDGE_DIR/wiki/entities/newpage.md"
-CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+# A live edit to a page staging also holds: with no snapshot time nothing tells it apart from a
+# pre-snapshot page, so the merge overwrites it with the staging copy. The warn must say THAT
+# (R3-B S12b: it claimed to "protect post-snapshot live pages", which only holds for deletions).
+printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+ERR=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1 1>/dev/null); rc=$?
 [ "$rc" -eq 0 ] || fail "P2: accept failed (rc=$rc)"
 [ -f "$KNOWLEDGE_DIR/wiki/entities/newpage.md" ] \
   || fail "P2: live-only page deleted despite unusable created_at (fail-safe broken)"
 [ -f "$KNOWLEDGE_DIR/wiki/entities/p3.md" ] \
   || fail "P2: dream deletion applied WITHOUT a snapshot time — unprotected --delete ran (not fail-safe)"
 pass "P2: missing created_at → merge-only accept (no deletions, nothing lost)"
+if grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p1.md"; then
+  fail "P2: the merge kept the live edit to p1 — the S12b warn below no longer describes this path"
+fi
+printf '%s' "$ERR" | grep -q 'overwritten by its staging copy' && ! printf '%s' "$ERR" | grep -q 'to protect post-snapshot live pages' \
+  && pass "P2: the merge-only warn says a post-snapshot live edit is overwritten (and the backup has it)" \
+  || fail "P2: the merge-only warn misdescribes the merge (stderr: $ERR)"
 rm -rf "$SB"
 
 # === F5: FORGET manifest handled by the ACCEPT SCRIPT (machine lock) =========
@@ -339,6 +435,100 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?  
 [ -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "D212: a page younger than the 30-day floor was archived — the reversibility floor is not enforced at the shipped default"
 [ ! -f "$BRAIN_DIR/wiki-archive/entities/p1.md" ] || fail "D212: young page landed in wiki-archive despite the age floor"
 pass "D212: at the shipped 30-day default, a freshly-written manifest page is PROTECT:age'd and kept live"
+rm -rf "$SB"
+
+# === K10: the archived_at stamp (`jq > tmp && mv`) had no exit check, so a failed stamp fell
+# through to `rm -rf staging` and left a dream that was neither archived nor re-acceptable
+# ("staging wiki not found"). The shim fails ONLY the stamping jq call; every other jq call
+# reaches the real binary (captured BEFORE the shim goes on PATH).
+setup 3 "p1 p2 p3 p9"   # additive: p9 is new
+D="$BRAIN_DIR/dreams/drm_test"
+REAL_JQ=$(command -v jq)
+JQSHIM="$SB/jqshim"; mkdir -p "$JQSHIM"
+cat > "$JQSHIM/jq" <<EOF
+#!/bin/bash
+case "\$*" in *'.archived_at = \$t'*) echo "jq: simulated write failure" >&2; exit 2 ;; esac
+exec "$REAL_JQ" "\$@"
+EOF
+chmod +x "$JQSHIM/jq"
+ERR=$(PATH="$JQSHIM:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1 1>/dev/null); rc=$?
+[ "$rc" -ne 0 ] || fail "K10: a failed archived_at stamp returned rc=0"
+[ -d "$D/staging/wiki" ] || fail "K10: staging was deleted after the archived_at stamp failed (the dream can no longer be re-accepted)"
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+{ [ -z "$A" ] || [ "$A" = "null" ]; } || fail "K10: archived_at is '$A' after a failed stamp"
+jq -c 'select(.script == "dream-accept" and .exit_code != 0 and ((.message // "") | test("archived_at")))' \
+  "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  || fail "K10: a failed archived_at stamp left no error-log row (stderr: $ERR)"
+pass "K10: a failed archived_at stamp exits 1, keeps staging and logs the failure"
+# The pages are already applied; a re-accept must finish the job (it only stamps and cleans up, C1).
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+[ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ] && [ ! -d "$D/staging" ] \
+  && [ -f "$KNOWLEDGE_DIR/wiki/entities/p9.md" ] \
+  && pass "K10: the re-accept after a failed stamp archives the dream (rc=0, archived_at=$A, staging cleaned, p9 live)" \
+  || fail "K10: re-accept after a failed stamp did not finish (rc=$rc archived_at='$A' staging=$([ -d "$D/staging" ] && echo kept || echo gone))"
+rm -rf "$SB"
+
+
+# === C1 (R3-B): that re-accept must not apply the dream a second time. The first run's FORGET
+# moved p1 to wiki-archive and consumed the manifest, and merge-edges appended the proposed edge;
+# staging still holds p1 and proposed-edges.json, so re-applying brought p1 back to live (live AND
+# archive) and appended the edge again. The `.applied` marker, written once the apply, FORGET and
+# edge merge are done, makes the re-accept only reindex, stamp and clean up.
+setup 4 "p1 p2 p3 p4 p9"   # p9 is new; p1 is in the forget manifest
+D="$BRAIN_DIR/dreams/drm_test"
+printf 'p1\tentities\n' > "$D/forget-manifest.tsv"
+printf '{"relations":[{"from":"p2","type":"relates","to":"p3"}]}\n' > "$D/staging/proposed-edges.json"
+JQSHIM="$SB/jqshim"; mkdir -p "$JQSHIM"
+printf '#!%s\ncase "$*" in *".archived_at = \\$t"*) echo "jq: simulated write failure" >&2; exit 2 ;; esac\nexec %q "$@"\n' \
+  "$BASH" "$REAL_JQ" > "$JQSHIM/jq"; chmod +x "$JQSHIM/jq"
+PATH="$JQSHIM:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test >/dev/null 2>&1; rc=$?
+[ "$rc" -ne 0 ] || fail "C1: precondition — the shimmed stamp did not fail (rc=$rc)"
+{ [ -f "$BRAIN_DIR/wiki-archive/entities/p1.md" ] && [ ! -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ]; } \
+  || fail "C1: precondition — the first run did not archive p1"
+E1=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl" 2>/dev/null); E1=${E1:-0}
+[ "$E1" -ge 1 ] || fail "C1: precondition — the first run landed no edge (edges.jsonl has $E1 lines)"
+# The applied marker lives beside the dream dir, outside what the dream-runner may write (P-C4). Its
+# presence is read now (the re-accept removes it) and asserted LAST (R3-C P-Q4): the behaviour
+# checks come first, so a build without the marker fails on what the user would see.
+C1_MARK="$BRAIN_DIR/dreams/.applied-drm_test"
+C1_MARKED=0; [ -f "$C1_MARK" ] && C1_MARKED=1
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+{ [ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ] && [ ! -d "$D/staging" ]; } \
+  || fail "C1: the re-accept did not finish (rc=$rc archived_at='$A' staging=$([ -d "$D/staging" ] && echo kept || echo gone)): $OUT"
+[ ! -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "C1: the re-accept brought archived p1 back to the live wiki"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p9.md" ] || fail "C1: p9 (applied by the first run) is not live"
+P1ROWS=$(grep -c '"slug":"p1"' "$BRAIN_DIR/wiki-archive-log.jsonl" 2>/dev/null); P1ROWS=${P1ROWS:-0}
+[ "$P1ROWS" = 1 ] || fail "C1: wiki-archive-log has $P1ROWS p1 rows (want 1)"
+E2=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl" 2>/dev/null); E2=${E2:-0}
+[ "$E2" = "$E1" ] || fail "C1: the re-accept appended edges again ($E1 -> $E2 lines)"
+[ "$C1_MARKED" = 1 ] || fail "C1: the applied-but-unstamped dream carried no marker at $C1_MARK"
+[ ! -e "$C1_MARK" ] || fail "C1: the finished re-accept left its marker at $C1_MARK"
+pass "C1: the re-accept after a failed stamp only finishes (p1 stays archived, 1 archive row, edges $E1 -> $E2, marker cleaned)"
+rm -rf "$SB"
+
+# === P-C4 (R3-C): the applied marker sat INSIDE the dream dir ($D/.applied), which the dream-runner
+# may write (K12 confines its Write/Edit to that dir). An injected runner that planted one made
+# dream_accept skip the apply, stamp archived_at, delete staging and print a success built from its
+# own status.json: the dream's output was lost under a success message. The marker now lives at
+# $BRAIN_DIR/dreams/.applied-<id> (pg_dream_confine denies the runner there; tests/test-protocol-guard.sh
+# locks that); a .applied found inside the dream dir is ignored, with one error row.
+setup 4 "p1 p2 p3 p4 p9"   # p9 is new
+D="$BRAIN_DIR/dreams/drm_test"
+jq -nc '{id:"drm_test",status:"completed",archived_at:null,outputs:{pages_added:7,pages_modified:0,pages_removed:0}}' > "$D/status.json"
+printf '2026-10-08T00:00:00Z\n' > "$D/.applied"   # planted by the runner
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1); rc=$?
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p9.md" ] \
+  || fail "P-C4: a .applied planted in the dream dir skipped the apply: p9 is not live (rc=$rc): $OUT"
+{ [ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ] && [ ! -d "$D/staging" ]; } \
+  || fail "P-C4: the accept with a planted .applied did not finish (rc=$rc archived_at='$A'): $OUT"
+jq -c 'select(.script == "dream-accept" and .exit_code == 1 and ((.message // "") | test("\\.applied")))' \
+  "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  || fail "P-C4: the planted .applied left no error row (error-log: $(tail -1 "$BRAIN_DIR/error-log.jsonl" 2>/dev/null))"
+[ ! -e "$BRAIN_DIR/dreams/.applied-drm_test" ] || fail "P-C4: the finished accept left its own marker behind"
+pass "P-C4: a .applied planted in the dream dir does not short-circuit the accept (p9 applied, archived, one error row)"
 rm -rf "$SB"
 
 echo "ALL PASS"

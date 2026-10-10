@@ -356,7 +356,10 @@ KD="${CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR:-$HOME/knowledge}"
 
 # Caps per section (wiki + episodic only — persona/catalog have no per-prompt injection).
 CAP_WIKI=600
-CAP_EPISODIC=300
+# BYTES, whole lines only (D8). Fits the serve step's header (55 B) plus its two served lines at
+# their widest: an 80-unit snippet at 3 B/unit (240 B), a long project slug, the date and the
+# percentage, ~330 B each. Plain-ASCII hints stay ~310-340 B; 300 clipped line 2 every time.
+CAP_EPISODIC=720
 
 # --- Persona card abstract (auto-seed if missing) ---
 PCARD_FILE="$BRAIN_DIR/persona-card.md"
@@ -523,16 +526,65 @@ fi
 #     pages exist, decide which to read in full". That's stronger than a
 #     decorative snippet.
 # Cap at 12 slugs to bound size (~30 chars each = ~360B, well under CAP_WIKI).
+# D11 (2026-10-07): a registered local doc is a file, not a wiki page, so the CLI prints it as
+# "Read <absolute path> — gist" (injectedHitLine, knowledge-search.ts); knowledge_fetch cannot open
+# it and it used to arrive here as [[SKILL]]. Its path goes on a line of its own after the slug
+# list (gist dropped like a wiki description), kept only while the whole value fits CAP_WIKI bytes,
+# so the cut below never lands inside a path. One awk, LC_ALL=C: length() counts bytes.
+# _pc_reads <text>: $_PC_READS = how many lines of <text> are "Read <path>[ — gist]" lines, and
+# $_PC_READ_IDS = their paths, one per line, with / separators (manifest ids refuse a backslash).
+# Pure bash, no spawn (a few lines).
+_pc_reads() {
+  local r="$1" l
+  _PC_READS=0; _PC_READ_IDS=""
+  while [ -n "$r" ]; do
+    l="${r%%$'\n'*}"
+    case "$r" in *$'\n'*) r="${r#*$'\n'}" ;; *) r="" ;; esac
+    case "$l" in
+      'Read '*) l="${l#Read }"; l="${l%%" — "*}"; _PC_READS=$((_PC_READS + 1))
+                _PC_READ_IDS="${_PC_READ_IDS}${_PC_READ_IDS:+$'\n'}${l//\\//}" ;;
+    esac
+  done
+  return 0
+}
 if [ -n "$WIKI_RAW" ]; then
-  WIKI_HITS=$(printf '%s' "$WIKI_RAW" \
-    | grep -oE '\[\[[a-zA-Z0-9_-]+\]\]' \
-    | awk '!seen[$0]++' \
-    | head -12 \
-    | tr '\n' ' ' \
-    | sed 's/ *$//')
+  WIKI_HITS=$(printf '%s\n' "$WIKI_RAW" | LC_ALL=C awk -v cap="$CAP_WIKI" '
+    /^Read / { d = $0; sub(/ — .*$/, "", d); if (!(d in seen_d)) { seen_d[d] = 1; docs[++nd] = d }; next }
+    { s = $0
+      while (match(s, /\[\[[a-zA-Z0-9_-]+\]\]/)) {
+        t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+        if (!(t in seen) && ns < 12) { seen[t] = 1; out = out (ns++ ? " " : "") t }
+      } }
+    END { for (i = 1; i <= nd; i++) if (length(out) + 1 + length(docs[i]) <= cap) out = out (out != "" ? "\n" : "") docs[i]
+          if (out != "") print out }')
   [ ${#WIKI_HITS} -gt $CAP_WIKI ] && WIKI_HITS=$(printf '%s' "$WIKI_HITS" | head -c $CAP_WIKI)
+  # S15 (R3 review): a Read line the cap left out vanished with no record. One row per prompt that drops any.
+  _pc_reads "$WIKI_RAW"; _pc_reads_in=$_PC_READS; _pc_reads "$WIKI_HITS"
+  [ "$_pc_reads_in" -gt "$_PC_READS" ] && command -v sb_log_error >/dev/null 2>&1 \
+    && sb_log_error "persona-context.sh" "gate=untrusted-pack section=prompt-wiki dropped=$((_pc_reads_in - _PC_READS)) cap=${CAP_WIKI}B (a Read line over the cap)" 0
 fi
-[ ${#EPISODIC_HINT} -gt $CAP_EPISODIC ] && EPISODIC_HINT=$(printf '%s' "$EPISODIC_HINT" | head -c $CAP_EPISODIC)
+# D8 (2026-10-07): the episodic cap was `${#}` (characters) checked against a `head -c` (bytes) cut
+# at 300, and the CLI's header plus its two served lines run ~305-340 B of plain ASCII, so line 2
+# was always cut inside its "(project, date, NN%)" provenance, or inside a UTF-8 character. Keep
+# WHOLE lines while the total fits CAP_EPISODIC bytes; a header left with no line is dropped.
+# Pure bash, no spawn (the hint is at most three lines).
+_pc_bytes() { local LC_ALL=C; _PC_BYTES=${#1}; }
+# R3 review (T1 class, S15): a line that does not fit is skipped and the later ones still tried;
+# every line left out (a bare header included) is counted in one gate=untrusted-pack row.
+if [ -n "$EPISODIC_HINT" ]; then
+  _eh_out=""; _eh_rest="$EPISODIC_HINT"; _eh_n=0; _eh_drop=0
+  while [ -n "$_eh_rest" ]; do
+    _eh_l="${_eh_rest%%$'\n'*}"
+    case "$_eh_rest" in *$'\n'*) _eh_rest="${_eh_rest#*$'\n'}" ;; *) _eh_rest="" ;; esac
+    [ -n "$_eh_l" ] || continue
+    _pc_bytes "${_eh_out}${_eh_out:+$'\n'}$_eh_l"
+    if [ "$_PC_BYTES" -gt "$CAP_EPISODIC" ]; then _eh_drop=$((_eh_drop + 1)); continue; fi
+    _eh_out="${_eh_out}${_eh_out:+$'\n'}$_eh_l"; _eh_n=$((_eh_n + 1))
+  done
+  if [ "$_eh_n" -ge 2 ]; then EPISODIC_HINT="$_eh_out"; else _eh_drop=$((_eh_drop + _eh_n)); EPISODIC_HINT=""; fi
+  [ "$_eh_drop" -gt 0 ] && command -v sb_log_error >/dev/null 2>&1 \
+    && sb_log_error "persona-context.sh" "gate=untrusted-pack section=prompt-episodic dropped=$_eh_drop cap=${CAP_EPISODIC}B" 0
+fi
 
 # --- Behavioral principles re-surface (once per session, first coding-intent prompt) ---
 # Karpathy: prose in CLAUDE.md drifts; re-surfacing the compact Four Principles at the moment
@@ -693,7 +745,7 @@ Installed specialists: $CATALOG_ABS"
 STORE_BLOCK=""
 [ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] && STORE_BLOCK="$STORE_BLOCK
 
-[Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them.]
+[Wiki — auto-retrieved slugs. Open one with knowledge_fetch(slug) at tier:\"gist\"; escalate to \"full\" only if the gist proves relevant. These are slugs, NOT file paths — Read cannot open them. A line starting \"Read \" is a local project doc: open that absolute path with Read.]
 $WIKI_HITS"
 # D-bug 4: session-load was the ONLY sb_manifest_add caller, so the per-prompt wiki
 # hits injected here (often the bulk of a session's injections) never reached the
@@ -701,6 +753,12 @@ $WIKI_HITS"
 # gate, same as above) — a hash-deduped repeat isn't a new injection.
 [ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ] \
   && sb_manifest_add wiki "$(printf '%s\n' "$WIKI_HITS" | tr ' ' '\n' | sed -n 's/^\[\[\(.*\)\]\]$/\1/p')"
+# T8 (R3 review): a served Read line (a local doc) is counted too, as a codemap-kind id: stop-extract
+# matches those against the session's Read paths, the way it matches code-map paths.
+if [ -n "$WIKI_HITS" ] && [ "$SHOW_WIKI" = "1" ]; then
+  _pc_reads "$WIKI_HITS"
+  [ -n "$_PC_READ_IDS" ] && sb_manifest_add codemap "$_PC_READ_IDS"
+fi
 [ -n "$EPISODIC_HINT" ] && [ "$SHOW_EPISODIC" = "1" ] && STORE_BLOCK="$STORE_BLOCK
 $EPISODIC_HINT"
 [ -n "$STORE_BLOCK" ] && CTX="$CTX

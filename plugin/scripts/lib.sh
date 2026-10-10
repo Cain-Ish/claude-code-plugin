@@ -236,6 +236,30 @@ sb_filter_scratch_paths() {
   printf '%s' "$out"
 }
 
+# sb_window_tool_count <transcript> <start_line> <end_line>: the tool_use calls in raw transcript
+# lines start..end, the buddy's end-of-turn buddy_react excluded (chat, not work). The substantive
+# gate of stop-extract.sh and pre-compact.sh and a new archive's header count. Each line is parsed on
+# its own (`jq -R` + fromjson?): a record cut mid-write is skipped, never the rest of the window. A
+# plain `jq` stops at the first record that does not parse, so one half-flushed line in front of
+# the window's tool calls made it read as tool-count-zero and its marker advanced past it.
+# Prints the count and returns 0 (one jq, no per-line loop). A window that could not be read or
+# counted (sed or jq failed: missing, killed) prints NOTHING and returns 1: the 0 printed here before
+# read as "no tool calls", and both hooks advanced the marker past a window nobody counted. Callers
+# test the status; they never default an empty count to 0.
+sb_window_tool_count() {
+  local n
+  if n=$(sed -n "${2},${3}p" "$1" 2>/dev/null | jq -R -r 'fromjson?
+      | select(type == "object" and .type == "assistant") | .message.content[]?
+      | select(type == "object" and .type == "tool_use") | (.name // "" | tostring)
+      | select(endswith("buddy_react") | not)
+    ' 2>/dev/null | wc -l | tr -d ' '; _ps="${PIPESTATUS[*]}"; [ "$_ps" = "0 0 0 0" ]); then
+    case "$n" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s' "$n"
+    return 0
+  fi
+  return 1
+}
+
 # Deterministic, no-LLM extraction floor (P1 Task 1). Given a transcript and a line window,
 # emit a VALID delta JSON the merge pipeline accepts — derived purely from the structured
 # transcript, never an LLM. It captures the files this window changed (Edit/Write/MultiEdit,
@@ -243,23 +267,33 @@ sb_filter_scratch_paths() {
 # Deliberately NOT a per-message dump: a decision is emitted only when real files changed, so
 # the floor stays signal, not trash (Constitution: "must guide a future decision"). Exits 0.
 #   sb_extract_deterministic <transcript> <start_line> <total_line>
+# Each raw line is parsed on its own (`jq -nR` + fromjson?), like sb_preprocess_transcript: a record
+# cut mid-write (a half-flushed last line, a torn append) or a non-object line is skipped, never the
+# rest of the window. The `jq -s` slurp this replaces failed whole on one such line, and its
+# `|| echo '[]'` fallback emptied the floor in silence. A jq that fails here (killed, missing) still
+# leaves an empty file list, now with an error row (S7): the floor then cites no files.
 sb_extract_deterministic() {
   local transcript="$1" start="$2" total="$3"
   local files_json
-  files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -rcs '
-    [ .[]
-      | select(.type == "assistant")
+  if ! files_json=$(sed -n "${start},${total}p" "$transcript" 2>/dev/null | jq -nRc '
+    [ inputs | fromjson?
+      | select(type == "object" and .type == "assistant")
       | .message.content[]?
-      | select(.type == "tool_use")
+      | select(type == "object" and .type == "tool_use")
       | select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
-      | .input.file_path ]
-    | unique
-    | map(select(. != null and . != ""))
+      | .input.file_path? | select(type == "string" and . != "") ]
     | map(gsub("\\\\"; "/"))
-  ' 2>/dev/null || echo '[]')
+    | unique
+  ' 2>/dev/null); then
+    sb_log_error "lib.sh" "sb_extract_deterministic: jq failed reading raw lines ${start}-${total} of $transcript (missing or killed); the deterministic floor cites no files" 1
+    files_json='[]'
+  fi
   files_json=$(sb_safe_json_array "$files_json")
   files_json=$(sb_filter_scratch_paths "$files_json")
-  files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null || echo '[]')
+  if ! files_json=$(printf '%s' "$files_json" | jq -c '.[0:5]' 2>/dev/null); then
+    sb_log_error "lib.sh" "sb_extract_deterministic: jq failed capping the file list of raw lines ${start}-${total} of $transcript; the deterministic floor cites no files" 1
+    files_json='[]'
+  fi
   local decisions='[]'
   if [ "$(printf '%s' "$files_json" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]; then
     local list
@@ -269,6 +303,34 @@ sb_extract_deterministic() {
   fi
   jq -cn --argjson d "$decisions" --argjson f "$files_json" \
     '{recent_decisions:$d, open_blockers:[], cross_refs:[], files_touched:$f, relations:[]}'
+}
+
+# sb_degraded_floor <transcript> <start_line> <end_line> <project_md>: the LLM-unavailable path of
+# BOTH in-session extractors (stop-extract.sh, pre-compact.sh; PreCompact used to merge an empty
+# delta here, so a compaction under a dead LLM captured nothing). Prints the deterministic delta
+# (sb_extract_deterministic) and records ONE [degraded] breadcrumb per day in the project's
+# pending-extraction.log SIDECAR, never PROJECT.md's Recent decisions (SP-E), bounded to 50 lines.
+sb_degraded_floor() {
+  local delta today dir log files note
+  delta=$(sb_extract_deterministic "$1" "$2" "$3")
+  today=$(date -u +%Y-%m-%d)
+  dir=$(dirname "$4"); log="$dir/pending-extraction.log"
+  if ! grep -qF "[$today] [degraded]" "$log" 2>/dev/null; then
+    files=$(printf '%s' "$delta" | jq -r '.files_touched // [] | join(", ")' 2>/dev/null | tr -d '\r')
+    if [ -n "$files" ]; then
+      note="[degraded] LLM extraction unavailable; session touched: $files"
+    else
+      note="[degraded] LLM extraction unavailable; tool-only session (transcript archived)"
+    fi
+    # S8: the breadcrumb write and the 50-line trim fail loud (both were `|| true` / `|| rm`).
+    if ! mkdir -p "$dir" 2>/dev/null || ! printf '[%s] %s\n' "$today" "$note" >> "$log" 2>/dev/null; then
+      sb_log_error "lib.sh" "sb_degraded_floor: the [degraded] breadcrumb could not be written to $log; today's LLM-unavailable capture is not recorded in the sidecar" 1
+    elif ! { tail -n 50 "$log" > "$log.tmp" 2>/dev/null && mv "$log.tmp" "$log" 2>/dev/null; }; then
+      rm -f "$log.tmp" 2>/dev/null
+      sb_log_error "lib.sh" "sb_degraded_floor: trimming $log to 50 lines failed (tail or mv); the sidecar grows until a later trim succeeds" 1
+    fi
+  fi
+  printf '%s' "$delta"
 }
 
 # Text-format twin of sb_extract_deterministic for the OUT-OF-BAND drainer (P1). The ARCHIVED
@@ -751,9 +813,20 @@ sb_log_audit() {
   local reason="${5:-}"
   local session_id="${6:-${SB_SESSION_ID:-}}"
   local extra_json="${7:-{\}}"        # raw JSON object; '{}' when omitted
-  local ts
+  local ts late=false late_n="${EPOCHREALTIME:-}"
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   mkdir -p "$BRAIN_DIR" 2>/dev/null || return 0
+  # G2 (R3): a row written at or past hook-timer's deadline (SB_HOOK_LATE_MS, epoch ms: its start +
+  # budget - 2000 ms) gets extra.late — Claude Code had likely cancelled the hook and run the call, so
+  # the verdict enforced nothing. The guards' builtin _fp_audit stamps the same. bash 5 only
+  # (EPOCHREALTIME: no clock without a process before it). A caller that writes the row after its
+  # verdict passes the verdict's own flag in extra and clears SB_HOOK_LATE_MS for the call. The
+  # deadline is hook-timer's direct child's only (SB_HOOK_LATE_PID = $PPID; GT11, R3B): a claude -p
+  # that hook spawned runs hooks of its own with the export still set.
+  case "${SB_HOOK_LATE_MS:-}" in
+    ''|*[!0-9]*) ;;
+    *) [ "${SB_HOOK_LATE_PID:-}" = "$PPID" ] && [ -n "$late_n" ] && [ $(( 10#${late_n//[!0-9]/} / 1000 )) -ge "$SB_HOOK_LATE_MS" ] && late=true ;;
+  esac
   # Cap the free-text args before they reach jq (see sb_cap_arg): a 40 KB target/reason is
   # dropped whole by a native jq.exe on Windows. Callers already trim targets to ~200 chars.
   sb_cap_arg target 256
@@ -775,8 +848,8 @@ sb_log_audit() {
     line=$(jq -nc \
       --arg t "$ts" --arg h "$hook" --arg v "$verdict" \
       --arg r "$rule" --arg target "$target" --arg reason "$reason" \
-      --arg sid "$session_id" --argjson x "$extra_json" \
-      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:$x}' 2>/dev/null | tr -d '\r')
+      --arg sid "$session_id" --argjson x "$extra_json" --argjson late "$late" \
+      '{ts:$t, hook:$h, verdict:$v, rule:$r, target:$target, reason:$reason, session_id:$sid, extra:(if $late then $x + {late:true} else $x end)}' 2>/dev/null | tr -d '\r')
     if [ -n "$line" ]; then
       printf '%s\n' "$line" >> "$SB_AUDIT_FILE" 2>/dev/null
     else
@@ -792,8 +865,12 @@ sb_log_audit() {
     esc_t=$(printf '%s' "$target"    | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     esc_reason=$(printf '%s' "$reason" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
     esc_sid=$(printf '%s' "$session_id" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')
-    printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{}}\n' \
-      "$ts" "$esc_h" "$verdict" "$esc_r" "$esc_t" "$esc_reason" "$esc_sid" \
+    # The caller's own late flag survives (GX8, R3B): the rest of a caller's extra is not rebuilt here.
+    local x=''
+    case "$extra_json" in *'"late":true'*|*'"late": true'*) late=true ;; esac
+    [ "$late" = true ] && x='"late":true'
+    printf '{"ts":"%s","hook":"%s","verdict":"%s","rule":"%s","target":"%s","reason":"%s","session_id":"%s","extra":{%s}}\n' \
+      "$ts" "$esc_h" "$verdict" "$esc_r" "$esc_t" "$esc_reason" "$esc_sid" "$x" \
       >> "$SB_AUDIT_FILE" 2>/dev/null
   fi
 }
@@ -920,8 +997,11 @@ sb_strip_invisible_copy() {
   fi
 }
 
-# Regenerate wiki/index.md catalog after wiki writes.
+# Regenerate wiki/index.md catalog after wiki writes. Returns node's exit status. A skip (no node,
+# or no reindex bundle) is not a failure: it returns 0 and sets SB_REINDEX_SKIPPED=1 (0 otherwise),
+# for a caller that must tell the user the index was not rebuilt (wiki-history.sh restore).
 sb_reindex_wiki() {
+  SB_REINDEX_SKIPPED=0
   local knowledge_dir="${1:-$(sb_knowledge_dir)}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
   local plugin_root; plugin_root=$(sb_plugin_root)
@@ -933,16 +1013,29 @@ sb_reindex_wiki() {
     # Error path: route stderr to the error-log so a corrupted bundle or
     # missing-export failure surfaces in the next session-load banner
     # instead of silently leaving the wiki index stale.
-    local _reindex_err
+    # S10 (R3-B): node's exit status is kept and returned. `|| true` here made every reindex
+    # "succeed": a crash with no stderr left no trace, rows said exit_code 0, and a caller's
+    # `sb_reindex_wiki || …` (wiki-history.sh restore) could never fire.
+    local _reindex_err _reindex_rc=0
     _reindex_err=$(SB_BUNDLE="$reindex_js" SB_KDIR="$knowledge_dir" \
       node --input-type=module -e "
         const { pathToFileURL } = await import('node:url');
         const m = await import(pathToFileURL(process.env.SB_BUNDLE).href);
         await m.knowledgeReindex(process.env.SB_KDIR);
-      " 2>&1 >/dev/null) || true
-    if [ -n "$_reindex_err" ]; then
-      sb_log_error "sb_reindex_wiki" "reindex-failed: $(printf '%s' "$_reindex_err" | tr '\n' ' ' | head -c 200)" 0
+      " 2>&1 >/dev/null) || _reindex_rc=$?
+    if [ "$_reindex_rc" -ne 0 ]; then
+      sb_log_error "sb_reindex_wiki" "reindex-failed (node exit $_reindex_rc): $(printf '%s' "${_reindex_err:-<no stderr>}" | tr '\n' ' ' | head -c 200) — wiki/index.md for $knowledge_dir not regenerated" 1
+    elif [ -n "$_reindex_err" ]; then
+      sb_log_error "sb_reindex_wiki" "reindex stderr (node exit 0): $(printf '%s' "$_reindex_err" | tr '\n' ' ' | head -c 200)" 0
     fi
+    return "$_reindex_rc"
+  else
+    # No node or no bundle: the index stays stale, so say so (the sb_strip_invisible_copy pattern).
+    # Explicit 0 (R3-C, S10 remainder): falling off the end returned sb_log_error's own status, so
+    # an error-log that could not be appended turned the skip into a failure.
+    SB_REINDEX_SKIPPED=1
+    sb_log_error "sb_reindex_wiki" "reindex skipped: $(command -v node >/dev/null 2>&1 || printf 'node not on PATH ')$([ -f "$reindex_js" ] || printf 'bundle missing at %s' "$reindex_js") — wiki/index.md for $knowledge_dir not regenerated" 0
+    return 0
   fi
 }
 
@@ -1597,10 +1690,448 @@ sb_sanitize_slug() {
   printf '%s' "$clean"
 }
 
-# Preprocess JSONL transcript lines on stdin into a compact text summary.
-# Shared by stop-extract.sh and pre-compact.sh.
+# --- Per-archive lock (0.56.0, R2-F#3; ownership + liveness: fix round items 3/B) ---
+# The Stop/PreCompact append (sb_archive_transcript) and the in-place scrub (sb_scrub_archive_file)
+# both rewrite an archive. Without a shared lock, an append that landed between the scrub's size
+# re-check and its rename was renamed away: lost. The lock is a noclobber-created file
+# transcripts/.<basename>.lock (O_EXCL create: atomic; dot-named and not ending in .txt, so no
+# archive reader sees it; extract-drain.sh sweeps `.*.txt.lock` older than a day). It holds the
+# owner token `<pid>.<nonce>` (pid = ${BASHPID:-$$}); sb_archive_lock leaves that token in
+# _SB_ARCHIVE_LOCK_TOKEN and the caller hands it back to sb_archive_unlock, which removes the lock
+# only while it still holds that token (a stolen and re-taken lock is someone else's) and logs a
+# release it could not do. sb_archive_raw_window also takes one for its raw_line cursor (a pseudo
+# archive name, transcripts/cursor-<key>.txt), always BEFORE the archive lock, never inside it,
+# and the scrub takes only the archive lock: no lock-order cycle.
+# Taking it is builtins only. Contended: poll every 0.1 s for about _SB_ARCHIVE_LOCK_WAIT_S, then
+# fail loud and return 1 (the caller retries later: an append's raw_line cursor does not advance,
+# a scrub stays in the migration todo). A lock is stolen only when it is older than
+# _SB_ARCHIVE_LOCK_STALE_S and its holder pid is gone (`kill -0` fails), or older than
+# _SB_ARCHIVE_LOCK_HUNG_S whatever the pid says (a reused pid, or a holder hung for good; the
+# legitimate hold is milliseconds for an append, seconds for a scrub). A live slow holder is
+# waited for, never stolen below that bound. A holder under another MSYS runtime may not answer
+# `kill -0`: it then counts as gone after the stale age, as every holder did before. The steal
+# renames the lock to a unique name and checks it took the token it judged stale: a fresh lock
+# that replaced it in between is put back (noclobber) instead of deleted. On bash 3.2 (no
+# BASHPID) two subshells of one process share the pid part of the token; the nonce separates
+# them unless $RANDOM repeats, which only same-process subshells contending one lock could hit.
+_SB_ARCHIVE_LOCK_WAIT_S=5
+_SB_ARCHIVE_LOCK_STALE_S=60
+_SB_ARCHIVE_LOCK_HUNG_S=600
+_SB_ARCHIVE_LOCK_TOKEN=""
+# One noclobber create attempt; noclobber is on for this redirect only (a caller's own setting is
+# restored, and nothing else runs under it: log rotation rewrites files with `>`).
+_sb_archive_lock_try() {  # $1 = lock path, $2 = owner token
+  local r had=""
+  case "$-" in *C*) had=1 ;; esac
+  set -C
+  { printf '%s\n' "$2" > "$1"; } 2>/dev/null; r=$?
+  [ -n "$had" ] || set +C
+  return "$r"
+}
+# Steal the lock at $1 that held token $2 when it was judged stale: rename, then verify. 0 = the
+# stale lock is gone (the caller retries its create); 1 = nothing stolen.
+_sb_archive_lock_steal() {  # $1 = lock path, $2 = judged token, $3 = caller, $4 = why
+  local lf="$1" judged="$2" who="$3" grab got=""
+  grab="${lf%/*}/.steal-${BASHPID:-$$}-$RANDOM${lf##*/}"
+  mv -f "$lf" "$grab" 2>/dev/null || return 1   # gone already (released, or another stealer won)
+  IFS= read -r got < "$grab" 2>/dev/null; got="${got%$'\r'}"
+  if [ "$got" != "$judged" ]; then
+    # A fresh lock replaced the stale one between the age check and the rename: put it back.
+    if ! _sb_archive_lock_try "$lf" "$got"; then
+      sb_log_error "lib.sh" "$who: took a fresh archive lock by mistake (holder $got) and could not put it back (taken meanwhile); two writers may overlap on ${lf##*/}" 1
+    fi
+    rm -f "$grab" 2>/dev/null
+    return 1
+  fi
+  rm -f "$grab" 2>/dev/null || sb_log_error "lib.sh" "$who: cannot remove the stolen lock copy $grab" 1
+  sb_log_error "lib.sh" "$who: stealing a stale archive lock ($4, holder ${judged:-?}) on ${lf##*/}" 1
+  return 0
+}
+sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
+  local f="$1" who="${2:-lib.sh}" lf tries=0 nofile=0 end="" mt now age holder hpid token
+  case "$f" in */*) ;; *) f="./$f" ;; esac
+  lf="${f%/*}/.${f##*/}.lock"
+  token="${BASHPID:-$$}.$RANDOM$RANDOM"
+  until _sb_archive_lock_try "$lf" "$token"; do
+    tries=$((tries + 1))
+    [ -n "$end" ] || end=$((SECONDS + _SB_ARCHIVE_LOCK_WAIT_S))
+    if [ -e "$lf" ]; then
+      nofile=0
+      if [ $((tries % 10)) -eq 1 ]; then   # stale check: on first contention, then about once a second
+        mt=$(sb_mtime "$lf"); now=$(date +%s)
+        case "$mt" in ''|0|*[!0-9]*) continue ;; esac   # released meanwhile: just retry
+        age=$((now - mt))
+        if [ "$age" -gt "$_SB_ARCHIVE_LOCK_STALE_S" ]; then
+          holder=""; IFS= read -r holder < "$lf" 2>/dev/null; holder="${holder%$'\r'}"
+          hpid="${holder%%.*}"
+          case "$hpid" in ''|*[!0-9]*) hpid="" ;; esac
+          if [ -z "$hpid" ] || ! kill -0 "$hpid" 2>/dev/null; then
+            _sb_archive_lock_steal "$lf" "$holder" "$who" "$age s old, holder not running" && continue
+          elif [ "$age" -gt "$_SB_ARCHIVE_LOCK_HUNG_S" ]; then
+            _sb_archive_lock_steal "$lf" "$holder" "$who" "$age s old, past the ${_SB_ARCHIVE_LOCK_HUNG_S} s hard bound although pid $hpid answers" && continue
+          fi
+        fi
+      fi
+    elif [ "$((nofile += 1))" -ge 3 ]; then   # the create keeps failing with no lock there
+      sb_log_error "lib.sh" "$who: cannot create the archive lock $lf (directory unwritable?); ${f##*/} left as it is" 1
+      return 1
+    fi
+    if [ "$SECONDS" -ge "$end" ]; then
+      sb_log_error "lib.sh" "$who: archive lock on ${f##*/} still held after ${_SB_ARCHIVE_LOCK_WAIT_S} s (holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')); not written, retried later" 1
+      return 1
+    fi
+    [ -e "$lf" ] && sleep 0.1
+  done
+  _SB_ARCHIVE_LOCK_TOKEN="$token"
+  return 0
+}
+sb_archive_unlock() {  # $1 = archive path, $2 = owner token (default: the last sb_archive_lock's)
+  local f="$1" token="${2:-$_SB_ARCHIVE_LOCK_TOKEN}" lf held=""
+  case "$f" in */*) ;; *) f="./$f" ;; esac
+  lf="${f%/*}/.${f##*/}.lock"
+  IFS= read -r held < "$lf" 2>/dev/null; held="${held%$'\r'}"
+  if [ -z "$token" ] || [ "$held" != "$token" ]; then
+    sb_log_error "lib.sh" "sb_archive_unlock: the archive lock on ${f##*/} is no longer ours (ours ${token:-none}, now ${held:-none}: stolen while held); left as it is" 1
+    return 1
+  fi
+  if ! rm -f "$lf" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_unlock: cannot remove our archive lock $lf; writers wait for it until it is stolen as stale" 1
+    return 1
+  fi
+  return 0
+}
+
+# --- Secret scrub (0.56.0, R2#3; formats widened in the fix round: items 5/C/D/F, saboteur S9) ---
+# sb_scrub_secrets: stdin -> stdout filter. Redacts high-precision credential formats to
+# [redacted:<kind>]; sb_preprocess_transcript runs it on every window it renders, so the archive
+# AND the Stop/PreCompact extractor input are scrubbed. First, zero-width characters (U+200B-200D,
+# U+2060, U+FEFF) are deleted: one inside a key hid it from every format, and the episodic
+# indexer strips them later, rejoining the key. Then, in match order:
+#   private-key  -----BEGIN <...>PRIVATE KEY----- and PGP ...PRIVATE KEY BLOCK----- blocks, PER
+#                LINE: the BEGIN line keeps its prefix (a `USER:` line must stay one: the episodic
+#                parser opens an exchange there), each body line and the END line become a marker
+#                (the END line keeps its tail). A body line must look like key material (base64, a
+#                Proc-Type/DEK-Info or PGP armor header; a blank line is kept), behind an optional
+#                quote/comment prefix ("> ", "# ", "// ", " * ", whitespace) that is kept; any
+#                other line ends the block, so a key cut short never swallows the window.
+#   anthropic    sk-ant-[A-Za-z0-9_-]{20,}   (BEFORE the generic sk- form, which would stop at
+#                "-ant-" on a key glued after another and leave the rest)
+#   openrouter   sk-or-v1-[A-Za-z0-9_-]{20,}
+#   openai       sk-proj-, sk-svcacct-, sk-admin- + [A-Za-z0-9_-]{20,}; then (last of all)
+#                sk-[A-Za-z0-9]{20,} with a left boundary: task-/disk- ids end in an sk- run, so
+#                the char before must not be a letter or digit, unless it is the letter of a
+#                backslash escape (`\nsk-...` in a command string). The prefixed forms are
+#                distinctive: matched even glued to an identifier.
+#   stripe       sk_live_ / rk_live_ + [A-Za-z0-9]{24,}
+#   github       github_pat_[A-Za-z0-9_]{22,}, gh[opsur]_[A-Za-z0-9]{36,}
+#   aws          AKIA / ASIA + [0-9A-Z]{16}; a secret access key ONLY after its keyword:
+#                aws_secret_access_key / AWS_SECRET_ACCESS_KEY, an optional quote, = or : and a
+#                [A-Za-z0-9/+=]{40,} value (the keyword and separator stay, the value goes)
+#   google       AIza[0-9A-Za-z_-]{35}
+#   npm          npm_[A-Za-z0-9]{36}
+#   gitlab       glpat-[A-Za-z0-9_-]{20,}
+#   huggingface  hf_[A-Za-z0-9]{34}
+#   slack        xox[abpr]- and xapp- + [A-Za-z0-9-]{10,}
+#   jwt          eyJ<10+>.eyJ<10+>.<10+> over [A-Za-z0-9_-]
+#   bearer       bearer, any case, + one space + [A-Za-z0-9._~+/-]{20,}
+#   basic-auth   Authorization: Basic <base64, 8+>, any case (keyword-gated; the value goes)
+# NOT matched, by design: OTP-like short codes (6-8 digit one-time codes are too ambiguous to
+# tell from ids, counts and dates), passwords in prose, generic hex/base64/high-entropy blobs
+# without a known prefix, a bare 40-char AWS secret without its keyword (indistinguishable from
+# any base64 run), "Basic" without the Authorization keyword, runs shorter than each minimum.
+# LINE COUNT IS INVARIANT: the archive_line cursor counts lines, so no line is joined or split,
+# a `\r` is kept, and an unterminated last line stays unterminated (awk cannot see a missing
+# final newline: ONE newline is appended after the input and awk prints one record behind, so
+# the last record is empty exactly when the input was terminated. A newline is the one byte a
+# record cannot hold, so no transcript text can fake the end of the input.) POSIX awk only: no
+# {n,} intervals (mawk 1.3.4-20200120, Debian/Ubuntu's default awk, lacks them; the runs are
+# built in BEGIN), no \b; LC_ALL=C keeps the classes ASCII and the zero-width bytes bytes. One
+# cat + one awk per call, never per line. LINEAR in the line length: each format is ONE split()
+# whose separators are its matches, and the pieces are joined in pairwise rounds. A
+# match()/gsub() loop is not: gawk 5.0 scans to the end of the string on every call, so a 2 MB
+# single-line tool output with 22,727 keys took 122 s (past the Stop hook's 45 s, so the session
+# was never archived); this takes under 1 s. A separator kept in part (the k and b forms) is read
+# back from 512-byte blocks of the line, never the line itself: BWK awk (macOS) takes strlen() of
+# the whole string in every substr(), so one read per match was quadratic there (8.5 s at 2 MB).
+# (macOS awk's split() itself still runs strlen() over the rest of the line at every match, a fast
+# scan: Apple's awk 20200816 built on Linux scrubs the test's 2 MB keys line in 0.9 s, was 18 s.)
+# Returns non-zero when cat (a read error) or awk failed: the output must then not be used.
+sb_scrub_secrets() {
+  { cat && printf '\n'; } | LC_ALL=C awk -v BINMODE=3 '
+    function rep(c, k,   r) { r = ""; while (k-- > 0) r = r c; return r }
+    # Any-case letters: ci("bearer") = "[Bb][Ee][Aa][Rr][Ee][Rr]".
+    function ci(w,   r, i, c) {
+      r = ""
+      for (i = 1; i <= length(w); i++) { c = substr(w, i, 1); r = r (c ~ /[A-Za-z]/ ? "[" toupper(c) tolower(c) "]" : c) }
+      return r
+    }
+    # A[1..k] joined in pairwise rounds: O(n log k) copying, never one accumulator re-grown per piece.
+    function joinp(A, k,   i, j) {
+      while (k > 1) {
+        j = 0
+        for (i = 1; i <= k; i += 2) A[++j] = (i < k) ? A[i] A[i + 1] : A[i]
+        k = j
+      }
+      return (k == 1) ? A[1] : ""
+    }
+    # substr(s, p, w) for w <= 512, read from the 512-byte blocks S[] of s (cut): BWK awk (macOS)
+    # takes strlen(s) in every substr(s, ...) and copies s into every call, so one read of the
+    # whole line per match was quadratic (2 MB, 27,778 keys: 8.5 s on the macOS runner). Two
+    # blocks are joined only for a window that crosses: BWK sizes every concatenation buffer to
+    # the longest record read so far.
+    function win(p, w,   b, o) {
+      b = int((p - 1) / 512) + 1; o = p - (b - 1) * 512
+      return (o + w <= 513) ? substr(S[b], o, w) : substr(S[b] S[b + 1], o, w)
+    }
+    # S[b..b+nb-1] = s in 512-byte blocks, cut in halves: O(n log n) copying, never one cut per block.
+    function cut(s, b, nb,   h) {
+      if (nb <= 1) { S[b] = s; return }
+      h = int(nb / 2); cut(substr(s, 1, h * 512), b, h); cut(substr(s, h * 512 + 1), b + h, nb - h)
+    }
+    # Length of the run matching rx ("^<class>*") in s from position p, read through bounded windows.
+    function crun(p, rx,   n, w) {
+      n = 0
+      while ((w = win(p + n, 256)) != "") {
+        match(w, rx); n += RLENGTH
+        if (RLENGTH < length(w)) break
+      }
+      return n
+    }
+    # Every format, one split per format: the matches are the separators, so the line is scanned
+    # once. Separator positions are tracked from the piece lengths, and only bounded windows are
+    # matched again. md "": every match goes. "k": the keyword part (kp) stays, the value goes.
+    # "b": the separator carries the boundary char(s) before the match, which stay; a leading
+    # space stands in for the line start and is cut again.
+    function redact(s, i,   Q, A, k, j, a, p, w, K) {
+      if (md[i] == "b") s = " " s
+      k = split(s, Q, re[i]); a = 0; p = 1
+      if (md[i] != "" && k > 1) { split("", S); cut(s, 1, int((length(s) + 511) / 512)) }
+      for (j = 1; j <= k; j++) {
+        if (j > 1) {
+          if (md[i] == "") A[++a] = "[redacted:" kind[i] "]"
+          else if (md[i] == "k") {
+            w = win(p, 96); match(w, kp[i]); K = RLENGTH
+            A[++a] = substr(w, 1, K) "[redacted:" kind[i] "]"
+            p += K + crun(p + K, vr[i])
+          } else {
+            K = (win(p + 1, length(lit[i])) == lit[i]) ? 1 : 2
+            A[++a] = win(p, K) "[redacted:" kind[i] "]"
+            p += K + length(lit[i]) + crun(p + K + length(lit[i]), vr[i])
+          }
+        }
+        A[++a] = Q[j]; p += length(Q[j])
+      }
+      return (md[i] == "b") ? substr(joinp(A, a), 2) : joinp(A, a)
+    }
+    BEGIN {
+      an = "[A-Za-z0-9]"; ds = "[A-Za-z0-9_-]"; b64 = "[A-Za-z0-9+/=]"; n = 0
+      # lit = a literal every match holds (the per-line prefilter); lc = test it on the lowercased line
+      n++; lit[n] = "sk-ant-";      kind[n] = "anthropic";   re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-or-v1-";    kind[n] = "openrouter";  re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-proj-";     kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-svcacct-";  kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "sk-admin-";    kind[n] = "openai";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "k_live_";      kind[n] = "stripe";      re[n] = "[sr]k_live_" rep(an, 24) an "*"
+      n++; lit[n] = "github_pat_";  kind[n] = "github";      re[n] = lit[n] rep("[A-Za-z0-9_]", 22) "[A-Za-z0-9_]*"
+      n++; lit[n] = "gh";           kind[n] = "github";      re[n] = "gh[opsur]_" rep(an, 36) an "*"
+      n++; lit[n] = "AKIA";         kind[n] = "aws";         re[n] = lit[n] rep("[0-9A-Z]", 16)
+      n++; lit[n] = "ASIA";         kind[n] = "aws";         re[n] = lit[n] rep("[0-9A-Z]", 16)
+      n++; lit[n] = "AIza";         kind[n] = "google";      re[n] = lit[n] rep("[0-9A-Za-z_-]", 35)
+      n++; lit[n] = "npm_";         kind[n] = "npm";         re[n] = lit[n] rep(an, 36)
+      n++; lit[n] = "glpat-";       kind[n] = "gitlab";      re[n] = lit[n] rep(ds, 20) ds "*"
+      n++; lit[n] = "hf_";          kind[n] = "huggingface"; re[n] = lit[n] rep(an, 34)
+      n++; lit[n] = "xox";          kind[n] = "slack";       re[n] = "xox[abpr]-" rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
+      n++; lit[n] = "xapp-";        kind[n] = "slack";       re[n] = lit[n] rep("[A-Za-z0-9-]", 10) "[A-Za-z0-9-]*"
+      n++; lit[n] = "eyJ";          kind[n] = "jwt"
+           re[n] = "eyJ" rep(ds, 10) ds "*[.]eyJ" rep(ds, 10) ds "*[.]" rep(ds, 10) ds "*"
+      n++; lit[n] = "bearer ";      kind[n] = "bearer";      lc[n] = 1
+           re[n] = ci("bearer") " " rep("[A-Za-z0-9._~+/-]", 20) "[A-Za-z0-9._~+/-]*"
+      n++; lit[n] = "authorization"; kind[n] = "basic-auth"; lc[n] = 1; md[n] = "k"
+           kp[n] = ci("authorization") ":[ \t]?[ \t]?[ \t]?" ci("basic") "[ \t][ \t]?[ \t]?"
+           re[n] = kp[n] rep(b64, 8) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "_secret_access_key"; kind[n] = "aws"; lc[n] = 1; md[n] = "k"
+           kp[n] = "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\"\047]?[ \t]?[ \t]?[ \t]?[=:][ \t]?[ \t]?[ \t]?[\"\047]?"
+           re[n] = kp[n] rep(b64, 40) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "sk-";          kind[n] = "openai";      md[n] = "b"
+           re[n] = "([^A-Za-z0-9]|\\\\[A-Za-z])sk-" rep(an, 20) an "*"; vr[n] = "^" an "*"
+      # zero-width: U+200B U+200C U+200D U+2060 U+FEFF as UTF-8 bytes
+      zw = sprintf("%c%c%c|%c%c%c|%c%c%c|%c%c%c|%c%c%c", 226, 128, 139, 226, 128, 140, 226, 128, 141, 226, 129, 160, 239, 187, 191)
+      zwa = sprintf("%c%c", 226, 128); zwb = sprintf("%c%c%c", 226, 129, 160); zwc = sprintf("%c%c%c", 239, 187, 191)
+      pb = "-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----"; pe = "-----END [A-Z ]*PRIVATE KEY( BLOCK)?-----"
+      pk = "[redacted:private-key]"
+      # A quote or comment prefix a key block can sit behind, line by line: "> " (subagent
+      # results are quoted), "# ", "// ", " * ", whitespace, nested ("> > ").
+      pfx = "^[ \t]*((>|#|//|[*])[ \t]*)*"
+      blank = pfx "$"; body = pfx "[A-Za-z0-9+/=]+[ \t]*$"
+      hdr = pfx "(Proc-Type|DEK-Info|Version|Comment|Hash|Charset|MessageID):"
+    }
+    {
+      line = "" $0; cr = ""
+      if (substr(line, length(line), 1) == "\r") { cr = "\r"; line = substr(line, 1, length(line) - 1) }
+      if (index(line, zwa) || index(line, zwb) || index(line, zwc)) { k = split(line, Z, zw); line = joinp(Z, k) }
+      if (inpem) {
+        # A body or END line keeps its quote/comment prefix only, never text that could be key.
+        if (match(line, pe)) {
+          rest = substr(line, RSTART + RLENGTH); match(substr(line, 1, RSTART - 1), pfx)
+          line = substr(line, 1, RLENGTH) pk rest; inpem = 0
+        }
+        else if (line ~ blank) { }
+        else if (line ~ body || line ~ hdr) { match(line, pfx); line = substr(line, 1, RLENGTH) pk }
+        else inpem = 0
+      }
+      if (!inpem && match(line, pb)) {
+        pre = substr(line, 1, RSTART - 1); rest = substr(line, RSTART + RLENGTH)
+        if (match(rest, pe)) line = pre pk substr(rest, RSTART + RLENGTH)
+        else { line = pre pk; inpem = 1 }
+      }
+      low = ""
+      for (i = 1; i <= n; i++) {
+        if (lc[i]) { if (low == "") low = tolower(line); if (!index(low, lit[i])) continue }
+        else if (!index(line, lit[i])) continue
+        line = redact(line, i)
+      }
+      # One record behind: the caller appended ONE newline after the input, so the last record is
+      # empty exactly when the input ended with a newline (dropped), and otherwise holds the
+      # unterminated last line (printed without one). Nothing in-band.
+      if (NR > 1) print held
+      held = line cr
+    }
+    END { if (NR > 0) printf "%s", held }'
+  local ps="${PIPESTATUS[*]}"
+  [ "$ps" = "0 0" ]
+}
+
+# grep -F arguments matching every text sb_scrub_secrets can change: each format above holds one
+# of these literals, a PEM body is only redacted after its BEGIN line, and the zero-width bytes
+# are deleted. A file matching none of them is already clean. Shared by sb_scrub_archive_file's
+# fast path and the drainer's one-time migration snapshot (extract-drain.sh), so the two can never
+# drift apart. The any-case words are listed lower, Title and UPPER: `grep -i` with several -e
+# patterns aborts (SIGABRT) in GNU grep 3.0, Git-Bash's grep; a rarer mixing (BeArEr) in an
+# archive written before 0.56.0 is not caught by this prefilter (new windows are scrubbed whole).
+_SB_SCRUB_LITERALS=(-e 'sk-' -e 'k_live_' -e 'github_pat_' -e 'ghp_' -e 'gho_' -e 'ghs_' -e 'ghu_' -e 'ghr_'
+  -e 'AKIA' -e 'ASIA' -e 'AIza' -e 'npm_' -e 'glpat-' -e 'hf_' -e 'xox' -e 'xapp-' -e 'eyJ'
+  -e 'bearer ' -e 'Bearer ' -e 'BEARER ' -e 'authorization' -e 'Authorization' -e 'AUTHORIZATION'
+  -e '_secret_access_key' -e '_SECRET_ACCESS_KEY' -e 'PRIVATE KEY'
+  -e $'\xe2\x80\x8b' -e $'\xe2\x80\x8c' -e $'\xe2\x80\x8d' -e $'\xe2\x81\xa0' -e $'\xef\xbb\xbf')
+
+# grep -E arguments matching exactly the text sb_scrub_secrets changes: each format's own pattern
+# (POSIX ERE; grep -E has the {n,} intervals mawk lacks), the PEM/PGP BEGIN line (a block body is
+# redacted only after it) and the zero-width bytes the scrub deletes. A file matching none of them
+# comes out of the scrub unchanged. For where precision matters: the one-time migration's to-do
+# list (extract-drain.sh), which holds every listed archive out of extraction and the episodic
+# index until its scrub; the bare literals above also hit every task-/disk- id. Run with LC_ALL=C.
+# No -i (GNU grep 3.0 aborts on -i with several -e): any-case words are spelled as classes. No $
+# anchor: a CRLF archive ends its lines in \r. Kept in step with sb_scrub_secrets by a parity test
+# over every scrub fixture, both ways (tests/test-transcript-archive.sh, scrub-ere).
+_SB_SCRUB_ERE=(-e 'sk-(ant|or-v1|proj|svcacct|admin)-[A-Za-z0-9_-]{20,}' -e '[sr]k_live_[A-Za-z0-9]{24,}'
+  -e 'github_pat_[A-Za-z0-9_]{22,}' -e 'gh[opsur]_[A-Za-z0-9]{36,}' -e 'A[KS]IA[0-9A-Z]{16}'
+  -e 'AIza[0-9A-Za-z_-]{35}' -e 'npm_[A-Za-z0-9]{36}' -e 'glpat-[A-Za-z0-9_-]{20,}' -e 'hf_[A-Za-z0-9]{34}'
+  -e 'xox[abpr]-[A-Za-z0-9-]{10,}' -e 'xapp-[A-Za-z0-9-]{10,}'
+  -e 'eyJ[A-Za-z0-9_-]{10,}[.]eyJ[A-Za-z0-9_-]{10,}[.][A-Za-z0-9_-]{10,}'
+  -e '[Bb][Ee][Aa][Rr][Ee][Rr] [A-Za-z0-9._~+/-]{20,}'
+  -e '[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:[[:blank:]]{0,3}[Bb][Aa][Ss][Ii][Cc][[:blank:]]{1,3}[A-Za-z0-9+/=]{8,}'
+  -e "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\"']?[[:blank:]]{0,3}[=:][[:blank:]]{0,3}[\"']?[A-Za-z0-9/+=]{40,}"
+  -e '(^|[^A-Za-z0-9]|\\[A-Za-z])sk-[A-Za-z0-9]{20,}' -e '-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----'
+  -e $'\xe2\x80\x8b' -e $'\xe2\x80\x8c' -e $'\xe2\x80\x8d' -e $'\xe2\x81\xa0' -e $'\xef\xbb\xbf')
+
+# sb_scrub_archive_file FILE: scrub an EXISTING archive in place (the one-time 0.56.0 migration,
+# drain_scrub_migrate in extract-drain.sh, under the drain lock). The scrubbed copy is written next to FILE
+# (*.part: invisible to every *.txt reader) and renamed over it, so a reader sees the old or the
+# new file, never a partial one. The mtime is preserved with touch -r (the drainer's quiet-1-h
+# rule reads it) and the line count is checked unchanged. Idempotent: a file with nothing to
+# redact (or already scrubbed) is never rewritten, not even its inode. The read-to-rename section
+# holds the per-archive lock (sb_archive_lock), which the Stop/PreCompact appender takes too, so
+# an append waits for the rename instead of being renamed away (R2-F#3). The size is still
+# re-checked right before the rename: a writer that does not take the lock (a hook process still
+# running 0.55 code) grew the file, so it is left as it is (logged, retry later). Every failure is
+# logged and returns 1, and the scratch copy is always removed.
+sb_scrub_archive_file() {
+  local f="$1" rc
+  if [ ! -f "$f" ]; then
+    sb_log_error "lib.sh" "sb_scrub_archive_file: not a regular file: $f" 1
+    return 1
+  fi
+  # Fast path: nothing the scrub could change (_SB_SCRUB_ERE matches exactly that, parity-tested).
+  # Not the bare literals: their any-case words miss a mixed-case `BeArEr <token>`, which the
+  # scrub itself redacts, so such an archive left the migration's list in clear.
+  LC_ALL=C grep -qE "${_SB_SCRUB_ERE[@]}" "$f" 2>/dev/null
+  rc=$?
+  [ "$rc" -eq 1 ] && return 0
+  if [ "$rc" -ne 0 ]; then
+    sb_log_error "lib.sh" "sb_scrub_archive_file: cannot read $f (grep rc=$rc); not scrubbed" 1
+    return 1
+  fi
+  sb_archive_lock "$f" sb_scrub_archive_file || return 1
+  local tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  _sb_scrub_archive_locked "$f"; rc=$?
+  sb_archive_unlock "$f" "$tok"
+  return "$rc"
+}
+_sb_scrub_archive_locked() {  # sb_scrub_archive_file's body; the caller holds the archive lock
+  local f="$1" tmp size0 size1 lc0 lc1
+  size0=$(wc -c < "$f" 2>/dev/null); size0="${size0//[!0-9]/}"
+  lc0=$(sb_line_count "$f")
+  tmp="$f.scrub-$$.part"
+  if ! sb_scrub_secrets < "$f" 2>/dev/null > "$tmp"; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: the scrub filter failed on $f; left as it is" 1
+    return 1
+  fi
+  if cmp -s "$f" "$tmp"; then
+    rm -f "$tmp" 2>/dev/null
+    return 0
+  fi
+  lc1=$(sb_line_count "$tmp")
+  if [ -z "$size0" ] || [ -z "$lc0" ] || [ "$lc0" != "$lc1" ]; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: line count would change (${lc0:-?} -> ${lc1:-?}) for $f; left as it is" 1
+    return 1
+  fi
+  if ! touch -r "$f" "$tmp" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: touch -r failed for $f; left as it is (the mtime must survive)" 1
+    return 1
+  fi
+  size1=$(wc -c < "$f" 2>/dev/null); size1="${size1//[!0-9]/}"
+  if [ "$size1" != "$size0" ]; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: $f changed during the scrub (${size0} -> ${size1:-?} bytes, a concurrent append); left as it is, retry later" 1
+    return 1
+  fi
+  if ! mv -f "$tmp" "$f" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_scrub_archive_file: rename over $f failed; left as it is" 1
+    return 1
+  fi
+  return 0
+}
+
+# Preprocess JSONL transcript lines on stdin into a compact text summary, secret-scrubbed.
+# Shared by stop-extract.sh and pre-compact.sh (archive + extractor input) via
+# sb_archive_transcript. Each raw line is parsed on its own (`jq -R` + fromjson): a record that
+# does not parse (corrupt, or half flushed) or does not render is SKIPPED and the rest of the
+# window still renders (jq stopping at the first bad record lost everything after it). jq writes
+# one "jq: error (at <stdin>:N)" row per skipped record to stderr, which goes to $1 (default
+# /dev/null). jq's exit status is that of the LAST record only (measured, 1.7.1 and 1.8.1), so
+# those rows are the skip signal, never the status. Returns 0; 2 when records were skipped (seen
+# only with $1 given; the output holds every other record, complete and scrubbed); 1 when jq or
+# the scrub failed (jq missing, killed, any jq status but 0 or 5): the output must not be used.
+# Args: [$1 = file for jq's stderr]
 sb_preprocess_transcript() {
-  jq -cr '
+  local errf="${1:-/dev/null}"
+  jq -R -r '
+    # The render cuts long fields BEFORE the scrub sees them. A cut ending inside a token that holds
+    # a credential literal, or follows bearer/basic/an AWS secret keyword, drops that token: its
+    # prefix would be shorter than the format minimum and pass the scrub. Plain words are kept.
+    def cut($n):
+      if length <= $n then .
+      else .[0:$n] as $c
+        | ($c | capture("^(?<head>.*?)(?<tail>[A-Za-z0-9_./+=~-]*)$"; "s")) as $m
+        | if ($m.tail | test("sk-|k_live_|gh[opsur]_|github_pat_|AKIA|ASIA|AIza|npm_|glpat-|hf_|xox|xapp-|eyJ"))
+             or ($m.head | test("(bearer|basic)[ \\t]+$|secret_access_key[\"\\x27]?[ \\t]*[=:][ \\t]*[\"\\x27]?$"; "i"))
+          then $m.head else $c end
+      end;
+    select(. != "" and . != "\r") | fromjson |
     if .type == "user" then
       if (.message.content | type) == "string" then
         "USER: " + .message.content
@@ -1617,54 +2148,223 @@ sb_preprocess_transcript() {
             if .name == "Edit" or .name == "Write" or .name == "Read" then
               (.input.file_path // "")
             elif .name == "Bash" then
-              (.input.command // "" | .[0:120])
+              (.input.command // "" | cut(120))
             else
-              (.input | keys | join(",") | .[0:60])
+              (.input | keys | join(",") | cut(60))
             end
           )
         elif .type == "thinking" then
-          "  (thinking: " + (.thinking // "" | .[0:100]) + "...)"
+          "  (thinking: " + (.thinking // "" | cut(100)) + "...)"
         else empty end
       )] | select(length > 0) | "ASSISTANT:\n" + join("\n")
     else empty end
-  ' 2>/dev/null
+  ' 2>"$errf" | sb_scrub_secrets
+  local ps="${PIPESTATUS[*]}"
+  case "$ps" in
+    "0 0"|"5 0") ;;
+    *) return 1 ;;
+  esac
+  [ "$errf" != /dev/null ] && [ -s "$errf" ] && return 2
+  return 0
 }
 
 # --- Transcript archive helpers ---
-# Archive a preprocessed transcript window for dream mining.
-# Appends to an existing archive file for the same session (pre-compact
-# runs first, stop appends later), so the full session is captured.
-# Args: $1=transcript_path $2=slug $3=session_id $4=start_line $5=end_line $6=tool_count
+# Archive a preprocessed, secret-scrubbed transcript window for the drainer, dream mining and
+# episodic search. Appends to the session's archive (one file per session per day: pre-compact
+# and every Stop append to it), so the full session is captured. The append is CHECKED: the window
+# is rendered into a stage file first, and only a good render + append returns 0 (the caller's
+# raw_line cursor advances on that status alone). The archive ends with a newline afterwards (a
+# torn tail left by a crash is terminated before the append), so sb_line_count is exact.
+# Returns 0 on success, including a window that renders to nothing without an error (no file is
+# created for it); 1 on a failure, logged: the render failed (jq missing or killed, the scrub
+# failed), or rendered nothing while jq reported errors. A record jq cannot parse or render is
+# skipped and logged with its raw line number (never jq's message: it quotes the record, which
+# can hold a key); every other record of the window is archived, so one corrupt line can neither
+# stall the session's archive nor take the rest of the window with it.
+# Args: $1=transcript_path $2=slug $3=session_id $4=start_line $5=end_line
+#       $6=tool_count for a new file's header (empty: count the window's tool_use calls)
 sb_archive_transcript() {
   local transcript="$1" slug="$2" session_id="$3"
-  local start_line="$4" end_line="$5" tool_count="$6"
+  local start_line="$4" end_line="$5" tool_count="${6:-}"
   local archive_dir="$BRAIN_DIR/transcripts"
-  mkdir -p "$archive_dir" 2>/dev/null || return 1
+  if ! mkdir -p "$archive_dir" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_transcript: cannot create $archive_dir; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
+    return 1
+  fi
   local date_str
   date_str=$(date +%Y-%m-%d)
   local archive_file="$archive_dir/${session_id}_${slug}_${date_str}.txt"
+  # Scratch files end in .part: invisible to every *.txt reader, swept when a killed hook leaves them.
+  local stage="$archive_dir/.stage-${session_id}-${BASHPID:-$$}.part" errf="$archive_dir/.stage-${session_id}-${BASHPID:-$$}.err.part"
 
+  sed -n "${start_line},${end_line}p" "$transcript" 2>/dev/null | sb_preprocess_transcript "$errf" > "$stage"
+  local ps="${PIPESTATUS[*]}" skipped
+  case "$ps" in
+    "0 0") ;;
+    "0 2")
+      # "jq: error (at <stdin>:N)" rows -> count + the first raw line numbers (window offset added)
+      skipped=$(awk -v off="$((start_line - 1))" '
+        match($0, /^jq: error \(at [^)]*:[0-9]+\)/) {
+          s = substr($0, 1, RLENGTH - 1); sub(/.*:/, "", s); n++
+          if (n <= 5) l = l (n > 1 ? " " : "") (s + off)
+        }
+        END { printf "%d|%s", n, l }' "$errf" 2>/dev/null)
+      if [ ! -s "$stage" ]; then
+        rm -f "$stage" "$errf" 2>/dev/null
+        sb_log_error "lib.sh" "sb_archive_transcript: raw lines ${start_line}-${end_line} of $transcript rendered nothing and jq reported ${skipped%%|*} unrenderable record(s) at raw line(s) ${skipped#*|}; NOT archived, the next hook retries (session=$session_id)" 1
+        return 1
+      fi
+      sb_log_error "lib.sh" "sb_archive_transcript: skipped ${skipped%%|*} unrenderable record(s) (corrupt or half-written JSON) at raw line(s) ${skipped#*|} of raw lines ${start_line}-${end_line} of $transcript; the rest of the window is archived (session=$session_id)" 1 ;;
+    *) rm -f "$stage" "$errf" 2>/dev/null
+       sb_log_error "lib.sh" "sb_archive_transcript: rendering raw lines ${start_line}-${end_line} of $transcript failed (sed|preprocess status $ps: jq missing or killed, or the scrub failed); NOT archived, the next hook retries (session=$session_id)" 1
+       return 1 ;;
+  esac
+  if [ ! -s "$stage" ]; then
+    rm -f "$stage" "$errf" 2>/dev/null
+    return 0
+  fi
+  # A new file's header tool count is computed before the lock (it reads the raw transcript only;
+  # a record that does not parse is skipped, as in the render).
+  # A failed count leaves the header at 0 (informational only; nothing reads it as a gate) and is
+  # logged: the hook's own substantive gate counts the same window again and keeps its marker.
+  if [ ! -f "$archive_file" ] && [ -z "$tool_count" ]; then
+    tool_count=$(sb_window_tool_count "$transcript" "$start_line" "$end_line") \
+      || sb_log_error "lib.sh" "sb_archive_transcript: the tool count of raw lines ${start_line}-${end_line} of $transcript failed (sed or jq); the new archive's header says tool_count: 0 (session=$session_id)" 1
+  fi
+
+  # The header write, the torn-tail terminator and the append run under the per-archive lock that
+  # sb_scrub_archive_file takes across its read-to-rename (R2-F#3): an append can no longer land
+  # in the scrub's rename window and be renamed away. A lock still held after the bounded wait is
+  # a failure (logged by sb_archive_lock): the raw_line cursor stays and the next hook retries.
+  if ! sb_archive_lock "$archive_file" sb_archive_transcript; then
+    rm -f "$stage" "$errf" 2>/dev/null
+    return 1
+  fi
+  local rc=0 tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  _sb_archive_append_locked "$archive_file" "$stage" "$slug" "$session_id" "$date_str" \
+    "$start_line" "$end_line" "$tool_count" || rc=1
+  sb_archive_unlock "$archive_file" "$tok"
+  rm -f "$stage" "$errf" 2>/dev/null
+  [ "$rc" -eq 0 ] || return 1
+  sb_prune_transcripts
+  return 0
+}
+
+# sb_archive_transcript's write half; the caller holds the archive lock and removes the stage.
+# Args: archive stage slug session_id date start_line end_line tool_count
+_sb_archive_append_locked() {
+  local archive_file="$1" stage="$2" slug="$3" session_id="$4" date_str="$5"
+  local start_line="$6" end_line="$7" tool_count="$8"
   if [ ! -f "$archive_file" ]; then
-    {
+    # The positive form on purpose: bash does not apply `!` to a { group } whose own redirection
+    # fails (`if ! { ...; } > dir` takes the else branch, measured on 5.2), so a negated test
+    # here would report a header that was never written as written.
+    if {
       echo "--- session-meta ---"
       echo "session_id: $session_id"
       echo "project_slug: $slug"
       echo "date: $date_str"
-      echo "tool_count: $tool_count"
+      echo "tool_count: ${tool_count:-0}"
       echo "line_count: $((end_line - start_line + 1))"
       echo "---"
       echo ""
-    } > "$archive_file"
+    } 2>/dev/null > "$archive_file"; then
+      :
+    else
+      sb_log_error "lib.sh" "sb_archive_transcript: cannot write $archive_file; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
+      return 1
+    fi
+  elif [ -n "$(tail -c 1 "$archive_file" 2>/dev/null)" ]; then
+    if ! printf '\n' 2>/dev/null >> "$archive_file"; then
+      sb_log_error "lib.sh" "sb_archive_transcript: cannot terminate the torn last line of $archive_file; raw lines ${start_line}-${end_line} NOT archived (session=$session_id)" 1
+      return 1
+    fi
   fi
+  if ! cat "$stage" 2>/dev/null >> "$archive_file"; then
+    sb_log_error "lib.sh" "sb_archive_transcript: append to $archive_file failed; raw lines ${start_line}-${end_line} NOT archived, the next hook retries (session=$session_id)" 1
+    return 1
+  fi
+  return 0
+}
 
-  sed -n "${start_line},${end_line}p" "$transcript" \
-    | sb_preprocess_transcript >> "$archive_file" 2>/dev/null
-  sb_prune_transcripts
+# sb_archive_raw_window TRANSCRIPT SLUG SESSION_ID TOTAL MARKER_KEY — archive-first (0.56.0, R2#2),
+# the ONE helper stop-extract.sh and pre-compact.sh share. Appends the raw window (raw_line, TOTAL]
+# to the session archive before either hook gates on tool count or runs telemetry, JIT or the
+# merge, so every window reaches the archive (tool-count-zero windows too). The raw_line cursor is
+# .last-archived-line-<MARKER_KEY> = `<raw_line>\t<transcript path>`, the path normalized with
+# sb_normalize_path. Absent or unreadable: initialised from the legacy extraction marker
+# (.last-extracted-line-<MARKER_KEY>). A different transcript path, or a cursor past TOTAL (the
+# transcript was replaced or shrank): 0. The window ends at the last COMPLETE raw line (newline
+# count, at most TOTAL): Stop can read the transcript while its last record is half flushed, and
+# a cursor past that line would skip the record for good; it is archived whole by the next hook.
+# An unterminated last line that already parses as a whole record is included (only its newline
+# is missing; test 8b in test-stop-extract.sh).
+# The cursor advances only after a checked append. Reading the cursor, rendering, appending and
+# writing the cursor run under ONE hold of the session's cursor lock (sb_archive_lock on the
+# pseudo archive transcripts/cursor-<MARKER_KEY>.txt): a Stop and a PreCompact of one session
+# that both read the same raw_line archived the window twice, and the later cursor write could
+# regress the earlier one. The archive lock is taken inside it (sb_archive_transcript).
+# Returns 0 when archived or there is nothing to do, 1 on a failure (already logged).
+sb_archive_raw_window() {
+  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5" lock_path tok rc
+  case "$total" in ''|*[!0-9]*)
+    sb_log_error "lib.sh" "sb_archive_raw_window: transcript line count '$total' is not a number; nothing archived (session=$session_id)" 1
+    return 1 ;;
+  esac
+  [ -n "$key" ] || key=$(sb_extraction_marker_key "$slug" "$session_id")
+  if [ ! -d "$BRAIN_DIR/transcripts" ] && ! mkdir -p "$BRAIN_DIR/transcripts" 2>/dev/null; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot create $BRAIN_DIR/transcripts; nothing archived (session=$session_id)" 1
+    return 1
+  fi
+  lock_path="$BRAIN_DIR/transcripts/cursor-$key.txt"
+  sb_archive_lock "$lock_path" sb_archive_raw_window || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  _sb_archive_raw_window_locked "$transcript" "$slug" "$session_id" "$total" "$key"; rc=$?
+  sb_archive_unlock "$lock_path" "$tok"
+  return "$rc"
+}
+_sb_archive_raw_window_locked() {  # sb_archive_raw_window's body; the caller holds the cursor lock
+  local transcript="$1" slug="$2" session_id="$3" total="$4" key="$5"
+  local cursor_file raw_line="" saved_path="" tpath raw_end
+  cursor_file="$BRAIN_DIR/.last-archived-line-$key"
+  tpath=$(sb_normalize_path "$transcript")
+  [ -f "$cursor_file" ] && IFS=$'\t' read -r raw_line saved_path < "$cursor_file"
+  raw_line="${raw_line%$'\r'}"; saved_path="${saved_path%$'\r'}"
+  case "$raw_line" in
+    ''|*[!0-9]*) raw_line=$(sb_get_extraction_marker "$key"); saved_path="$tpath" ;;
+  esac
+  raw_line=$((10#$raw_line))
+  [ -z "$saved_path" ] || [ "$saved_path" = "$tpath" ] || raw_line=0
+  [ "$raw_line" -le "$total" ] || raw_line=0
+  [ "$raw_line" -lt "$total" ] || return 0
+  raw_end=$(wc -l < "$transcript" 2>/dev/null); raw_end="${raw_end//[!0-9]/}"
+  if [ -z "$raw_end" ]; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot count the lines of $transcript; nothing archived, the next hook retries (session=$session_id)" 1
+    return 1
+  fi
+  [ "$raw_end" -le "$total" ] || raw_end="$total"
+  if [ "$raw_end" -lt "$total" ]; then
+    # Line TOTAL has no newline yet. A complete record whose newline is not flushed yet is
+    # archived now (the session's last Stop may be the last chance); a half-written one waits.
+    if sed -n "${total}p" "$transcript" 2>/dev/null | jq -e 'type == "object"' >/dev/null 2>&1; then
+      raw_end="$total"
+    fi
+  fi
+  [ "$raw_line" -lt "$raw_end" ] || return 0
+  sb_archive_transcript "$transcript" "$slug" "$session_id" "$((raw_line + 1))" "$raw_end" "" || return 1
+  if ! printf '%s\t%s\n' "$raw_end" "$tpath" 2>/dev/null > "$cursor_file"; then
+    sb_log_error "lib.sh" "sb_archive_raw_window: cannot write $cursor_file; raw lines $((raw_line + 1))-${raw_end} are archived but the cursor did not advance, so the next hook archives them again (session=$session_id)" 1
+    return 1
+  fi
+  return 0
 }
 
 # Archive a subagent's FINAL RESULT (not its full transcript) for dream mining +
-# episodic search. Keyed on agent_id so it never collides with a main-session
-# archive and de-dupes per agent. The result is already prose (the subagent's last
+# episodic search. One file per agent_id per day (sub-<agent_id>_<slug>_<date>.txt), so it never
+# collides with a main-session archive. A continued agent (SendMessage keeps its id) APPENDS its
+# next result under the archive lock: an overwrite destroyed the first result and put new text
+# under the drainer's line cursor. An id that sanitizes to nothing gets a per-call name (pid +
+# $RANDOM), never a shared one. The result is already prose (the subagent's last
 # assistant text block), so it is written plain under an ASSISTANT: marker — NOT
 # through sb_preprocess_transcript (which parses raw JSONL lines). The file matches
 # the episodic indexer's session-meta + ASSISTANT body shape, so it is indexed with
@@ -1682,7 +2382,7 @@ sb_archive_subagent_result() {
   # sanitize agent_id for use as a filename component (defense in depth — it comes
   # from the hook payload). Keep only filename-safe chars; bail if it empties out.
   safe_aid=$(printf '%s' "$agent_id" | tr -cd 'A-Za-z0-9._-')
-  [ -n "$safe_aid" ] || safe_aid="unknown"
+  [ -n "$safe_aid" ] || safe_aid="unknown-${BASHPID:-$$}-$RANDOM"
   local archive_file="$archive_dir/sub-${safe_aid}_${slug}_${date_str}.txt"
 
   # Every header value below is payload-derived (agent_type, session_id) or path-derived (slug)
@@ -1695,12 +2395,45 @@ sb_archive_subagent_result() {
   slug="${slug//[[:cntrl:]]/}"
   tool_count="${tool_count//[[:cntrl:]]/}"
 
+  # Secret scrub (0.56.0): the drainer extracts sub-*.txt like any archive and the one-time
+  # migration scrub never revisits it, so the result is scrubbed on the way in, as every Stop
+  # window is. A scrub that fails archives nothing (sb_archive_transcript refuses the same way).
+  local scrubbed
+  if ! scrubbed=$(printf '%s' "$result" | sb_scrub_secrets); then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: the secret scrub failed — subagent result NOT archived (agent_id=$safe_aid)" 1
+    return 1
+  fi
+  result="$scrubbed"
+
   # The write is CHECKED, twice: the redirect's own status (unwritable dir, a directory
-  # squatting on the name) and the written size, which must hold at least the result
-  # text itself (${#result} counts characters, never more than its bytes) — a short
-  # or empty file is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
-  local written
-  if ! {
+  # squatting on the name) and the growth of the file, which must hold at least the result
+  # text itself (${#result} counts characters, never more than its bytes): a short or empty
+  # write is a silently lost result, the SF-M3 class. Fail loud, never `|| true`.
+  # The positive form on purpose (as in sb_archive_transcript, 9ee624d): bash does not apply `!`
+  # to a { group } whose own redirection fails, so `if ! { ...; } > file` took the success branch.
+  # The archive lock (shared with the in-place scrub) covers the size read, the write and the check.
+  local size0=0 written tok rc=0
+  sb_archive_lock "$archive_file" sb_archive_subagent_result || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  if [ -f "$archive_file" ]; then
+    size0=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+    case "$size0" in ''|*[!0-9]*) size0=0 ;; esac
+    # A continued agent: append the next result. A torn last line (a crash) is terminated
+    # first, so the new block starts on its own line and sb_line_count stays exact.
+    if [ -n "$(tail -c 1 "$archive_file" 2>/dev/null)" ]; then
+      printf '\n' 2>/dev/null >> "$archive_file" || rc=1
+    fi
+    if [ "$rc" -eq 0 ] && {
+      echo ""
+      echo "ASSISTANT:"
+      echo "(a later result of the same agent, tool_count: $tool_count)"
+      printf '%s\n' "$result"
+    } 2>/dev/null >> "$archive_file"; then
+      :
+    else
+      rc=1
+    fi
+  elif {
     echo "--- session-meta ---"
     echo "session_id: $session_id"
     echo "project_slug: $slug"
@@ -1712,40 +2445,48 @@ sb_archive_subagent_result() {
     echo "---"
     echo ""
     printf 'ASSISTANT:\n%s\n' "$result"
-  } > "$archive_file" 2>/dev/null; then
+  } 2>/dev/null > "$archive_file"; then
+    :
+  else
+    rc=1
+  fi
+  if [ "$rc" -ne 0 ]; then
+    sb_archive_unlock "$archive_file" "$tok"
     sb_log_error "lib.sh" "sb_archive_subagent_result: write failed for $archive_file — subagent result NOT archived (agent_id=$safe_aid)" 1
     return 1
   fi
   written=$(wc -c < "$archive_file" 2>/dev/null | tr -d ' ')
+  sb_archive_unlock "$archive_file" "$tok"
   case "$written" in ''|*[!0-9]*) written=0 ;; esac
-  if [ "$written" -lt "${#result}" ]; then
-    sb_log_error "lib.sh" "sb_archive_subagent_result: short write ${written}B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
+  if [ "$((written - size0))" -lt "${#result}" ]; then
+    sb_log_error "lib.sh" "sb_archive_subagent_result: short write $((written - size0))B < ${#result}-char result in $archive_file (agent_id=$safe_aid)" 1
     return 1
   fi
 
-  # Prune subagent archives under their OWN budget FIRST, so a busy multi-agent
-  # session (hundreds of subagents) can never crowd main-session archives out of
-  # the shared 100-file cap. Oldest sub-*.txt by mtime are dropped beyond the cap.
-  local sub_cap="${SB_SUBAGENT_ARCHIVE_CAP:-50}"
-  local sub_files sub_count
-  # newest-first by mtime; delete everything past the cap. -printf is GNU; fall
-  # back to a stat-based sort on BSD/macOS.
-  sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f -printf '%T@ %p\n' 2>/dev/null \
-    | sort -rn | cut -d' ' -f2-)
-  if [ -z "$sub_files" ]; then
-    sub_files=$(find "$archive_dir" -maxdepth 1 -name 'sub-*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do printf '%s %s\n' "$(sb_mtime "$f")" "$f"; done \
-      | sort -rn | cut -d' ' -f2-)
-  fi
-  sub_count=$(printf '%s\n' "$sub_files" | grep -c . 2>/dev/null || true)
-  if [ "$sub_count" -gt "$sub_cap" ]; then
-    printf '%s\n' "$sub_files" | tail -n +"$((sub_cap + 1))" | while IFS= read -r f; do
-      [ -n "$f" ] && rm -f "$f"
-    done
-  fi
-
+  # The subagent sub-cap (SB_SUBAGENT_ARCHIVE_CAP, 200: a busy multi-agent session must never
+  # crowd main-session archives out of the shared cap) is enforced by sb_prune_transcripts, by
+  # cursor state and under the archive locks (X2 S4): the blind oldest-first sub-*.txt delete that
+  # sat here removed archives the drainer had never extracted.
   sb_prune_transcripts
   return 0
+}
+
+# sb_has_scrub_literal TEXT: 0 when TEXT holds one of the credential literals the one-time archive
+# migration greps for (_SB_SCRUB_LITERALS, kept in step with sb_scrub_secrets), builtins only. The
+# cheap pre-check that keeps the scrub's awk spawn off a hot path that almost never carries a key
+# (observe-tool-use.sh runs on every tool call, X2 S3). A hit only means "run the scrub".
+sb_has_scrub_literal() {
+  # Case-insensitive (nocasematch, bash >= 3.1): the scrub redacts `bearer`/`authorization` in any
+  # case, and a literal list cannot spell every mixing (BeArEr). Extra hits only cost one awk run.
+  local l nc=0 hit=1
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  for l in "${_SB_SCRUB_LITERALS[@]}"; do
+    [ "$l" = "-e" ] && continue
+    case "$1" in *"$l"*) hit=0; break ;; esac
+  done
+  [ "$nc" = 1 ] || shopt -u nocasematch
+  return "$hit"
 }
 
 # --- Observation ledger mining (P0 rec 5, capture widening) -----------------
@@ -1778,7 +2519,9 @@ sb_observations_summary() {
 # drainer). The ChatGPT recent-conversations-digest pattern: session-load.sh
 # PUSHES the last few entries at SessionStart instead of hoping the model
 # pulls episodic search. The Stop hook fires per TURN, not per session, so a
-# same-session append REPLACES the prior entry (latest wins). Capped at
+# same-session append REPLACES the prior entry (latest wins), field by field:
+# an empty goal or outcome keeps the entry's previous value (X2#5: the
+# drainer's later delta windows pass no goal, only a newer outcome). Capped at
 # SB_SESSIONS_DIGEST_KEEP (15) entries per slug, oldest dropped; other slugs
 # untouched. Corrupt lines are dropped by fromjson? (same tolerance as the
 # extraction-state readers). Fail-soft: always returns 0 — callers are
@@ -1815,7 +2558,15 @@ sb_append_session_digest() {
   } | jq -cRs --arg slug "$slug" --arg sid "$sid" --argjson keep "$keep" '
         [ split("\n")[] | fromjson? | select(type=="object") ]
         | . as $recs | ($recs | length - 1) as $n
-        | (if $n < 0 then [] else [ $recs[:$n][] | select(.session_id != $sid) ] + [ $recs[$n] ] end)
+        | (if $n < 0 then [] else
+             ([ $recs[:$n][] | select(.session_id == $sid) ] | last) as $old
+             | [ $recs[:$n][] | select(.session_id != $sid) ]
+               + [ $recs[$n]
+                   | if $old == null then . else
+                       .goal = (if (.goal // "") == "" then ($old.goal // "") else .goal end)
+                       | .outcome = (if (.outcome // "") == "" then ($old.outcome // "") else .outcome end)
+                     end ]
+           end)
         | [ .[] | select(.slug != $slug) ]
           + ([ .[] | select(.slug == $slug) ] | if length > $keep then .[length-$keep:] else . end)
         | .[]
@@ -1874,152 +2625,196 @@ sb_write_generated_page() {
   } > "$tmp" 2>/dev/null && mv "$tmp" "$out" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
 }
 
-# Enforce transcript archive caps: 100 files max, 5MB total.
-# Deletes oldest files first, ranked by MTIME (see below — NOT by filename).
+# Enforce transcript archive caps: 400 files / 25 MB soft, 1200 files / 75 MB hard (0.56.0, R2#6:
+# was 100 / 5 MB, hard caps 3x the soft ones as before), and the subagent sub-cap: 200 sub-*.txt
+# soft, 3x that hard (SB_SUBAGENT_ARCHIVE_CAP), so a busy multi-agent session can never crowd
+# main-session archives out of the shared cap. Runs on EVERY Stop/PreCompact append and
+# SubagentStop, so it is two-speed (R2-F#2: at 400 archives the old full pass cost 0.6-1.4 s per
+# append on MSYS):
+#   gate   the counts from builtin globs and the bytes from ONE `wc -c`; under every cap, return.
+#   prune  over a cap: ONE sb_drain_cursor_map (one wc -l + one stat + one jq for all archives)
+#          classifies every archive, ONE awk decides the evictions, then they are removed under
+#          their archive locks (below).
+# EXTRACTED-FIRST, by cursor state (R2-F#1). The cap used to delete strictly oldest-first, which on
+# a machine where the drainer defers (pure OAuth + an always-on interactive session) destroyed the
+# un-mined backlog: measured live at 100/100 archived with 28 never extracted, the oldest 27 days
+# old. The archive's contract (stop-extract.sh: "the transcript is still archived; the drainer
+# mines the real knowledge later") cannot hold if the cap outruns the drainer. So archives whose
+# map state is done (cursor reached the line count) or dead (the rest is dead-lettered) are evicted
+# first, oldest first by MTIME (archive names lead with a random session UUID, so a name sort is
+# age-random). A PENDING archive (unextracted lines, including one that GREW after its last
+# extraction) is evicted only past a hard ceiling, and loudly. Protecting every `cursor < lines`
+# archive instead would keep each dead-lettered one forever. Growth stays bounded either way. The
+# sub-cap follows the same rule (X2 S4: it used to delete the oldest sub-*.txt, extracted or not).
+# Removal (X2 S1/S2): the classification is a snapshot, and a Stop append can land between it and
+# the rm (its raw cursor already advanced: those lines would be lost for good). Each victim's
+# archive lock is TRIED, never waited on (held = a writer is appending: skipped this round), its
+# line count re-checked under the lock (changed = it grew since the snapshot: kept), then a
+# tombstone .<basename>.evicted is written BEFORE the rm (no tombstone, no rm), so a basename the
+# same session re-creates the same day never inherits the evicted incarnation's cursor (see
+# _SB_DRAIN_MAP_JQ). ONE wc -l, ONE rm for the archives, ONE rm for the locks.
 sb_prune_transcripts() {
   local archive_dir="$BRAIN_DIR/transcripts"
   [ -d "$archive_dir" ] || return 0
-
-  # OLDEST-first by mtime, NOT a lexical filename sort. Archives are named
-  # "${session_id}_${slug}_${date}.txt" — the random session UUID LEADS, so
-  # `sort` orders by UUID hex (age-random): the cap would then evict a
-  # just-archived, not-yet-drained transcript, silently breaking the "the
-  # transcript is still archived; the drainer mines the real knowledge later"
-  # recovery contract (stop-extract.sh). mtime is the true age. -printf is GNU;
-  # fall back to a stat-based sort on BSD/macOS — the same idiom the sub-*.txt
-  # cap in sb_archive_transcript already uses.
-  local files
-  files=$(find "$archive_dir" -name '*.txt' -type f -printf '%T@ %p\n' 2>/dev/null \
-    | sort -n | cut -d' ' -f2-)
-  if [ -z "$files" ]; then
-    files=$(find "$archive_dir" -name '*.txt' -type f 2>/dev/null \
-      | while IFS= read -r f; do printf '%s %s\n' "$(sb_mtime "$f")" "$f"; done \
-      | sort -n | cut -d' ' -f2-)
-  fi
-  local count
-  count=$(echo "$files" | grep -c . 2>/dev/null || true)
-
-  # EXTRACTED-FIRST EVICTION. The cap used to delete strictly oldest-first, which on a machine
-  # where the drainer is deferring (pure OAuth + an always-on interactive session) silently
-  # destroyed the un-mined backlog: measured live at 100/100 archived with 28 never extracted,
-  # the oldest 27 days old — every new session evicted one un-mined transcript forever. The
-  # archive's whole contract (stop-extract.sh: "the transcript is still archived; the drainer
-  # mines the real knowledge later") cannot hold if the cap outruns the drainer.
-  #
-  # So: evict transcripts that were ALREADY extracted first — their knowledge is in the wiki, the
-  # file is redundant. Un-mined transcripts are evicted only past a hard ceiling, and loudly.
-  # Growth stays bounded either way (never unbounded, never silent).
-  local cap="${SB_TRANSCRIPT_CAP:-100}";       case "$cap"  in ''|*[!0-9]*) cap=100 ;; esac
-  local hard="${SB_TRANSCRIPT_HARD_CAP:-300}"; case "$hard" in ''|*[!0-9]*) hard=300 ;; esac
+  local cap="${SB_TRANSCRIPT_CAP:-400}";        case "$cap"  in ''|*[!0-9]*) cap=400 ;; esac
+  local hard="${SB_TRANSCRIPT_HARD_CAP:-1200}"; case "$hard" in ''|*[!0-9]*) hard=1200 ;; esac
   [ "$hard" -lt "$cap" ] && hard="$cap"
+  local byte_cap="${SB_TRANSCRIPT_MAX_BYTES:-26214400}"
+  case "$byte_cap" in ''|*[!0-9]*) byte_cap=26214400 ;; esac
+  local byte_hard="${SB_TRANSCRIPT_MAX_BYTES_HARD:-$((byte_cap * 3))}"
+  case "$byte_hard" in ''|*[!0-9]*) byte_hard=$((byte_cap * 3)) ;; esac
+  [ "$byte_hard" -lt "$byte_cap" ] && byte_hard="$byte_cap"
+  local scap="${SB_SUBAGENT_ARCHIVE_CAP:-200}"; case "$scap" in ''|*[!0-9]*) scap=200 ;; esac
+  local shard=$((scap * 3))
 
-  # Done-set read ONCE. sb_extraction_done spawns jq per call; at 100+ files that is 100+ jq
-  # spawns per drain tick (~seconds on Windows) for a function that runs on every Stop hook.
-  local _state="$BRAIN_DIR/.extraction-state.jsonl" _done=""
-  if [ -f "$_state" ] && command -v jq >/dev/null 2>&1; then
-    _done=$(jq -rR 'fromjson? | select(.outcome == "ok" or .outcome == "error") | .basename' \
-      "$_state" 2>/dev/null | tr -d '\r' | sort -u)
-  fi
-  # Builtins only — no basename/grep spawn per file. On MSYS every external process costs
-  # ~30-60ms; this runs on EVERY Stop hook over up to 300 files and the basename+grep pair was
-  # ~2 spawns/file. Measured: test-transcript-archive.sh 258s on the dev box vs 8s on Linux CI,
-  # so the local suite could never go green (ec=124 on 9-11 tests, every run, for months).
-  _sb_is_extracted() {   # $1 = full path
-    [ -n "$_done" ] || return 1
-    local _b="${1##*/}"
-    case "$_done" in "$_b"|"$_b"$'\n'*|*$'\n'"$_b"|*$'\n'"$_b"$'\n'*) return 0 ;; esac
-    return 1
-  }
+  # Gate. `wc -c` on a list ends with a `total` line (a lone file has none: its own line is the
+  # total); the last line's first field is the byte total, read with builtins.
+  local -a tx sx
+  tx=("$archive_dir"/*.txt)
+  { [ "${#tx[@]}" -gt 0 ] && [ -e "${tx[0]}" ]; } || return 0
+  local count="${#tx[@]}" scount=0 sizes total
+  sx=("$archive_dir"/sub-*.txt); [ -e "${sx[0]}" ] && scount="${#sx[@]}"
+  sizes=$(cd "$archive_dir" 2>/dev/null && wc -c -- *.txt 2>/dev/null)
+  total="${sizes##*$'\n'}"; total="${total#"${total%%[! ]*}"}"; total="${total%% *}"
+  case "$total" in ''|*[!0-9]*) total=0 ;; esac
+  [ "$count" -le "$cap" ] && [ "$total" -le "$byte_cap" ] && [ "$scount" -le "$scap" ] && return 0
 
-  # Partition oldest-first, preserving order within each class.
-  # Both $files loops read through a pipe, not a `<<EOF` heredoc: an expanded heredoc hangs
-  # Git-Bash in the SAME 65,537..~65,650-byte window as a `<<<` here-string (measured on this
-  # branch, bash 5.2.26 MSYS), and $files is every archive path, one per line — ~600-700
-  # files at 90-110 B a line reach it (705 in test-transcript-archive's case). The hard cap is
-  # 300 by default, but SB_TRANSCRIPT_HARD_CAP raises it and a long BRAIN_DIR lengthens every
-  # line. This runs inside the Stop and SubagentStop hooks.
-  local _extracted="" _unmined="" _f
-  while IFS= read -r _f; do
-    [ -n "$_f" ] || continue
-    if _sb_is_extracted "$_f"; then _extracted="${_extracted}${_f}"$'\n'
-    else                           _unmined="${_unmined}${_f}"$'\n'; fi
-  done < <(printf '%s\n' "$files")
-  # A process substitution that could not start (fork EAGAIN on a loaded Windows box) feeds the
-  # loop NOTHING: both queues stay empty and every eviction pass below is a silent no-op while
-  # the archive sits over its cap. One row, so "nothing was pruned" is never invisible.
-  if [ "$count" -gt "$cap" ] && [ -z "${_extracted//[$'\n']/}${_unmined//[$'\n']/}" ]; then
-    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives are over the ${cap} cap but the listing pass yielded no rows — nothing was pruned this run" 1
+  # Tombstones older than two days protect nothing: a basename carries its creation date, so only
+  # a same-day re-creation can reuse it, and the drainer's compaction consumes them sooner. Swept
+  # here too, where they are written, for machines that run no drainer; a builtin count keeps the
+  # find off the common path.
+  local -a tb
+  tb=("$archive_dir"/.*.txt.evicted)
+  if [ -e "${tb[0]}" ] && [ "${#tb[@]}" -gt 20 ]; then
+    find "$archive_dir" -maxdepth 1 -name '.*.txt.evicted' -type f -mtime +1 -delete 2>/dev/null \
+      || sb_log_error "lib.sh" "sb_prune_transcripts: the tombstone sweep (find -delete) failed in $archive_dir" 1
   fi
 
-  # 1. Over the cap → drop already-extracted files, oldest first.
-  while [ "$count" -gt "$cap" ] && [ -n "${_extracted//[$'\n']/}" ]; do
-    local oldest
-    oldest="${_extracted%%$'\n'*}"                                       # head -1, builtin
-    [ -n "$oldest" ] && rm -f "$oldest"
-    case "$_extracted" in *$'\n'*) _extracted="${_extracted#*$'\n'}" ;; *) _extracted="" ;; esac   # tail -n +2
-    count=$((count - 1))
+  # Classify. An empty map while archives exist (jq missing, a fork that failed) degrades to a
+  # stat listing in which every archive counts as pending: no soft-cap eviction of an archive in
+  # an unknown state, but the hard ceilings still bound growth. Said loudly either way.
+  local map
+  map=$(sb_drain_cursor_map "" "$archive_dir") || map=""
+  if [ -z "$map" ]; then
+    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives / ${total} B are over a cap but the listing pass (sb_drain_cursor_map) yielded no rows; every archive is treated as un-mined this run (hard ceilings only)" 1
+    # The line counts come along (one wc -l): the removal re-check below compares them.
+    map=$(cd "$archive_dir" 2>/dev/null && { _sb_mtimes *.txt | sort -n; printf '%s\n' '--wc--'; wc -l -- *.txt 2>/dev/null; } \
+      | LC_ALL=C awk '
+          $0 == "--wc--" { w = 1; next }
+          !w { f = $0; sub(/^[0-9]+ /, "", f); o[++n] = f; mt[f] = $1; next }
+          { l = $0; sub(/\r$/, "", l); sub(/^ +/, "", l); c = l; sub(/ .*/, "", c); f = l; sub(/^[0-9]+ /, "", f)
+            if (c ~ /^[0-9]+$/) lc[f] = c }
+          END { for (i = 1; i <= n; i++) printf "%s\t0\t%s\tpending\t0\t0\t%s\t-\t0\t0\n", o[i], ((o[i] in lc) ? lc[o[i]] : -1), mt[o[i]] }')
+  fi
+
+  # Decide. Input: the map rows (oldest-first), a separator, the `wc -c` lines. The sub-cap pass
+  # first, then the count pass, then the byte pass; each evicts done|dead archives down to its soft
+  # ceiling, then pending ones down to its hard ceiling. Output: `E|U<TAB>name<TAB>lines<TAB>
+  # dead_windows<TAB>dead_lines` (E extracted, U un-mined), then a sentinel, so a pass that
+  # produced nothing (a failed fork, a failed awk) is told apart from "nothing to evict". Fed
+  # through a pipe, never a here-string (the MSYS 64 KB hang; the map is ~70 B a row).
+  local -a vn=() vl=() vk=() vw=() vd=()
+  local kind name lns dw dl verdict=""
+  while IFS=$'\t' read -r kind name lns dw dl; do
+    case "$kind" in
+      E|U) vn+=("$name"); vl+=("$lns"); vk+=("$kind"); vw+=("${dw:-0}"); vd+=("${dl:-0}") ;;
+      --end--) verdict=1 ;;
+    esac
+  done < <({ printf '%s\n' "$map"; printf '%s\n' '--sizes--'; printf '%s\n' "$sizes"; } \
+    | LC_ALL=C awk -F'\t' -v cap="$cap" -v hard="$hard" -v bcap="$byte_cap" -v bhard="$byte_hard" \
+        -v scap="$scap" -v shard="$shard" '
+      function evict(i, k) { ek[i] = k; cnt--; tot -= sz[nm[i]]; if (issub[i]) sc-- }
+      sec == 0 && $0 == "--sizes--" { sec = 1; next }
+      sec == 0 {
+        if ($1 != "") {
+          n++; nm[n] = $1; ln[n] = $3; pend[n] = ($4 == "pending"); dw[n] = $9 + 0; dl[n] = $10 + 0
+          issub[n] = (substr($1, 1, 4) == "sub-")
+        }
+        next
+      }
+      {
+        l = $0; sub(/\r$/, "", l); sub(/^ +/, "", l)
+        s = l; sub(/ .*/, "", s); f = l; sub(/^[0-9]+ /, "", f)
+        if (s ~ /^[0-9]+$/) sz[f] = s + 0
+      }
+      END {
+        cnt = n; tot = 0; sc = 0
+        for (i = 1; i <= n; i++) { tot += sz[nm[i]]; if (issub[i]) sc++ }
+        for (i = 1; i <= n && sc > scap; i++)   if (issub[i] && !pend[i]) evict(i, "E")
+        for (i = 1; i <= n && sc > shard; i++)  if (issub[i] && pend[i] && !(i in ek)) evict(i, "U")
+        for (i = 1; i <= n && cnt > cap; i++)   if (!pend[i] && !(i in ek)) evict(i, "E")
+        for (i = 1; i <= n && cnt > hard; i++)  if (pend[i] && !(i in ek))  evict(i, "U")
+        for (i = 1; i <= n && tot > bcap; i++)  if (!pend[i] && !(i in ek)) evict(i, "E")
+        for (i = 1; i <= n && tot > bhard; i++) if (pend[i] && !(i in ek))  evict(i, "U")
+        for (i = 1; i <= n; i++) if (i in ek) printf "%s\t%s\t%s\t%s\t%s\n", ek[i], nm[i], ln[i], dw[i], dl[i]
+        print "--end--"
+      }')
+  if [ -z "$verdict" ]; then
+    sb_log_error "lib.sh" "sb_prune_transcripts: ${count} archives / ${total} B are over a cap but the decision pass returned no verdict; nothing was pruned this run" 1
+    return 0
+  fi
+  [ "${#vn[@]}" -gt 0 ] || return 0
+
+  # Lock each victim without waiting (_sb_archive_lock_try: one O_EXCL create, builtins only). A
+  # failed try with the lock file present = a writer holds it; with none = it cannot be created
+  # (an unwritable directory would otherwise skip every victim forever, with no error row).
+  local i lf held=0 nolock=0
+  local -a li=() lk=() lnm=()
+  for i in "${!vn[@]}"; do
+    lf="$archive_dir/.${vn[$i]}.lock"
+    # A real owner token (pid.prune-nonce): sb_archive_lock reads an empty token as a dead holder.
+    if _sb_archive_lock_try "$lf" "${BASHPID:-$$}.prune$RANDOM"; then li+=("$i"); lk+=("$lf"); lnm+=("${vn[$i]}")
+    elif [ -e "$lf" ]; then held=$((held + 1))
+    else nolock=$((nolock + 1)); fi
   done
+  [ "$held" -eq 0 ] || sb_log_error "lib.sh" "gate=transcript-cap ${held} archive(s) to evict are locked by a writer; skipped this round" 0
+  [ "$nolock" -eq 0 ] || sb_log_error "lib.sh" "sb_prune_transcripts: cannot create the archive lock for ${nolock} archive(s) to evict in $archive_dir (directory unwritable?); not evicted, the archive stays over its cap" 1
+  [ "${#li[@]}" -gt 0 ] || return 0
 
-  # 2. Still over the HARD ceiling → the un-mined backlog itself is unbounded. Evict, but say so:
-  #    this is knowledge being destroyed before it was ever read, and it means the drainer has
-  #    been stalled long enough to matter (see the drain-health banner in session-load.sh).
-  while [ "$count" -gt "$hard" ] && [ -n "${_unmined//[$'\n']/}" ]; do
-    local oldest
-    oldest="${_unmined%%$'\n'*}"
-    if [ -n "$oldest" ]; then
-      sb_log_error "lib.sh" "transcript cap: evicting UN-EXTRACTED ${oldest##*/} — backlog past hard cap ${hard}; the drainer is not keeping up and this session's knowledge is lost" 1
-      rm -f "$oldest"
+  # Re-check under the locks: ONE wc -l. A line count that moved since the snapshot (an append
+  # landed), or a file that vanished, keeps the archive this round (an unknown count, -1, never
+  # confirms: an archive is never removed on a count nobody read).
+  local now_counts="|" l c f moved=0 nu=0 unmined="" nd=0 ndw=0 ndl=0 deadn=""
+  while IFS= read -r l; do
+    l="${l%$'\r'}"; l="${l#"${l%%[! ]*}"}"; c="${l%% *}"; f="${l#* }"
+    case "$c" in ''|*[!0-9]*) continue ;; esac
+    now_counts="$now_counts$f=$c|"
+  done < <(cd "$archive_dir" 2>/dev/null && wc -l -- "${lnm[@]}" 2>/dev/null)
+  local -a del=() tomb_fail=()
+  for i in "${li[@]}"; do
+    case "$now_counts" in *"|${vn[$i]}=${vl[$i]}|"*) ;; *) moved=$((moved + 1)); continue ;; esac
+    # Empty: only its mtime is read (O_TRUNC re-stamps a tombstone left by an earlier eviction).
+    if ! { : > "$archive_dir/.${vn[$i]}.evicted"; } 2>/dev/null; then
+      tomb_fail+=("${vn[$i]}"); continue
     fi
-    case "$_unmined" in *$'\n'*) _unmined="${_unmined#*$'\n'}" ;; *) _unmined="" ;; esac
-    count=$((count - 1))
+    del+=("$archive_dir/${vn[$i]}")
+    if [ "${vk[$i]}" = "U" ]; then
+      nu=$((nu + 1)); unmined="$unmined${unmined:+, }${vn[$i]}"
+    elif [ "${vw[$i]}" -gt 0 ] 2>/dev/null; then
+      nd=$((nd + 1)); ndw=$((ndw + vw[$i])); ndl=$((ndl + vd[$i])); deadn="$deadn${deadn:+, }${vn[$i]}"
+    fi
   done
-  unset -f _sb_is_extracted
-
-  # `for f in $files` word-split on IFS and glob-expanded: archive names embed the project slug
-  # (`${session_id}_${slug}_${date}.txt`), and a slug can legitimately contain a space (a Windows
-  # project folder like "My App"), so one filename split into two bogus words and mis-totalled
-  # the byte accounting that drives eviction below. Read line-oriented, like the partition above.
-  # ONE wc over all SURVIVING files (was wc|tr per file = 2 spawns each). wc on a list ends
-  # with a `total` line; awk takes the last line. Names are passed as "$@" so a slug with a
-  # space stays one argument; files evicted by the count pass above are skipped via -f.
-  local total_bytes=0
-  set --
-  while IFS= read -r f; do [ -n "$f" ] && [ -f "$f" ] && set -- "$@" "$f"; done < <(printf '%s\n' "$files")
-  if [ "$#" -gt 0 ]; then
-    total_bytes=$(wc -c "$@" 2>/dev/null | awk 'END{print $1+0}')
-    case "$total_bytes" in ''|*[!0-9]*) total_bytes=0 ;; esac
+  [ "$moved" -eq 0 ] || sb_log_error "lib.sh" "gate=transcript-cap ${moved} archive(s) changed after the classification (an append landed); kept this round" 0
+  [ "${#tomb_fail[@]}" -eq 0 ] || sb_log_error "lib.sh" "sb_prune_transcripts: cannot write the eviction tombstone for ${tomb_fail[*]}; not evicted (a re-created archive would inherit its cursor)" 1
+  if [ "${#del[@]}" -gt 0 ]; then
+    # ONE log row for the un-mined evictions (it was one row and one jq spawn per file): this is
+    # knowledge destroyed before it was ever read, and it means the drainer has been stalled long
+    # enough to matter (see the drain-health banner in session-load.sh).
+    if [ "$nu" -gt 0 ]; then
+      sb_log_error "lib.sh" "transcript cap: evicting ${nu} UN-EXTRACTED archive(s) past the hard ceiling (${hard} files / ${byte_hard} B, or ${shard} sub-*.txt): ${unmined} — the drainer is not keeping up and this knowledge is lost" 1
+    fi
+    # Item 9: an extracted archive holding dead-lettered windows takes those never-extracted lines
+    # with it. Expected lifecycle, not a failure: one trace row.
+    if [ "$nd" -gt 0 ]; then
+      sb_log_error "lib.sh" "gate=transcript-cap evicted ${nd} archive(s) holding dead-lettered windows (${ndw} window(s), ${ndl} lines never extracted): ${deadn}" 0
+    fi
+    if ! rm -f -- "${del[@]}" 2>/dev/null; then
+      sb_log_error "lib.sh" "sb_prune_transcripts: removing ${#del[@]} evicted archive(s) failed; the archive stays over its cap until the next prune" 1
+    fi
   fi
-
-  # TWO-TIER, exactly like the count cap above. An earlier revision applied only extracted-first
-  # ORDERING here with no hard-ceiling GATE, which meant that once extracted files ran out the
-  # loop kept deleting un-mined transcripts down to the 5MB line — reproduced in review with ten
-  # never-extracted 600KB sessions (6MB, only 10 FILES, nowhere near either count cap): two were
-  # destroyed. Transcripts are large, so the byte ceiling is reached long before the count one;
-  # protecting un-mined data in the count path only was protection in name.
-  local _byte_cap="${SB_TRANSCRIPT_MAX_BYTES:-5242880}"
-  case "$_byte_cap" in ''|*[!0-9]*) _byte_cap=5242880 ;; esac
-  local _byte_hard="${SB_TRANSCRIPT_MAX_BYTES_HARD:-$((_byte_cap * 3))}"
-  case "$_byte_hard" in ''|*[!0-9]*) _byte_hard=$((_byte_cap * 3)) ;; esac
-  [ "$_byte_hard" -lt "$_byte_cap" ] && _byte_hard="$_byte_cap"
-
-  _sb_evict_bytes() {   # $1 = list, $2 = byte ceiling, $3 = "unmined" to log loudly
-    local _list="$1" _ceiling="$2" _loud="$3" _oldest _sz
-    while [ "$total_bytes" -gt "$_ceiling" ] && [ -n "${_list//[$'\n']/}" ]; do
-      _oldest="${_list%%$'\n'*}"                                         # head -1, builtin
-      [ -z "$_oldest" ] && break
-      _sz=$(wc -c < "$_oldest" 2>/dev/null); _sz="${_sz//[!0-9]/}"; : "${_sz:=0}"
-      [ "$_loud" = unmined ] && sb_log_error "lib.sh" \
-        "transcript cap: evicting UN-EXTRACTED ${_oldest##*/} — archive past the ${_ceiling}B hard ceiling; the drainer is not keeping up and this session's knowledge is lost" 1
-      rm -f "$_oldest"
-      total_bytes=$((total_bytes - _sz))
-      case "$_list" in *$'\n'*) _list="${_list#*$'\n'}" ;; *) _list="" ;; esac   # tail -n +2
-    done
-  }
-  # 1. Reclaim from already-extracted files down to the normal ceiling.
-  _sb_evict_bytes "$_extracted" "$_byte_cap" extracted
-  # 2. Only past the HARD ceiling is un-mined knowledge destroyed — and never quietly.
-  _sb_evict_bytes "$_unmined" "$_byte_hard" unmined
-  unset -f _sb_evict_bytes
+  rm -f -- "${lk[@]}" 2>/dev/null \
+    || sb_log_error "lib.sh" "sb_prune_transcripts: cannot release ${#lk[@]} archive lock(s) in $archive_dir; writers steal them after ${_SB_ARCHIVE_LOCK_STALE_S} s" 1
+  return 0
 }
 
 # --- Session-cadence + maintenance flags ---------------------------------
@@ -2725,19 +3520,36 @@ sb_count_drain_timeouts() {
     | grep -c 'extractor-diag .*ec=124' 2>/dev/null || true
 }
 
-# Count transcripts that reached a TERMINAL error in the drainer's done-set
-# (.extraction-state.jsonl outcome=="error" = poison-pilled past SB_DRAIN_MAX_FAILS).
-# Folded per-basename so a basename that retried then errored counts ONCE.
-# Echoes an integer. $1 = optional explicit state-file path (test override).
+# Count archives holding a DEAD-LETTERED window (an `error` row past SB_DRAIN_MAX_FAILS whose
+# lines no ok row re-covered: dead_windows > 0 in sb_drain_cursor_map), whatever the archive's
+# state (X2#1): a dead window stays lost after a later window succeeds or the archive grows.
+# Echoes an integer; `?` and rc 1 when the cursor map failed (already logged by the map): a
+# failure must never read as "no dead letters". $1 / $2 = optional explicit state file /
+# transcripts dir (test override).
 sb_count_drain_dead_letters() {
-  local f="${1:-$BRAIN_DIR/.extraction-state.jsonl}"
-  [ -s "$f" ] || { echo 0; return 0; }
-  if command -v jq >/dev/null 2>&1; then
-    jq -nR 'reduce (inputs|fromjson?) as $r ({}; .[$r.basename]=$r)
-            | [.[]] | map(select(.outcome=="error")) | length' "$f" 2>/dev/null || echo 0
-  else
-    echo 0
-  fi
+  local map
+  map=$(sb_drain_cursor_map "${1:-}" "${2:-}") || { echo '?'; return 1; }
+  sb_drain_map_counts "$map"
+  echo "$SB_DM_DEAD_ARCHIVES"
+}
+
+# sb_scrub_todo_counts: the one-time archive-scrub to-do list (.archive-scrub-v1.todo, written by
+# extract-drain.sh drain_scrub_migrate: `<path relative to BRAIN_DIR>\t<failed attempts>` per line)
+# -> SB_SCRUB_TODO_N (files still to scrub) and SB_SCRUB_TODO_STUCK (those whose scrub failed 3+
+# times: one attempt per migration run, a drainer tick or a session start; their archives stay
+# held from extraction). Builtins only.
+# Returns 1 when there is no list (the migration finished, or has not listed anything yet).
+sb_scrub_todo_counts() {
+  SB_SCRUB_TODO_N=0; SB_SCRUB_TODO_STUCK=0
+  local f="$BRAIN_DIR/.archive-scrub-v1.todo" p fc
+  [ -f "$f" ] || return 1
+  while IFS=$'\t' read -r p fc || [ -n "$p" ]; do
+    p="${p%$'\r'}"; [ -n "$p" ] || continue
+    fc="${fc%$'\r'}"; case "$fc" in ''|*[!0-9]*) fc=0 ;; esac
+    SB_SCRUB_TODO_N=$((SB_SCRUB_TODO_N + 1))
+    [ "$fc" -lt 3 ] || SB_SCRUB_TODO_STUCK=$((SB_SCRUB_TODO_STUCK + 1))
+  done < "$f"
+  return 0
 }
 
 # Verify jq is available. If missing, log to error-log.jsonl and return 1.
@@ -2760,26 +3572,345 @@ sb_require_jq() {
 }
 
 # --- Out-of-band extraction helpers ---------------------------------------
-# A transcript is "done" once a terminal (ok|error) line exists in the
-# append-only done-set ~/.second-brain/.extraction-state.jsonl.
-sb_extraction_done() {
-  local base="$1" state="$2"
-  [ -f "$state" ] || return 1
-  local hit
-  # -R + fromjson? : parse per line, skipping any corrupt line (e.g. a partial
-  # append from a crash) instead of aborting the whole scan.
-  hit=$(jq -rR --arg b "$base" \
-    'fromjson? | select(.basename == $b and (.outcome == "ok" or .outcome == "error")) | .basename' \
-    "$state" 2>/dev/null | head -1)
-  [ -n "$hit" ]
+# R2 contract (0.56.0, "nothing captured is lost"): two cursors, never interchangeable.
+#   raw_line     position in the RAW Claude Code transcript (.jsonl): how much of it has been
+#                copied into the archive. Kept in .last-archived-line-<slug>--<sid> (archive-first)
+#                and the legacy .last-extracted-line-<slug>--<sid>.
+#   archive_line position in the ARCHIVE (transcripts/*.txt): how much of it has been extracted.
+#                Kept in done-set rows, counted with sb_line_count only.
+# Done-set rows (.extraction-state.jsonl): one JSON object per line, append-only, additive schema:
+#   {basename, ts, outcome: ok|baseline|retry|error, reason?, latency_s?, fails?, from?, lines?}
+#   from  = archive_line the extracted window starts after (exclusive)
+#   lines = archive_line the window ends at (inclusive)
+# A basename's cursor = max(lines) over its ok|baseline rows. retry and error rows never advance
+# it (D177). A legacy row without `lines` advances nothing; the first-tick migration gives it a
+# baseline row. An archive whose sb_line_count is below its cursor was recreated: cursor 0.
+
+# sb_line_count FILE: the one counting primitive for archive_line. Counts complete lines (newline
+# bytes, as `wc -l`), so a torn last line is never covered by a cursor; the archive appender keeps
+# a trailing newline. Missing file: 0. Unreadable file: non-zero return, nothing echoed.
+sb_line_count() {
+  [ -f "$1" ] || { echo 0; return 0; }
+  local n
+  n=$(wc -l < "$1") || return 1
+  n="${n//[!0-9]/}"
+  echo "${n:-0}"
 }
 
-# Count prior non-terminal retry attempts for a basename.
-sb_extraction_fails() {
-  local base="$1" state="$2"
-  [ -f "$state" ] || { echo 0; return; }
-  jq -rR --arg b "$base" 'fromjson? | select(.basename == $b and .outcome == "retry") | .basename' \
-    "$state" 2>/dev/null | wc -l | tr -d ' '
+# _sb_mtimes FILE...: "<epoch> <name>" per file in ONE spawn (GNU stat; BSD stat when the GNU
+# form printed nothing). A file that vanished between the caller's glob and this call is skipped.
+# `|| :` inside each probe: a process-substitution caller inherits a set -e caller's errexit, and
+# the failing GNU probe on BSD stat would kill it before the fallback (partial output is kept).
+_sb_mtimes() {
+  local o
+  o=$(stat -c '%Y %n' -- "$@" 2>/dev/null || :); case "$o" in [0-9]*) ;; *) o=$(stat -f '%m %N' -- "$@" 2>/dev/null || :) ;; esac
+  [ -z "$o" ] || printf '%s\n' "$o"
+  return 0
+}
+
+# The jq half of sb_drain_cursor_map. stdin = `wc -l` over the archives, a `--mtime--` line, then
+# `_sb_mtimes` over the same archives and their tombstones; $st = the raw done-set. Per archive on
+# disk it applies the contract (cursor = max lines over ok|baseline rows, recreated when the count
+# fell below any row) and the drain-only fields: next = where the next window starts (skips
+# dead-lettered regions), fails = retry rows since the last non-retry row, flag = the first-tick
+# migration verdict for a basename whose rows all lack `lines` (legacy): baseline | regrow |
+# legacy-dead.
+# A tombstone .<basename>.evicted (written by sb_prune_transcripts before it removes an archive,
+# X2 S2; its mtime rides the same stat call) hides every row of that basename written at or before
+# the eviction: a basename re-created after its eviction (the same session, the same day) starts
+# at cursor 0 even once it grows past the stale cursor, which n < hi alone cannot see. Ties count
+# as stale (re-extracting a line is safe, skipping one is not). The drainer's compaction drops
+# those rows and consumes the tombstone.
+# dw / dl (X2#1) = the dead-lettered windows and their line total, WHATEVER the state: the union
+# of the error windows (from, lines] minus every ok|baseline window, clipped to the line count. A
+# dead window in the middle stays counted after a later window succeeds (it used to vanish from
+# every counter once the cursor passed it). recreated: 0 (its rows are purged); legacy-dead: the
+# whole archive (the migration's error row covers (0, lines]).
+_SB_DRAIN_MAP_JQ='
+def epoch: try fromdateiso8601 catch 0;
+def hasl: (.lines | type) == "number";
+def trailing_retries: reduce (reverse[]) as $x ({n: 0, stop: false};
+  if .stop then . elif $x.outcome == "retry" then .n += 1 else .stop = true end) | .n;
+def ival: [((.from // 0) | if type == "number" then . else 0 end), .lines];
+def merged: sort | reduce .[] as $w ([];
+  if length > 0 and $w[0] <= .[length - 1][1]
+  then .[length - 1][1] = ([.[length - 1][1], $w[1]] | max) else . + [$w] end);
+def minus($o): reduce $o[] as $x ([.];
+  [ .[] | if $x[1] <= .[0] or $x[0] >= .[1] then .
+          else ((if $x[0] > .[0] then [[.[0], $x[0]]] else [] end)
+                + (if $x[1] < .[1] then [[$x[1], .[1]]] else [] end)) | .[] end ]);
+(reduce inputs as $l ({sec: "wc", L: {}, M: {}};
+  if $l == "--mtime--" then .sec = "mt"
+  else (([$l | sub("\r$"; "") | capture("^ *(?<n>[0-9]+) (?<f>.*)$")] | .[0])) as $m
+  | if $m == null then .
+    elif .sec == "wc" then (if ($m.f | test("[.]txt$")) then .L[$m.f] = ($m.n | tonumber) else . end)
+    else .M[$m.f] = ($m.n | tonumber) end
+  end)) as $fs
+| (reduce ($st | split("\n")[] | (try fromjson catch null)
+          | select(type == "object" and (.basename | type) == "string")) as $r
+    ({}; .[$r.basename] += [$r])) as $rows
+| [ $fs.L | to_entries[]
+    | .key as $b | .value as $n
+    | (($fs.M[$b]) // 0) as $mt
+    | (($fs.M["." + $b + ".evicted"]) // 0) as $tomb
+    | ((($rows[$b]) // []) | if $tomb > 0 then map(select((.ts | epoch) > $tomb)) else . end) as $R
+    | ([$R[] | select((.outcome == "ok" or .outcome == "baseline") and hasl) | .lines] | max // 0) as $cur
+    | ([$R[] | select(hasl) | .lines] | max // 0) as $hi
+    | ([$R[] | select(.outcome == "error" and hasl) | .lines] | max // 0) as $err
+    | ($R | trailing_retries) as $fails
+    | ([$R[] | select((.outcome == "ok" or .outcome == "baseline") and hasl) | ival] | merged) as $ok
+    | ([$R[] | select(.outcome == "error" and hasl) | ival] | merged
+       | [.[] | minus($ok) | .[] | [.[0], ([.[1], $n] | min)] | select(.[1] > .[0])]) as $dead
+    | (if ($R | any(hasl)) then null else ([$R[] | select(.outcome | IN("ok", "error"))] | last) end) as $lt
+    | (if $lt == null then false
+       else ((($lt.ts | epoch)) as $t | $mt > 0 and $t > 0 and $mt <= $t) end) as $same
+    | if $n < $hi then {b: $b, cur: 0, n: $n, next: 0, fails: 0, mt: $mt, flag: "recreated"}
+      elif $lt != null and $lt.outcome == "ok" then
+        {b: $b, cur: 0, n: $n, next: 0, fails: $fails, mt: $mt, flag: (if $same then "baseline" else "regrow" end)}
+      elif $lt != null and $same then {b: $b, cur: 0, n: $n, next: $n, fails: 0, mt: $mt, flag: "legacy-dead"}
+      elif $lt != null then {b: $b, cur: 0, n: $n, next: 0, fails: 0, mt: $mt, flag: "regrow"}
+      else {b: $b, cur: $cur, n: $n, next: ([$cur, $err] | max), fails: $fails, mt: $mt, flag: "-"} end
+    | .st = (if .cur >= .n then "done" elif .next >= .n then "dead" else "pending" end)
+    | (if .flag == "recreated" then {dw: 0, dl: 0}
+       elif .flag == "legacy-dead" then {dw: (if $n > 0 then 1 else 0 end), dl: $n}
+       else {dw: ($dead | length), dl: ($dead | map(.[1] - .[0]) | add // 0)} end) as $d
+    | .dw = $d.dw | .dl = $d.dl ]
+| sort_by(.mt, .b)[]
+| [.b, .cur, .n, .st, .next, .fails, .mt, .flag, .dw, .dl] | map(tostring) | join("\t")
+'
+
+# sb_drain_cursor_map [STATE] [TXDIR]: THE drain accounting primitive. Every reader of "which
+# archives still hold unextracted lines" (the drainer, its reconcile row, the session-load drain
+# banners, `sb status`, sb-health-snapshot.sh) goes through this — a source-scan lock in
+# tests/test-extraction-helpers.sh bans the old basename-set derivation. ONE wc -l + ONE stat over
+# all archives and ONE jq over the done-set, never a per-file loop. Output, oldest-first by mtime,
+# one TSV row per archive on disk (the first three columns are the R2 contract):
+#   basename cursor lines state next fails mtime flag dead_windows dead_lines
+#   state: done (cursor >= lines) | dead (the unextracted tail is dead-lettered: next >= lines)
+#          | pending.   flag: - | recreated | baseline | regrow | legacy-dead  (never empty: a tab
+#          IFS read collapses empty fields). dead_windows / dead_lines: every dead-lettered
+#          window, whatever the state (see _SB_DRAIN_MAP_JQ). A bash reader names a trailing
+#          catch-all variable, so a later column never lands in its last field.
+# No transcripts dir: no output, rc 0. jq missing or failing: logged loud, rc 1.
+sb_drain_cursor_map() {
+  local state="${1:-$BRAIN_DIR/.extraction-state.jsonl}" txd="${2:-$BRAIN_DIR/transcripts}"
+  [ -d "$txd" ] || return 0
+  if ! command -v jq >/dev/null 2>&1; then
+    sb_log_error "lib.sh" "sb_drain_cursor_map: jq not on PATH — drain accounting unavailable" 127
+    return 1
+  fi
+  case "$state" in /*|[A-Za-z]:*) ;; *) state="$PWD/$state" ;; esac
+  local -a st_arg
+  if [ -f "$state" ]; then st_arg=(--rawfile st "$state"); else st_arg=(--arg st ""); fi
+  local out rc=0
+  # cd so wc/stat print bare basenames (and the arg list stays short); the subshell keeps the
+  # caller's cwd. --rawfile, never --arg, for the done-set: native jq.exe has a 32 KB argv limit.
+  out=$(cd "$txd" || exit 1
+        set -- *.txt
+        { [ -e "$1" ] || [ -L "$1" ]; } || exit 0
+        tomb=(.*.txt.evicted); [ -e "${tomb[0]}" ] || tomb=()
+        { wc -l -- "$@" 2>/dev/null; printf '%s\n' '--mtime--'; _sb_mtimes "$@" ${tomb[@]+"${tomb[@]}"}; } \
+          | jq -nrR "${st_arg[@]}" "$_SB_DRAIN_MAP_JQ"
+        exit "${PIPESTATUS[1]}") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sb_log_error "lib.sh" "sb_drain_cursor_map: accounting failed rc=$rc (txd=$txd)" 1
+    return 1
+  fi
+  out="${out//$'\r'/}"
+  # X2#6: an archive `wc -l` cannot read gets no row (its error is not fatal to the others), and
+  # used to vanish from every counter, cap and drain in silence. Rows vs archives on disk, by one
+  # wc -l (the builtin ${out//[!$'\n']/} count is super-linear on bash 3.2, the macOS /bin/bash:
+  # 186 s at 400 rows); only on a shortfall one awk names the missing ones (the ones still on
+  # disk: one deleted meanwhile is not missing).
+  local -a all=("$txd"/*.txt)
+  local nrows=0 miss
+  [ -z "$out" ] || nrows=$(printf '%s\n' "$out" | wc -l)
+  nrows="${nrows//[!0-9]/}"
+  if [ -e "${all[0]}" ] && [ "${nrows:-0}" -lt "${#all[@]}" ]; then
+    miss=$({ printf '%s\n' "$out"; printf '%s\n' '--disk--'; printf '%s\n' "${all[@]##*/}"; } \
+      | LC_ALL=C awk -F'\t' '$0 == "--disk--" { d = 1; next } !d { r[$1] = 1; next } $0 != "" && !($0 in r)')
+    local m kept="" nk=0
+    while IFS= read -r m; do
+      [ -n "$m" ] && [ -e "$txd/$m" ] && { kept="$kept${kept:+, }$m"; nk=$((nk + 1)); }
+    done < <(printf '%s\n' "$miss")
+    [ "$nk" -eq 0 ] || sb_log_error "lib.sh" "sb_drain_cursor_map: ${nk} archive(s) missing from the drain accounting (wc -l could not read them; no counter, cap or drain sees them): ${kept:0:600}" 1
+  fi
+  [ -n "$out" ] && printf '%s\n' "$out"
+  return 0
+}
+
+# sb_drain_map_counts MAP: totals over one sb_drain_cursor_map output, builtins only. Sets
+# SB_DM_TOTAL SB_DM_DONE SB_DM_PENDING SB_DM_DEAD, SB_DM_EXTRACTED and SB_DM_OLDEST_PENDING_MTIME
+# (0 = nothing pending; the map is oldest-first, so the first pending row is the oldest).
+# SB_DM_EXTRACTED = archives with extraction evidence: some line extracted (cursor > 0), nothing
+# left to extract (done), or an unmigrated legacy ok row (flag baseline) — so a fresh upgrade
+# does not read as "nothing ever extracted" before the drainer's first tick migrates it.
+# SB_DM_DEAD counts archives in STATE dead (their whole tail is dead-lettered: the reconcile
+# row's observed = done + dead); SB_DM_DEAD_ARCHIVES / _WINDOWS / _LINES count every dead-lettered
+# window whatever the state (X2#1), which is what the dead-letter counters report.
+sb_drain_map_counts() {
+  SB_DM_TOTAL=0; SB_DM_DONE=0; SB_DM_PENDING=0; SB_DM_DEAD=0; SB_DM_EXTRACTED=0
+  SB_DM_OLDEST_PENDING_MTIME=0; SB_DM_DEAD_ARCHIVES=0; SB_DM_DEAD_WINDOWS=0; SB_DM_DEAD_LINES=0
+  local b c n s nx f mt fl dw dl _rest x
+  while IFS=$'\t' read -r b c n s nx f mt fl dw dl _rest; do
+    [ -n "$b" ] || continue
+    SB_DM_TOTAL=$((SB_DM_TOTAL + 1))
+    case "$dw" in ''|*[!0-9]*) dw=0 ;; esac
+    case "$dl" in ''|*[!0-9]*) dl=0 ;; esac
+    if [ "$dw" -gt 0 ]; then
+      SB_DM_DEAD_ARCHIVES=$((SB_DM_DEAD_ARCHIVES + 1))
+      SB_DM_DEAD_WINDOWS=$((SB_DM_DEAD_WINDOWS + dw)); SB_DM_DEAD_LINES=$((SB_DM_DEAD_LINES + dl))
+    fi
+    x=0
+    case "$c" in ''|0|*[!0-9]*) ;; *) x=1 ;; esac
+    case "$s/$fl" in done/*|*/baseline) x=1 ;; esac
+    [ "$x" -eq 0 ] || SB_DM_EXTRACTED=$((SB_DM_EXTRACTED + 1))
+    case "$s" in
+      done) SB_DM_DONE=$((SB_DM_DONE + 1)) ;;
+      dead) SB_DM_DEAD=$((SB_DM_DEAD + 1)) ;;
+      *)    SB_DM_PENDING=$((SB_DM_PENDING + 1))
+            case "$mt" in ''|*[!0-9]*) mt=0 ;; esac
+            [ "$SB_DM_OLDEST_PENDING_MTIME" -ne 0 ] || SB_DM_OLDEST_PENDING_MTIME="$mt" ;;
+    esac
+  done < <(printf '%s\n' "$1")
+  return 0
+}
+
+# The jq half of sb_compact_done_set. stdin = the archive basenames on disk, a `--tomb--` line, then
+# `_sb_mtimes` over the eviction tombstones; $st = the raw done-set. A row written at or before
+# its basename's tombstone is dropped first (the map hides it: X2 S2). Per live basename it then
+# keeps (verbatim, in file order) exactly the rows _SB_DRAIN_MAP_JQ reads:
+#   the ok|baseline row holding the cursor (max lines)         -> cursor
+#   a row holding max(lines) over every outcome                -> the recreated check ($hi)
+#   every error row (the dead-lettered windows, under the       -> next, dead_windows/dead_lines
+#   cursor too: X2#1) and every ok|baseline row whose window
+#   overlaps one (it takes lines back from the dead count)
+#   the trailing retry run, and the last non-retry row before it -> fails (trailing_retries
+#                                                                   stops at that row)
+#   the last ok|error row                                       -> a legacy (lines-less) archive's
+#                                                                   flag, ts and outcome
+# Each map field is a max over, or the tail of, the rows, and the kept set holds every row that
+# realises one, so the map of the compacted ledger is identical. Rows of archives no longer on
+# disk and unparseable rows are dropped (the map never reads them).
+_SB_COMPACT_JQ='
+def hasl: (.r.lines | type) == "number";
+def lastof(f): [.[] | select(f)] | last;
+def ival: [((.r.from // 0) | if type == "number" then . else 0 end), .r.lines];
+def epoch: try fromdateiso8601 catch 0;
+(reduce (inputs | sub("\r$"; "") | select(length > 0)) as $l ({sec: "n", live: {}, tomb: {}};
+  if $l == "--tomb--" then .sec = "t"
+  elif .sec == "n" then .live[$l] = true
+  else (([$l | capture("^(?<n>[0-9]+) [.](?<f>.*)[.]evicted$")] | .[0])) as $m
+       | if $m == null then . else .tomb[$m.f] = ($m.n | tonumber) end
+  end)) as $in
+| $in.live as $live | $in.tomb as $tomb
+| ($st | split("\n")) as $L
+| [ range(0; $L | length) as $i
+    | ($L[$i] | sub("\r$"; "")) as $raw
+    | ($raw | try fromjson catch null) as $r
+    | select(($r | type) == "object" and ($r.basename | type) == "string" and $live[$r.basename] == true)
+    | select((($tomb[$r.basename] // 0)) as $t | $t == 0 or (($r.ts | epoch) > $t))
+    | {i: $i, raw: $raw, r: $r} ]
+| group_by(.r.basename)
+| map(
+    ([.[] | select((.r.outcome == "ok" or .r.outcome == "baseline") and hasl) | .r.lines] | max // 0) as $cur
+    | ([.[] | select(hasl) | .r.lines] | max) as $hi
+    | (reduce (reverse[]) as $x ({run: [], stop: null};
+        if .stop != null then . elif $x.r.outcome == "retry" then .run += [$x] else .stop = $x end)) as $t
+    | ([.[] | select(.r.outcome == "error" and hasl) | ival]) as $ew
+    | [ lastof((.r.outcome == "ok" or .r.outcome == "baseline") and hasl and .r.lines == $cur),
+        lastof(hasl and .r.lines == $hi),
+        (.[] | select(.r.outcome == "error" and hasl)),
+        (.[] | select((.r.outcome == "ok" or .r.outcome == "baseline") and hasl)
+             | (ival) as $w | select(any($ew[]; $w[0] < .[1] and .[0] < $w[1]))),
+        $t.run[], $t.stop,
+        lastof(.r.outcome == "ok" or .r.outcome == "error") ]
+    | map(select(. != null)) | unique_by(.i) | .[])
+| sort_by(.i)[] | .raw
+'
+
+# sb_compact_done_set [STATE] [TXDIR]: rewrite the done-set keeping, per archive on disk, only the
+# rows sb_drain_cursor_map reads (see _SB_COMPACT_JQ): its output, every column, is the same before
+# and after (R2-F#10). The ledger gains a row per extracted window and every SessionStart parses
+# it, so the drainer's ledger GC runs this each tick UNDER THE DRAIN LOCK (the only writer). ONE
+# jq (the archive list on stdin, the ledger via --rawfile: native jq.exe has a 32 KB argv limit,
+# which the old GC's --argjson list of every archive name hit at ~700 archives), tmp + mv. The
+# rewrite refreshes the ledger mtime, as the GC always did (loop-dead banner reads it as "the
+# drainer ran"). Returns 1 on a failure, logged, with the ledger left as it was.
+# Eviction tombstones (X2 S2) are consumed here: once the rows they hide are gone, each tombstone
+# whose mtime did not change since it was read is removed (a re-eviction meanwhile keeps its own).
+# A failed compaction keeps them. The scratch file matches ensure-dirs.sh's *.tmp.* debris sweep.
+sb_compact_done_set() {
+  local state="${1:-$BRAIN_DIR/.extraction-state.jsonl}" txd="${2:-$BRAIN_DIR/transcripts}" tmp ps
+  [ -s "$state" ] || return 0
+  [ -d "$txd" ] || return 0   # no archive dir is not "no archive": never empty the ledger on it
+  case "$state" in /*|[A-Za-z]:*) ;; *) state="$PWD/$state" ;; esac
+  tmp="$state.tmp.compact.$$"
+  local -a tb
+  local tmt=""
+  tb=("$txd"/.*.txt.evicted)
+  [ -e "${tb[0]}" ] && tmt=$(cd "$txd" && _sb_mtimes .*.txt.evicted)
+  ( cd "$txd" || exit 1
+    set -- *.txt; { [ -e "$1" ] || [ -L "$1" ]; } && printf '%s\n' "$@"
+    printf '%s\n' '--tomb--'
+    [ -z "$tmt" ] || printf '%s\n' "$tmt" ) \
+    | jq -nrR --rawfile st "$state" "$_SB_COMPACT_JQ" 2>/dev/null | tr -d '\r' > "$tmp"
+  ps="${PIPESTATUS[*]}"
+  if [ "$ps" != "0 0 0" ]; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_compact_done_set: compaction of $state failed (pipe status $ps); the ledger is left as it was" 1
+    return 1
+  fi
+  if ! mv -f "$tmp" "$state" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    sb_log_error "lib.sh" "sb_compact_done_set: cannot rename the compacted ledger over $state; left as it was" 1
+    return 1
+  fi
+  if [ -n "$tmt" ]; then
+    local l
+    local -a done_tb=()
+    while IFS= read -r l; do
+      [ -n "$l" ] || continue
+      case $'\n'"$tmt"$'\n' in *$'\n'"$l"$'\n'*) done_tb+=("$txd/${l#* }") ;; esac
+    done < <(cd "$txd" && _sb_mtimes .*.txt.evicted)
+    [ "${#done_tb[@]}" -eq 0 ] || rm -f -- "${done_tb[@]}" 2>/dev/null \
+      || sb_log_error "lib.sh" "sb_compact_done_set: cannot remove ${#done_tb[@]} consumed eviction tombstone(s) in $txd; they are re-consumed next tick" 1
+  fi
+  return 0
+}
+
+# sb_archive_window FILE FROM TO MAXBYTES -> "<header_end> <window_bytes> <chunk_end>".
+# The window is archive lines (max(FROM, header_end), TO]. header_end = the first `---` line
+# (CR-tolerant) among lines 2..64, else 0 (a header-less archive is all body). window_bytes =
+# its size as the extractor receives it (CRs stripped, one byte per line end; MSYS awk reads in
+# text mode and would drop the CR anyway). chunk_end = the last line of the first forward chunk of at most MAXBYTES (at
+# least one line, so an oversized line still makes progress; clamped to TO). Lines past TO — a
+# torn tail included — are never read into the window. One awk, two passes over the file.
+sb_archive_window() {
+  local f="$1" from="${2:-0}" to="${3:-0}" max="${4:-200000}"
+  case "$from" in ''|*[!0-9]*) from=0 ;; esac
+  case "$to" in ''|*[!0-9]*) to=0 ;; esac
+  case "$max" in ''|*[!0-9]*) max=200000 ;; esac
+  [ -f "$f" ] || return 1
+  LC_ALL=C awk -v from="$from" -v to="$to" -v max="$max" '
+    FNR == NR {
+      if (!hdone && FNR > 1) { l = $0; sub(/\r$/, "", l); if (l == "---") { hdr = FNR; hdone = 1 } }
+      if (FNR >= 64) hdone = 1
+      next
+    }
+    !init { s = (from > hdr) ? from : hdr; cend = s; init = 1 }
+    FNR <= s { next }
+    FNR > to { exit }
+    {
+      l = $0; sub(/\r$/, "", l); b = length(l) + 1; total += b
+      if (!full) { if (cend == s || acc + b <= max) { acc += b; cend = FNR } else full = 1 }
+    }
+    END {
+      if (!init) { s = (from > hdr) ? from : hdr; cend = s }
+      if (cend > to) cend = to
+      printf "%d %d %d\n", hdr, total, cend
+    }
+  ' "$f" "$f"
 }
 
 # Read project_slug: from the archived transcript's meta header.
@@ -2885,12 +4016,21 @@ sb_session_prov_write() {
   return 0
 }
 
-# Build the extractor input from a preprocessed archived transcript + PROJECT.md,
-# call the extractor, quality-gate the delta, merge it, route persona signals.
-# Returns 0 only on a successful merge. Used by the out-of-band drainer.
+# sb_extract_transcript TXT SLUG [FROM [TO]]: extract archive lines (FROM, TO] — archive_line
+# positions, the meta header never included — and nothing else: no CONTEXT block of earlier lines
+# (PROJECT.md is already sent, and replayed context invites re-emission). Defaults: FROM 0, TO =
+# sb_line_count. The window is CHUNKED FORWARD at SB_EXTRACT_MAX_BYTES, oldest chunk first — the
+# old tail cap silently dropped the oldest part of any big archive. Each chunk is a full
+# extract -> gate -> merge pass. SB_EXTRACT_REACHED = the last line whose chunk merged (FROM when
+# none did), so a caller can record partial progress. Returns 0 only when every chunk merged.
+# The drainer hands over one chunk at a time (see extract-drain.sh) to keep its lock budget.
 sb_extract_transcript() {
-  local txt="$1" slug="$2"
+  local txt="$1" slug="$2" from="${3:-0}" to="${4:-}"
+  SB_EXTRACT_REACHED="${from:-0}"
   [ -f "$txt" ] || return 1
+  case "$from" in ''|*[!0-9]*) from=0 ;; esac
+  case "$to" in ''|*[!0-9]*) to=$(sb_line_count "$txt") || return 1 ;; esac
+  SB_EXTRACT_REACHED="$from"
   # D121: normalize with the SAME rule the capture funnel used to WRITE this
   # header (sb_slug_from_dir: CR-strip + basename + tmp/scratch collapse) --
   # NOT sb_sanitize_slug's lowercase/charset rewrite, which put the drainer on
@@ -2921,14 +4061,15 @@ sb_extract_transcript() {
   #
   # Default 240s (Phase 1.2, slow-HW headroom): a Pi-class box pays ~24s on the
   # nested-spawn hook stack before the extractor even starts, so a real extraction
-  # over the 200KB tail cap can blow the old 120s budget -> ec=124 -> retry; 3
-  # outcomes (SB_DRAIN_MAX_FAILS) terminally mark the transcript `error`. 240s
+  # of a 200KB chunk can blow the old 120s budget -> ec=124 -> retry; 3
+  # outcomes (SB_DRAIN_MAX_FAILS) terminally mark the region `error`. 240s
   # doubles the per-attempt budget. BUDGET PROOF it stays well under the 7200s lock
-  # steal-threshold (SB_DRAIN_LOCK_STALE) even fully degraded: worst case per
-  # transcript = 3 retry paths (direct + pty + API) x timeout_s, x SB_DRAIN_BATCH=5
-  #   = 5 x 3 x 240 = 3600s = HALF of 7200 — a live run can't be judged stale and
-  # have its lock stolen. 240 is the LARGEST value keeping BATCH x 3 x timeout_s
-  # <= 7200/2; do NOT raise further without also raising SB_DRAIN_LOCK_STALE.
+  # steal-threshold (SB_DRAIN_LOCK_STALE) even fully degraded: the drainer makes at
+  # most SB_DRAIN_BATCH=5 extractor calls per tick (one chunk per call; a failed
+  # attempt takes a batch slot too), each worst case 3 retry paths (direct + pty +
+  # API) x timeout_s = 5 x 3 x 240 = 3600s = HALF of 7200 — a live run can't be
+  # judged stale and have its lock stolen. 240 is the LARGEST value keeping BATCH x 3
+  # x timeout_s <= 7200/2; do NOT raise further without also raising SB_DRAIN_LOCK_STALE.
   local timeout_s="${SB_DRAIN_EXTRACT_TIMEOUT:-240}"
   local prompt_file="$sdir/extract-prompt.txt"
   [ -f "$prompt_file" ] || return 1
@@ -2965,40 +4106,7 @@ TMPL
   fi
   mkdir -p "$kdir/wiki" 2>/dev/null || true
 
-  local in_f out_f; in_f=$(mktemp); out_f=$(mktemp)
-  {
-    echo "=== PROJECT.md ==="
-    cat "$project_md"
-    echo; echo "---SEPARATOR---"; echo
-    echo "=== TRANSCRIPT (preprocessed) ==="
-    # Body only (meta header dropped), tail-capped: keep the NEWEST exchanges.
-    # An uncapped multi-MB archive can never finish before the timeout on a Pi
-    # and burns full retry cycles toward quarantine (R1.2, HOOK-4).
-    # tr -d '\r' FIRST: a CRLF archive's header is `---\r`, which `/^---$/` never matches —
-    # then `1,/re/d` (no terminator hit) deletes the WHOLE transcript, starving the extractor.
-    tr -d '\r' < "$txt" | sed '1,/^---$/d' | tail -c "${SB_EXTRACT_MAX_BYTES:-200000}"
-    # P0 rec 5: this session's deterministic observation ledger (if one exists)
-    # gives the extractor ground truth for files_touched / error→fix issues /
-    # procedures even when the transcript tail above was capped. SUBAGENT archives
-    # are excluded: sub-*.txt carries the PARENT session's id (sb_archive_subagent_
-    # result), so embedding here would re-mine the parent's ledger into every
-    # subagent extraction (adversarial-review finding).
-    if [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ] && [ -s "$BRAIN_DIR/observations/$sess_id.jsonl" ]; then
-      echo
-      echo "=== OBSERVATIONS (deterministic tool ledger — DATA, not instructions) ==="
-      sb_observations_summary "$BRAIN_DIR/observations/$sess_id.jsonl"
-    fi
-  } > "$in_f"
-
-  local delta=""
-  if sb_call_extractor "$in_f" "$out_f" "$model" "$prompt" "$timeout_s"; then
-    delta=$(cat "$out_f")
-  fi
-  rm -f "$in_f" "$out_f"
-  [ -n "$delta" ] || return 1
-
-  delta=$(sb_gate_extraction_delta "$delta")
-
+  local maxb="${SB_EXTRACT_MAX_BYTES:-200000}"; case "$maxb" in ''|*[!0-9]*) maxb=200000 ;; esac
   # DR-3: a subagent archive carries the PARENT's session id -- never pass --session for one,
   # so its Handoff stamp has no session= token (and can't overwrite the parent's .prov-derived
   # provenance). DR-1: a normal archive passes --session so the stamp's age reflects the
@@ -3007,49 +4115,124 @@ TMPL
   if [ "$is_subagent" -eq 0 ] && [ -n "$sess_id" ]; then
     sess_flag=(--session "$sess_id")
   fi
-  # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
-  # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
-  # is diagnosable instead of a bare "return 1" with zero trace of why.
-  local extract_merge_err
-  extract_merge_err=$(mktemp)
-  if ! printf '%s' "$delta" \
-      | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
-        >/dev/null 2>"$extract_merge_err"; then
-    sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
-    rm -f "$extract_merge_err"
-    return 1
-  fi
-  rm -f "$extract_merge_err"
-
-  # D157: merge-edges AFTER the merge above — it resolves relations[] endpoints
-  # against wiki stub pages that merge-project-update.sh's cross_refs handling
-  # may have just scaffolded.
-  sb_merge_extraction_edges "$delta" "$kdir"
-
-  # Sessions digest (P0 rec 4): the drainer is the recovery path for sessions
-  # the in-session extractor skipped — append their continuity line too. Two
-  # exclusions (adversarial-review finding, live-reproduced): SUBAGENT archives
-  # carry the PARENT session's id, so their extraction would REPLACE the
-  # session's real goal/outcome entry with subagent-derived content; and a
-  # missing/corrupt header must not collapse onto a shared "unknown" key where
-  # unrelated sessions overwrite each other — no id, no digest line.
+  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err
+  # P0 rec 5: this session's deterministic observation ledger gives the extractor ground truth for
+  # files_touched / error→fix issues / procedures. SUBAGENT archives are excluded: sub-*.txt
+  # carries the PARENT session's id (sb_archive_subagent_result), so embedding here would re-mine
+  # the parent's ledger into every subagent extraction (adversarial-review finding). X2#5: the
+  # drainer extracts an archive in delta windows, and each one used to get the WHOLE ledger again
+  # (replayed issues and files). Each call now gets the ledger lines recorded since the last call
+  # that merged (observations/<sid>.sent = lines sent), with its last chunk; a failed call sends
+  # them again next time, a ledger shorter than the marker (recreated) is sent whole.
+  local obs_f="" obs_mark="" obs_n=0 obs_sent=0 obs_slice=""
   if [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ]; then
-    local dg_goal dg_out
-    dg_goal=$(printf '%s' "$delta" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '\r')
-    dg_out=$(printf '%s' "$delta" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
-    sb_append_session_digest "$slug" "$sess_id" "$dg_goal" "$dg_out" || true
+    obs_f="$BRAIN_DIR/observations/$sess_id.jsonl"; obs_mark="$BRAIN_DIR/observations/$sess_id.sent"
   fi
+  while [ "$cur" -lt "$to" ]; do
+    win=$(sb_archive_window "$txt" "$cur" "$to" "$maxb") || return 1
+    read -r hdr wbytes cend <<< "$win"   # <<<-bounded: three integers from sb_archive_window, < 40 B
+    start="$cur"; [ "${hdr:-0}" -gt "$start" ] && start="$hdr"
+    # Nothing but meta header left in the window: there is no body to extract.
+    if [ "${wbytes:-0}" -eq 0 ] || [ "${cend:-0}" -le "$start" ]; then SB_EXTRACT_REACHED="$to"; break; fi
 
-  local sigs; sigs=$(printf '%s' "$delta" | jq -c \
-    '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}' 2>/dev/null)
-  if [ -n "$sigs" ] && printf '%s' "$sigs" \
-    | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
-    if [ -n "$slug" ]; then
-      printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" 2>/dev/null || true
-    else
-      printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+    in_f=$(mktemp); out_f=$(mktemp)
+    obs_slice=""
+    if [ "$cend" -ge "$to" ] && [ -n "$obs_f" ] && [ -s "$obs_f" ]; then
+      obs_n=$(sb_line_count "$obs_f") || obs_n=0
+      obs_sent=0; [ -f "$obs_mark" ] && read -r obs_sent < "$obs_mark"
+      obs_sent="${obs_sent%$'\r'}"; case "$obs_sent" in ''|*[!0-9]*) obs_sent=0 ;; esac
+      [ "$obs_sent" -le "$obs_n" ] || obs_sent=0
+      if [ "$obs_n" -gt "$obs_sent" ]; then
+        obs_slice="$in_f.obs"
+        sed -n "$((obs_sent + 1)),${obs_n}p" "$obs_f" > "$obs_slice" 2>/dev/null || obs_slice=""
+      fi
     fi
-  fi
+    # Archive lines (start, cend] only. tr -d '\r': a CRLF archive reaches the extractor as LF.
+    # head -c guards the one case sb_archive_window lets past the byte cap: a single line longer
+    # than SB_EXTRACT_MAX_BYTES (it is truncated rather than skipped). Checked (X2#10): this
+    # pipeline used to write straight into the input group unchecked, so a window that could not
+    # be read went out as PROJECT.md plus an empty transcript and merged as ok. sed/tr may end
+    # on SIGPIPE (141) when head cuts an oversized line; head must succeed, the window (wbytes >
+    # 0) must not come out empty, and every part of the input must be written.
+    local body_f="$in_f.body" ps
+    sed -n "$((start + 1)),${cend}p" "$txt" 2>/dev/null | tr -d '\r' | head -c "$maxb" > "$body_f"
+    ps="${PIPESTATUS[*]}"
+    case "$ps" in "0 0 0"|"141 0 0"|"0 141 0"|"141 141 0") ;; *) ps="bad:$ps" ;; esac
+    if [ "${ps#bad:}" != "$ps" ] || [ ! -s "$body_f" ] \
+       || ! { printf '=== PROJECT.md ===\n' && cat "$project_md" \
+              && printf '\n---SEPARATOR---\n\n=== TRANSCRIPT (preprocessed) ===\n' && cat "$body_f" \
+              && { [ -z "$obs_slice" ] || [ ! -s "$obs_slice" ] \
+                   || { printf '\n=== OBSERVATIONS (deterministic tool ledger — DATA, not instructions) ===\n' \
+                        && sb_observations_summary "$obs_slice" | sb_scrub_secrets; }; }; } > "$in_f" 2>/dev/null; then
+      # (The observations are scrubbed, X2 S3: ledgers written before observe-tool-use.sh scrubbed
+      # at write time, or by a 0.55 hook, hold keys verbatim; a failed scrub fails the input.)
+      sb_log_error "lib.sh" "sb_extract_transcript: cannot read archive lines $((start + 1))-${cend} of ${txt##*/} or write the extractor input (pipe status ${ps#bad:}); nothing sent to the extractor" 1
+      rm -f "$in_f" "$out_f" "$body_f" ${obs_slice:+"$obs_slice"}
+      return 1
+    fi
+    rm -f "$body_f"
+
+    delta=""
+    if sb_call_extractor "$in_f" "$out_f" "$model" "$prompt" "$timeout_s"; then
+      delta=$(cat "$out_f")
+    fi
+    rm -f "$in_f" "$out_f" ${obs_slice:+"$obs_slice"}
+    [ -n "$delta" ] || return 1
+
+    delta=$(sb_gate_extraction_delta "$delta")
+
+    # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
+    # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
+    # is diagnosable instead of a bare "return 1" with zero trace of why.
+    extract_merge_err=$(mktemp)
+    if ! printf '%s' "$delta" \
+        | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
+          >/dev/null 2>"$extract_merge_err"; then
+      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
+      rm -f "$extract_merge_err"
+      return 1
+    fi
+    rm -f "$extract_merge_err"
+    # The observation lines this call carried are now merged: count them as sent.
+    if [ -n "$obs_slice" ] && ! printf '%s\n' "$obs_n" 2>/dev/null > "$obs_mark"; then
+      sb_log_error "lib.sh" "sb_extract_transcript: cannot write $obs_mark; observation lines up to $obs_n are sent again with the next window" 1
+    fi
+
+    # D157: merge-edges AFTER the merge above — it resolves relations[] endpoints
+    # against wiki stub pages that merge-project-update.sh's cross_refs handling
+    # may have just scaffolded.
+    sb_merge_extraction_edges "$delta" "$kdir"
+
+    # Sessions digest (P0 rec 4): the drainer is the recovery path for sessions
+    # the in-session extractor skipped — append their continuity line too. Two
+    # exclusions (adversarial-review finding, live-reproduced): SUBAGENT archives
+    # carry the PARENT session's id, so their extraction would REPLACE the
+    # session's real goal/outcome entry with subagent-derived content; and a
+    # missing/corrupt header must not collapse onto a shared "unknown" key where
+    # unrelated sessions overwrite each other — no id, no digest line.
+    if [ -n "$sess_id" ] && [ "$is_subagent" -eq 0 ]; then
+      local dg_goal dg_out
+      dg_goal=$(printf '%s' "$delta" | jq -r '.session_goal // ""' 2>/dev/null | tr -d '\r')
+      dg_out=$(printf '%s' "$delta" | jq -r '.session_outcome // ""' 2>/dev/null | tr -d '\r')
+      # X2#5: delta windows. Only the window that starts at the archive's header end (the
+      # session's first) states the session goal; a later window's "goal" is a sub-task. It
+      # brings the newer outcome, and the digest keeps the goal it has (empty field = keep).
+      [ "$cur" -le "${hdr:-0}" ] || dg_goal=""
+      sb_append_session_digest "$slug" "$sess_id" "$dg_goal" "$dg_out" || true
+    fi
+
+    local sigs; sigs=$(printf '%s' "$delta" | jq -c \
+      '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}' 2>/dev/null)
+    if [ -n "$sigs" ] && printf '%s' "$sigs" \
+      | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
+      if [ -n "$slug" ]; then
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" 2>/dev/null || true
+      else
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+      fi
+    fi
+    cur="$cend"; SB_EXTRACT_REACHED="$cend"
+  done
   return 0
 }
 

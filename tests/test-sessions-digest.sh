@@ -232,6 +232,38 @@ sb_extract_transcript "$GNOHDR" "guard-slug" >/dev/null 2>&1 || fail "guard-nohd
 AFTER=$(cat "$GDIGEST")
 [ "$BEFORE" = "$AFTER" ] || fail "guard-nohdr: headerless archive wrote a digest entry (unknown-key collision class)"
 pass "drainer: archive without session_id writes no digest line (no unknown-key collisions)"
+
+# X2#5: the drainer extracts an archive in delta windows, and each window REPLACED the session's
+# digest entry with that window's goal/outcome (a late sub-task's goal became "the session goal").
+# Only the window that starts at the archive's header end states the goal; a later window keeps it
+# and brings the newer outcome (an empty field keeps the entry's previous value).
+WARCH="$TMP/win-sid_guard-slug_2026-07-30.txt"
+{ printf -- '--- session-meta ---\nsession_id: win-sid\nproject_slug: guard-slug\ndate: 2026-07-30\n---\n'
+  for i in 1 2 3 4 5 6 7 8 9 10; do printf 'USER: step %02d\n' "$i"; done; } > "$WARCH"
+sb_call_extractor() {
+  if grep -q 'step 01' "$1"; then
+    printf '{"recent_decisions":[],"session_goal":"THE SESSION GOAL","session_outcome":"in progress: first window"}' > "$2"
+  else
+    printf '{"recent_decisions":[],"session_goal":"A LATE SUB-TASK","session_outcome":"done: shipped"}' > "$2"
+  fi
+  return 0
+}
+sb_extract_transcript "$WARCH" "guard-slug" 0 10 >/dev/null 2>&1 || fail "windows: first window failed"
+sb_extract_transcript "$WARCH" "guard-slug" 10 15 >/dev/null 2>&1 || fail "windows: later window failed"
+WREC=$(jq -c 'select(.session_id == "win-sid")' "$GDIGEST" 2>/dev/null | tr -d '\r')
+[ "$(printf '%s\n' "$WREC" | grep -c .)" = "1" ] || fail "windows: expected one digest entry for the session (got: $WREC)"
+[ -n "$WREC" ] && printf '%s' "$WREC" | jq -e '.goal == "THE SESSION GOAL"' >/dev/null 2>&1 || fail "windows: a later window replaced the session goal (got: $WREC)"
+[ -n "$WREC" ] && printf '%s' "$WREC" | jq -e '.outcome == "done: shipped"' >/dev/null 2>&1 || fail "windows: the later window's outcome was dropped (got: $WREC)"
+pass "drainer: delta windows keep the first window's goal and take the newest outcome"
+# the helper's merge on its own: an empty field keeps the entry's previous value
+sb_append_session_digest "guard-slug" "merge-sid" "G1" "O1"
+sb_append_session_digest "guard-slug" "merge-sid" "" "O2"
+jq -e 'select(.session_id == "merge-sid") | .goal == "G1" and .outcome == "O2"' "$GDIGEST" >/dev/null 2>&1 \
+  || fail "merge: an empty goal erased the entry's goal (got: $(grep merge-sid "$GDIGEST"))"
+sb_append_session_digest "guard-slug" "merge-sid" "G3" ""
+jq -e 'select(.session_id == "merge-sid") | .goal == "G3" and .outcome == "O2"' "$GDIGEST" >/dev/null 2>&1 \
+  || fail "merge: an empty outcome erased the entry's outcome (got: $(grep merge-sid "$GDIGEST"))"
+pass "sb_append_session_digest: an empty goal/outcome keeps the entry's previous value"
 unset -f sb_call_extractor
 
 # ============================================================================

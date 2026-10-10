@@ -139,7 +139,17 @@ case "${1:-}" in
     fi
     echo "The pre-restore state is itself a snapshot (wiki-history.sh list)."
     # The index must be rebuilt: restored pages differ from what search/MOCs were built against.
-    sb_reindex_wiki "$KD" >/dev/null 2>&1 || sb_log_error "wiki-history" "reindex after restore failed" 1
+    # A failed reindex returns node's status; a skipped one (no node, or no reindex bundle) returns 0
+    # with SB_REINDEX_SKIPPED=1, which a bare `||` never saw (R3-C, S10 remainder). Either way the
+    # index does not list the restored pages yet, so the restore says so; a failure is also a row.
+    _ri_rc=0
+    sb_reindex_wiki "$KD" >/dev/null 2>&1 || _ri_rc=$?
+    if [ "$_ri_rc" -ne 0 ]; then
+      sb_log_error "wiki-history" "reindex after restore to $REF failed (exit $_ri_rc); wiki/index.md does not list the restored pages until the next reindex" 1
+      echo "warning: the wiki index was not rebuilt after the restore (reindex exit $_ri_rc); run knowledge_reindex" >&2
+    elif [ "${SB_REINDEX_SKIPPED:-0}" = 1 ]; then
+      echo "warning: the wiki index was not rebuilt after the restore (node or the reindex bundle is missing; see the error-log); run knowledge_reindex once it is available" >&2
+    fi
     ;;
   *)
     echo "usage: wiki-history.sh {snapshot [reason]|list [n]|show <ref>|restore <ref>}" >&2

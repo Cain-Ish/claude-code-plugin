@@ -31,6 +31,11 @@ SCRIPT="$ROOT/scripts/discover-installed.sh"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
+# D5 (2026-10-07): the hook prints NOTHING; the catalog FILE is its only output. It used to print
+# the whole catalog (440,513 B live) at every SessionStart: Claude Code injected none of it
+# (content=0) but stored it in the session transcript, and nothing read it but this test. Every
+# case below reads the file and checks the hook's stdout with quiet <case> <stdout>.
+quiet() { [ -z "$2" ] || fail "$1: the hook printed to stdout ($(printf '%s' "$2" | wc -c | tr -d ' ') B, starting: $(printf '%s' "$2" | head -c 80))"; }
 
 [ -f "$SCRIPT" ] || fail "scripts/discover-installed.sh not found"
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq unavailable"; exit 0; }
@@ -63,8 +68,11 @@ mkplugin() {
 P1="$TMP/plugins1"; B1="$TMP/b1"; mkdir -p "$P1" "$B1"
 mkplugin "$P1" "alpha" "1.2.3" 2 3
 mkplugin "$P1" "beta"  "0.1.0" 1 1
-OUT=$(env BRAIN_DIR="$B1" bash "$SCRIPT" "$P1" 2>/dev/null) || fail "1: script exited non-zero"
-[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e . >/dev/null 2>&1 || fail "1: output is not valid JSON"
+SO=$(env BRAIN_DIR="$B1" bash "$SCRIPT" "$P1" 2>/dev/null) || fail "1: script exited non-zero"
+quiet "1 (first, synchronous build)" "$SO"
+[ -f "$B1/.installed-catalog.json" ] || fail "1: .installed-catalog.json not written"
+OUT=$(cat "$B1/.installed-catalog.json")
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e . >/dev/null 2>&1 || fail "1: catalog is not valid JSON"
 [ "$(printf '%s' "$OUT" | jq -r '.plugins | length')" = "2" ] || fail "1: expected 2 plugins"
 [ "$(printf '%s' "$OUT" | jq -r '.agents  | length')" = "3" ] || fail "1: expected 3 agents"
 [ "$(printf '%s' "$OUT" | jq -r '.skills  | length')" = "4" ] || fail "1: expected 4 skills"
@@ -80,16 +88,16 @@ OUT=$(env BRAIN_DIR="$B1" bash "$SCRIPT" "$P1" 2>/dev/null) || fail "1: script e
   || fail "1: agent record shape changed"
 pass "catalog shape, counts, attribution, version"
 
-# --- Test 2: the catalog file is written, not just streamed -------------------
-[ -f "$B1/.installed-catalog.json" ] || fail "2: .installed-catalog.json not written"
-diff <(printf '%s\n' "$OUT") "$B1/.installed-catalog.json" >/dev/null 2>&1 \
-  || fail "2: stdout and catalog file disagree"
-pass "catalog file written and matches stdout"
+# --- Test 2: the catalog is a file, never streamed (D5) ------------------------
+# Test 1 read the file and found the build's stdout empty; the cached path is test 5.
+[ -s "$B1/.installed-catalog.json" ] || fail "2: .installed-catalog.json empty"
+pass "catalog written to its file; the first (synchronous) build prints nothing"
 
 # --- Test 3: CRLF frontmatter (Windows-authored .md) -------------------------
 P3="$TMP/plugins3"; B3="$TMP/b3"; mkdir -p "$P3" "$B3"
 mkplugin "$P3" "crlfplug" "1.0.0" 2 0 crlf
-OUT3=$(env BRAIN_DIR="$B3" bash "$SCRIPT" "$P3" 2>/dev/null) || fail "3: script exited non-zero"
+SO=$(env BRAIN_DIR="$B3" bash "$SCRIPT" "$P3" 2>/dev/null) || fail "3: script exited non-zero"
+quiet 3 "$SO"; OUT3=$(cat "$B3/.installed-catalog.json")
 [ "$(printf '%s' "$OUT3" | jq -r '.agents | length')" = "2" ] || fail "3: CRLF frontmatter not parsed"
 [ -n "$OUT3" ] && printf '%s' "$OUT3" | jq -e '.agents[] | select(.description | test("\r"))' >/dev/null 2>&1 \
   && fail "3: CR leaked into a description value"
@@ -99,14 +107,16 @@ pass "CRLF frontmatter parsed, no CR leakage"
 P4="$TMP/plugins4"; B4="$TMP/b4"; mkdir -p "$P4" "$B4"
 mkplugin "$P4" "gamma" "1.0.0" 1 0
 printf -- '---\ndescription: no name here\n---\n\nbody\n' > "$P4/gamma/agents/noname.md"
-OUT4=$(env BRAIN_DIR="$B4" bash "$SCRIPT" "$P4" 2>/dev/null)
+SO=$(env BRAIN_DIR="$B4" bash "$SCRIPT" "$P4" 2>/dev/null)
+quiet 4 "$SO"; OUT4=$(cat "$B4/.installed-catalog.json")
 [ "$(printf '%s' "$OUT4" | jq -r '.agents | length')" = "1" ] || fail "4: nameless agent was not skipped"
 pass "frontmatter without name: skipped"
 
-# --- Test 5: cache fast-path returns identical content ------------------------
+# --- Test 5: the cache fast path prints nothing and leaves the catalog as built ----
 OUT5=$(env BRAIN_DIR="$B1" bash "$SCRIPT" "$P1" 2>/dev/null) || fail "5: fast path exited non-zero"
-[ "$OUT5" = "$OUT" ] || fail "5: fast-path output differs from the freshly built catalog"
-pass "cache fast-path returns identical catalog"
+quiet "5 (cached catalog)" "$OUT5"
+[ "$(cat "$B1/.installed-catalog.json")" = "$OUT" ] || fail "5: the fast path changed the freshly built catalog"
+pass "cache fast path: no stdout, catalog unchanged"
 
 # --- Test 5b (R1#2): a foreign headless child (`claude -p`: ATTENDED=0 or ENTRYPOINT=sdk-cli) gets
 # no catalog and writes nothing — not even the brain dir. SB_HEADLESS_CONTEXT=on opts back in.
@@ -125,36 +135,18 @@ OUTHL=$(env BRAIN_DIR="$BHL2" CLAUDE_CODE_ENTRYPOINT=sdk-cli bash "$SCRIPT" "$P1
   || fail "5b (brain dir present): headless child wrote more than its audit row: $(cd "$BHL2" && find . | tr '\n' ' ')"
 jq -e '.script == "discover-installed.sh" and .exit_code == 0 and .message == "gate=headless-child hook=discover-installed entrypoint=sdk-cli attended="' \
     "$BHL2/audit-log.jsonl" >/dev/null || fail "5b: the headless trace row is wrong: $(cat "$BHL2/audit-log.jsonl")"
-OUTHL=$(env BRAIN_DIR="$B1" SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 bash "$SCRIPT" "$P1" 2>/dev/null)
-[ "$OUTHL" = "$OUT" ] || fail "5b: SB_HEADLESS_CONTEXT=on did not restore the catalog for a headless child"
-pass "headless child: no output, no state but its gate=headless-child row; SB_HEADLESS_CONTEXT=on serves the catalog"
+# SB_HEADLESS_CONTEXT=on opts back in: the hook runs as for an attended session (a fresh brain
+# dir gets its catalog built), still with nothing on stdout.
+BHL3="$TMP/b-headless-optin"; mkdir -p "$BHL3"
+OUTHL=$(env BRAIN_DIR="$BHL3" SB_HEADLESS_CONTEXT=on CLAUDE_CODE_SESSION_ATTENDED=0 bash "$SCRIPT" "$P1" 2>/dev/null)
+quiet "5b (SB_HEADLESS_CONTEXT=on)" "$OUTHL"
+[ "$(jq -r '.agents | length' "$BHL3/.installed-catalog.json" 2>/dev/null)" = "3" ] \
+  || fail "5b: SB_HEADLESS_CONTEXT=on did not restore the catalog for a headless child"
+pass "headless child: no output, no state but its gate=headless-child row; SB_HEADLESS_CONTEXT=on builds the catalog"
 
-# --- Test 6: PERF LOCK — must finish inside its own hooks.json timeout --------
-# Read the declared budget rather than hardcoding it, so retuning hooks.json
-# retunes this lock. Falls back to 10 (the 0.44.0 value) if the entry moves.
-BUDGET=$(jq -r '
-  [ .hooks.SessionStart[]?.hooks[]?
-    | select(.command | test("discover-installed"))
-    | .timeout ] | first // empty' "$ROOT/hooks/hooks.json" 2>/dev/null | tr -d '\r')
-case "$BUDGET" in ''|*[!0-9]*) BUDGET=10 ;; esac
-
-P6="$TMP/plugins6"; B6="$TMP/b6"; mkdir -p "$P6" "$B6"
-# 200 agents + 200 skills across 2 plugins. The pre-0.45.0 implementation spent
-# 3 process spawns per file (awk name, awk description, jq assemble) = ~1200
-# spawns here, which blows the budget on any real machine.
-mkplugin "$P6" "big1" "1.0.0" 100 100
-mkplugin "$P6" "big2" "1.0.0" 100 100
-T_START=$(date +%s)
-OUT6=$(env BRAIN_DIR="$B6" bash "$SCRIPT" "$P6" 2>/dev/null) || fail "6: script exited non-zero"
-T_ELAPSED=$(( $(date +%s) - T_START ))
-[ "$(printf '%s' "$OUT6" | jq -r '.agents | length')" = "200" ] || fail "6: wrong agent count under load"
-[ "$(printf '%s' "$OUT6" | jq -r '.skills | length')" = "200" ] || fail "6: wrong skill count under load"
-if [ "$T_ELAPSED" -gt "$BUDGET" ]; then
-  fail "6: PERF — 400 files took ${T_ELAPSED}s, over the ${BUDGET}s timeout hooks.json declares.
-       A killed run never writes the catalog, so the cache stays stale and every
-       later session re-enters the slow path. Do not spawn a process per file."
-fi
-pass "perf: 400 files discovered in ${T_ELAPSED}s (budget ${BUDGET}s)"
+# Test 6 (the wall-clock PERF LOCK) runs LAST, at the end of this file: `fail` exits, and on a
+# loaded MSYS box (measured 23-24 s against the 10 s budget, R3 review Q-M2) it used to stop the
+# file at case 6, so cases 7-19 never ran.
 
 # --- Test 7: hostile / malformed frontmatter cannot corrupt the catalog -------
 # The 0.45.0 implementation frames records with US (0x1f) between awk and jq, so a
@@ -174,7 +166,8 @@ printf -- '---\ndescription: nameless\n---\nbody\n'                             
 printf -- '---\nname: spaced\ndescription: file has spaces\n---\nbody\n'                                        > "$A7/a file with spaces.md"
 printf -- '---\nname: "quoted-name"\ndescription: "quoted desc"\n---\nbody\n'                                    > "$A7/a7.md"
 
-OUT7=$(env BRAIN_DIR="$B7" bash "$SCRIPT" "$P7" 2>/dev/null) || fail "7: script exited non-zero on hostile input"
+SO=$(env BRAIN_DIR="$B7" bash "$SCRIPT" "$P7" 2>/dev/null) || fail "7: script exited non-zero on hostile input"
+quiet 7 "$SO"; OUT7=$(cat "$B7/.installed-catalog.json")
 [ -n "$OUT7" ] && printf '%s' "$OUT7" | jq -e . >/dev/null 2>&1 || fail "7: hostile frontmatter produced invalid JSON"
 [ "$(printf '%s' "$OUT7" | jq -r '.agents | length')" = "5" ] \
   || fail "7: expected 5 agents (a3 no-frontmatter and a5 no-name are skipped)"
@@ -215,7 +208,8 @@ jq -nc --arg n "$HOSTILE_NAME" '{name:$n, description:"d", version:"1"}' \
 jq -e '.name | contains("\n")' "$P8/evil/.claude-plugin/plugin.json" >/dev/null 2>&1 \
   || fail "8: fixture lost the embedded newline in plugin.json name -- test would pass vacuously"
 
-OUT8=$(env BRAIN_DIR="$B8" bash "$SCRIPT" "$P8" 2>/dev/null) || fail "8: script exited non-zero"
+SO=$(env BRAIN_DIR="$B8" bash "$SCRIPT" "$P8" 2>/dev/null) || fail "8: script exited non-zero"
+quiet 8 "$SO"; OUT8=$(cat "$B8/.installed-catalog.json")
 [ -n "$OUT8" ] && printf '%s' "$OUT8" | jq -e . >/dev/null 2>&1 || fail "8: forged-name fixture produced invalid JSON"
 if [ -n "$OUT8" ] && printf '%s' "$OUT8" | jq -e '.agents[] | select(.name=="FAKE-NAME")' >/dev/null 2>&1; then
   fail "8: a hostile plugin.json name FORGED an agent record backed by no file"
@@ -231,7 +225,7 @@ pass "hostile plugin.json name cannot forge catalog records"
 # when cancelled) and the real catalog stayed at its 2026-09-24 copy. Claude Code writes a
 # `.in_use/<pid>` file under every plugin version at each session start, so the
 # `find -newer` check saw a "changed" tree on EVERY start and rebuilt synchronously under
-# load. Contract now: with a cache present the hook prints the cache and returns; freshness
+# load. Contract now: with a cache present the hook returns at once (printing nothing, D5); freshness
 # check and rebuild run in ONE detached process guarded by an mkdir lock; `.in_use` churn is
 # not a change; a failed refresh logs to error-log.jsonl and never clobbers the cache.
 LOCK_NAME=".installed-catalog.lock"
@@ -282,12 +276,15 @@ MARK9="$TMP/mark9"
 OUT9=$(env BRAIN_DIR="$B9" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_MARK="$MARK9" \
   bash "$SCRIPT" "$P9" 2>/dev/null) || fail "9: hook exited non-zero on a stale cache"
 [ -f "$MARK9.done" ] && fail "9: hook returned only after the refresh finished (it waited on the child)"
-[ "$OUT9" = "$SENTINEL" ] || fail "9: stale cache was not served as-is (got a rebuilt catalog synchronously)"
+quiet 9 "$OUT9"
+# The child's first jq call sleeps in the shim, so the catalog cannot have been rebuilt yet unless
+# the hook rebuilt it itself before returning.
+[ "$(cat "$B9/.installed-catalog.json")" = "$SENTINEL" ] || fail "9: the stale cache was rebuilt synchronously, before the hook returned"
 [ -d "$B9/$LOCK_NAME" ] || fail "9: no refresh was scheduled (lock dir absent after return)"
 # Second session while the first refresh is still in flight: serve, do not spawn another.
 OUT9B=$(env BRAIN_DIR="$B9" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_MARK="$MARK9" \
   bash "$SCRIPT" "$P9" 2>/dev/null) || fail "9: second hook exited non-zero"
-[ "$OUT9B" = "$SENTINEL" ] || fail "9: second hook did not serve the cache"
+quiet "9 (second hook)" "$OUT9B"
 wait_unlocked "$B9" || fail "9: refresh lock never released"
 [ "$(jq -r '.plugins | length' "$B9/.installed-catalog.json")" = "2" ] \
   || fail "9: detached refresh did not rebuild the catalog with the new plugin"
@@ -302,7 +299,7 @@ find "$P10" -exec touch -t 202001010000 {} +
 printf '%s\n' "$SENTINEL" > "$B10/.installed-catalog.json"     # fresh cache (mtime now)
 : > "$P10/alpha/.in_use/4242"; touch -t 203001010000 "$P10/alpha/.in_use/4242"
 OUT10=$(env BRAIN_DIR="$B10" bash "$SCRIPT" "$P10" 2>/dev/null) || fail "10: hook exited non-zero"
-[ "$OUT10" = "$SENTINEL" ] || fail "10: .in_use churn triggered a synchronous rebuild"
+quiet 10 "$OUT10"
 wait_unlocked "$B10" || fail "10: lock never released"
 [ "$(cat "$B10/.installed-catalog.json")" = "$SENTINEL" ] || fail "10: .in_use churn triggered a rebuild"
 [ "$(refresh_rows "$B10")" = "0" ] || fail "10: .in_use churn was counted as a refresh"
@@ -315,7 +312,7 @@ printf '%s\n' "$SENTINEL" > "$B11/.installed-catalog.json"
 touch -t 202001010000 "$B11/.installed-catalog.json"
 mkdir "$B11/$LOCK_NAME"; touch -t 202001010000 "$B11/$LOCK_NAME"
 OUT11=$(env BRAIN_DIR="$B11" bash "$SCRIPT" "$P11" 2>/dev/null) || fail "11: hook exited non-zero"
-[ "$OUT11" = "$SENTINEL" ] || fail "11: stale cache not served"
+quiet 11 "$OUT11"
 wait_unlocked "$B11" || fail "11: reclaimed lock never released"
 [ "$(jq -r '.plugins | length' "$B11/.installed-catalog.json")" = "1" ] \
   || fail "11: stale lock blocked the refresh forever"
@@ -334,7 +331,7 @@ printf '%s\n' "$SENTINEL" > "$B12/.installed-catalog.json"
 touch -t 202001010000 "$B12/.installed-catalog.json"
 OUT12=$(env BRAIN_DIR="$B12" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_FAIL_ASSEMBLY=1 \
   bash "$SCRIPT" "$P12" 2>/dev/null) || fail "12: hook exited non-zero"
-[ "$OUT12" = "$SENTINEL" ] || fail "12: stale cache not served"
+quiet 12 "$OUT12"
 wait_unlocked "$B12" || fail "12: lock not released after a failed refresh"
 [ "$(cat "$B12/.installed-catalog.json")" = "$SENTINEL" ] \
   || fail "12: a failed refresh clobbered the cached catalog"
@@ -353,7 +350,7 @@ printf '%s\n' "$SENTINEL" > "$B13/.installed-catalog.json"
 touch -t 202001010000 "$B13/.installed-catalog.json"
 : > "$B13/$LOCK_NAME"     # a PLAIN FILE occupies the lock path -> mkdir fails, not "exists as a dir"
 OUT13=$(env BRAIN_DIR="$B13" bash "$SCRIPT" "$P13" 2>/dev/null) || fail "13: hook exited non-zero"
-[ "$OUT13" = "$SENTINEL" ] || fail "13: stale cache not served"
+quiet 13 "$OUT13"
 grep -q 'could not create the refresh lock' "$B13/error-log.jsonl" 2>/dev/null \
   || fail "13: a non-EEXIST mkdir failure on the lock path was silent"
 rm -f "$B13/$LOCK_NAME"
@@ -370,7 +367,7 @@ printf '%s\n' "$SENTINEL" > "$B14/.installed-catalog.json"
 touch -t 202001010000 "$B14/.installed-catalog.json"
 OUT14=$(env BRAIN_DIR="$B14" PATH="$SHIM:$PATH" DI_REAL_JQ="$REAL_JQ" DI_SHIM_STDERR_MSG="probe-stderr-14" \
   bash "$SCRIPT" "$P14" 2>/dev/null) || fail "14: hook exited non-zero"
-[ "$OUT14" = "$SENTINEL" ] || fail "14: stale cache not served"
+quiet 14 "$OUT14"
 wait_unlocked "$B14" || fail "14: refresh lock never released"
 grep -q 'probe-stderr-14' "$B14/.installed-catalog-refresh.err" 2>/dev/null \
   || fail "14: detached child's stderr was not captured to a file under BRAIN_DIR"
@@ -405,7 +402,7 @@ sleep 1   # give a WRONGLY-scheduled refresh a moment to have started, if this r
 PID15_NOW=$(cat "$B15/$LOCK_NAME/pid" 2>/dev/null)
 kill "$LIVE_PID15" 2>/dev/null; wait "$LIVE_PID15" 2>/dev/null
 [ "$RC15" -eq 0 ] || fail "15: hook exited non-zero"
-[ "$OUT15" = "$SENTINEL" ] || fail "15: stale cache not served"
+quiet 15 "$OUT15"
 [ -d "$B15/$LOCK_NAME" ] || fail "15: the live owner's lock vanished (reclaimed while its owner was alive)"
 [ "$PID15_NOW" = "$LIVE_PID15" ] || fail "15: the lock's owner changed from the live pid $LIVE_PID15 to '$PID15_NOW' (reclaimed under the ceiling)"
 grep -q reclaim "$B15/error-log.jsonl" 2>/dev/null && fail "15: a reclaim was logged for a live owner under LOCK_MAX_AGE_MIN: $(grep reclaim "$B15/error-log.jsonl" | head -2)"
@@ -428,7 +425,7 @@ sleep 30 & LIVE_PID15B=$!
 printf '%s' "$LIVE_PID15B" > "$B15B/$LOCK_NAME/pid"
 touch -t 202001010000 "$B15B/$LOCK_NAME"   # after the pid write (see 15): years old, past any ceiling
 OUT15B=$(env BRAIN_DIR="$B15B" bash "$SCRIPT" "$P15B" 2>/dev/null) || fail "15b: hook exited non-zero"
-[ "$OUT15B" = "$SENTINEL" ] || fail "15b: stale cache not served"
+quiet 15b "$OUT15B"
 wait_unlocked "$B15B" || fail "15b: reclaimed lock never released"
 kill "$LIVE_PID15B" 2>/dev/null; wait "$LIVE_PID15B" 2>/dev/null
 [ "$(jq -r '.plugins | length' "$B15B/.installed-catalog.json")" = "1" ] \
@@ -453,7 +450,7 @@ REAL_FIND=$(command -v find)
 printf '#!/bin/sh\ncase "$*" in *-mmin*) echo "find: simulated -mmin failure" >&2; exit 2 ;; esac\nexec "%s" "$@"\n' "$REAL_FIND" > "$FSHIM/find"
 chmod +x "$FSHIM/find"
 OUT15C=$(env BRAIN_DIR="$B15C" PATH="$FSHIM:$PATH" bash "$SCRIPT" "$P15C" 2>/dev/null) || fail "15c: hook exited non-zero"
-[ "$OUT15C" = "$SENTINEL" ] || fail "15c: stale cache not served"
+quiet 15c "$OUT15C"
 grep -q 'could not age the refresh lock .*exited 2' "$B15C/error-log.jsonl" 2>/dev/null \
   || fail "15c: a failing find -mmin age probe was silent (no 'could not age the refresh lock' row)"
 [ -d "$B15C/$LOCK_NAME" ] || fail "15c: a lock whose age could not be probed was removed"
@@ -476,7 +473,7 @@ printf '#!/bin/sh\ncase "$*" in *-mmin*) rmdir "%s"; echo "find: No such file or
   "$B15D/$LOCK_NAME" "$REAL_FIND" > "$DSHIM/find"
 chmod +x "$DSHIM/find"
 OUT15D=$(env BRAIN_DIR="$B15D" PATH="$DSHIM:$PATH" bash "$SCRIPT" "$P15D" 2>/dev/null) || fail "15d: hook exited non-zero"
-[ "$OUT15D" = "$SENTINEL" ] || fail "15d: stale cache not served"
+quiet 15d "$OUT15D"
 [ ! -d "$B15D/$LOCK_NAME" ] || fail "15d: the shim did not simulate the vanished lock (case proves nothing)"
 grep -q 'could not age the refresh lock' "$B15D/error-log.jsonl" 2>/dev/null \
   && fail "15d: a lock that vanished in a benign release race was logged as an error-severity row"
@@ -491,7 +488,7 @@ mkdir "$B16/$LOCK_NAME"    # freshly created just now -> young, no mtime stalene
 ( exit 0 ) & DEAD_PID16=$!; wait "$DEAD_PID16" 2>/dev/null   # guaranteed dead by the time we check
 printf '%s' "$DEAD_PID16" > "$B16/$LOCK_NAME/pid"
 OUT16=$(env BRAIN_DIR="$B16" bash "$SCRIPT" "$P16" 2>/dev/null) || fail "16: hook exited non-zero"
-[ "$OUT16" = "$SENTINEL" ] || fail "16: stale cache not served"
+quiet 16 "$OUT16"
 wait_unlocked "$B16" || fail "16: reclaimed lock never released"
 [ "$(jq -r '.plugins | length' "$B16/.installed-catalog.json")" = "1" ] \
   || fail "16: a dead-owner lock blocked the refresh"
@@ -633,6 +630,35 @@ LEFT19=$(find "$B19" -maxdepth 1 -name '.installed-catalog.lock*' | wc -l | tr -
 # probed it after its writer exited used to reclaim a RUNNING refresh's lock).
 [ ! -s "$B19/error-log.jsonl" ] || fail "19: parallel hooks logged errors: $(cut -c1-300 "$B19/error-log.jsonl")"
 pass "the refresh lock is never observable without its owner pid; parallel hooks leave no scaffolding (O13)"
+
+# --- Test 6: PERF LOCK — must finish inside its own hooks.json timeout --------
+# Last on purpose (see the note after Test 5b): a wall-clock failure must not hide cases 7-19.
+# Read the declared budget rather than hardcoding it, so retuning hooks.json
+# retunes this lock. Falls back to 10 (the 0.44.0 value) if the entry moves.
+BUDGET=$(jq -r '
+  [ .hooks.SessionStart[]?.hooks[]?
+    | select(.command | test("discover-installed"))
+    | .timeout ] | first // empty' "$ROOT/hooks/hooks.json" 2>/dev/null | tr -d '\r')
+case "$BUDGET" in ''|*[!0-9]*) BUDGET=10 ;; esac
+
+P6="$TMP/plugins6"; B6="$TMP/b6"; mkdir -p "$P6" "$B6"
+# 200 agents + 200 skills across 2 plugins. The pre-0.45.0 implementation spent
+# 3 process spawns per file (awk name, awk description, jq assemble) = ~1200
+# spawns here, which blows the budget on any real machine.
+mkplugin "$P6" "big1" "1.0.0" 100 100
+mkplugin "$P6" "big2" "1.0.0" 100 100
+T_START=$(date +%s)
+SO=$(env BRAIN_DIR="$B6" bash "$SCRIPT" "$P6" 2>/dev/null) || fail "6: script exited non-zero"
+T_ELAPSED=$(( $(date +%s) - T_START ))
+quiet 6 "$SO"; OUT6=$(cat "$B6/.installed-catalog.json")
+[ "$(printf '%s' "$OUT6" | jq -r '.agents | length')" = "200" ] || fail "6: wrong agent count under load"
+[ "$(printf '%s' "$OUT6" | jq -r '.skills | length')" = "200" ] || fail "6: wrong skill count under load"
+if [ "$T_ELAPSED" -gt "$BUDGET" ]; then
+  fail "6: PERF — 400 files took ${T_ELAPSED}s, over the ${BUDGET}s timeout hooks.json declares.
+       A killed run never writes the catalog, so the cache stays stale and every
+       later session re-enters the slow path. Do not spawn a process per file."
+fi
+pass "perf: 400 files discovered in ${T_ELAPSED}s (budget ${BUDGET}s)"
 
 # Test 5 left a detached freshness check running in $B1; let it finish before the EXIT trap
 # removes $TMP (Windows cannot delete a directory a live process still holds open).

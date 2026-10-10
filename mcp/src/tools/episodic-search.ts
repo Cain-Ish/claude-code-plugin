@@ -1,9 +1,10 @@
 import { promises as fs } from 'fs';
-import { atomicWriteJson } from './atomic-write.js';
+import { atomicWriteJsonStrict } from './atomic-write.js';
 import { join, basename, relative, isAbsolute } from 'path';
-import { embedTexts, cosineSimilarity, appendErrorLog, embeddingsOptedOut } from './embeddings.js';
+import { embedTexts, appendErrorLog, embeddingsOptedOut, EMBEDDING_DIM } from './embeddings.js';
 import { assertWithin } from '../path-guard.js';
 import { stripInvisible } from './sanitize.js';
+import { capList, estimateTokens } from './egress-budget.js';
 
 const INDEX_FILE = 'episodic-index.json';
 const SNIPPET_LEN = 200;
@@ -82,7 +83,13 @@ interface Exchange {
   lineEnd: number;
 }
 
-interface IndexedExchange {
+/** One stored vector (R2#6, 0.56.0): `e8` holds the int8 components, base64, and `es` the
+ *  per-vector scale, so component i = es * int8[i]. A float JSON array cost ~8 KB of index text
+ *  per row, and the index is parsed on every prompt; this costs ~550 characters. */
+export interface CompactVector { e8: string; es: number }
+
+/** A row with no vector yet (the model was unavailable) has neither e8 nor es. */
+interface IndexedExchange extends Partial<CompactVector> {
   id: string;
   sessionId: string;
   project: string;
@@ -92,7 +99,63 @@ interface IndexedExchange {
   archivePath: string;
   lineStart: number;
   lineEnd: number;
-  embedding: number[];
+}
+
+/** A row as any writer stored it: before 0.56.0 the vector was a float array (`[]` = none). */
+type StoredExchange = IndexedExchange & { embedding?: unknown };
+
+/** Symmetric int8: es = max|x| / 127, component = round(x / es). Rounding error is at most es/2
+ *  per component. A zero vector stores es = 0. Callers pass finite components (the build checks
+ *  before storing): a NaN would quantize to 0 and an Infinity would make es Infinity. */
+export function quantizeEmbedding(vec: ArrayLike<number>): CompactVector {
+  let maxAbs = 0;
+  for (let i = 0; i < vec.length; i++) {
+    const a = Math.abs(vec[i]);
+    if (a > maxAbs) maxAbs = a;
+  }
+  const es = maxAbs / 127;
+  const q = new Int8Array(vec.length);
+  if (es > 0) for (let i = 0; i < vec.length; i++) q[i] = Math.max(-127, Math.min(127, Math.round(vec[i] / es)));
+  return { e8: Buffer.from(q.buffer, q.byteOffset, q.byteLength).toString('base64'), es };
+}
+
+function decodeE8(e8: string): Int8Array {
+  const b = Buffer.from(e8, 'base64');
+  return new Int8Array(b.buffer, b.byteOffset, b.byteLength);
+}
+
+function dotDequantized(query: ArrayLike<number>, v: Int8Array, es: number): number {
+  let dot = 0;
+  const n = Math.min(query.length, v.length);
+  for (let i = 0; i < n; i++) dot += query[i] * v[i];
+  return dot * es;
+}
+
+/** The legacy score (embeddings.ts cosineSimilarity: a dot product, the model's vectors being
+ *  normalized) against the dequantized row vector. */
+export function embeddingSimilarity(query: ArrayLike<number>, row: CompactVector): number {
+  return dotDequantized(query, decodeE8(row.e8), row.es);
+}
+
+function hasVector(e: IndexedExchange): e is IndexedExchange & CompactVector {
+  return typeof e.e8 === 'string' && e.e8.length > 0;
+}
+
+/** A stored row in the current shape. A float row (a pre-0.56.0 writer) is quantized here, in
+ *  memory; the build that loaded it writes it back compact, so the migration runs once and needs
+ *  no model. A vector that is not EMBEDDING_DIM finite components is dropped (`dropped`, so the
+ *  build can log it) and its row re-embeds like any row without one. */
+function currentRow(stored: StoredExchange): { row: IndexedExchange; dropped: boolean } {
+  const { embedding, e8, es, ...row } = stored;
+  if (typeof e8 === 'string' && e8) {
+    const ok = typeof es === 'number' && Number.isFinite(es) && es >= 0 && decodeE8(e8).length === EMBEDDING_DIM;
+    return ok ? { row: { ...row, e8, es }, dropped: false } : { row, dropped: true };
+  }
+  if (Array.isArray(embedding) && embedding.length > 0) {
+    const ok = embedding.length === EMBEDDING_DIM && embedding.every(x => typeof x === 'number' && Number.isFinite(x));
+    return ok ? { row: { ...row, ...quantizeEmbedding(embedding) }, dropped: false } : { row, dropped: true };
+  }
+  return { row, dropped: false };
 }
 
 /** Per-file index state. A bare string is the pre-version format (parser 1): re-parsed. */
@@ -199,21 +262,112 @@ function peerReportBody(rest: string): string {
   return mark + [report, ...flags].join('\n');
 }
 
-// Serve-time fold, the TS twin of session-load.sh's card fold and protocol-guard.sh's item fold:
-// any line break becomes a space and every square bracket (ASCII or a lookalike) a parenthesis,
-// so a stored snippet can never close the hook's "[End untrusted reference]" frame or start a
-// line that reads as a new turn. Code points, not escapes, so no tool or editor can decode them.
-const FOLD_TO_SPACE = new Set([0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x85, 0x2028, 0x2029]);
-const FOLD_TO_OPEN = new Set([0x5b, 0xff3b, 0x3010, 0x27e6, 0x301a, 0x2045, 0xfe47, 0x3014]);
-const FOLD_TO_CLOSE = new Set([0x5d, 0xff3d, 0x3011, 0x27e7, 0x301b, 0x2046, 0xfe48, 0x3015]);
+// Serve-time fold, the TS twin of session-load.sh's card fold (sb_card_trunc) and protocol-guard.sh's
+// item fold, so a stored snippet can never close the hook's "[End untrusted reference]" frame or
+// start a line that reads as a new turn:
+//  - every control (C0, DEL, C1), format character (\p{Cf}: bidi controls, zero-width characters,
+//    soft hyphen, BOM), Unicode space (\p{Zs}) and line/paragraph separator becomes a space, except
+//    ZWNJ/ZWJ (U+200C/U+200D), which are part of the text in many scripts and in emoji sequences
+//    and break no line (review 2, P-T7);
+//  - every opening/closing bracket becomes a parenthesis: \p{Ps}/\p{Pe}, the bracket-shaped initial
+//    and final punctuation (\p{Pi}/\p{Pf} in U+2E02-2E21), and the look-alikes Unicode files as
+//    symbols (FOLD_OPEN_EXTRA/FOLD_CLOSE_EXTRA). A fixed lookalike list missed whole blocks (X7:
+//    U+298B/298C passed; review 2: U+2E0C/2E0D and the corner pieces passed). Kept as they are:
+//    ASCII ( ) { } (they cannot pass for the frame's square brackets, and code in a snippet stays
+//    readable) and the quotation marks (FOLD_QUOTE_KEEP), which are quotes, not brackets;
+//  - the frame's own phrase "untrusted reference" becomes "untrusted-reference" however it is
+//    spelled (neutraliseFramePhrase: fullwidth, mathematical, accented, confusable, split by spaces,
+//    punctuation or invisible characters). The bash fold maps two Cyrillic letters everywhere; here
+//    only the span that spells the phrase changes, so other text is left intact.
+// No literal non-ASCII character and no escape sequence a tool could decode: the code points are
+// built with String.fromCodePoint, U+2028/2029 are \p{Zl}/\p{Zp}.
+const cps = (...xs: number[]): string => String.fromCodePoint(...xs);
+const ZWNJ = cps(0x200c), ZWJ = cps(0x200d);
+const FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
+// The square-bracket pieces (U+23A1-23A6, math symbols), the corner brackets U+231C-231F, the
+// dentistry bracket pieces U+23BE/23BF/23CB/23CC and the light box-drawing corners and tees, by the
+// side of the bracket each one looks like.
+const FOLD_OPEN_EXTRA = cps(0x23a1, 0x23a2, 0x23a3, 0x231c, 0x231e, 0x23be, 0x23bf, 0x250c, 0x2514, 0x251c);
+const FOLD_CLOSE_EXTRA = cps(0x23a4, 0x23a5, 0x23a6, 0x231d, 0x231f, 0x23cb, 0x23cc, 0x2510, 0x2518, 0x2524);
+const FOLD_OPEN_RE = new RegExp(`[\\p{Ps}\\p{Pi}${FOLD_OPEN_EXTRA}]`, 'gu');
+const FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}\\p{Pf}${FOLD_CLOSE_EXTRA}]`, 'gu');
+// Quotation marks filed as Ps/Pe (U+201A, U+201E, U+2E42, U+301D-301F) and every Pi/Pf below U+2E00
+// (U+00AB/00BB, U+2018-201F, U+2039/203A): folding U+2019 would turn every "don't" into "don)t".
+const FOLD_QUOTE_KEEP = new Set(cps(0x201a, 0x201e, 0x2e42, 0x301d, 0x301e, 0x301f,
+  0xab, 0xbb, 0x2018, 0x2019, 0x201b, 0x201c, 0x201d, 0x201f, 0x2039, 0x203a));
+
+// The phrase test runs on a skeleton of the text, one code point at a time: compatibility
+// decomposition (NFKD: fullwidth and mathematical letters, ligatures, long s, accented letters),
+// lowercase, the confusable letters below mapped to the Latin letter they pass for, and everything
+// that is not a letter or a digit dropped (combining marks, format characters such as the soft
+// hyphen and ZWJ, spaces, punctuation, symbols). Where the skeleton holds "untrustedreference", the
+// span of the text it came from becomes "untrusted-reference" (review 2, P-S3/P-T2).
+// Confusables: only those of the phrase's letters that NFKD leaves alone, as they read after
+// lowercasing (Greek, Cyrillic, Armenian, Latin small capitals, Lisu).
+const FRAME_PHRASE_SKELETON = 'untrustedreference';
+const CONFUSABLE = new Map<string, string>();
+for (const [latin, from] of [
+  ['c', [0x441, 0x3c2, 0x3c3, 0x1d04, 0xa4da]],
+  ['d', [0x501, 0x1d05, 0xa4d3]],
+  ['e', [0x435, 0x3b5, 0x454, 0x1d07, 0xa4f0]],
+  ['f', [0x3dd, 0xa730, 0xa4dd]],
+  ['n', [0x3b7, 0x3bd, 0x43f, 0x578, 0x274, 0xa4e0]],
+  ['r', [0x433, 0x280, 0x27e, 0xa4e3]],
+  ['s', [0x455, 0xa731, 0xa4e2]],
+  ['t', [0x3c4, 0x442, 0x1d1b, 0xa4d4]],
+  ['u', [0x3c5, 0x57d, 0x1d1c, 0x28b, 0xa4f4]],
+] as [string, number[]][]) {
+  for (const c of from) CONFUSABLE.set(cps(c), latin);
+}
+const LETTER_OR_DIGIT_RE = /^[\p{L}\p{N}]$/u;
+const SKELETON_CACHE = new Map<number, string>();
+
+function skeletonOf(ch: string): string {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c < 0x80) {   // ASCII: letters lowercased, digits kept, the rest dropped
+    if ((c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39)) return ch;
+    return c >= 0x41 && c <= 0x5a ? String.fromCharCode(c + 0x20) : '';
+  }
+  let s = SKELETON_CACHE.get(c);
+  if (s === undefined) {
+    s = '';
+    for (const d of ch.normalize('NFKD').toLowerCase().normalize('NFKD')) {
+      const m = CONFUSABLE.get(d) ?? d;
+      if (LETTER_OR_DIGIT_RE.test(m)) s += m;
+    }
+    if (SKELETON_CACHE.size < 4096) SKELETON_CACHE.set(c, s);
+  }
+  return s;
+}
+
+/** The text with every span whose skeleton spells "untrustedreference" replaced by
+ *  "untrusted-reference"; the text itself when there is none (the common case: one pass). */
+function neutraliseFramePhrase(text: string): string {
+  let skeleton = '';
+  for (const ch of text) skeleton += skeletonOf(ch);
+  if (!skeleton.includes(FRAME_PHRASE_SKELETON)) return text;
+  // Second pass: for each skeleton character, the [start, end) of the code point it came from.
+  const start: number[] = [], end: number[] = [];
+  let i = 0;
+  for (const ch of text) {
+    const n = skeletonOf(ch).length;
+    for (let k = 0; k < n; k++) { start.push(i); end.push(i + ch.length); }
+    i += ch.length;
+  }
+  let out = '', last = 0;
+  for (let j = skeleton.indexOf(FRAME_PHRASE_SKELETON); j >= 0;
+    j = skeleton.indexOf(FRAME_PHRASE_SKELETON, j + FRAME_PHRASE_SKELETON.length)) {
+    out += `${text.slice(last, Math.max(start[j], last))}untrusted-reference`;
+    last = end[j + FRAME_PHRASE_SKELETON.length - 1];
+  }
+  return out + text.slice(last);
+}
 
 export function foldServedSnippet(text: string): string {
-  let out = '';
-  for (const ch of text) {
-    const c = ch.codePointAt(0)!;
-    out += FOLD_TO_SPACE.has(c) ? ' ' : FOLD_TO_OPEN.has(c) ? '(' : FOLD_TO_CLOSE.has(c) ? ')' : ch;
-  }
-  return out;
+  return neutraliseFramePhrase(text
+    .replace(FOLD_SPACE_RE, (m) => (m === ZWNJ || m === ZWJ ? m : ' '))
+    .replace(FOLD_OPEN_RE, (m) => (m === '(' || m === '{' || FOLD_QUOTE_KEEP.has(m) ? m : '('))
+    .replace(FOLD_CLOSE_RE, (m) => (m === ')' || m === '}' || FOLD_QUOTE_KEEP.has(m) ? m : ')')));
 }
 
 /** The user line of an episodic_search MCP result. A row with no human words is never shown as
@@ -273,7 +427,11 @@ export function servableEpisodes<R extends { sessionId: string; userSnippet: str
 export interface EpisodicServeOpts { sessionId: string; activeProject?: string }
 
 export const EPISODIC_SERVE_HEADER = '[Past sessions — use episodic_search for full context]';
-// The hardcoded per-engine similarity floor (no knob, R1#3), the pool and the served cap.
+// The pool, the served cap and the hardcoded similarity floor (no knob, R1#3). The floor is ONE
+// value applied to the merged ranking of both engines, not a per-engine floor, and in practice it
+// only filters VECTOR hits: a text hit scores 0.5*tf/(tf+n) with tf >= n query tokens, so never
+// below 0.25. The text engine's real filter is its AND gate (textSearch: every query token must
+// appear in the exchange).
 const SERVE_MIN_SIMILARITY = 0.15;
 const SERVE_POOL = 10;
 const SERVE_MAX = 2;
@@ -297,6 +455,43 @@ export async function serveEpisodicLines(query: string, brainDir: string, o: Epi
     const sim = Math.round(r.similarity * 100);
     return `- "${foldServedSnippet(r.userSnippet).slice(0, 80)}..." (${foldServedSnippet(r.project)}, ${foldServedSnippet(r.date)}, ${sim}%)`;
   })];
+}
+
+/** The episodic_search MCP tool's text (server.ts returns it as is). Archive text is untrusted:
+ *  every snippet is folded to one bracket-free line, and a row with no human words is labelled by
+ *  its provenance (subagent report, peer message, machine turn), never with the user label
+ *  (security review, R1).
+ *  result.degraded reaches the model here (D3, 2026-10-07: the handler used to drop it, so a
+ *  concept array on an install without embeddings read as "no such conversation"):
+ *  'vector-unavailable' (a concept array or explicit vector mode: nothing could run) -> a no-results
+ *  line that says why and how to retry; 'text-only' -> a not-found line that says only text ran, or
+ *  a footer under the rows. The footer goes on AFTER capList, so the egress cap cannot drop it. */
+export function renderEpisodicSearch(result: EpisodicSearchResult, budgetTokens: number): string {
+  if (result.results.length === 0) {
+    if (result.degraded === 'vector-unavailable') {
+      return 'No results — vector search unavailable (embeddings missing); retry as a single string query (mode "both" or "text") for text matching.';
+    }
+    if (result.degraded === 'text-only') {
+      return 'No matching conversations found (text matching only — vector search unavailable (embeddings missing)).';
+    }
+    return 'No matching conversations found.';
+  }
+  const render = (r: EpisodicSearchResult['results'][number]) => {
+    const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : '';
+    return [
+      `### ${foldServedSnippet(r.project)} — ${foldServedSnippet(r.date)}${sim}`,
+      episodeUserLine(r.userSnippet),
+      `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
+      `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`,
+    ].join('\n');
+  };
+  // T4 (R3 review): the footer is appended after capList, so the rows get the budget minus the
+  // footer; capList given the whole budget packed up to it and the footer broke the ceiling.
+  const footer = result.degraded
+    ? '\n\n_Degraded: vector search unavailable (embeddings missing) — these are text matches only._'
+    : '';
+  const rowBudget = Math.max(0, budgetTokens - estimateTokens(footer));
+  return capList(result.results, render, rowBudget, 'narrow the query or use episodic_read on a specific result').text + footer;
 }
 
 // A cleaned machine row has an empty user side (cleanUserText). Human-facing renderers show the
@@ -398,20 +593,42 @@ function parseExchanges(lines: string[], bodyStart: number, meta: SessionMeta, a
 
 const emptyIndex = (): EpisodicIndex => ({ model: 'Xenova/all-MiniLM-L6-v2', indexed_files: {}, exchanges: [] });
 
+/** The row fields every writer stores as strings and the readers dereference (basename,
+ *  toLowerCase, the snippet clean and fold): without them a row throws in search and build alike. */
+const ROW_STRING_FIELDS = ['id', 'sessionId', 'project', 'date', 'userSnippet', 'assistantSnippet', 'archivePath'] as const;
+
+function isStoredRow(v: unknown): v is StoredExchange {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return ROW_STRING_FIELDS.every(k => typeof o[k] === 'string');
+}
+
+interface LoadedIndex {
+  index: EpisodicIndex;
+  /** Rows whose stored vector was unusable (kept, without a vector: they re-embed). */
+  dropped: number;
+  /** Elements of `exchanges` that are not a row at all (null, a primitive, a row without its
+   *  string fields): skipped. The archive one still names has lost its file entry, so the next
+   *  build re-parses it and no real row is lost. */
+  malformed: number;
+}
+
 /** A missing index is the normal first run. Anything else that cannot be used (unreadable,
  *  unparseable, or without an exchanges array) is reset to empty AND logged: the next build
  *  re-indexes every archive, and the reset must not pass for a healthy empty index. A missing or
- *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}. */
-async function loadIndex(brainDir: string): Promise<EpisodicIndex> {
+ *  malformed `indexed_files` only means "re-parse every file", so it is normalized to {}.
+ *  Rows come back in the current shape (currentRow). */
+async function loadIndex(brainDir: string): Promise<LoadedIndex> {
   const indexPath = join(brainDir, INDEX_FILE);
+  const reset = { index: emptyIndex(), dropped: 0, malformed: 0 };
   let data: string;
   try {
     data = await fs.readFile(indexPath, 'utf-8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return emptyIndex();
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return reset;
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`);
-    return emptyIndex();
+    return reset;
   }
   let parsed: unknown;
   try {
@@ -419,37 +636,135 @@ async function loadIndex(brainDir: string): Promise<EpisodicIndex> {
   } catch (e) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`);
-    return emptyIndex();
+    return reset;
   }
-  const o = parsed as Partial<EpisodicIndex> | null;
+  const o = parsed as { model?: unknown; indexed_files?: unknown; exchanges?: unknown } | null;
   if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.exchanges)) {
     await appendErrorLog(brainDir, 'episodic-index',
       `corrupt episodic index reset: ${indexPath} has no exchanges array`);
-    return emptyIndex();
+    return reset;
   }
   const files = o.indexed_files;
+  const indexedFiles: EpisodicIndex['indexed_files'] =
+    files && typeof files === 'object' && !Array.isArray(files) ? files as EpisodicIndex['indexed_files'] : {};
+  let dropped = 0;
+  let malformed = 0;
+  const exchanges: IndexedExchange[] = [];
+  for (const stored of o.exchanges as unknown[]) {
+    if (!isStoredRow(stored)) {
+      malformed++;
+      const archivePath = (stored as { archivePath?: unknown } | null)?.archivePath;
+      if (typeof archivePath === 'string') delete indexedFiles[basename(archivePath)];
+      continue;
+    }
+    const r = currentRow(stored);
+    if (r.dropped) dropped++;
+    exchanges.push(r.row);
+  }
   return {
-    model: typeof o.model === 'string' ? o.model : emptyIndex().model,
-    indexed_files: files && typeof files === 'object' && !Array.isArray(files) ? files : {},
-    exchanges: o.exchanges,
+    index: {
+      model: typeof o.model === 'string' ? o.model : emptyIndex().model,
+      indexed_files: indexedFiles,
+      exchanges,
+    },
+    dropped,
+    malformed,
   };
 }
 
+/** The build is the index's ONLY writer. A search never writes, not even the format migration:
+ *  the builder holds no lock, so a search that loaded before a build saved and wrote after it would
+ *  drop the build's new rows. tmp + rename, so a crash or a failed write leaves the previous file
+ *  whole (a legacy float index stays readable and the next build retries); the failure is logged,
+ *  not thrown, because the CLI runs in the Stop and PreCompact hooks. */
 async function saveIndex(brainDir: string, index: EpisodicIndex): Promise<void> {
-  await atomicWriteJson(join(brainDir, INDEX_FILE), index);
+  const indexPath = join(brainDir, INDEX_FILE);
+  try {
+    await atomicWriteJsonStrict(indexPath, index);
+  } catch (e) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `episodic index write failed: ${indexPath} (${e instanceof Error ? e.message : String(e)}); `
+      + 'the previous index is kept and the next build retries');
+  }
 }
 
-export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number }> {
+/** The one-time 0.56.0 archive scrub (scripts/extract-drain.sh drain_scrub_migrate). Its to-do
+ *  list names the files written before 0.56.0 that still hold a credential literal, one
+ *  `<path relative to BRAIN_DIR>\t<failed scrub attempts>` per line, the path
+ *  `transcripts/<b>.txt` or `dreams/<id>/transcripts/<b>.txt`. The marker means the migration is
+ *  done, so a list left behind is stale. */
+export const SCRUB_MARK = '.archive-scrub-v1';
+export const SCRUB_TODO = `${SCRUB_MARK}.todo`;
+
+export interface ScrubTodoEntry { path: string; fails: number }
+
+/** The to-do list's entries, read the way drain_scrub_migrate normalizes them: a trailing CR is
+ *  dropped, the path is the field before the first tab, a path with no `/` (a bare basename from
+ *  a 0.56 pre-release list) is a transcripts/ entry, and an attempt count that is not a plain
+ *  integer is 0. Empty lines are skipped. */
+export function parseScrubTodo(text: string): ScrubTodoEntry[] {
+  const entries: ScrubTodoEntry[] = [];
+  for (const raw of text.split('\n')) {
+    const [first, fc = ''] = raw.replace(/\r$/, '').split('\t');
+    if (!first) continue;
+    const path = first.includes('/') ? first : `transcripts/${first}`;
+    entries.push({ path, fails: /^[0-9]+$/.test(fc) ? Number(fc) : 0 });
+  }
+  return entries;
+}
+
+/** The archives a build holds out of the index while the scrub migration is pending: their text
+ *  is still in clear. No list holds nothing (no migration, or its first tick has not run). A list
+ *  that cannot be read holds nothing too, so recall does not go dark on a read error, and that is
+ *  logged. One read per build. */
+async function scrubPendingArchives(brainDir: string): Promise<Set<string>> {
+  const pending = new Set<string>();
+  try {
+    await fs.stat(join(brainDir, SCRUB_MARK));
+    return pending;
+  } catch { /* not done yet: the list decides */ }
+  const todoPath = join(brainDir, SCRUB_TODO);
+  let text: string;
+  try {
+    text = await fs.readFile(todoPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      await appendErrorLog(brainDir, 'episodic-index',
+        `cannot read the archive-scrub to-do list ${todoPath} (${e instanceof Error ? e.message : String(e)}); `
+        + 'nothing is held out of the episodic index, so archives the scrub has not reached yet are indexed in clear');
+    }
+    return pending;
+  }
+  // Only a transcripts/<b> entry holds archive <b>: a dream copy of the same name is never indexed.
+  for (const { path } of parseScrubTodo(text)) {
+    const m = /^transcripts\/([^/]+)$/.exec(path);
+    if (m) pending.add(m[1]);
+  }
+  return pending;
+}
+
+export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: number; total: number; repaired: number; pending: number; held: number }> {
   const archiveDir = join(brainDir, 'transcripts');
   let files: string[];
   try {
     const entries = await fs.readdir(archiveDir);
     files = entries.filter(f => f.endsWith('.txt')).map(f => join(archiveDir, f));
   } catch {
-    return { indexed: 0, total: 0, repaired: 0, pending: 0 };
+    return { indexed: 0, total: 0, repaired: 0, pending: 0, held: 0 };
   }
 
-  const index = await loadIndex(brainDir);
+  const scrubPending = await scrubPendingArchives(brainDir);
+  let held = 0;
+  const { index, dropped, malformed } = await loadIndex(brainDir);
+  if (malformed > 0) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `${malformed} malformed row(s) (not an object with the row's string fields) were dropped from the episodic `
+      + 'index; an archive such a row names is re-parsed');
+  }
+  if (dropped > 0) {
+    await appendErrorLog(brainDir, 'episodic-index',
+      `${dropped} stored vector(s) not ${EMBEDDING_DIM} components were dropped from the episodic index; those rows re-embed`);
+  }
   const newExchanges: Exchange[] = [];
   const reparsed: Record<string, string> = {};
   // Rows of re-parsed files, by id, captured before they are dropped: a row whose stored text
@@ -458,11 +773,19 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   const previous = new Map<string, IndexedExchange>();
 
   for (const filePath of files) {
+    const fname = basename(filePath);
+    // Held while the scrub has not reached it: not read, its rows dropped below, its file entry
+    // forgotten. The forgotten entry is what re-derives it on the first build after it leaves the
+    // list, whether the scrub changed its text or found nothing to redact.
+    if (scrubPending.has(fname)) {
+      delete index.indexed_files[fname];
+      held++;
+      continue;
+    }
     // Sanitize untrusted transcript text before indexing it (P6b — invisible/Tags-block
     // smuggling defense). Hash the cleaned content so a previously-dirty file re-indexes once.
     const content = stripInvisible(await fs.readFile(filePath, 'utf-8'));
     const hash = simpleHash(content);
-    const fname = basename(filePath);
 
     // Unchanged AND parsed by the current parser: skip. A changed file, a bare-string entry
     // (pre-version writer) or an older parser version is re-parsed from scratch.
@@ -476,9 +799,12 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     newExchanges.push(...parseExchanges(lines, bodyStart, meta, filePath));
   }
 
-  // Drop exchanges from deleted transcripts.
+  // Drop exchanges from deleted transcripts and from held ones.
   const validFiles = new Set(files.map(f => basename(f)));
-  index.exchanges = index.exchanges.filter(e => validFiles.has(basename(e.archivePath)));
+  index.exchanges = index.exchanges.filter(e => {
+    const fname = basename(e.archivePath);
+    return validFiles.has(fname) && !scrubPending.has(fname);
+  });
 
   // Persist new exchanges immediately (text-searchable). Embeddings may be empty
   // and will be filled in by the repair pass below or on a future run.
@@ -488,7 +814,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
     // The vector embeds exactly these two snippets, so equal text means the old vector is valid.
     const old = previous.get(e.id);
     const carried = old && old.userSnippet === userSnippet && old.assistantSnippet === assistantSnippet
-      && Array.isArray(old.embedding) && old.embedding.length > 0 ? old.embedding : [];
+      && hasVector(old) ? { e8: old.e8, es: old.es } : {};
     index.exchanges.push({
       id: e.id,
       sessionId: e.sessionId,
@@ -499,7 +825,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
       archivePath: e.archivePath,
       lineStart: e.lineStart,
       lineEnd: e.lineEnd,
-      embedding: carried,
+      ...carried,
     });
   }
 
@@ -509,18 +835,29 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   // against a hash of the exact text: an unchanged row is served from the cache (no model call),
   // a row whose text changed (e.g. cleaned by a parser bump) misses and re-embeds once.
   // episodic-reembed.test.ts locks both halves.
-  const needsEmbed = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0);
+  const needsEmbed = index.exchanges.filter(e => !hasVector(e));
   let repaired = 0;
   if (needsEmbed.length > 0) {
     const texts = needsEmbed.map(r => `${r.userSnippet}\n${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
     const paths = needsEmbed.map(r => `episodic:${r.id}`);
     const embeddings = await embedTexts(texts, join(brainDir, 'transcripts'), paths);
     if (embeddings) {
+      let nonFinite = 0;
       for (let i = 0; i < needsEmbed.length; i++) {
-        if (embeddings[i] && embeddings[i].length > 0) {
-          needsEmbed[i].embedding = embeddings[i];
-          repaired++;
-        }
+        // Only a full vector of finite components is stored. loadIndex drops any other length,
+        // and JSON writes Infinity as null (an Infinity component makes es Infinity), so storing
+        // either would drop and re-embed it on every build; a NaN would quantize silently to 0.
+        // Every component finite means es (max|x| / 127) is finite too.
+        const vec = embeddings[i];
+        if (!vec || vec.length !== EMBEDDING_DIM) continue;
+        if (!vec.every(Number.isFinite)) { nonFinite++; continue; }
+        Object.assign(needsEmbed[i], quantizeEmbedding(vec));
+        repaired++;
+      }
+      if (nonFinite > 0) {
+        await appendErrorLog(brainDir, 'episodic-index',
+          `${nonFinite} embedding(s) with a non-finite component were not stored; those rows stay pending `
+          + 'and the next build embeds them again (the embedding cache does not keep such a vector)');
       }
     }
   }
@@ -537,7 +874,7 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
   }
 
   await saveIndex(brainDir, index);
-  const pending = index.exchanges.filter(e => !e.embedding || e.embedding.length === 0).length;
+  const pending = index.exchanges.filter(e => !hasVector(e)).length;
   // Rows without a vector are invisible to vector recall; say so, unless the user opted out of
   // embeddings (an acknowledged choice, which episodic-index.test.ts keeps out of the error log).
   if (pending > 0 && !embeddingsOptedOut()) {
@@ -545,11 +882,11 @@ export async function buildEpisodicIndex(brainDir: string): Promise<{ indexed: n
       `${pending} of ${index.exchanges.length} rows have no embedding after the repair pass: vector recall `
       + 'misses them until a build can embed them (check the embedding model / vector deps)');
   }
-  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
+  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending, held };
 }
 
 export async function episodicSearch(args: EpisodicSearchArgs, brainDir: string): Promise<EpisodicSearchResult> {
-  const index = await loadIndex(brainDir);
+  const { index } = await loadIndex(brainDir);
   if (index.exchanges.length === 0) return { results: [] };
 
   const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
@@ -613,7 +950,7 @@ async function vectorSearch(
   filters: EpisodicSearchArgs, brainDir: string
 ): Promise<{ hits: (IndexedExchange & { similarity: number })[]; unavailable: boolean }> {
   const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
+  const withEmbeddings = filtered.filter(hasVector);
   // unavailable = vector search COULD have matched but can't run (no vectors /
   // no model); an empty filter result is not a degradation (R2.3).
   if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
@@ -626,7 +963,7 @@ async function vectorSearch(
 
   return {
     hits: withEmbeddings
-      .map(e => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) }))
+      .map(e => ({ ...e, similarity: embeddingSimilarity(qVec, e) }))
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit),
     unavailable: false,
@@ -656,8 +993,10 @@ function textSearch(
       tf += occ;
     }
     if (allHit) {
-      // tf >= tokens.length (each token hits >=1). Map into (0, 0.5] monotonically
-      // in tf, saturating below 0.5 so a vector match (up to 1.0) still outranks.
+      // tf >= tokens.length (each token hits >=1), so this maps into [0.25, 0.5), monotonic
+      // in tf and saturating below 0.5 so a vector match (up to 1.0) still outranks. Being
+      // >= 0.25, a text hit always clears the serve floor (0.15): the AND gate above is the
+      // only thing that filters text hits.
       const similarity = 0.5 * (tf / (tf + tokens.length));
       scored.push({ ...e, similarity });
     }
@@ -677,7 +1016,7 @@ async function multiConceptSearch(
   // came from a hermetic/test dir — the exact leak class R2.2 closed.
 
   const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter(e => e.embedding.length > 0);
+  const withEmbeddings = filtered.filter(hasVector);
   // Multi-concept search is vector-only: no embeddings = honestly degraded, not
   // silently empty (R2.3). An empty FILTER result is not a degradation (I6).
   if (withEmbeddings.length === 0) {
@@ -693,7 +1032,8 @@ async function multiConceptSearch(
 
   // Score each exchange against all concepts
   const scored = withEmbeddings.map(e => {
-    const similarities = conceptEmbeddings.map(cv => cosineSimilarity(cv, e.embedding));
+    const v = decodeE8(e.e8);
+    const similarities = conceptEmbeddings.map(cv => dotDequantized(cv, v, e.es));
     const minSim = Math.min(...similarities);
     const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
     return { ...e, similarity: avgSim, minSimilarity: minSim };

@@ -1,18 +1,72 @@
 import { promises as fs, constants as fsConstants } from 'fs';
 import { join, delimiter as pathDelimiter } from 'path';
-import { execFile } from 'child_process';
+import { execFile, type ExecFileException } from 'child_process';
 import { cleanEnvPath } from '../path-guard.js';
 import { knowledgeSearch } from '../tools/knowledge-search.js';
-import { episodicSearch, displaySnippet, foldServedSnippet } from '../tools/episodic-search.js';
+import {
+  episodicSearch, displaySnippet, foldServedSnippet, parseScrubTodo, SCRUB_MARK, SCRUB_TODO,
+} from '../tools/episodic-search.js';
 import { pinToUser } from '../tools/pin-to-user.js';
 import { pinToProject, type PinSection } from '../tools/pin-to-project.js';
 import { unprocessedCount } from '../tools/raw-inbox.js';
+import { resolveBashExe, toBashPath } from '../tools/dream.js';
 import { readConfig, patchConfig, buddyName, validName, renderCard, dropStaleIdentity, installStatusline, uninstallStatusline } from '../tools/buddy-config.js';
 import { fileURLToPath } from 'url';
 
 export interface SbDeps {
   brainDir: string;
   knowledgeDir: string;
+  /** Plugin tree holding scripts/lib.sh. Default: this file's own tree (src or dist alike are
+   *  three levels below it), so the bash accounting always matches the shipped TS. Tests inject
+   *  a tree without lib.sh to exercise the loud fallback. */
+  pluginRoot?: string;
+  /** Bound on the drain cursor map run (default DRAIN_MAP_TIMEOUT_MS). Tests inject a short one. */
+  drainMapTimeoutMs?: number;
+}
+
+const DRAIN_MAP_TIMEOUT_MS = 20000;
+const DRAIN_MAP_MAX_BUFFER = 8 * 1024 * 1024;
+const REASON_CAP = 160;
+
+// R2 (0.56.0): "which archives still hold unextracted lines" has ONE definition, lib.sh
+// sb_drain_cursor_map (line cursors over the done-set; see the R2 contract there). sb status runs
+// it through bash rather than re-deriving it here: the four hand-copied basename-set readers it
+// replaces drifted, and a source-scan lock (tests/test-extraction-helpers.sh) bans a new one.
+// Resolves to the TSV rows (basename cursor lines state ...) or a reason string. Bounded by a
+// SIGKILL timeout; never throws.
+function drainCursorMap(brainDir: string, pluginRoot: string, timeoutMs: number): Promise<string[][] | string> {
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        resolveBashExe(),
+        ['-c', '. "$1/scripts/lib.sh" && sb_drain_cursor_map', 'sb-status', toBashPath(pluginRoot)],
+        {
+          env: { ...process.env, BRAIN_DIR: toBashPath(brainDir) },
+          timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: DRAIN_MAP_MAX_BUFFER, windowsHide: true,
+        },
+        (err, stdout, stderr) => {
+          if (err) {
+            resolve(drainMapFailure(err, String(stderr ?? ''), timeoutMs));
+            return;
+          }
+          resolve(String(stdout).split('\n').map(l => l.replace(/\r$/, '')).filter(Boolean).map(l => l.split('\t')));
+        },
+      );
+    } catch (e) {
+      resolve(sanitizeReason((e as Error).message));
+    }
+  });
+}
+
+// Why the cursor map gave no rows, as one line. The kill cases come first: a timeout leaves
+// whatever stderr bash had written by then, which would otherwise read as the cause, and Node
+// marks an over-cap output as killed too.
+function drainMapFailure(err: ExecFileException, stderr: string, timeoutMs: number): string {
+  if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return `output over ${DRAIN_MAP_MAX_BUFFER / 1048576} MB`;
+  if (err.killed) return `timed out after ${timeoutMs / 1000} s`;
+  if (err.signal) return `killed by ${err.signal}`;
+  const why = stderr.trim() || err.message || 'bash failed';
+  return sanitizeReason(typeof err.code === 'number' ? `exit ${err.code}: ${why}` : why);
 }
 
 export interface SbResult {
@@ -118,6 +172,14 @@ function claudeAuthStatus(): Promise<ClaudeAuthStatus | null> {
 function sanitizeField(v: unknown): string {
   // eslint-disable-next-line no-control-regex
   return String(v).replace(/[^\x20-\x7e]/g, '').slice(0, 40);
+}
+
+// sanitizeField for a diagnostic reason (bash stderr, a Node error): long enough to name the
+// failing file, still one printable line; a cut is marked.
+function sanitizeReason(v: string): string {
+  // eslint-disable-next-line no-control-regex
+  const flat = v.replace(/\s+/g, ' ').replace(/[^\x20-\x7e]/g, '').trim();
+  return flat.length > REASON_CAP ? `${flat.slice(0, REASON_CAP - 3)}...` : flat;
 }
 
 export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
@@ -237,28 +299,64 @@ export async function runSb(args: string[], deps: SbDeps): Promise<SbResult> {
       const h = JSON.parse(await fs.readFile(hf, 'utf-8')) as { status?: string; reason?: string };
       push(`  drainer last ran:    ${age(st.mtimeMs)} (${sanitizeField(h.status ?? '?')}: ${sanitizeField(h.reason ?? '?')})`);
     } catch { push('  drainer last ran:    never (no .extractor-health.json)'); }
-    // Extraction done-set recency + transcript backlog (archived but not terminal).
+    // Extraction done-set recency + transcript backlog (archives holding unextracted lines).
     // The backlog row must render even when the done-set file is ABSENT — that is
     // the archived-but-never-drained state (a dead drainer), the exact case this
-    // section exists to expose; an absent done-set just means an empty done set.
-    const done = new Set<string>();
+    // section exists to expose; an absent done-set just means no cursor has moved.
     try {
       const stateRaw = await fs.readFile(join(deps.brainDir, '.extraction-state.jsonl'), 'utf-8');
       let newestTs = '';
       for (const l of stateRaw.split('\n').filter(Boolean)) {
         try {
-          const r = JSON.parse(l) as { basename?: string; ts?: string; outcome?: string };
+          const r = JSON.parse(l) as { ts?: string };
           if (r.ts && r.ts > newestTs) newestTs = r.ts;
-          if (r.basename && (r.outcome === 'ok' || r.outcome === 'error')) done.add(r.basename);
         } catch { /* one corrupt line must not blind the whole read */ }
       }
       push(`  last extraction:     ${newestTs ? sanitizeField(newestTs) : 'never'}`);
     } catch { push('  last extraction:     never (no .extraction-state.jsonl)'); }
     try {
-      const archived = (await fs.readdir(join(deps.brainDir, 'transcripts'))).filter(f => f.endsWith('.txt'));
-      const backlog = archived.filter(f => !done.has(f)).length;
-      push(`  transcript backlog:  ${backlog} of ${archived.length} archived`);
+      await fs.access(join(deps.brainDir, 'transcripts'));
+      const root = deps.pluginRoot ?? fileURLToPath(new URL('../../../', import.meta.url));
+      const map = await drainCursorMap(deps.brainDir, root, deps.drainMapTimeoutMs ?? DRAIN_MAP_TIMEOUT_MS);
+      if (typeof map === 'string') {
+        push(`  transcript backlog:  unknown (drain cursor map unavailable: ${map})`);
+      } else {
+        const pending = map.filter(r => r[3] === 'pending').length;
+        const dead = map.filter(r => r[3] === 'dead').length;
+        // Columns 8/9 (dead_windows, dead_lines): every dead-lettered window whatever the
+        // archive's state, so a pending or done archive can carry some too. A row without them
+        // counts as none.
+        const count = (v: string | undefined) => (v && /^[0-9]+$/.test(v) ? Number(v) : 0);
+        let deadArchives = 0, deadWindows = 0, deadLines = 0;
+        for (const r of map) {
+          const dw = count(r[8]);
+          if (dw === 0) continue;
+          deadArchives++;
+          deadWindows += dw;
+          deadLines += count(r[9]);
+        }
+        const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+        push(`  transcript backlog:  ${pending} of ${map.length} archived${dead ? ` (${dead} dead-lettered)` : ''}`
+          + (deadArchives ? `; dead windows: ${deadWindows} in ${plural(deadArchives, 'archive')}, ${plural(deadLines, 'line')}` : ''));
+      }
     } catch { push('  transcript backlog:  no transcripts dir'); }
+    // The one-time 0.56.0 archive scrub (extract-drain.sh drain_scrub_migrate): the marker means
+    // done; until then the to-do list names every file still to scrub, archives and dream copies
+    // alike, with its failed attempts (an archive on it is held from extraction and recall).
+    try {
+      await fs.stat(join(deps.brainDir, SCRUB_MARK));
+      push('  archive scrub:       done');
+    } catch {
+      try {
+        const todo = parseScrubTodo(await fs.readFile(join(deps.brainDir, SCRUB_TODO), 'utf-8'));
+        const stuck = todo.filter(e => e.fails >= 3).length;
+        push(`  archive scrub:       ${todo.length} to scrub (${stuck} with failed attempts >= 3)`);
+      } catch (e) {
+        push((e as NodeJS.ErrnoException).code === 'ENOENT'
+          ? `  archive scrub:       no to-do list yet (no ${SCRUB_TODO}, no ${SCRUB_MARK} marker)`
+          : `  archive scrub:       unknown (cannot read ${SCRUB_TODO}: ${sanitizeReason((e as Error).message ?? String(e))})`);
+      }
+    }
     // Scheduler shim — the universal registration signal (the per-OS timer check
     // lives in bash lib.sh; a missing shim means every fire fails silently).
     try {

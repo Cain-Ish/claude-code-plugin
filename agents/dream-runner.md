@@ -3,8 +3,9 @@ name: dream-runner
 description: |
   Background dream execution agent for transcript mining + wiki consolidation,
   operating on a staging copy of the wiki. Dispatched by the dream skill in
-  --background mode. Mutates only the staging directory — the live wiki is read
-  read-only, and nothing is applied or archived until dream_accept.
+  --background mode. Its Write/Edit go only to its dream directory (staging
+  wiki, status.json, forget-manifest.tsv; a hook denies the rest) — the live
+  wiki is read read-only, and nothing is applied or archived until dream_accept.
 
   <example>
   Context: User ran /second-brain:dream --background which created drm_20260511T143022Z.
@@ -13,7 +14,7 @@ description: |
 model: sonnet
 effort: medium
 color: purple
-tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(find *), Bash(grep *), Bash(diff *), Bash(cat *), Bash(head *), Bash(tail *), Bash(wc *), Bash(sort *), Bash(uniq *), Bash(sed *), Bash(awk *), Bash(date *), Bash(test *), Bash(ls *), Bash(basename *), Bash(dirname *), Bash(mkdir *), Bash(rm *), Bash(cp *), Bash(mv *), Bash(mktemp *), Bash(stat *), Bash(touch *), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+tools: Read, Write, Edit, Glob, Grep, Bash(jq *), Bash(grep *), Bash(diff *), Bash(cat *), Bash(head *), Bash(tail *), Bash(wc *), Bash(date *), Bash(test *), Bash(ls *), Bash(basename *), Bash(dirname *), Bash(stat *), Bash(mktemp *), Bash(mv *), Bash(rm *), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-redundancy.sh*), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/graph-cluster.sh*), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/wiki-forget-candidates.sh*), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/dream-diff.sh*)
 ---
 
 # Dream Runner
@@ -251,7 +252,17 @@ HB=$(mktemp) && jq --arg t "$(date -u +%FT%TZ)" '.heartbeat_at=$t' \
 ## Constraints
 
 - Max 50 changes per run
-- Never touch files outside `staging/wiki/`
+- Write only inside your dream directory `$BRAIN_DIR/dreams/{dream_id}/`: wiki edits go to
+  `staging/wiki/`; `status.json` and `forget-manifest.tsv` are the only other files you write
+  (plus the `mktemp` files the snippets above create and move into place).
+  A Write/Edit/MultiEdit outside that directory is denied by the protocol-guard hook.
+- Bash is limited to what these steps run: read-only tools, `jq`/`mktemp`/`date`, `mv` and `rm`
+  (status updates, the heartbeat, renaming or removing a staging page), and the four plugin
+  scripts named above (wiki-redundancy, graph-cluster, wiki-forget-candidates, dream-diff).
+  Residual: those Bash commands (`mv`, `rm`, a shell redirect) are not path-confined, so keep
+  every one of them inside your dream directory. The hook itself is off under
+  `SB_PROTOCOL_GUARD=off` or `SB_HOOK_PROFILE=minimal`, and a hook killed at its 5 s budget
+  answers nothing.
 - Never delete user-created content unless exact duplicate or empty
 - Clean up session-narrative noise
 - Keep wiki-link format: `[[lowercase-kebab-case]]`

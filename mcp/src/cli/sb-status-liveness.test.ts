@@ -23,7 +23,10 @@ afterEach(() => {
 
 const status = async () => (await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge })).stdout;
 
-describe('sb status — Loop liveness (P1.1)', () => {
+// A row with transcripts spawns bash for lib.sh sb_drain_cursor_map: 1.5-2.5 s alone on Git-Bash,
+// past vitest's 5 s default when the whole suite (or a peer bash run) loads the box. The bound
+// sits above the map's own 20 s SIGKILL so a slow map reports as itself, not as a test timeout.
+describe('sb status — Loop liveness (P1.1)', { timeout: 30_000 }, () => {
   it('cold brain: every liveness row renders loud absence, exit 0', async () => {
     const out = await status();
     expect(out).toContain('Loop liveness:');
@@ -32,6 +35,7 @@ describe('sb status — Loop liveness (P1.1)', () => {
     expect(out).toContain('scheduler shim:      ABSENT');
     expect(out).toContain('newest dream:        none');
     expect(out).toContain('raw-inbox depth:     0 unprocessed');
+    expect(out).toContain('archive scrub:       no to-do list yet (no .archive-scrub-v1.todo, no .archive-scrub-v1 marker)');
   });
 
   it('stamped state renders ages, status, backlog and depth', async () => {
@@ -40,15 +44,16 @@ describe('sb status — Loop liveness (P1.1)', () => {
     writeFileSync(health, JSON.stringify({ status: 'ok', reason: 'drained 3 this run (0 failed)' }));
     const twoHoursAgo = new Date(Date.now() - 2 * 3600_000);
     utimesSync(health, twoHoursAgo, twoHoursAgo);
-    // done-set: one ok, one corrupt line (must not blind the read), one retry
+    // done-set: one ok covering a.txt's 2 lines, one corrupt line (must not blind the read), one
+    // retry (never advances a cursor)
     writeFileSync(join(brain, '.extraction-state.jsonl'), [
-      JSON.stringify({ basename: 'a.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok' }),
+      JSON.stringify({ basename: 'a.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok', from: 0, lines: 2 }),
       'NOT-JSON{{{',
-      JSON.stringify({ basename: 'b.txt', ts: '2026-07-12T11:00:00Z', outcome: 'retry' }),
+      JSON.stringify({ basename: 'b.txt', ts: '2026-07-12T11:00:00Z', outcome: 'retry', from: 0, lines: 2 }),
     ].join('\n'));
     // transcripts: a.txt done, b.txt + c.txt pending → backlog 2 of 3
     mkdirSync(join(brain, 'transcripts'));
-    for (const f of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(brain, 'transcripts', f), 'x');
+    for (const f of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(brain, 'transcripts', f), 'l1\nl2\n');
     // shim present
     mkdirSync(join(brain, 'bin'));
     writeFileSync(join(brain, 'bin', 'sb-extract-drain.sh'), '#!/bin/bash\n');
@@ -62,6 +67,145 @@ describe('sb status — Loop liveness (P1.1)', () => {
     expect(out).toContain('transcript backlog:  2 of 3 archived');
     expect(out).toContain('scheduler shim:      present');
     expect(out).toContain('newest dream:        drm_20260712T000000Z completed');
+  });
+
+  // R2 (0.56.0): the backlog comes from lib.sh sb_drain_cursor_map (line cursors). An archive
+  // that GREW after its extraction holds unextracted lines; the old ok|error basename set called
+  // it done forever.
+  it('transcript backlog counts an archive that grew past its cursor', async () => {
+    mkdirSync(join(brain, 'transcripts'));
+    writeFileSync(join(brain, 'transcripts', 'grown.txt'), 'l1\nl2\nl3\nl4\n');
+    writeFileSync(join(brain, 'transcripts', 'done.txt'), 'l1\nl2\n');
+    writeFileSync(join(brain, '.extraction-state.jsonl'), [
+      JSON.stringify({ basename: 'grown.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok', from: 0, lines: 2 }),
+      JSON.stringify({ basename: 'done.txt', ts: '2026-07-12T10:00:00Z', outcome: 'ok', from: 0, lines: 2 }),
+    ].join('\n') + '\n');
+    const out = await status();
+    // Anchored: no dead window anywhere, so no dead suffix either.
+    expect(out).toMatch(/^ {2}transcript backlog: {2}1 of 2 archived$/m);
+  });
+
+  // The cursor map's 0-based columns 8 and 9 are dead_windows and dead_lines (lib.sh
+  // sb_drain_cursor_map): every dead-lettered window whatever the archive's state, so a pending or
+  // done archive can carry some. A stub map stands in for the real one (pluginRoot).
+  describe('dead-lettered windows from the cursor map', () => {
+    let stubRoot: string;
+    beforeEach(() => {
+      mkdirSync(join(brain, 'transcripts'));
+      writeFileSync(join(brain, 'transcripts', 'a.txt'), 'l1\n');
+      stubRoot = mkdtempSync(join(tmpdir(), 'sb-deadroot-'));
+      mkdirSync(join(stubRoot, 'scripts'));
+    });
+    afterEach(() => rmSync(stubRoot, { recursive: true, force: true }));
+    const mapOf = (rows: string[]) => writeFileSync(join(stubRoot, 'scripts', 'lib.sh'),
+      `sb_drain_cursor_map() {\n${rows.map(r => `  printf '%s\\n' '${r}'`).join('\n')}\n}\n`);
+    const backlog = async () => (await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot }))
+      .stdout.split('\n').find(l => l.includes('transcript backlog:'));
+
+    it('appends the archives with dead windows, the windows and the lines to the backlog line', async () => {
+      mapOf([
+        'a.txt\t10\t50\tpending\t30\t0\t1000\t-\t2\t20',   // pending, two dead windows behind it
+        'b.txt\t40\t40\tdone\t40\t0\t1001\t-\t0\t0',
+        'c.txt\t0\t30\tdead\t30\t3\t1002\tlegacy-dead\t1\t30',
+      ]);
+      expect(await backlog()).toBe('  transcript backlog:  1 of 3 archived (1 dead-lettered); dead windows: 3 in 2 archives, 50 lines');
+    });
+
+    it('one dead window reads in the singular', async () => {
+      mapOf(['a.txt\t2\t9\tpending\t5\t0\t1000\t-\t1\t1']);
+      expect(await backlog()).toBe('  transcript backlog:  1 of 1 archived; dead windows: 1 in 1 archive, 1 line');
+    });
+
+    it('a row without the dead columns counts as none (never NaN)', async () => {
+      mapOf(['a.txt\t2\t9\tpending\t2\t0\t1000\t-']);
+      expect(await backlog()).toBe('  transcript backlog:  1 of 1 archived');
+    });
+  });
+
+  // The one-time 0.56.0 archive scrub (extract-drain.sh drain_scrub_migrate): the marker
+  // .archive-scrub-v1 means done; until then .archive-scrub-v1.todo lists `<path>\t<failed attempts>`
+  // per file still to scrub (archives and dream copies alike; a bare name is a transcripts/ entry).
+  describe('archive scrub line', () => {
+    const scrubLine = (out: string) => out.split('\n').find(l => l.includes('archive scrub:'));
+
+    it('done when the marker exists, even with a to-do list left behind', async () => {
+      writeFileSync(join(brain, '.archive-scrub-v1'), '');
+      writeFileSync(join(brain, '.archive-scrub-v1.todo'), 'transcripts/a.txt\t4\n');
+      expect(scrubLine(await status())).toBe('  archive scrub:       done');
+    });
+
+    it('counts the files to scrub and those that failed 3+ times (CRLF, bare and dream lines)', async () => {
+      writeFileSync(join(brain, '.archive-scrub-v1.todo'), [
+        'transcripts/a.txt\t0',
+        'transcripts/b.txt\t3\r',
+        'dreams/drm_20261001T000000Z/transcripts/a.txt\t7',
+        'c.txt',                       // a 0.56 pre-release bare name: no attempts yet
+        'transcripts/d.txt\t3x',       // a garbled count reads as 0 (as in lib.sh), not as 3
+        '',
+      ].join('\n'));
+      expect(scrubLine(await status())).toBe('  archive scrub:       5 to scrub (2 with failed attempts >= 3)');
+    });
+
+    it('an unreadable to-do list says so', async () => {
+      mkdirSync(join(brain, '.archive-scrub-v1.todo'));     // readFile -> EISDIR, on every OS
+      expect(scrubLine(await status())).toMatch(/^ {2}archive scrub: {7}unknown \(cannot read \.archive-scrub-v1\.todo: EISDIR\b.*\)$/);
+    });
+  });
+
+  it('transcript backlog fails loud when the cursor map cannot run', async () => {
+    mkdirSync(join(brain, 'transcripts'));
+    writeFileSync(join(brain, 'transcripts', 'a.txt'), 'l1\n');
+    const noRoot = mkdtempSync(join(tmpdir(), 'sb-noroot-'));
+    try {
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: noRoot });
+      expect(r.exitCode).toBe(0);
+      // The whole reason, not its first 40 characters: the temp path alone is longer than that on
+      // every OS, so a short cap hid which file was missing.
+      expect(r.stdout).toMatch(
+        /transcript backlog: {2}unknown \(drain cursor map unavailable: exit 1: .*scripts\/lib\.sh: No such file or directory\)/);
+    } finally {
+      rmSync(noRoot, { recursive: true, force: true });
+    }
+  });
+
+  // R2 fix round: the failure reason must say what happened. A stub lib.sh stands in for the real
+  // one (pluginRoot), so each failure mode is produced for real by bash.
+  describe('cursor map failure reasons', () => {
+    let stubRoot: string;
+    beforeEach(() => {
+      mkdirSync(join(brain, 'transcripts'));
+      writeFileSync(join(brain, 'transcripts', 'a.txt'), 'l1\n');
+      stubRoot = mkdtempSync(join(tmpdir(), 'sb-stubroot-'));
+      mkdirSync(join(stubRoot, 'scripts'));
+    });
+    afterEach(() => rmSync(stubRoot, { recursive: true, force: true }));
+    const stub = (body: string) => writeFileSync(join(stubRoot, 'scripts', 'lib.sh'), `sb_drain_cursor_map() {\n${body}\n}\n`);
+    const reasonOf = (stdout: string) =>
+      stdout.split('\n').find(l => l.includes('transcript backlog:'))?.match(/drain cursor map unavailable: (.*)\)$/)?.[1];
+
+    it('a timeout says so, even when bash had already written to stderr', async () => {
+      stub("  echo 'reading the done-set' >&2\n  sleep 10");
+      const t0 = Date.now();
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot, drainMapTimeoutMs: 1000 });
+      expect(Date.now() - t0).toBeLessThan(8000);
+      expect(r.exitCode).toBe(0);
+      expect(reasonOf(r.stdout)).toBe('timed out after 1 s');
+    }, 15000);
+
+    it('output over the buffer cap is named, not reported as a timeout', async () => {
+      stub(`  awk 'BEGIN { s = sprintf("%1000s", ""); for (i = 0; i < 9000; i++) print s }'`);
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot });
+      expect(reasonOf(r.stdout)).toBe('output over 8 MB');
+    }, 15000);
+
+    it('a long multi-line stderr becomes one printable line, capped', async () => {
+      stub(`  printf '%s\\n' '\x1b[31mfirst line' 'second line ${'E'.repeat(300)}' >&2\n  return 3`);
+      const r = await runSb(['status'], { brainDir: brain, knowledgeDir: knowledge, pluginRoot: stubRoot });
+      const reason = reasonOf(r.stdout);
+      expect(reason).toMatch(/^exit 3: \[31mfirst line second line E{20,}\.\.\.$/);
+      expect(reason!.length).toBeLessThanOrEqual(160);
+      expect(reason).not.toMatch(/[^\x20-\x7e]/);
+    });
   });
 
   it('utilization renders top counts + the dormant-capability report (P1.3)', async () => {

@@ -154,6 +154,13 @@ var lastLoadError = null;
 function brainDirFromEnv() {
   return resolveBrainDir();
 }
+function installVectorDepsCommand(scriptPath) {
+  const p = (scriptPath ?? "").replace(/\\/g, "/");
+  const cut = p.lastIndexOf("/mcp/dist/");
+  if (cut < 0) return 'bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"';
+  const script = `${p.slice(0, cut)}/bin/install-vector-deps.sh`;
+  return `bash "${script.replace(/(["$`])/g, "\\$1")}"`;
+}
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
     lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
@@ -218,7 +225,7 @@ async function getPipeline() {
     return pipelineInstance;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    const hint = msg.includes("Cannot find package") ? ` \u2014 run: ${installVectorDepsCommand(process.argv[1])}` : "";
     await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
@@ -242,23 +249,27 @@ async function loadCache(wikiRoot) {
 async function saveCache(wikiRoot, cache) {
   await atomicWriteJson(join2(wikiRoot, CACHE_FILE), cache);
 }
+function isFiniteVector(v) {
+  return Array.isArray(v) && v.every(Number.isFinite);
+}
 async function embedTexts(texts, wikiRoot, paths) {
   const pipe = await getPipeline();
   if (!pipe) return null;
-  const cache = await loadCache(wikiRoot);
+  const cache = paths.some((p) => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results = [];
   let cacheUpdated = false;
   for (let i = 0; i < texts.length; i++) {
     const hash = simpleHash(texts[i]);
     const key = paths[i] || `query-${i}`;
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
+    const hit = cache.entries[key];
+    if (hit?.hash === hash && isFiniteVector(hit.vector)) {
+      results.push(hit.vector);
       continue;
     }
     const output = await pipe(texts[i], { pooling: "mean", normalize: true });
     const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
     results.push(vec);
-    if (paths[i]) {
+    if (paths[i] && isFiniteVector(vec)) {
       cache.entries[key] = { hash, vector: vec };
       cacheUpdated = true;
     }
@@ -280,8 +291,9 @@ function estimateTokens(text) {
 }
 
 // src/tools/doc-sources.ts
-import { promises as fs3 } from "fs";
-import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3 } from "path";
+import { promises as fs3, realpathSync as realpathSync3, existsSync } from "fs";
+import { homedir as homedir2 } from "os";
+import { join as join3, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3, parse, win32 as win322 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str) => {
@@ -6488,9 +6500,9 @@ function extractYamlList(yaml, key) {
     return inline[1].split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
   }
   const items = [];
-  const lines = yaml.split("\n");
+  const lines2 = yaml.split("\n");
   let collecting = false;
-  for (const line of lines) {
+  for (const line of lines2) {
     if (line.match(new RegExp(`^${key}:`))) {
       collecting = true;
       continue;
@@ -6568,6 +6580,129 @@ async function loadRegistry(brainDir2, slug) {
   } catch {
     return null;
   }
+}
+function isDocEntry(e) {
+  if (!e || typeof e !== "object") return false;
+  const o = e;
+  return typeof o.path === "string" && typeof o.gist === "string" && typeof o.mtime === "string" && typeof o.size === "number" && Array.isArray(o.headings) && o.headings.every((h) => typeof h === "string");
+}
+function isPlainAbsolutePath(p, platform = process.platform) {
+  const absolute = platform === "win32" ? /^([A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(p) : p.startsWith("/");
+  return absolute && !p.split(/[\\/]/).some((seg) => seg === "." || seg === "..");
+}
+function canonicalReal(p) {
+  const r = realpathSync3.native(p);
+  return process.platform === "win32" ? r.toLowerCase() : r;
+}
+function rootStatusOf(root, home) {
+  if (parse(root).root === root) return "fs-root";
+  if (!home) return "ok";
+  let h;
+  try {
+    h = canonicalReal(home);
+  } catch {
+    h = resolve2(home);
+    if (process.platform === "win32") h = h.toLowerCase();
+  }
+  return h === root || h.startsWith(root.endsWith(sep3) ? root : root + sep3) ? "home" : "ok";
+}
+function fromOtherCheckout(e, root) {
+  const rel = typeof e.rel === "string" ? e.rel : "";
+  if (!rel || isAbsolute3(rel) || win322.isAbsolute(rel) || rel.split(/[\\/]/).some((s) => s === "" || s === "." || s === "..")) return false;
+  let path2 = e.path.replace(/\\/g, "/"), tail = `/${rel.replace(/\\/g, "/")}`;
+  if (process.platform === "win32") {
+    path2 = path2.toLowerCase();
+    tail = tail.toLowerCase();
+  }
+  return path2.endsWith(tail) && existsSync(join3(root, rel));
+}
+function servableEntries(entries, projectRoot, home = homedir2()) {
+  const r = {
+    kept: [],
+    outside: 0,
+    otherCheckout: 0,
+    relative: 0,
+    missing: 0,
+    malformed: 0,
+    rootUsable: false,
+    rootStatus: "unusable"
+  };
+  let root = "";
+  try {
+    if (projectRoot) {
+      root = canonicalReal(cleanEnvPath(projectRoot));
+      r.rootStatus = rootStatusOf(root, home);
+    }
+  } catch {
+  }
+  r.rootUsable = r.rootStatus === "ok";
+  const prefix = root.endsWith(sep3) ? root : root + sep3;
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!isDocEntry(e)) {
+      r.malformed++;
+      continue;
+    }
+    if (!isPlainAbsolutePath(e.path)) {
+      r.relative++;
+      continue;
+    }
+    let real;
+    try {
+      real = canonicalReal(e.path);
+    } catch {
+      r.missing++;
+      continue;
+    }
+    if (!r.rootUsable || !real.startsWith(prefix)) {
+      if (r.rootUsable && fromOtherCheckout(e, root)) r.otherCheckout++;
+      else r.outside++;
+      continue;
+    }
+    r.kept.push(e);
+  }
+  return r;
+}
+
+// src/tools/project-registry.ts
+import { readFileSync } from "fs";
+import { join as join4 } from "path";
+function loadRegistry2(brainDir2) {
+  let text;
+  try {
+    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s);
+      if (r && typeof r.slug === "string" && r.slug) out.push(r);
+    } catch {
+    }
+  }
+  return out;
+}
+function projectFamily(brainDir2, slug) {
+  const recs = loadRegistry2(brainDir2);
+  const self = recs.find((r) => r.slug === slug);
+  const root = self?.parent ?? slug;
+  const fam = /* @__PURE__ */ new Set([slug, root]);
+  for (const r of recs) if ((r.parent ?? r.slug) === root) fam.add(r.slug);
+  return fam;
+}
+
+// src/tools/project-dir.ts
+function activeProjectDir(env = process.env, cwd = process.cwd) {
+  return cleanEnvPath(env.CLAUDE_PROJECT_DIR) || cwd();
+}
+
+// src/tools/sanitize.ts
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
 }
 
 // src/tools/graph-store.ts
@@ -6649,37 +6784,6 @@ function validAt(e, t) {
   return cmpTime(dateOf(e.valid_to), td) > 0;
 }
 
-// src/tools/project-registry.ts
-import { readFileSync } from "fs";
-import { join as join4 } from "path";
-function loadRegistry2(brainDir2) {
-  let text;
-  try {
-    text = readFileSync(join4(brainDir2, "projects.jsonl"), "utf-8");
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const line of text.split("\n")) {
-    const s = line.trim();
-    if (!s) continue;
-    try {
-      const r = JSON.parse(s);
-      if (r && typeof r.slug === "string" && r.slug) out.push(r);
-    } catch {
-    }
-  }
-  return out;
-}
-function projectFamily(brainDir2, slug) {
-  const recs = loadRegistry2(brainDir2);
-  const self = recs.find((r) => r.slug === slug);
-  const root = self?.parent ?? slug;
-  const fam = /* @__PURE__ */ new Set([slug, root]);
-  for (const r of recs) if ((r.parent ?? r.slug) === root) fam.add(r.slug);
-  return fam;
-}
-
 // src/tools/walk-wiki.ts
 import { promises as fs5 } from "fs";
 import { join as join5 } from "path";
@@ -6702,6 +6806,116 @@ async function walkWiki(dir, opts = {}, acc = []) {
   }
   return acc;
 }
+
+// src/tools/episodic-search.ts
+var PEER_PREFIX = "Another Claude session sent a message:";
+var MACHINE_TAG_PREFIXES = [
+  "<task-notification>",
+  "<system-reminder>",
+  "<agent-message",
+  "<cross-session-message",
+  "<command-",
+  // command-name, command-message, command-args
+  "<local-command-",
+  // local-command-stdout, local-command-caveat, …
+  "<bash-"
+  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+var MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
+  PEER_PREFIX,
+  "Stop hook feedback:",
+  "This session is being continued from a previous conversation",
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  "Base directory for this skill:",
+  "Caveat: The messages below were generated"
+];
+var cps = (...xs) => String.fromCodePoint(...xs);
+var ZWNJ = cps(8204);
+var ZWJ = cps(8205);
+var FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
+var FOLD_OPEN_EXTRA = cps(9121, 9122, 9123, 8988, 8990, 9150, 9151, 9484, 9492, 9500);
+var FOLD_CLOSE_EXTRA = cps(9124, 9125, 9126, 8989, 8991, 9163, 9164, 9488, 9496, 9508);
+var FOLD_OPEN_RE = new RegExp(`[\\p{Ps}\\p{Pi}${FOLD_OPEN_EXTRA}]`, "gu");
+var FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}\\p{Pf}${FOLD_CLOSE_EXTRA}]`, "gu");
+var FOLD_QUOTE_KEEP = new Set(cps(
+  8218,
+  8222,
+  11842,
+  12317,
+  12318,
+  12319,
+  171,
+  187,
+  8216,
+  8217,
+  8219,
+  8220,
+  8221,
+  8223,
+  8249,
+  8250
+));
+var FRAME_PHRASE_SKELETON = "untrustedreference";
+var CONFUSABLE = /* @__PURE__ */ new Map();
+for (const [latin, from] of [
+  ["c", [1089, 962, 963, 7428, 42202]],
+  ["d", [1281, 7429, 42195]],
+  ["e", [1077, 949, 1108, 7431, 42224]],
+  ["f", [989, 42800, 42205]],
+  ["n", [951, 957, 1087, 1400, 628, 42208]],
+  ["r", [1075, 640, 638, 42211]],
+  ["s", [1109, 42801, 42210]],
+  ["t", [964, 1090, 7451, 42196]],
+  ["u", [965, 1405, 7452, 651, 42228]]
+]) {
+  for (const c of from) CONFUSABLE.set(cps(c), latin);
+}
+var LETTER_OR_DIGIT_RE = /^[\p{L}\p{N}]$/u;
+var SKELETON_CACHE = /* @__PURE__ */ new Map();
+function skeletonOf(ch) {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c < 128) {
+    if (c >= 97 && c <= 122 || c >= 48 && c <= 57) return ch;
+    return c >= 65 && c <= 90 ? String.fromCharCode(c + 32) : "";
+  }
+  let s = SKELETON_CACHE.get(c);
+  if (s === void 0) {
+    s = "";
+    for (const d of ch.normalize("NFKD").toLowerCase().normalize("NFKD")) {
+      const m = CONFUSABLE.get(d) ?? d;
+      if (LETTER_OR_DIGIT_RE.test(m)) s += m;
+    }
+    if (SKELETON_CACHE.size < 4096) SKELETON_CACHE.set(c, s);
+  }
+  return s;
+}
+function neutraliseFramePhrase(text) {
+  let skeleton = "";
+  for (const ch of text) skeleton += skeletonOf(ch);
+  if (!skeleton.includes(FRAME_PHRASE_SKELETON)) return text;
+  const start = [], end = [];
+  let i = 0;
+  for (const ch of text) {
+    const n = skeletonOf(ch).length;
+    for (let k = 0; k < n; k++) {
+      start.push(i);
+      end.push(i + ch.length);
+    }
+    i += ch.length;
+  }
+  let out = "", last = 0;
+  for (let j2 = skeleton.indexOf(FRAME_PHRASE_SKELETON); j2 >= 0; j2 = skeleton.indexOf(FRAME_PHRASE_SKELETON, j2 + FRAME_PHRASE_SKELETON.length)) {
+    out += `${text.slice(last, Math.max(start[j2], last))}untrusted-reference`;
+    last = end[j2 + FRAME_PHRASE_SKELETON.length - 1];
+  }
+  return out + text.slice(last);
+}
+function foldServedSnippet(text) {
+  return neutraliseFramePhrase(text.replace(FOLD_SPACE_RE, (m) => m === ZWNJ || m === ZWJ ? m : " ").replace(FOLD_OPEN_RE, (m) => m === "(" || m === "{" || FOLD_QUOTE_KEEP.has(m) ? m : "(").replace(FOLD_CLOSE_RE, (m) => m === ")" || m === "}" || FOLD_QUOTE_KEEP.has(m) ? m : ")"));
+}
+var SCRUB_MARK = ".archive-scrub-v1";
+var SCRUB_TODO = `${SCRUB_MARK}.todo`;
 
 // src/tools/knowledge-search.ts
 function aiBlockText(doc) {
@@ -6956,9 +7170,26 @@ async function knowledgeSearch(args) {
       }
     }
   }
-  if (args.brainDir && args.projectSlug) {
-    const reg = await loadRegistry(args.brainDir, args.projectSlug);
-    for (const e of reg?.entries ?? []) {
+  const reg = args.brainDir && args.projectSlug ? await loadRegistry(args.brainDir, args.projectSlug) : null;
+  if (reg && args.brainDir && args.projectSlug) {
+    let root = args.projectRoot;
+    if (root === void 0) {
+      try {
+        root = activeProjectDir();
+      } catch {
+        root = void 0;
+      }
+    }
+    const s = servableEntries(reg.entries, root);
+    const dropped = s.outside + s.otherCheckout + s.relative + s.missing + s.malformed;
+    if (dropped > 0) {
+      await appendGateTrace(
+        args.brainDir,
+        "knowledge-search",
+        `gate=local-doc-drop slug=${args.projectSlug} kept=${s.kept.length} dropped=${dropped} outside=${s.outside} other_checkout=${s.otherCheckout} relative=${s.relative} missing=${s.missing} malformed=${s.malformed} root=${JSON.stringify(capCodePoints(cleanEnvPath(root), 300))} root_status=${s.rootStatus}`
+      );
+    }
+    for (const e of s.kept) {
       const doc = {
         title: "",
         description: e.gist,
@@ -7232,6 +7463,58 @@ function injectableWiki(candidates, o) {
   if (!INJECT_PRECISION) return legacyWikiFilter(candidates, o);
   return candidates.filter((c) => !c.stub && c.score >= o.minScore && c.relevance >= o.minRelevance && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
 }
+function injectedHitLine(c, platform = process.platform) {
+  if (injectDropReason(c, platform)) return "";
+  const desc = capCodePoints(foldServedSnippet(stripInvisible(c.description ?? "")).trim(), INJECT_TEXT_MAX_CP);
+  const tail = desc ? ` \u2014 ${desc}` : "";
+  if (c.source === "local-doc") return `Read ${c.path}${tail}`;
+  const slug = foldServedSnippet(stripInvisible(c.path.replace(/^.*[\\/]/, "").replace(/\.md$/, "")));
+  return `### [[${slug}]]${tail}`;
+}
+var INJECT_TEXT_MAX_CP = 200;
+var LOCAL_DOC_PATH_MAX_CP = 260;
+var LOCAL_DOC_PATH_RE = /^[\p{L}\p{N} ._\-/\\:~+@,()'&#]+$/u;
+var HANGUL_FILLER_RE = new RegExp(`[${String.fromCodePoint(4447)}${String.fromCodePoint(4448)}]`, "u");
+function capCodePoints(s, max) {
+  const cps2 = [...s];
+  return cps2.length <= max ? s : `${cps2.slice(0, max - 1).join("").trimEnd()}\u2026`;
+}
+function injectDropReason(c, platform = process.platform) {
+  if (c.source !== "local-doc") return "";
+  const p = c.path;
+  if (!isPlainAbsolutePath(p, platform)) {
+    return p.split(/[\\/]/).some((seg) => seg === "." || seg === "..") ? "path-dots" : "path-relative";
+  }
+  if (p.includes(" \u2014 ")) return "path-separator";
+  if ([...p].length > LOCAL_DOC_PATH_MAX_CP) return "path-length";
+  if (p.normalize("NFKC") !== p) return "path-not-nfkc";
+  if (!LOCAL_DOC_PATH_RE.test(p) || HANGUL_FILLER_RE.test(p)) return "path-chars";
+  if (foldServedSnippet(p) !== p) return "path-frame-text";
+  return "";
+}
+function injectedHitLines(candidates, max, platform = process.platform) {
+  const lines2 = [];
+  const drops2 = [];
+  for (const c of candidates) {
+    if (lines2.length >= max) break;
+    const reason = injectDropReason(c, platform);
+    if (reason) {
+      drops2.push({ path: c.path, source: c.source, reason });
+      continue;
+    }
+    lines2.push(injectedHitLine(c, platform));
+  }
+  return { lines: lines2, drops: drops2 };
+}
+async function reportInjectDrops(brainDir2, script, drops2) {
+  for (const d of drops2) {
+    await appendGateTrace(
+      brainDir2,
+      script,
+      `gate=inject-drop reason=${d.reason} source=${d.source} path=${JSON.stringify(capCodePoints(d.path, 300))}`
+    );
+  }
+}
 function toCounts(s) {
   const toks = tokenize(s);
   const counts = /* @__PURE__ */ new Map();
@@ -7329,11 +7612,10 @@ var injectGate = parseInjectGate(
   }
 );
 var gateOpts = { minScore, minRelevance, minGrounded };
-var top = (injectGate ? injectableWiki(result.candidates, gateOpts) : legacyWikiFilter(result.candidates, gateOpts)).slice(0, 2);
-if (top.length === 0) {
+var gated = injectGate ? injectableWiki(result.candidates, gateOpts) : legacyWikiFilter(result.candidates, gateOpts);
+var { lines, drops } = injectedHitLines(gated, 2);
+await reportInjectDrops(brainDir, "knowledge-search-cli", drops);
+if (lines.length === 0) {
   process.exit(0);
 }
-for (const c of top) {
-  const slug = c.path.replace(/^.*[\\/]/, "").replace(/\.md$/, "");
-  console.log(`### [[${slug}]]${c.description ? " \u2014 " + c.description : ""}`);
-}
+for (const l of lines) console.log(l);

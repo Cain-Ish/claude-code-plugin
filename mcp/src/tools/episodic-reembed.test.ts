@@ -45,11 +45,13 @@ describe('episodic re-embed on a parser bump', () => {
     calls.length = 0;
   });
   const readIndex = () => JSON.parse(readFileSync(join(brainDir, 'episodic-index.json'), 'utf-8'));
+  // The stored vector (0.56.0, R2#6): `e8` = int8 components, base64; a row without one has no e8.
+  const vecLen = (e: any): number => (typeof e.e8 === 'string' && e.e8 ? Buffer.from(e.e8, 'base64').length : 0);
 
   it('a fresh build embeds every row once, a no-op rebuild embeds nothing', async () => {
     await buildEpisodicIndex(brainDir);
     expect(calls).toHaveLength(2);
-    expect(readIndex().exchanges.every((e: any) => e.embedding.length === 384)).toBe(true);
+    expect(readIndex().exchanges.every((e: any) => vecLen(e) === 384)).toBe(true);
     calls.length = 0;
     await buildEpisodicIndex(brainDir);
     expect(calls).toHaveLength(0);
@@ -75,7 +77,7 @@ describe('episodic re-embed on a parser bump', () => {
     const after = readIndex();
     expect(after.exchanges.map((e: any) => e.id)).toEqual([human.id, machine.id]);
     expect(after.exchanges[1].userSnippet).toBe('');
-    expect(after.exchanges.every((e: any) => e.embedding.length === 384)).toBe(true);
+    expect(after.exchanges.every((e: any) => vecLen(e) === 384)).toBe(true);
   });
 
   // R1 review: the re-parse used to drop every row's vector and lean on the embedding cache to
@@ -85,6 +87,7 @@ describe('episodic re-embed on a parser bump', () => {
   function simulateParser1(): { human: any; machine: any } {
     const idx = readIndex();
     const [human, machine] = idx.exchanges;
+    expect(vecLen(human)).toBe(384);   // the carry-over checks below compare against a real vector
     machine.userSnippet = RAW_TN;
     idx.indexed_files[FILE] = idx.indexed_files[FILE].hash;
     writeFileSync(join(brainDir, 'episodic-index.json'), JSON.stringify(idx), 'utf-8');
@@ -102,7 +105,7 @@ describe('episodic re-embed on a parser bump', () => {
     expect(calls).toEqual([`\n${machine.assistantSnippet}`]);
     const after = readIndex();
     expect(after.exchanges[0].id).toBe(human.id);
-    expect(after.exchanges[0].embedding).toEqual(human.embedding);
+    expect([after.exchanges[0].e8, after.exchanges[0].es]).toEqual([human.e8, human.es]);
   });
 
   it('with no model during the re-parse, unchanged rows still keep their vectors', async () => {
@@ -113,8 +116,8 @@ describe('episodic re-embed on a parser bump', () => {
     const r = await buildEpisodicIndex(brainDir);
 
     const after = readIndex();
-    expect(after.exchanges[0].embedding).toEqual(human.embedding);
-    expect(after.exchanges[1].embedding).toEqual([]);   // its text changed: it waits for a model
+    expect([after.exchanges[0].e8, after.exchanges[0].es]).toEqual([human.e8, human.es]);
+    expect(after.exchanges[1]).not.toHaveProperty('e8');   // its text changed: it waits for a model
     expect(r.pending).toBe(1);
   });
 });

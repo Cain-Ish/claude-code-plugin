@@ -19,6 +19,9 @@ function writeTranscript(brainDir: string, filename: string, sessionId: string, 
   writeFileSync(path, content, 'utf-8');
 }
 
+// The stored vector (0.56.0, R2#6): `e8` = int8 components, base64; a row without one has no e8.
+const vecLen = (e: any): number => (typeof e.e8 === 'string' && e.e8 ? Buffer.from(e.e8, 'base64').length : 0);
+
 const FIXTURE_BODY = `USER: explain how the episodic indexer caches embeddings to disk for later semantic search
 ASSISTANT: The indexer hashes each exchange, calls embedTexts, then writes a 384-dimensional float vector into episodic-index.json keyed by exchange id.
 
@@ -53,7 +56,7 @@ describe('buildEpisodicIndex — degraded when embeddings disabled', () => {
     expect(index.exchanges.length).toBeGreaterThan(0);
     expect(r.pending).toBe(index.exchanges.length); // every row pending
     expect(r.repaired).toBe(0);
-    expect(index.exchanges.every((e: any) => e.embedding.length === 0)).toBe(true);
+    expect(index.exchanges.every((e: any) => !('e8' in e) && !('embedding' in e))).toBe(true);
   });
 
   it('marks the file as indexed so text search works on subsequent invocations', async () => {
@@ -110,13 +113,13 @@ describe.skipIf(EMBEDDINGS_OFFLINE)('buildEpisodicIndex — happy path (real mod
     // Deterministic regardless of model availability (CI may not have the ~70MB
     // model downloaded): ALWAYS assert the no-poison/no-drop contract; assert FULL
     // embedding population only when the model actually produced vectors.
-    const populated = index.exchanges.filter((e: any) => e.embedding && e.embedding.length === 384);
-    const corrupt = index.exchanges.filter((e: any) => e.embedding && e.embedding.length !== 0 && e.embedding.length !== 384);
+    const populated = index.exchanges.filter((e: any) => vecLen(e) === 384);
+    const corrupt = index.exchanges.filter((e: any) => 'e8' in e && vecLen(e) !== 384);
     expect(corrupt.length).toBe(0);                      // never a partial/garbage vector
     expect(index.exchanges.length).toBeGreaterThan(0);   // rows are not dropped
     expect(index.indexed_files['sess1_proj_2026-05-22.txt']).toBeDefined();
     if (populated.length > 0) {
-      expect(index.exchanges.every((e: any) => e.embedding && e.embedding.length === 384)).toBe(true);
+      expect(index.exchanges.every((e: any) => vecLen(e) === 384)).toBe(true);
     }
   }, 120_000);
 
@@ -162,12 +165,12 @@ describe.skipIf(EMBEDDINGS_OFFLINE)('buildEpisodicIndex — happy path (real mod
     // The bug this guards (976/981 rows stuck at embedding:[]) is "stale rows
     // never RE-processed" — assert that always; assert full re-embed only when
     // the model is present.
-    const populated = index.exchanges.filter((e: any) => e.embedding && e.embedding.length === 384);
-    const corrupt = index.exchanges.filter((e: any) => e.embedding && e.embedding.length !== 0 && e.embedding.length !== 384);
+    const populated = index.exchanges.filter((e: any) => vecLen(e) === 384);
+    const corrupt = index.exchanges.filter((e: any) => 'e8' in e && vecLen(e) !== 384);
     expect(corrupt.length).toBe(0);
     expect(index.exchanges.length).toBeGreaterThan(0);   // the stale row was not dropped
     if (populated.length > 0) {
-      const empty = index.exchanges.filter((e: any) => !e.embedding || e.embedding.length === 0);
+      const empty = index.exchanges.filter((e: any) => vecLen(e) === 0);
       expect(empty.length).toBe(0);                      // model present → stale row re-embedded
     }
   }, 120_000);
@@ -208,7 +211,7 @@ describe.skipIf(EMBEDDINGS_OFFLINE)('episodicSearch — vector recall (real mode
     // recall assertions on a real embed (CI w/o the model would no-op safely).
     expect(built.total).toBe(3);
     const index = JSON.parse(readFileSync(join(brainDir, 'episodic-index.json'), 'utf-8'));
-    const allEmbedded = index.exchanges.every((e: any) => e.embedding && e.embedding.length === 384);
+    const allEmbedded = index.exchanges.every((e: any) => vecLen(e) === 384);
 
     // Paraphrase shares NO content token (len>=2) with s1's snippets:
     // making/record/retrieval/faster/tuning/lookups vs postgres/select/index/...

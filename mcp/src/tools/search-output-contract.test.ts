@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { knowledgeSearch } from './knowledge-search.js';
-import { episodicSearch } from './episodic-search.js';
+import { episodicSearch, renderEpisodicSearch } from './episodic-search.js';
+import { estimateTokens } from './egress-budget.js';
 
 // R2.3 (MCP-SEARCH-2): output must be interpretable — additive score_norm on
 // one 0..1 scale, and an explicit degraded flag when vector search is dead.
@@ -59,5 +60,72 @@ describe('search output contract', () => {
   it('episodic_search: explicit text mode is not "degraded"', async () => {
     const r = await episodicSearch({ query: 'tunnels', mode: 'text' }, brain);
     expect(r.degraded).toBeUndefined();
+  });
+
+  // D3 (2026-10-07): the engine flag above never reached the model — the MCP tool printed rows (or
+  // "No matching conversations found.") and dropped result.degraded, although its description
+  // promised it. These assert the TOOL TEXT (renderEpisodicSearch, which server.ts returns as is;
+  // server-tools-contract.test.ts locks that delegation).
+  const BUDGET = 2000;
+
+  it('episodic_search text: a concept array with no vectors says vector search is unavailable and how to retry', async () => {
+    const r = await episodicSearch({ query: ['tunnels', 'wireguard'] }, brain);
+    expect(r.degraded).toBe('vector-unavailable');
+    const text = renderEpisodicSearch(r, BUDGET);
+    expect(text).not.toBe('No matching conversations found.');
+    expect(text).toMatch(/vector search unavailable \(embeddings missing\)/);
+    expect(text).toMatch(/retry as a single string query/);
+  });
+
+  it('episodic_search text: text-only rows carry a degraded footer after the rows', async () => {
+    const r = await episodicSearch({ query: 'tunnels' }, brain);
+    expect(r.degraded).toBe('text-only');
+    const text = renderEpisodicSearch(r, BUDGET);
+    expect(text).toContain('**User**: how do tunnels work');
+    expect(text.trimEnd().split('\n').pop()).toMatch(/^_Degraded: vector search unavailable \(embeddings missing\)/);
+  });
+
+  it('episodic_search text: text-only with no match says the miss is text-only, not a plain "not found"', async () => {
+    const r = await episodicSearch({ query: 'zzqx nonexistent' }, brain);
+    expect(r.results).toEqual([]);
+    expect(r.degraded).toBe('text-only');
+    const text = renderEpisodicSearch(r, BUDGET);
+    expect(text).toMatch(/^No matching conversations found/);
+    expect(text).toMatch(/text matching only/);
+    expect(text).toMatch(/vector search unavailable \(embeddings missing\)/);
+  });
+
+  it('episodic_search text: no degraded flag -> no footer, and the plain not-found line', async () => {
+    const hit = await episodicSearch({ query: 'tunnels', mode: 'text' }, brain);
+    expect(renderEpisodicSearch(hit, BUDGET)).not.toMatch(/Degraded|vector search unavailable/);
+    const miss = await episodicSearch({ query: 'zzqx nonexistent', mode: 'text' }, brain);
+    expect(renderEpisodicSearch(miss, BUDGET)).toBe('No matching conversations found.');
+  });
+
+  it('episodic_search text: the footer survives the egress cap (appended after capList)', async () => {
+    const r = await episodicSearch({ query: 'tunnels' }, brain);
+    const two = { ...r, results: [r.results[0], { ...r.results[0], sessionId: 's2' }] };
+    const text = renderEpisodicSearch(two, 1);   // 1 token: capList keeps only the top row
+    expect(text).toContain('1 more —');
+    expect(text.trimEnd().split('\n').pop()).toMatch(/^_Degraded: vector search unavailable/);
+  });
+
+  // T4 (R3 review): the footer went on AFTER capList had packed the rows up to the whole budget, so
+  // a degraded result broke the egress ceiling by the footer's ~25 tokens. The rows get the budget
+  // minus the footer. capList always keeps the top row, so the ceiling holds once one row, the
+  // "N more" line and the footer fit.
+  it('episodic_search text: rows + degraded footer stay within the egress budget (T4)', async () => {
+    const r = await episodicSearch({ query: 'tunnels' }, brain);
+    expect(r.degraded).toBe('text-only');
+    const rows = Array.from({ length: 6 }, (_, i) => ({ ...r.results[0], sessionId: `s${i}` }));
+    const many = { ...r, results: rows };
+    const floor = estimateTokens(renderEpisodicSearch({ ...r, results: [rows[0]] }, 100_000)) + 40;
+    const over: number[] = [];
+    for (let budget = floor; budget <= floor + 400; budget++) {
+      const text = renderEpisodicSearch(many, budget);
+      if (estimateTokens(text) > budget) over.push(budget);
+      expect(text.trimEnd().split('\n').pop()).toMatch(/^_Degraded: vector search unavailable/);
+    }
+    expect(over, `budgets broken by the footer: ${over.slice(0, 5).join(', ')}...`).toEqual([]);
   });
 });

@@ -62,4 +62,21 @@ TC=$(jq -r '.inputs.transcript_count' "$BRAIN_DIR/dreams/$DID/status.json" 2>/de
 [ "$TC" = "0" ] || fail "review follow-up: --slug '.*' matched $TC transcript(s) as a wildcard — must select none (fixed-string match only)"
 pass "review follow-up: --slug '.*' is a fixed-string literal (selects zero transcripts, not a wildcard)"
 
+# --- (e) X2 (security review, pre-migration exposure): the dream-runner LLM reads the staged copies,
+# and an archive written before 0.56.0 (or by a 0.55 hook after the migration) holds keys in clear.
+# The staged copy is secret-scrubbed; the source archive is left to the drainer's migration. The
+# key is assembled at run time (no key-shaped literal in the repo).
+rm -rf "$BRAIN_DIR/dreams"
+KANT="sk-""ant-api03-$(printf 'Zq9x%.0s' 1 2 3 4 5 6 7 8)"
+KEYSRC="$BRAIN_DIR/transcripts/sess2_alpha_2026-06-29.txt"
+printf 'USER:\nmy key is %s\nASSISTANT:\nnoted\n' "$KANT" > "$KEYSRC"
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$SNAP" --max-count 5 >/dev/null 2>&1 || true
+STAGED2=$(find "$BRAIN_DIR/dreams" -path '*/transcripts/sess2_alpha_2026-06-29.txt' 2>/dev/null | head -1)
+[ -n "$STAGED2" ] || fail "scrub: the key-holding transcript was not staged"
+LC_ALL=C grep -qF 'ant-api03-' "$STAGED2" && fail "scrub: the staged copy the dream-runner reads holds the key"
+LC_ALL=C grep -qF '[redacted:anthropic]' "$STAGED2" || fail "scrub: no redaction marker in the staged copy"
+[ "$(wc -l < "$STAGED2" | tr -d ' ')" = "4" ] || fail "scrub: the staged copy's line count changed"
+LC_ALL=C grep -qF 'ant-api03-' "$KEYSRC" || fail "scrub: the SOURCE archive was modified (the migration owns it)"
+pass "staged transcripts are secret-scrubbed; the source archive is untouched"
+
 echo "ALL PASS"

@@ -101,7 +101,7 @@ bash "${CLAUDE_PLUGIN_ROOT:-.}/bin/sb" help
 | `sb recall <text>` | episodic transcript search, limit 5 | `NN%  [date project]  snippet` + `archivePath:lineStart-lineEnd` |
 | `sb pin user <text>` | append preference to USER.md | `+ <line>` or exit 1 + stderr reason |
 | `sb pin project <slug> <blockers\|decisions> <text>` | append to PROJECT.md | `+ <line>  (slug/section)` |
-| `sb status` | hot-tier + wiki sizes | USER.md bytes, project count, per-project PROJECT.md bytes, wiki counts |
+| `sb status` | hot-tier + wiki sizes, drainer recency, transcript backlog | USER.md bytes, project count, per-project PROJECT.md bytes, wiki counts, `transcript backlog:  N of M archived (K dead-lettered); dead windows: W in A archives, L lines` (N = `pending` rows of `sb_drain_cursor_map`; the dead suffix only when some window is dead-lettered), `archive scrub:` (`done` / `N to scrub (K with failed attempts >= 3)`) |
 | `sb auth status` | extractor auth mode (authoritative) | see table below |
 | `sb auth doctor` | prints the two supported auth setups + verify step | text |
 
@@ -213,10 +213,12 @@ State files (all under `~/.second-brain`; full map owned by sb-architecture-cont
 
 | File | Meaning |
 |---|---|
-| `.last-extracted-line-<slug>--<session_id>` | per-session extraction marker (bare integer); swept after 30 d idle |
+| `.last-archived-line-<slug>--<session_id>` | archive-first cursor: `<raw_line>`, a tab, then the transcript path; raw transcript lines already copied into the archive (0.56.0); swept after 30 d idle |
+| `.last-extracted-line-<slug>--<session_id>` | per-session extraction marker (bare integer, raw transcript lines); swept after 30 d idle |
 | `.extractor-health.json` | `{checked_at, backend, status, reason}`; `status ∈ ok\|fail\|queued` — `queued` is NORMAL on subscription auth (in-session OAuth deferral) |
-| `.extraction-state.jsonl` | drainer done-set: `{basename, ts, outcome: ok\|retry\|error, reason?, fails?}`; `error` = poison-pilled after `SB_DRAIN_MAX_FAILS` (3) |
-| `transcripts/*.txt` | archived session windows (caps 100 files / 5 MB; subagent `sub-*` sub-cap 50) |
+| `.extraction-state.jsonl` | drainer done-set: `{basename, ts, outcome: ok\|baseline\|retry\|error, reason?, latency_s?, fails?, from, lines}`; `from`/`lines` = the archive-line window extracted; a cursor = max `lines` over `ok`/`baseline` rows; `error` = that window dead-lettered after `SB_DRAIN_MAX_FAILS` (3), lines stay un-extracted |
+| `transcripts/*.txt` | archived session windows, credential formats redacted by `sb_scrub_secrets` (kinds and what is not matched: `references/archive-and-backlog.md`); caps 400 files / 25 MB soft, 1200 files / 75 MB hard, only `pending` archives protected from eviction; subagent `sub-*` sub-cap 200 |
+| `transcripts/.<archive>.lock`, `.archive-scrub-v1`, `.archive-scrub-v1.todo` | per-archive write lock (`<pid>.<nonce>`, 5 s wait, stolen from a dead holder after 60 s or any holder after 600 s); one-time scrub marker and to-do list |
 | `.drain-defer-count` / `.last-drain-escape` | drainer starvation-escape state |
 | `.project-update-pending-<slug>` | queued reflection work flag |
 
@@ -228,11 +230,11 @@ B=~/.second-brain; P="${CLAUDE_PLUGIN_ROOT:-$PWD}"
 jq . "$B/.extractor-health.json"          # healthy: status "ok", reason "drained N this run (M failed)"
 # 2. Done-set recency:
 tail -5 "$B/.extraction-state.jsonl" | jq -c '{basename,ts,outcome,reason}'
-# 3. Backlog (archived but not terminal in the done-set; 0 = fully drained).
-#    tr -d '\r' is load-bearing: Windows jq stdout is CRLF, so a CR rides on every basename and
-#    matches nothing in comm — backlog then falsely reads as ALL archived (project_jq_windows_crlf_stdout):
-comm -23 <(ls -1 "$B"/transcripts/*.txt 2>/dev/null | sed 's|.*/||' | sort) \
-         <(jq -r 'select(.outcome=="ok" or .outcome=="error") | .basename' "$B/.extraction-state.jsonl" 2>/dev/null | tr -d '\r' | sort -u) | wc -l
+# 3. Backlog = archives holding unextracted lines (0 pending = drained). Cursor map, one TSV row per
+#    archive, oldest first: basename cursor lines state next fails mtime flag (state done|pending|dead)
+source "$P/scripts/lib.sh"; M=$(sb_drain_cursor_map "$B/.extraction-state.jsonl" "$B/transcripts")
+printf '%s' "$M" | cut -f4 | sort | uniq -c        # archives per state
+printf '%s' "$M" | awk -F'\t' '$4=="pending"' | head   # what is waiting
 # 4. Scheduler registered (checks the shim $B/bin/sb-extract-drain.sh + per-OS registration):
 source "$P/scripts/lib.sh"; sb_timer_health    # installed | absent
 ```
@@ -241,8 +243,7 @@ source "$P/scripts/lib.sh"; sb_timer_health    # installed | absent
 "0a-quater"; there is NO `drain-health*.sh` script): banner fires when
 `sb_count_drain_timeouts 40` (count of `extractor-diag .*ec=124` in the last 40
 error-log lines) ≥ `SB_DRAIN_TIMEOUT_BANNER_THRESHOLD` (3), OR
-`sb_count_drain_dead_letters` (basenames whose LAST done-set record is
-`outcome=="error"`) ≥ `SB_DRAIN_DEADLETTER_THRESHOLD` (5). Suppressed when the
+`sb_count_drain_dead_letters` (archives holding a dead-lettered window, whatever their state, even one mid-archive: a window that failed `SB_DRAIN_MAX_FAILS` times; map columns 8/9 give the window and line totals the banner shows) ≥ `SB_DRAIN_DEADLETTER_THRESHOLD` (5). Suppressed when the
 extractor-FAILED banner already fired (`.extractor-health.json` status `fail`);
 kill switch `SB_DRAIN_HEALTH_BANNER=off`. Replicate both counters:
 
@@ -253,7 +254,10 @@ source "$P/scripts/lib.sh"; echo "timeouts(40)=$(sb_count_drain_timeouts 40) dea
 Context for interpreting a non-draining backlog: the drainer refuses in-session
 (`CLAUDECODE=1`), defers while an interactive `claude` runs (starvation escape after
 6 defers / oldest-pending >24 h, only when SAFE), single-flights on
-`.extract-drain.lock` (7200 s staleness steal), batches 5, per-attempt timeout 240 s.
+`.extract-drain.lock` (7200 s staleness steal), makes up to 5 extractor calls per tick, per-attempt timeout 240 s.
+A live archive is extracted once `SB_DRAIN_DELTA_MIN_BYTES` (4096) of new lines exist or it has been quiet
+`SB_DRAIN_QUIET_S` (3600 s), so a small growing archive legitimately reads `pending`. Archive lock, eviction rules, the one-time scrub migration
+(an archive awaiting its scrub is neither extracted nor indexed for recall), dead-window totals and done-set compaction: `references/archive-and-backlog.md`.
 A large backlog with `mode: subscription` + an always-open interactive session is
 the known starvation shape, not a bug — see sb-debugging-playbook for the triage.
 
@@ -336,12 +340,14 @@ via node junction; details in sb-failure-archaeology.)
 
 ### 7.3 Episodic index coverage
 
-Exchanges in `~/.second-brain/episodic-index.json` lacking an `embedding` are
-text-searchable only (backfilled at the next session-end extraction once deps link):
+Exchanges in `~/.second-brain/episodic-index.json` lacking a vector are
+text-searchable only (backfilled at the next session-end extraction once deps link). Since 0.56.0 a
+vector is `e8` (int8 components, base64) + `es` (scale); an index the 0.56.0 build has not rewritten
+yet still holds float `embedding` arrays, so the check reads both:
 
 ```bash
 jq -r '(.exchanges|length) as $t
-  | ([.exchanges[] | select((.embedding|length) > 0)] | length) as $e
+  | ([.exchanges[] | select(((.e8 // .embedding // "") | length) > 0)] | length) as $e
   | if $t == 0 then "no exchanges indexed yet"
     else "Embeddings coverage: \($e)/\($t) (\(($e*100/$t)|floor)%)" end' ~/.second-brain/episodic-index.json
 ```

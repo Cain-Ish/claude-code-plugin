@@ -77,16 +77,29 @@ if [ -s "$ST" ]; then
 else
   echo "  last drained: never (.extraction-state.jsonl absent/empty)"
 fi
-ARCH_N=$(ls -1 "$BRAIN_DIR"/transcripts/*.txt 2>/dev/null | wc -l | tr -d ' ')
-# tr -d '\r': jq stdout is text-mode CRLF on Windows, so a CR rides on every basename and matches
-# nothing in comm — backlog would falsely read as ALL archived. Strip at the source (same fix as
-# scripts/wiki-forget-candidates.sh). project_jq_windows_crlf_stdout.
-BACKLOG=$(comm -23 \
-  <(ls -1 "$BRAIN_DIR"/transcripts/*.txt 2>/dev/null | sed 's|.*/||' | sort) \
-  <(jq -r 'select(.outcome=="ok" or .outcome=="error") | .basename' "$ST" 2>/dev/null | tr -d '\r' | sort -u) \
-  2>/dev/null | wc -l | tr -d ' ')
-echo "  backlog: ${BACKLOG:-?} pending of ${ARCH_N:-0} archived transcripts (0 = fully drained)"
-echo "  drain counters: timeouts(last 40 err-log lines)=$(sb_count_drain_timeouts 40)  dead-letters=$(sb_count_drain_dead_letters)"
+# R2 (0.56.0): backlog = archives holding unextracted lines, from the ONE accounting primitive
+# (sb_drain_cursor_map: line cursors, so an archive that grew since its last extraction is
+# pending). The old comm over ok|error basenames called a grown archive done forever.
+if DMAP=$(sb_drain_cursor_map "$ST" "$BRAIN_DIR/transcripts"); then
+  sb_drain_map_counts "$DMAP"
+  echo "  backlog: $SB_DM_PENDING pending of $SB_DM_TOTAL archived transcripts (0 = fully drained; done=$SB_DM_DONE dead-lettered=$SB_DM_DEAD)"
+  # Every dead-lettered window, whatever the archive's state (X2#1): one under the cursor of a
+  # done archive is lost for good too, and the state counts above cannot show it.
+  echo "  dead-lettered windows: $SB_DM_DEAD_WINDOWS ($SB_DM_DEAD_LINES lines) in $SB_DM_DEAD_ARCHIVES archive(s)"
+  DEAD_LETTERS=$SB_DM_DEAD_ARCHIVES
+else
+  echo "  backlog: ? (cursor map failed — see error-log.jsonl)"
+  DEAD_LETTERS="?"
+fi
+echo "  drain counters: timeouts(last 40 err-log lines)=$(sb_count_drain_timeouts 40)  dead-letters=$DEAD_LETTERS"
+# The one-time secret-scrub migration (0.56.0): an archive on its to-do list is held from extraction.
+if [ -f "$BRAIN_DIR/.archive-scrub-v1" ]; then
+  echo "  archive scrub: done (.archive-scrub-v1)"
+elif sb_scrub_todo_counts; then
+  echo "  archive scrub: $SB_SCRUB_TODO_N file(s) still to scrub ($SB_SCRUB_TODO_STUCK failed 3+ attempts; their archives are not extracted until scrubbed)"
+else
+  echo "  archive scrub: not started (the drainer's first tick lists the archives to scrub)"
+fi
 
 echo
 echo "-- logs --"
@@ -136,7 +149,7 @@ echo "  vector deps: shared tree $SHARED at $VD; plugin junction $LINKED (heal: 
 EPI="$BRAIN_DIR/episodic-index.json"
 if [ -f "$EPI" ]; then
   jq -r '(.exchanges|length) as $t
-    | ([.exchanges[] | select((.embedding|length) > 0)] | length) as $e
+    | ([.exchanges[] | select(((.e8 // .embedding // "") | length) > 0)] | length) as $e
     | if $t == 0 then "  episodic coverage: no exchanges indexed yet"
       else "  episodic coverage: \($e)/\($t) exchanges (\(($e*100/$t)|floor)%) — <100% = those match by text only" end' "$EPI" 2>/dev/null
 else

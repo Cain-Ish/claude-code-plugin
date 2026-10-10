@@ -3685,21 +3685,21 @@ var require_fast_uri = __commonJS({
         normalizeString(uri, options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
-        parse3(serialize2(uri, options), options);
+        parse4(serialize2(uri, options), options);
       }
       return uri;
     }
     function resolve4(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
+      const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize2(resolved, schemelessOptions);
     }
     function resolveComponent(base, relative6, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
-        base = parse3(serialize2(base, options), options);
-        relative6 = parse3(serialize2(relative6, options), options);
+        base = parse4(serialize2(base, options), options);
+        relative6 = parse4(serialize2(relative6, options), options);
       }
       options = options || {};
       if (!options.tolerant && relative6.scheme) {
@@ -3922,7 +3922,7 @@ var require_fast_uri = __commonJS({
       }
       return { parsed, malformedAuthorityOrPort };
     }
-    function parse3(uri, opts) {
+    function parse4(uri, opts) {
       return parseWithStatus(uri, opts).parsed;
     }
     function normalizeString(uri, opts) {
@@ -3951,7 +3951,7 @@ var require_fast_uri = __commonJS({
       resolveComponent,
       equal,
       serialize: serialize2,
-      parse: parse3
+      parse: parse4
     };
     module.exports = fastUri;
     module.exports.default = fastUri;
@@ -21722,7 +21722,7 @@ async function archiveToWiki(args) {
 }
 
 // src/tools/knowledge-search.ts
-import { promises as fs9 } from "fs";
+import { promises as fs10 } from "fs";
 
 // src/tools/atomic-write.ts
 import { promises as fs5 } from "fs";
@@ -21757,7 +21757,7 @@ async function atomicWriteJsonStrict(filePath, value) {
 }
 
 // src/tools/knowledge-search.ts
-import { join as join8 } from "path";
+import { join as join10 } from "path";
 
 // src/tools/embeddings.ts
 import { promises as fs6 } from "fs";
@@ -21770,6 +21770,13 @@ var pipelineInstance = null;
 var lastLoadError = null;
 function brainDirFromEnv() {
   return resolveBrainDir();
+}
+function installVectorDepsCommand(scriptPath) {
+  const p = (scriptPath ?? "").replace(/\\/g, "/");
+  const cut = p.lastIndexOf("/mcp/dist/");
+  if (cut < 0) return 'bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"';
+  const script = `${p.slice(0, cut)}/bin/install-vector-deps.sh`;
+  return `bash "${script.replace(/(["$`])/g, "\\$1")}"`;
 }
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
@@ -21835,7 +21842,7 @@ async function getPipeline() {
     return pipelineInstance;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    const hint = msg.includes("Cannot find package") ? ` \u2014 run: ${installVectorDepsCommand(process.argv[1])}` : "";
     await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
@@ -21859,23 +21866,27 @@ async function loadCache(wikiRoot) {
 async function saveCache(wikiRoot, cache) {
   await atomicWriteJson(join4(wikiRoot, CACHE_FILE), cache);
 }
+function isFiniteVector(v) {
+  return Array.isArray(v) && v.every(Number.isFinite);
+}
 async function embedTexts(texts, wikiRoot, paths) {
   const pipe2 = await getPipeline();
   if (!pipe2) return null;
-  const cache = await loadCache(wikiRoot);
+  const cache = paths.some((p) => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results = [];
   let cacheUpdated = false;
   for (let i = 0; i < texts.length; i++) {
     const hash = simpleHash(texts[i]);
     const key = paths[i] || `query-${i}`;
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
+    const hit = cache.entries[key];
+    if (hit?.hash === hash && isFiniteVector(hit.vector)) {
+      results.push(hit.vector);
       continue;
     }
     const output = await pipe2(texts[i], { pooling: "mean", normalize: true });
     const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
     results.push(vec);
-    if (paths[i]) {
+    if (paths[i] && isFiniteVector(vec)) {
       cache.entries[key] = { hash, vector: vec };
       cacheUpdated = true;
     }
@@ -21948,8 +21959,9 @@ function capList(items, render, maxTokens, moreHint, separator = "\n\n") {
 }
 
 // src/tools/doc-sources.ts
-import { promises as fs7 } from "fs";
-import { join as join5, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3 } from "path";
+import { promises as fs7, realpathSync as realpathSync3, existsSync as existsSync2 } from "fs";
+import { homedir as homedir2 } from "os";
+import { join as join5, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute3, parse as parse3, win32 as win322 } from "path";
 
 // node_modules/balanced-match/dist/esm/index.js
 var balanced = (a, b, str2) => {
@@ -28255,6 +28267,91 @@ async function loadRegistry(brainDir2, slug) {
     return null;
   }
 }
+function isDocEntry(e) {
+  if (!e || typeof e !== "object") return false;
+  const o = e;
+  return typeof o.path === "string" && typeof o.gist === "string" && typeof o.mtime === "string" && typeof o.size === "number" && Array.isArray(o.headings) && o.headings.every((h) => typeof h === "string");
+}
+function isPlainAbsolutePath(p, platform = process.platform) {
+  const absolute = platform === "win32" ? /^([A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(p) : p.startsWith("/");
+  return absolute && !p.split(/[\\/]/).some((seg) => seg === "." || seg === "..");
+}
+function canonicalReal(p) {
+  const r = realpathSync3.native(p);
+  return process.platform === "win32" ? r.toLowerCase() : r;
+}
+function rootStatusOf(root, home) {
+  if (parse3(root).root === root) return "fs-root";
+  if (!home) return "ok";
+  let h;
+  try {
+    h = canonicalReal(home);
+  } catch {
+    h = resolve2(home);
+    if (process.platform === "win32") h = h.toLowerCase();
+  }
+  return h === root || h.startsWith(root.endsWith(sep3) ? root : root + sep3) ? "home" : "ok";
+}
+function fromOtherCheckout(e, root) {
+  const rel = typeof e.rel === "string" ? e.rel : "";
+  if (!rel || isAbsolute3(rel) || win322.isAbsolute(rel) || rel.split(/[\\/]/).some((s) => s === "" || s === "." || s === "..")) return false;
+  let path5 = e.path.replace(/\\/g, "/"), tail = `/${rel.replace(/\\/g, "/")}`;
+  if (process.platform === "win32") {
+    path5 = path5.toLowerCase();
+    tail = tail.toLowerCase();
+  }
+  return path5.endsWith(tail) && existsSync2(join5(root, rel));
+}
+function servableEntries(entries, projectRoot, home = homedir2()) {
+  const r = {
+    kept: [],
+    outside: 0,
+    otherCheckout: 0,
+    relative: 0,
+    missing: 0,
+    malformed: 0,
+    rootUsable: false,
+    rootStatus: "unusable"
+  };
+  let root = "";
+  try {
+    if (projectRoot) {
+      root = canonicalReal(cleanEnvPath(projectRoot));
+      r.rootStatus = rootStatusOf(root, home);
+    }
+  } catch {
+  }
+  r.rootUsable = r.rootStatus === "ok";
+  const prefix = root.endsWith(sep3) ? root : root + sep3;
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!isDocEntry(e)) {
+      r.malformed++;
+      continue;
+    }
+    if (!isPlainAbsolutePath(e.path)) {
+      r.relative++;
+      continue;
+    }
+    let real;
+    try {
+      real = canonicalReal(e.path);
+    } catch {
+      r.missing++;
+      continue;
+    }
+    if (!r.rootUsable || !real.startsWith(prefix)) {
+      if (r.rootUsable && fromOtherCheckout(e, root)) r.otherCheckout++;
+      else r.outside++;
+      continue;
+    }
+    r.kept.push(e);
+  }
+  return r;
+}
+
+// src/tools/project-dir.ts
+import { basename, dirname as dirname2, isAbsolute as isAbsolute4, join as join7 } from "path";
+import { readFileSync as readFileSync3, existsSync as existsSync3, statSync as statSync2 } from "fs";
 
 // src/tools/project-registry.ts
 import { readFileSync as readFileSync2 } from "fs";
@@ -28317,9 +28414,90 @@ function resolveSlugByRemote(brainDir2, rawRemote) {
   return matches.reduce((a, b) => (b.last_session_iso ?? "") > (a.last_session_iso ?? "") ? b : a).slug;
 }
 
+// src/tools/project-dir.ts
+function mainWorktreeDir(dir) {
+  try {
+    const d = cleanEnvPath(dir);
+    if (!d) return dir;
+    const gitPath = join7(d, ".git");
+    if (statSync2(gitPath).isDirectory()) return dir;
+    const m = readFileSync3(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return dir;
+    const gd = m[1];
+    const gitdirResolved = isAbsolute4(gd) ? gd : join7(d, gd);
+    if (existsSync3(join7(gitdirResolved, "config"))) return dir;
+    const cd = readFileSync3(join7(gitdirResolved, "commondir"), "utf-8").trim();
+    const commonDir = isAbsolute4(cd) ? cd : join7(gitdirResolved, cd);
+    return basename(commonDir) === ".git" ? dirname2(commonDir) : dir;
+  } catch {
+    return dir;
+  }
+}
+function slugFromProjectDir(dir) {
+  if (!dir) return void 0;
+  const resolved = process.env.SB_REPO_KEY_COMMON_DIR === "off" ? dir : mainWorktreeDir(dir);
+  const base = basename(cleanEnvPath(resolved));
+  if (!base || base === "/" || base === "." || base === "..") return void 0;
+  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
+  return base;
+}
+function activeProjectDir(env = process.env, cwd = process.cwd) {
+  return cleanEnvPath(env.CLAUDE_PROJECT_DIR) || cwd();
+}
+function remoteIdentitySlug(brainDir2, dir) {
+  const url = originRemote(dir);
+  if (!url) return void 0;
+  return resolveSlugByRemote(brainDir2, url);
+}
+function logRemoteOverride(dir, base, slug) {
+  try {
+    console.error(JSON.stringify({ event: "remote-identity-override", dir, basename: base, slug }));
+  } catch {
+  }
+}
+function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
+  if (env.CLAUDE_PROJECT_DIR) {
+    const byPath = resolveSlugByPath(brainDir2, env.CLAUDE_PROJECT_DIR);
+    if (byPath) return byPath;
+    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
+    if (fromEnv) {
+      const byRemote = remoteIdentitySlug(brainDir2, env.CLAUDE_PROJECT_DIR);
+      if (byRemote && byRemote !== fromEnv) {
+        logRemoteOverride(env.CLAUDE_PROJECT_DIR, fromEnv, byRemote);
+        return byRemote;
+      }
+      return fromEnv;
+    }
+  }
+  const here = cwd();
+  const byCwdPath = resolveSlugByPath(brainDir2, here);
+  if (byCwdPath) return byCwdPath;
+  const cwdSlug = slugFromProjectDir(here);
+  if (cwdSlug) {
+    const byRemote = remoteIdentitySlug(brainDir2, here);
+    if (byRemote && byRemote !== cwdSlug) {
+      logRemoteOverride(here, cwdSlug, byRemote);
+      return byRemote;
+    }
+  }
+  if (cwdSlug && existsSync3(join7(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
+  try {
+    const pin = readFileSync3(join7(brainDir2, ".active-session-slug"), "utf-8").trim();
+    if (pin && existsSync3(join7(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
+  } catch {
+  }
+  return cwdSlug;
+}
+
+// src/tools/sanitize.ts
+var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
+function stripInvisible(s) {
+  return s.replace(INVISIBLE_RE, "");
+}
+
 // src/tools/walk-wiki.ts
 import { promises as fs8 } from "fs";
-import { join as join7 } from "path";
+import { join as join8 } from "path";
 async function walkWiki(dir, opts = {}, acc = []) {
   let entries;
   try {
@@ -28329,7 +28507,7 @@ async function walkWiki(dir, opts = {}, acc = []) {
   }
   for (const e of entries) {
     if (opts.skipHidden && e.name.startsWith(".")) continue;
-    const p = join7(dir, e.name);
+    const p = join8(dir, e.name);
     if (e.isDirectory()) {
       if (opts.skipDirs?.includes(e.name)) continue;
       await walkWiki(p, opts, acc);
@@ -28338,6 +28516,522 @@ async function walkWiki(dir, opts = {}, acc = []) {
     }
   }
   return acc;
+}
+
+// src/tools/episodic-search.ts
+import { promises as fs9 } from "fs";
+import { join as join9, basename as basename2, relative as relative2, isAbsolute as isAbsolute5 } from "path";
+var INDEX_FILE = "episodic-index.json";
+var DEFAULT_LIMIT = 10;
+var MAX_LIMIT = 30;
+function quantizeEmbedding(vec) {
+  let maxAbs = 0;
+  for (let i = 0; i < vec.length; i++) {
+    const a = Math.abs(vec[i]);
+    if (a > maxAbs) maxAbs = a;
+  }
+  const es = maxAbs / 127;
+  const q = new Int8Array(vec.length);
+  if (es > 0) for (let i = 0; i < vec.length; i++) q[i] = Math.max(-127, Math.min(127, Math.round(vec[i] / es)));
+  return { e8: Buffer.from(q.buffer, q.byteOffset, q.byteLength).toString("base64"), es };
+}
+function decodeE8(e8) {
+  const b = Buffer.from(e8, "base64");
+  return new Int8Array(b.buffer, b.byteOffset, b.byteLength);
+}
+function dotDequantized(query, v, es) {
+  let dot = 0;
+  const n = Math.min(query.length, v.length);
+  for (let i = 0; i < n; i++) dot += query[i] * v[i];
+  return dot * es;
+}
+function embeddingSimilarity(query, row) {
+  return dotDequantized(query, decodeE8(row.e8), row.es);
+}
+function hasVector(e) {
+  return typeof e.e8 === "string" && e.e8.length > 0;
+}
+function currentRow(stored) {
+  const { embedding, e8, es, ...row } = stored;
+  if (typeof e8 === "string" && e8) {
+    const ok = typeof es === "number" && Number.isFinite(es) && es >= 0 && decodeE8(e8).length === EMBEDDING_DIM;
+    return ok ? { row: { ...row, e8, es }, dropped: false } : { row, dropped: true };
+  }
+  if (Array.isArray(embedding) && embedding.length > 0) {
+    const ok = embedding.length === EMBEDDING_DIM && embedding.every((x) => typeof x === "number" && Number.isFinite(x));
+    return ok ? { row: { ...row, ...quantizeEmbedding(embedding) }, dropped: false } : { row, dropped: true };
+  }
+  return { row, dropped: false };
+}
+var PEER_PREFIX = "Another Claude session sent a message:";
+var MACHINE_TAG_PREFIXES = [
+  "<task-notification>",
+  "<system-reminder>",
+  "<agent-message",
+  "<cross-session-message",
+  "<command-",
+  // command-name, command-message, command-args
+  "<local-command-",
+  // local-command-stdout, local-command-caveat, …
+  "<bash-"
+  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
+];
+var MACHINE_TURN_PREFIXES = [
+  ...MACHINE_TAG_PREFIXES,
+  PEER_PREFIX,
+  "Stop hook feedback:",
+  "This session is being continued from a previous conversation",
+  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
+  "Base directory for this skill:",
+  "Caveat: The messages below were generated"
+];
+var MACHINE_LINE_PREFIXES = ["[Image: source:", "[Image: original", "[Request interrupted by user"];
+function stripLead(text) {
+  return text.replace(/^[\s﻿]+/, "");
+}
+function isMachineTurnText(text) {
+  const t = stripLead(text);
+  return MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p));
+}
+var SUBAGENT_REPORT_MARK = "(subagent report) ";
+var PEER_MESSAGE_MARK = "(peer message) ";
+function peerReportBody(rest) {
+  const lines = rest.split("\n");
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
+  let body;
+  if (open) {
+    const close = `</${open[1]}>`;
+    body = [open[2], ...lines.slice(i + 1)];
+    const end = body.findIndex((l) => l.trim().startsWith(close));
+    if (end >= 0) body = body.slice(0, end);
+  } else {
+    body = lines.slice(i);
+  }
+  const flags = [];
+  let j2 = 0;
+  for (; j2 < body.length; j2++) {
+    const l = body[j2].trim();
+    if (!l || l.startsWith("[Subagent hand-back]")) continue;
+    if (l.startsWith("[harness:")) {
+      flags.push(foldServedSnippet(l));
+      continue;
+    }
+    break;
+  }
+  const report = body.slice(j2).join("\n").trim();
+  if (!report) return "";
+  const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
+  return mark + [report, ...flags].join("\n");
+}
+var cps = (...xs) => String.fromCodePoint(...xs);
+var ZWNJ = cps(8204);
+var ZWJ = cps(8205);
+var FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
+var FOLD_OPEN_EXTRA = cps(9121, 9122, 9123, 8988, 8990, 9150, 9151, 9484, 9492, 9500);
+var FOLD_CLOSE_EXTRA = cps(9124, 9125, 9126, 8989, 8991, 9163, 9164, 9488, 9496, 9508);
+var FOLD_OPEN_RE = new RegExp(`[\\p{Ps}\\p{Pi}${FOLD_OPEN_EXTRA}]`, "gu");
+var FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}\\p{Pf}${FOLD_CLOSE_EXTRA}]`, "gu");
+var FOLD_QUOTE_KEEP = new Set(cps(
+  8218,
+  8222,
+  11842,
+  12317,
+  12318,
+  12319,
+  171,
+  187,
+  8216,
+  8217,
+  8219,
+  8220,
+  8221,
+  8223,
+  8249,
+  8250
+));
+var FRAME_PHRASE_SKELETON = "untrustedreference";
+var CONFUSABLE = /* @__PURE__ */ new Map();
+for (const [latin, from] of [
+  ["c", [1089, 962, 963, 7428, 42202]],
+  ["d", [1281, 7429, 42195]],
+  ["e", [1077, 949, 1108, 7431, 42224]],
+  ["f", [989, 42800, 42205]],
+  ["n", [951, 957, 1087, 1400, 628, 42208]],
+  ["r", [1075, 640, 638, 42211]],
+  ["s", [1109, 42801, 42210]],
+  ["t", [964, 1090, 7451, 42196]],
+  ["u", [965, 1405, 7452, 651, 42228]]
+]) {
+  for (const c of from) CONFUSABLE.set(cps(c), latin);
+}
+var LETTER_OR_DIGIT_RE = /^[\p{L}\p{N}]$/u;
+var SKELETON_CACHE = /* @__PURE__ */ new Map();
+function skeletonOf(ch) {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c < 128) {
+    if (c >= 97 && c <= 122 || c >= 48 && c <= 57) return ch;
+    return c >= 65 && c <= 90 ? String.fromCharCode(c + 32) : "";
+  }
+  let s = SKELETON_CACHE.get(c);
+  if (s === void 0) {
+    s = "";
+    for (const d of ch.normalize("NFKD").toLowerCase().normalize("NFKD")) {
+      const m = CONFUSABLE.get(d) ?? d;
+      if (LETTER_OR_DIGIT_RE.test(m)) s += m;
+    }
+    if (SKELETON_CACHE.size < 4096) SKELETON_CACHE.set(c, s);
+  }
+  return s;
+}
+function neutraliseFramePhrase(text) {
+  let skeleton = "";
+  for (const ch of text) skeleton += skeletonOf(ch);
+  if (!skeleton.includes(FRAME_PHRASE_SKELETON)) return text;
+  const start = [], end = [];
+  let i = 0;
+  for (const ch of text) {
+    const n = skeletonOf(ch).length;
+    for (let k = 0; k < n; k++) {
+      start.push(i);
+      end.push(i + ch.length);
+    }
+    i += ch.length;
+  }
+  let out = "", last = 0;
+  for (let j2 = skeleton.indexOf(FRAME_PHRASE_SKELETON); j2 >= 0; j2 = skeleton.indexOf(FRAME_PHRASE_SKELETON, j2 + FRAME_PHRASE_SKELETON.length)) {
+    out += `${text.slice(last, Math.max(start[j2], last))}untrusted-reference`;
+    last = end[j2 + FRAME_PHRASE_SKELETON.length - 1];
+  }
+  return out + text.slice(last);
+}
+function foldServedSnippet(text) {
+  return neutraliseFramePhrase(text.replace(FOLD_SPACE_RE, (m) => m === ZWNJ || m === ZWJ ? m : " ").replace(FOLD_OPEN_RE, (m) => m === "(" || m === "{" || FOLD_QUOTE_KEEP.has(m) ? m : "(").replace(FOLD_CLOSE_RE, (m) => m === ")" || m === "}" || FOLD_QUOTE_KEEP.has(m) ? m : ")"));
+}
+function episodeUserLine(userSnippet) {
+  const u3 = cleanUserText(userSnippet).trim();
+  if (!u3) return "[machine turn]";
+  if (u3.startsWith(SUBAGENT_REPORT_MARK)) return `**Subagent report**: ${foldServedSnippet(u3.slice(SUBAGENT_REPORT_MARK.length))}`;
+  if (u3.startsWith(PEER_MESSAGE_MARK)) return `**Peer message**: ${foldServedSnippet(u3.slice(PEER_MESSAGE_MARK.length))}`;
+  return `**User**: ${foldServedSnippet(u3)}`;
+}
+function cleanUserText(text) {
+  if (!isMachineTurnText(text)) return text;
+  const t = stripLead(text);
+  if (MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p))) {
+    const lines = t.split("\n");
+    let i = 0;
+    while (i < lines.length && (!lines[i].trim() || MACHINE_LINE_PREFIXES.some((p) => stripLead(lines[i]).startsWith(p)))) i++;
+    const rest = lines.slice(i).join("\n").trim();
+    return rest ? cleanUserText(rest) : "";
+  }
+  if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
+  return "";
+}
+function renderEpisodicSearch(result, budgetTokens) {
+  if (result.results.length === 0) {
+    if (result.degraded === "vector-unavailable") {
+      return 'No results \u2014 vector search unavailable (embeddings missing); retry as a single string query (mode "both" or "text") for text matching.';
+    }
+    if (result.degraded === "text-only") {
+      return "No matching conversations found (text matching only \u2014 vector search unavailable (embeddings missing)).";
+    }
+    return "No matching conversations found.";
+  }
+  const render = (r) => {
+    const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : "";
+    return [
+      `### ${foldServedSnippet(r.project)} \u2014 ${foldServedSnippet(r.date)}${sim}`,
+      episodeUserLine(r.userSnippet),
+      `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
+      `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`
+    ].join("\n");
+  };
+  const footer = result.degraded ? "\n\n_Degraded: vector search unavailable (embeddings missing) \u2014 these are text matches only._" : "";
+  const rowBudget = Math.max(0, budgetTokens - estimateTokens(footer));
+  return capList(result.results, render, rowBudget, "narrow the query or use episodic_read on a specific result").text + footer;
+}
+function parseSessionMeta(lines) {
+  const meta = { sessionId: "", project: "", date: "" };
+  let i = 0;
+  if (lines[0]?.startsWith("--- session-meta ---")) {
+    i = 1;
+    while (i < lines.length && !lines[i].startsWith("---")) {
+      const m = lines[i].match(/^(\w+):\s*(.+)/);
+      if (m) {
+        if (m[1] === "session_id") meta.sessionId = m[2].trim();
+        else if (m[1] === "project_slug") meta.project = m[2].trim();
+        else if (m[1] === "date") meta.date = m[2].trim();
+      }
+      i++;
+    }
+    i++;
+    if (i < lines.length && lines[i] === "") i++;
+  }
+  return { meta, bodyStart: i };
+}
+var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
+var ROW_STRING_FIELDS = ["id", "sessionId", "project", "date", "userSnippet", "assistantSnippet", "archivePath"];
+function isStoredRow(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const o = v;
+  return ROW_STRING_FIELDS.every((k) => typeof o[k] === "string");
+}
+async function loadIndex(brainDir2) {
+  const indexPath = join9(brainDir2, INDEX_FILE);
+  const reset = { index: emptyIndex(), dropped: 0, malformed: 0 };
+  let data;
+  try {
+    data = await fs9.readFile(indexPath, "utf-8");
+  } catch (e) {
+    if (e.code === "ENOENT") return reset;
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
+    );
+    return reset;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
+    );
+    return reset;
+  }
+  const o = parsed;
+  if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `corrupt episodic index reset: ${indexPath} has no exchanges array`
+    );
+    return reset;
+  }
+  const files = o.indexed_files;
+  const indexedFiles = files && typeof files === "object" && !Array.isArray(files) ? files : {};
+  let dropped = 0;
+  let malformed = 0;
+  const exchanges = [];
+  for (const stored of o.exchanges) {
+    if (!isStoredRow(stored)) {
+      malformed++;
+      const archivePath = stored?.archivePath;
+      if (typeof archivePath === "string") delete indexedFiles[basename2(archivePath)];
+      continue;
+    }
+    const r = currentRow(stored);
+    if (r.dropped) dropped++;
+    exchanges.push(r.row);
+  }
+  return {
+    index: {
+      model: typeof o.model === "string" ? o.model : emptyIndex().model,
+      indexed_files: indexedFiles,
+      exchanges
+    },
+    dropped,
+    malformed
+  };
+}
+var SCRUB_MARK = ".archive-scrub-v1";
+var SCRUB_TODO = `${SCRUB_MARK}.todo`;
+async function episodicSearch(args, brainDir2) {
+  const { index } = await loadIndex(brainDir2);
+  if (index.exchanges.length === 0) return { results: [] };
+  const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+  const query = args.query;
+  if (Array.isArray(query)) {
+    return multiConceptSearch(query, index, limit, args, brainDir2);
+  }
+  const mode = args.mode ?? "both";
+  const candLimit = args.activeProject && !args.project ? Math.max(limit * 5, 25) : limit * 2;
+  let vectorResults = [];
+  let textResults = [];
+  let degraded;
+  if (mode === "vector" || mode === "both") {
+    const v = await vectorSearch(query, index, candLimit, args, brainDir2);
+    vectorResults = v.hits;
+    if (v.unavailable) degraded = mode === "both" ? "text-only" : "vector-unavailable";
+  }
+  if (mode === "text" || mode === "both") {
+    textResults = textSearch(query, index, candLimit, args);
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const merged = [];
+  for (const r of vectorResults) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
+      merged.push(r);
+    }
+  }
+  for (const r of textResults) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
+      merged.push(r);
+    }
+  }
+  merged.sort((a, b) => b.similarity - a.similarity);
+  return {
+    results: scopeAndBroaden(aboveFloor(merged, args), args).slice(0, limit).map((r) => ({
+      sessionId: r.sessionId,
+      project: r.project,
+      date: r.date,
+      userSnippet: r.userSnippet,
+      assistantSnippet: r.assistantSnippet,
+      similarity: Math.round(r.similarity * 1e3) / 1e3,
+      archivePath: r.archivePath,
+      lineStart: r.lineStart,
+      lineEnd: r.lineEnd
+    })),
+    ...degraded ? { degraded } : {}
+  };
+}
+async function vectorSearch(query, index, limit, filters, brainDir2) {
+  const filtered = applyFilters(index.exchanges, filters);
+  const withEmbeddings = filtered.filter(hasVector);
+  if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
+  const queryEmbedding = await embedTexts(
+    [query],
+    join9(brainDir2, "transcripts"),
+    [""]
+  );
+  if (!queryEmbedding) return { hits: [], unavailable: true };
+  const qVec = queryEmbedding[0];
+  return {
+    hits: withEmbeddings.map((e) => ({ ...e, similarity: embeddingSimilarity(qVec, e) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit),
+    unavailable: false
+  };
+}
+function textSearch(query, index, limit, filters) {
+  const filtered = applyFilters(index.exchanges, filters);
+  const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
+  if (tokens.length === 0) return [];
+  const scored = [];
+  for (const e of filtered) {
+    const hay = (e.userSnippet + " " + e.assistantSnippet).toLowerCase();
+    let allHit = true;
+    let tf = 0;
+    for (const t of tokens) {
+      const occ = hay.split(t).length - 1;
+      if (occ === 0) {
+        allHit = false;
+        break;
+      }
+      tf += occ;
+    }
+    if (allHit) {
+      const similarity = 0.5 * (tf / (tf + tokens.length));
+      scored.push({ ...e, similarity });
+    }
+  }
+  scored.sort((a, b) => b.similarity - a.similarity);
+  return scored.slice(0, limit);
+}
+async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
+  const filtered = applyFilters(index.exchanges, filters);
+  const withEmbeddings = filtered.filter(hasVector);
+  if (withEmbeddings.length === 0) {
+    return { results: [], ...filtered.length > 0 ? { degraded: "vector-unavailable" } : {} };
+  }
+  const conceptEmbeddings = await embedTexts(
+    concepts,
+    join9(brainDir2, "transcripts"),
+    concepts.map((_, i) => `concept-${i}`)
+  );
+  if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
+  const scored = withEmbeddings.map((e) => {
+    const v = decodeE8(e.e8);
+    const similarities = conceptEmbeddings.map((cv) => dotDequantized(cv, v, e.es));
+    const minSim = Math.min(...similarities);
+    const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
+    return { ...e, similarity: avgSim, minSimilarity: minSim };
+  });
+  const threshold = 0.2;
+  const ranked = scopeAndBroaden(
+    aboveFloor(scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters),
+    filters
+  );
+  return {
+    results: ranked.slice(0, limit).map((r) => ({
+      sessionId: r.sessionId,
+      project: r.project,
+      date: r.date,
+      userSnippet: r.userSnippet,
+      assistantSnippet: r.assistantSnippet,
+      similarity: Math.round(r.similarity * 1e3) / 1e3,
+      archivePath: r.archivePath,
+      lineStart: r.lineStart,
+      lineEnd: r.lineEnd
+    }))
+  };
+}
+function applyFilters(exchanges, filters) {
+  let result = exchanges;
+  if (filters.project) {
+    const p = filters.project.toLowerCase();
+    result = result.filter((e) => e.project.toLowerCase() === p);
+  }
+  if (filters.after) {
+    result = result.filter((e) => e.date >= filters.after);
+  }
+  if (filters.before) {
+    result = result.filter((e) => e.date <= filters.before);
+  }
+  if (filters.excludeSessionId) {
+    const sid = filters.excludeSessionId;
+    result = result.filter((e) => e.sessionId !== sid);
+  }
+  if (filters.requireUserText) {
+    result = result.filter((e) => cleanUserText(e.userSnippet).trim() !== "");
+  }
+  return result;
+}
+function aboveFloor(ranked, filters) {
+  const floor = filters.minSimilarity;
+  return floor === void 0 ? ranked : ranked.filter((r) => r.similarity >= floor);
+}
+function withActiveScope(args, activeSlug) {
+  if (args.project) {
+    if (args.project.toLowerCase() === "all") {
+      const { project, activeProject, ...rest } = args;
+      return rest;
+    }
+    return args;
+  }
+  return activeSlug ? { ...args, activeProject: activeSlug } : args;
+}
+function scopeAndBroaden(ranked, args) {
+  if (!args.activeProject || args.project) return ranked;
+  const slug = args.activeProject.toLowerCase();
+  const inScope = ranked.filter((r) => r.project.toLowerCase() === slug);
+  const parsed = parseInt(process.env.SB_EPISODIC_SCOPE_MIN_HITS ?? "", 10);
+  const minHits = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  return inScope.length >= minHits ? inScope : ranked;
+}
+function assertTranscriptPath(brainDir2, filePath) {
+  const base = join9(brainDir2, "transcripts");
+  const rel = isAbsolute5(filePath) ? relative2(base, filePath) : filePath;
+  return assertWithin(base, rel);
+}
+async function episodicRead(filePath, startLine, endLine) {
+  const content = stripInvisible(await fs9.readFile(filePath, "utf-8"));
+  const lines = content.split("\n");
+  const { meta } = parseSessionMeta(lines);
+  const start = (startLine ?? 1) - 1;
+  const end = endLine ?? lines.length;
+  const selected = lines.slice(start, end).join("\n");
+  return {
+    content: selected,
+    sessionId: meta.sessionId,
+    project: meta.project,
+    date: meta.date
+  };
 }
 
 // src/tools/knowledge-search.ts
@@ -28367,12 +29061,12 @@ function graphNeighbourhood(seeds, edges, hops) {
   return reached;
 }
 function accessCountsFile(brainDir2) {
-  return join8(resolveBrainDir(brainDir2), "access-counts.json");
+  return join10(resolveBrainDir(brainDir2), "access-counts.json");
 }
 var ACCESS_PRUNE_DAYS = 90;
 async function loadAccessCounts(file) {
   try {
-    return JSON.parse(await fs9.readFile(file, "utf-8"));
+    return JSON.parse(await fs10.readFile(file, "utf-8"));
   } catch {
     return {};
   }
@@ -28560,7 +29254,7 @@ var SINGLE_LETTER_RE = /^[a-z]$/;
 var PURE_DIGITS_RE = /^[0-9]+$/;
 async function knowledgeSearch(args) {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
-  const wikiRoot = join8(knowledgeDir, "wiki");
+  const wikiRoot = join10(knowledgeDir, "wiki");
   const accessFile = accessCountsFile(args.brainDir);
   let scopeDirs;
   if (args.scope && args.scope !== "all") {
@@ -28572,8 +29266,8 @@ async function knowledgeSearch(args) {
     scopeDirs = [assertWithin(wikiRoot, args.scope)];
   } else {
     try {
-      const entries = await fs9.readdir(wikiRoot, { withFileTypes: true });
-      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join8(wikiRoot, d.name));
+      const entries = await fs10.readdir(wikiRoot, { withFileTypes: true });
+      scopeDirs = entries.filter((d) => d.isDirectory()).map((d) => join10(wikiRoot, d.name));
     } catch {
       scopeDirs = [];
     }
@@ -28585,7 +29279,7 @@ async function knowledgeSearch(args) {
     const paths = await walkWiki(dir, { posix: true });
     for (const filePath of paths) {
       try {
-        const content = await fs9.readFile(filePath, "utf-8");
+        const content = await fs10.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         allDocs.push({ doc, rawContent: content, source: "wiki", tokens: estimateTokens(content) });
       } catch {
@@ -28593,9 +29287,26 @@ async function knowledgeSearch(args) {
       }
     }
   }
-  if (args.brainDir && args.projectSlug) {
-    const reg = await loadRegistry(args.brainDir, args.projectSlug);
-    for (const e of reg?.entries ?? []) {
+  const reg = args.brainDir && args.projectSlug ? await loadRegistry(args.brainDir, args.projectSlug) : null;
+  if (reg && args.brainDir && args.projectSlug) {
+    let root = args.projectRoot;
+    if (root === void 0) {
+      try {
+        root = activeProjectDir();
+      } catch {
+        root = void 0;
+      }
+    }
+    const s = servableEntries(reg.entries, root);
+    const dropped = s.outside + s.otherCheckout + s.relative + s.missing + s.malformed;
+    if (dropped > 0) {
+      await appendGateTrace(
+        args.brainDir,
+        "knowledge-search",
+        `gate=local-doc-drop slug=${args.projectSlug} kept=${s.kept.length} dropped=${dropped} outside=${s.outside} other_checkout=${s.otherCheckout} relative=${s.relative} missing=${s.missing} malformed=${s.malformed} root=${JSON.stringify(capCodePoints(cleanEnvPath(root), 300))} root_status=${s.rootStatus}`
+      );
+    }
+    for (const e of s.kept) {
       const doc = {
         title: "",
         description: e.gist,
@@ -28644,7 +29355,7 @@ ${e.headings.join("\n")}`, source: "local-doc", tokens: Math.ceil(e.size / 4) })
   });
   let graphEdges = [];
   try {
-    const recs = await loadEdges(join8(knowledgeDir, "graph", "edges.jsonl"));
+    const recs = await loadEdges(join10(knowledgeDir, "graph", "edges.jsonl"));
     if (recs.length > 0) {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       graphEdges = foldToCurrent(recs).filter((e) => validAt(e, nowIso));
@@ -28848,6 +29559,11 @@ async function reportInjectPrecision(brainDir2, script, status = injectPrecision
   if (status.warning) await appendErrorLog(brainDir2, script, status.warning, 1);
   if (status.mode === "off") await appendGateTrace(brainDir2, script, "gate=inject-precision mode=off");
 }
+var HANGUL_FILLER_RE = new RegExp(`[${String.fromCodePoint(4447)}${String.fromCodePoint(4448)}]`, "u");
+function capCodePoints(s, max) {
+  const cps2 = [...s];
+  return cps2.length <= max ? s : `${cps2.slice(0, max - 1).join("").trimEnd()}\u2026`;
+}
 function toCounts(s) {
   const toks = tokenize(s);
   const counts = /* @__PURE__ */ new Map();
@@ -28920,8 +29636,8 @@ function slugFromPath(p) {
 }
 
 // src/tools/knowledge-fetch.ts
-import { promises as fs10 } from "fs";
-import { join as join9, relative as relative2, isAbsolute as isAbsolute4 } from "path";
+import { promises as fs11 } from "fs";
+import { join as join11, relative as relative3, isAbsolute as isAbsolute6 } from "path";
 function headings(body) {
   return body.split("\n").filter((l) => /^#{2,3}\s+\S/.test(l.trim())).map((l) => l.trim());
 }
@@ -28939,7 +29655,7 @@ function summarySection(body) {
 async function knowledgeFetch(args) {
   const tier = args.tier ?? "gist";
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
-  const wikiRoot = join9(knowledgeDir, "wiki");
+  const wikiRoot = join11(knowledgeDir, "wiki");
   try {
     validateSlug(args.slug);
   } catch (e) {
@@ -28959,8 +29675,8 @@ async function knowledgeFetch(args) {
   const matches = (await glob(`**/${escape(args.slug)}.md`, { cwd: wikiRoot, absolute: true }).catch(() => [])).sort();
   const filePath = matches.find((p) => {
     try {
-      const rel = relative2(wikiRoot, p);
-      const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute4(rel);
+      const rel = relative3(wikiRoot, p);
+      const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute6(rel);
       assertWithin(wikiRoot, inside ? rel : p);
       return true;
     } catch {
@@ -28978,7 +29694,7 @@ async function knowledgeFetch(args) {
       pointer: "knowledge_search"
     };
   }
-  const raw = await fs10.readFile(filePath, "utf-8");
+  const raw = await fs11.readFile(filePath, "utf-8");
   const doc = parseDoc(raw, filePath);
   const fullPointer = `Read ${filePath} for the full page`;
   const gist = doc.description || doc.title || args.slug;
@@ -29023,12 +29739,12 @@ async function knowledgeFetch(args) {
 }
 
 // src/tools/knowledge-reindex.ts
-import { promises as fs13 } from "fs";
-import { basename as basename2, join as join12 } from "path";
+import { promises as fs14 } from "fs";
+import { basename as basename4, join as join14 } from "path";
 
 // src/tools/knowledge-validate.ts
-import { promises as fs11 } from "fs";
-import { join as join10, basename, dirname as dirname2, relative as relative3 } from "path";
+import { promises as fs12 } from "fs";
+import { join as join12, basename as basename3, dirname as dirname3, relative as relative4 } from "path";
 
 // node_modules/js-yaml/dist/js-yaml.mjs
 var __create2 = Object.create;
@@ -31397,21 +32113,21 @@ var REQUIRED_FM_FIELDS = FRONTMATTER_REQUIRED;
 var AI_BLOCK_MIN_PROSE = Number(process.env.SB_AI_BLOCK_MIN_PROSE) || 200;
 var EMPTY_PAGE_MIN_AGE_MS = 2e3;
 async function knowledgeValidate(knowledgeDir, opts = {}) {
-  const wikiDir = join10(knowledgeDir, "wiki");
+  const wikiDir = join12(knowledgeDir, "wiki");
   const issues = [];
   let fixed = 0;
-  const edgeRecords = opts.edges ?? await loadEdges(join10(knowledgeDir, "graph", "edges.jsonl"));
+  const edgeRecords = opts.edges ?? await loadEdges(join12(knowledgeDir, "graph", "edges.jsonl"));
   const graphEnabled = edgeRecords.length > 0;
   const allPages = await walkWiki(wikiDir);
   const slugMap = /* @__PURE__ */ new Map();
   const parsedDocs = [];
   for (const filePath of allPages) {
-    const content = await fs11.readFile(filePath, "utf-8");
-    const slug = basename(filePath, ".md");
+    const content = await fs12.readFile(filePath, "utf-8");
+    const slug = basename3(filePath, ".md");
     const doc = parseDoc(content, filePath);
     parsedDocs.push(doc);
     const aiBlock = parseAiBlock(content);
-    const ptype = doc.type || basename(dirname2(filePath));
+    const ptype = doc.type || basename3(dirname3(filePath));
     if (aiBlock) {
       const missing = validateAiBlock(ptype, aiBlock);
       if (missing.length) issues.push({
@@ -31490,7 +32206,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
       });
     }
   }
-  const allSlugs = new Set(allPages.map((p) => basename(p, ".md")));
+  const allSlugs = new Set(allPages.map((p) => basename3(p, ".md")));
   for (const doc of parsedDocs) {
     for (const rawRef of doc.related) {
       const ref = rawRef.split("|")[0].trim();
@@ -31518,7 +32234,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         addRel(e.to, e.from);
       }
       for (const doc of parsedDocs) {
-        const s = basename(doc.path, ".md");
+        const s = basename3(doc.path, ".md");
         if (/[/\\](projects|themes)[/\\]/.test(doc.path)) continue;
         const want = expected.get(s) ?? /* @__PURE__ */ new Set();
         const have = new Set(doc.related.map((r) => r.split("|")[0].trim()).filter(Boolean));
@@ -31543,16 +32259,16 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
         type: "duplicate_slug",
         severity: "error",
         path: paths.join(", "),
-        message: `Duplicate slug "${slug}" in: ${paths.map((p) => relative3(wikiDir, p)).join(", ")}`,
+        message: `Duplicate slug "${slug}" in: ${paths.map((p) => relative4(wikiDir, p)).join(", ")}`,
         autofix: "merge"
       });
     }
   }
   try {
-    const rootFiles = await fs11.readdir(knowledgeDir, { withFileTypes: true });
+    const rootFiles = await fs12.readdir(knowledgeDir, { withFileTypes: true });
     for (const entry of rootFiles) {
       if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
-        const rootPath = join10(knowledgeDir, entry.name);
+        const rootPath = join12(knowledgeDir, entry.name);
         issues.push({
           type: "root_orphan",
           severity: "error",
@@ -31568,20 +32284,20 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
     for (const issue2 of issues) {
       if (issue2.autofix === "remove" && issue2.type === "empty_page") {
         try {
-          const stat3 = await fs11.stat(issue2.path);
+          const stat3 = await fs12.stat(issue2.path);
           if (Date.now() - stat3.mtimeMs < EMPTY_PAGE_MIN_AGE_MS) continue;
-          const recheck = await fs11.readFile(issue2.path, "utf-8");
+          const recheck = await fs12.readFile(issue2.path, "utf-8");
           if (recheck.trim()) continue;
-          await fs11.unlink(issue2.path);
+          await fs12.unlink(issue2.path);
           fixed++;
         } catch {
         }
       }
       if (issue2.autofix === "move_or_remove" && issue2.type === "root_orphan") {
         try {
-          const stat3 = await fs11.stat(issue2.path);
+          const stat3 = await fs12.stat(issue2.path);
           if (stat3.size === 0) {
-            await fs11.unlink(issue2.path);
+            await fs12.unlink(issue2.path);
             fixed++;
           }
         } catch {
@@ -31616,17 +32332,17 @@ function isIncompleteFrontmatter(content) {
   return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(m.fm));
 }
 async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
-  const original = await fs11.readFile(filePath, "utf-8");
+  const original = await fs12.readFile(filePath, "utf-8");
   const m = matchFrontmatter(original);
   if (!m) return false;
   const fmBody = m.fm;
   const missing = REQUIRED_FM_FIELDS.filter((k) => !new RegExp(`^${k}:`, "m").test(fmBody));
   if (missing.length === 0) return false;
-  const slug = basename(filePath, ".md");
+  const slug = basename3(filePath, ".md");
   const body = m.body;
   let mtimeDate;
   try {
-    mtimeDate = (await fs11.stat(filePath)).mtime.toISOString().slice(0, 10);
+    mtimeDate = (await fs12.stat(filePath)).mtime.toISOString().slice(0, 10);
   } catch {
     mtimeDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   }
@@ -31639,7 +32355,7 @@ async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
       case "description":
         return 'description: ""';
       case "type": {
-        const seg = relative3(wikiDir, filePath).split(/[/\\]/)[0];
+        const seg = relative4(wikiDir, filePath).split(/[/\\]/)[0];
         return `type: ${KNOWN_CATEGORIES.has(seg) ? seg : "state"}`;
       }
       case "created": {
@@ -31666,17 +32382,17 @@ async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
 ${missing.map(derive).join("\n")}`;
   const next = replaceFrontmatter(original, newFm);
   if (next === original) return false;
-  await fs11.writeFile(filePath, next, "utf-8");
+  await fs12.writeFile(filePath, next, "utf-8");
   return true;
 }
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
-  const original = await fs11.readFile(filePath, "utf-8");
+  const original = await fs12.readFile(filePath, "utf-8");
   if (hasFrontmatterFence(original)) return;
-  const slug = basename(filePath, ".md");
+  const slug = basename3(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
-  const relPath = relative3(wikiDir, filePath);
+  const relPath = relative4(wikiDir, filePath);
   const firstSeg = relPath.split(/[/\\]/)[0];
   const type = KNOWN_CATEGORIES.has(firstSeg) ? firstSeg : "state";
   let created = "";
@@ -31689,7 +32405,7 @@ async function addFrontmatter(filePath, wikiDir) {
       created = slugDate[1];
     } else {
       try {
-        const stat3 = await fs11.stat(filePath);
+        const stat3 = await fs12.stat(filePath);
         created = stat3.mtime.toISOString().slice(0, 10);
       } catch {
         created = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -31712,7 +32428,7 @@ related: [${related.join(", ")}]
 ---
 
 `;
-  await fs11.writeFile(filePath, fm + original, "utf-8");
+  await fs12.writeFile(filePath, fm + original, "utf-8");
 }
 function isMalformedFrontmatter(content) {
   const m = matchFrontmatter(content);
@@ -31752,7 +32468,7 @@ function dedupeTopLevelKeys(fm) {
   return out.join("\n");
 }
 async function normalizeFrontmatter(filePath) {
-  const content = await fs11.readFile(filePath, "utf-8");
+  const content = await fs12.readFile(filePath, "utf-8");
   const m = matchFrontmatter(content);
   if (!m) return false;
   let fm = m.fm;
@@ -31786,7 +32502,7 @@ async function normalizeFrontmatter(filePath) {
   }
   const next = replaceFrontmatter(content, fm);
   if (next === content) return false;
-  await fs11.writeFile(filePath, next, "utf-8");
+  await fs12.writeFile(filePath, next, "utf-8");
   return true;
 }
 function isSessionNarrative(content, slug) {
@@ -31822,8 +32538,8 @@ function isSessionNarrative(content, slug) {
 }
 
 // src/tools/graph-project.ts
-import { promises as fs12 } from "fs";
-import { join as join11 } from "path";
+import { promises as fs13 } from "fs";
+import { join as join13 } from "path";
 var BEGIN = "<!-- graph:begin (generated from ~/knowledge/graph/edges.jsonl \u2014 do not hand-edit) -->";
 var END = "<!-- graph:end -->";
 var TYPE_LABEL = {
@@ -31844,15 +32560,15 @@ function isGeneratedMocPath(p) {
   return /[/\\](projects|themes)[/\\]/.test(p);
 }
 async function projectGraphToPages(knowledgeDir, preloadedEdges) {
-  const records = preloadedEdges ?? await loadEdges(join11(knowledgeDir, "graph", "edges.jsonl"));
+  const records = preloadedEdges ?? await loadEdges(join13(knowledgeDir, "graph", "edges.jsonl"));
   if (records.length === 0) return { pagesUpdated: 0 };
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const wikiRoot = join11(knowledgeDir, "wiki");
+  const wikiRoot = join13(knowledgeDir, "wiki");
   const files = await walkWiki(wikiRoot, { includeIndex: true, skipHidden: true });
   const livePages = new Set(files.map(slugFromPath2));
   await Promise.all(files.map(async (f) => {
     try {
-      const head = (await fs12.readFile(f, "utf-8")).slice(0, 4096);
+      const head = (await fs13.readFile(f, "utf-8")).slice(0, 4096);
       const fm = matchFrontmatter(head);
       const proj = fm ? extractYamlValue(fm.fm, "project") : "";
       if (proj) livePages.add(proj);
@@ -31877,7 +32593,7 @@ async function projectGraphToPages(knowledgeDir, preloadedEdges) {
     if (file.endsWith("index.md") || isGeneratedMocPath(file)) continue;
     const slug = slugFromPath2(file);
     const related = relatedBySlug.get(slug);
-    let content = await fs12.readFile(file, "utf-8");
+    let content = await fs13.readFile(file, "utf-8");
     const before = content;
     const fmForArtifacts = matchFrontmatter(content);
     const hasNonEmptyRelated = fmForArtifacts ? extractYamlList(fmForArtifacts.fm, "related").length > 0 : false;
@@ -31919,7 +32635,7 @@ ${block}
 `);
     }
     if (content !== before) {
-      await fs12.writeFile(file, content, "utf-8");
+      await fs13.writeFile(file, content, "utf-8");
       updated++;
     }
   }
@@ -31958,16 +32674,16 @@ function buildProjectMocs(pages, opts) {
 
 // src/tools/knowledge-reindex.ts
 async function knowledgeReindex(knowledgeDir) {
-  const edgeRecords = await loadEdges(join12(knowledgeDir, "graph", "edges.jsonl"));
+  const edgeRecords = await loadEdges(join14(knowledgeDir, "graph", "edges.jsonl"));
   try {
     await projectGraphToPages(knowledgeDir, edgeRecords);
   } catch {
   }
-  const wikiRoot = join12(knowledgeDir, "wiki");
-  const indexPath = join12(wikiRoot, "index.md");
+  const wikiRoot = join14(knowledgeDir, "wiki");
+  const indexPath = join14(wikiRoot, "index.md");
   let dirs;
   try {
-    const entries = await fs13.readdir(wikiRoot, { withFileTypes: true });
+    const entries = await fs14.readdir(wikiRoot, { withFileTypes: true });
     dirs = entries.filter((d) => d.isDirectory()).map((d) => d.name).sort();
   } catch {
     return { pagesIndexed: 0, categories: [], indexPath };
@@ -31977,14 +32693,14 @@ async function knowledgeReindex(knowledgeDir) {
   let totalPages = 0;
   for (const dir of dirs) {
     if (dir === "projects") continue;
-    const dirPath = join12(wikiRoot, dir);
+    const dirPath = join14(wikiRoot, dir);
     const files = await walkWiki(dirPath);
     if (files.length === 0) continue;
     const entries = [];
     for (const filePath of files.sort()) {
-      const slug = basename2(filePath).replace(/\.md$/, "");
+      const slug = basename4(filePath).replace(/\.md$/, "");
       try {
-        const content = await fs13.readFile(filePath, "utf-8");
+        const content = await fs14.readFile(filePath, "utf-8");
         const doc = parseDoc(content, filePath);
         const desc = doc.description || firstSentence(doc.body);
         entries.push({ slug, description: desc });
@@ -32002,12 +32718,12 @@ async function knowledgeReindex(knowledgeDir) {
   const rawMin = Number(process.env.SB_MOC_MIN_MEMBERS);
   const minMembers = Number.isFinite(rawMin) && rawMin >= 1 ? rawMin : 3;
   const mocs = process.env.SB_KB_MOC === "off" ? /* @__PURE__ */ new Map() : buildProjectMocs(allPages, { minMembers });
-  const projDir = join12(wikiRoot, "projects");
-  if (mocs.size > 0) await fs13.mkdir(projDir, { recursive: true });
+  const projDir = join14(wikiRoot, "projects");
+  if (mocs.size > 0) await fs14.mkdir(projDir, { recursive: true });
   for (const existing of await mocSlugs(projDir)) {
     if (!mocs.has(existing)) {
       try {
-        await fs13.unlink(join12(projDir, `${existing}.md`));
+        await fs14.unlink(join14(projDir, `${existing}.md`));
       } catch {
       }
     }
@@ -32030,7 +32746,7 @@ async function knowledgeReindex(knowledgeDir) {
       "---",
       ""
     ].join("\n");
-    await fs13.writeFile(join12(projDir, `${proj}.md`), header + region + "\n", "utf-8");
+    await fs14.writeFile(join14(projDir, `${proj}.md`), header + region + "\n", "utf-8");
   }
   const sections = [
     "---",
@@ -32044,12 +32760,12 @@ async function knowledgeReindex(knowledgeDir) {
   ];
   const mocLinks = [];
   for (const slug of await mocSlugs(projDir)) mocLinks.push(`- [[projects/${slug}]]`);
-  for (const slug of await mocSlugs(join12(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
+  for (const slug of await mocSlugs(join14(wikiRoot, "themes"))) mocLinks.push(`- [[themes/${slug}]]`);
   if (mocLinks.length) sections.push("## Maps of Content", "", ...mocLinks, "");
   if (categoryRows.length) sections.push("## Categories", "", ...categoryRows, "");
   if (totalPages === 0 && mocLinks.length === 0) sections.push("*(no pages yet)*", "");
   sections.push(`<!-- generated: ${(/* @__PURE__ */ new Date()).toISOString()} -->`);
-  await fs13.writeFile(indexPath, sections.join("\n"), "utf-8");
+  await fs14.writeFile(indexPath, sections.join("\n"), "utf-8");
   const validation = await knowledgeValidate(knowledgeDir, { autofix: true, edges: edgeRecords });
   return {
     pagesIndexed: totalPages,
@@ -32065,95 +32781,16 @@ function firstSentence(body) {
 }
 async function mocSlugs(dir) {
   try {
-    return (await fs13.readdir(dir)).filter((f) => f.endsWith(".md") && f !== "index.md").map((f) => f.replace(/\.md$/, "")).sort();
+    return (await fs14.readdir(dir)).filter((f) => f.endsWith(".md") && f !== "index.md").map((f) => f.replace(/\.md$/, "")).sort();
   } catch {
     return [];
   }
 }
 
 // src/tools/dream.ts
-import { promises as fs14 } from "fs";
-import { existsSync as existsSync3 } from "fs";
-
-// src/tools/project-dir.ts
-import { basename as basename3, dirname as dirname3, isAbsolute as isAbsolute5, join as join13 } from "path";
-import { readFileSync as readFileSync3, existsSync as existsSync2, statSync as statSync2 } from "fs";
-function mainWorktreeDir(dir) {
-  try {
-    const d = cleanEnvPath(dir);
-    if (!d) return dir;
-    const gitPath = join13(d, ".git");
-    if (statSync2(gitPath).isDirectory()) return dir;
-    const m = readFileSync3(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
-    if (!m) return dir;
-    const gd = m[1];
-    const gitdirResolved = isAbsolute5(gd) ? gd : join13(d, gd);
-    if (existsSync2(join13(gitdirResolved, "config"))) return dir;
-    const cd = readFileSync3(join13(gitdirResolved, "commondir"), "utf-8").trim();
-    const commonDir = isAbsolute5(cd) ? cd : join13(gitdirResolved, cd);
-    return basename3(commonDir) === ".git" ? dirname3(commonDir) : dir;
-  } catch {
-    return dir;
-  }
-}
-function slugFromProjectDir(dir) {
-  if (!dir) return void 0;
-  const resolved = process.env.SB_REPO_KEY_COMMON_DIR === "off" ? dir : mainWorktreeDir(dir);
-  const base = basename3(cleanEnvPath(resolved));
-  if (!base || base === "/" || base === "." || base === "..") return void 0;
-  if (/^tmp\.|^tmp$|^\.tmp\.|^tmpfs$/.test(base)) return "scratch";
-  return base;
-}
-function activeProjectDir(env = process.env, cwd = process.cwd) {
-  return cleanEnvPath(env.CLAUDE_PROJECT_DIR) || cwd();
-}
-function remoteIdentitySlug(brainDir2, dir) {
-  const url = originRemote(dir);
-  if (!url) return void 0;
-  return resolveSlugByRemote(brainDir2, url);
-}
-function logRemoteOverride(dir, base, slug) {
-  try {
-    console.error(JSON.stringify({ event: "remote-identity-override", dir, basename: base, slug }));
-  } catch {
-  }
-}
-function resolveActiveSlug(brainDir2, env = process.env, cwd = process.cwd) {
-  if (env.CLAUDE_PROJECT_DIR) {
-    const byPath = resolveSlugByPath(brainDir2, env.CLAUDE_PROJECT_DIR);
-    if (byPath) return byPath;
-    const fromEnv = slugFromProjectDir(env.CLAUDE_PROJECT_DIR);
-    if (fromEnv) {
-      const byRemote = remoteIdentitySlug(brainDir2, env.CLAUDE_PROJECT_DIR);
-      if (byRemote && byRemote !== fromEnv) {
-        logRemoteOverride(env.CLAUDE_PROJECT_DIR, fromEnv, byRemote);
-        return byRemote;
-      }
-      return fromEnv;
-    }
-  }
-  const here = cwd();
-  const byCwdPath = resolveSlugByPath(brainDir2, here);
-  if (byCwdPath) return byCwdPath;
-  const cwdSlug = slugFromProjectDir(here);
-  if (cwdSlug) {
-    const byRemote = remoteIdentitySlug(brainDir2, here);
-    if (byRemote && byRemote !== cwdSlug) {
-      logRemoteOverride(here, cwdSlug, byRemote);
-      return byRemote;
-    }
-  }
-  if (cwdSlug && existsSync2(join13(brainDir2, "projects", cwdSlug, "PROJECT.md"))) return cwdSlug;
-  try {
-    const pin = readFileSync3(join13(brainDir2, ".active-session-slug"), "utf-8").trim();
-    if (pin && existsSync2(join13(brainDir2, "projects", pin, "PROJECT.md"))) return pin;
-  } catch {
-  }
-  return cwdSlug;
-}
-
-// src/tools/dream.ts
-import { join as join14 } from "path";
+import { promises as fs15 } from "fs";
+import { existsSync as existsSync4 } from "fs";
+import { join as join15 } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 var exec = promisify(execFile);
@@ -32161,11 +32798,11 @@ function brainDir() {
   return resolveBrainDir();
 }
 function dreamsDir() {
-  return join14(brainDir(), "dreams");
+  return join15(brainDir(), "dreams");
 }
 function scriptsDir() {
-  return join14(
-    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join14(__dirname, "..", ".."),
+  return join15(
+    cleanEnvPath(process.env.CLAUDE_PLUGIN_ROOT) || join15(__dirname, "..", ".."),
     "scripts"
   );
 }
@@ -32190,7 +32827,7 @@ function resolveBashExePure(platform, exists, env) {
   return "bash";
 }
 function resolveBashExe() {
-  return resolveBashExePure(process.platform, existsSync3, process.env);
+  return resolveBashExePure(process.platform, existsSync4, process.env);
 }
 async function readStatus(dreamId) {
   let statusPath;
@@ -32201,7 +32838,7 @@ async function readStatus(dreamId) {
     return null;
   }
   try {
-    const raw = await fs14.readFile(statusPath, "utf-8");
+    const raw = await fs15.readFile(statusPath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -32215,7 +32852,7 @@ async function writeStatus(dreamId, status) {
 async function listDreamIds() {
   const dir = dreamsDir();
   try {
-    const entries = await fs14.readdir(dir, { withFileTypes: true });
+    const entries = await fs15.readdir(dir, { withFileTypes: true });
     return entries.filter((e) => e.isDirectory() && e.name.startsWith("drm_")).map((e) => e.name).sort().reverse();
   } catch {
     return [];
@@ -32283,7 +32920,7 @@ async function dreamCreate(args) {
     const { stdout, stderr } = await exec(
       resolveBashExe(),
       // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
-      [toBashPath(join14(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
+      [toBashPath(join15(scriptsDir(), "dream-snapshot.sh")), ...scriptArgs],
       { timeout: timeoutMs, env: { ...process.env, BRAIN_DIR: brainDir(), KNOWLEDGE_DIR: resolveKnowledgeDir() } }
     );
     const dreamId = stdout.trim();
@@ -32303,9 +32940,9 @@ async function dreamStatus(args) {
   }
   let diffPreview;
   if (status.status === "completed") {
-    const diffPath = join14(dreamsDir(), args.dream_id, "diff.md");
+    const diffPath = join15(dreamsDir(), args.dream_id, "diff.md");
     try {
-      const content = await fs14.readFile(diffPath, "utf-8");
+      const content = await fs15.readFile(diffPath, "utf-8");
       const lines = content.split("\n");
       diffPreview = lines.slice(0, 50).join("\n");
       if (lines.length > 50) diffPreview += "\n... (truncated)";
@@ -32343,7 +32980,7 @@ async function dreamAccept(args) {
     const { stdout, stderr } = await exec(
       resolveBashExe(),
       // win32: probe Git\bin\bash.exe to avoid WSL bash via System32
-      [toBashPath(join14(scriptsDir(), "dream-accept.sh")), args.dream_id],
+      [toBashPath(join15(scriptsDir(), "dream-accept.sh")), args.dream_id],
       // ACCEPT_TIMEOUT_MS, not 30s: the accept now runs wiki-size-unbounded work AFTER it has
       // already mutated the live wiki — the FORGET re-score (wiki-forget-score.sh measured at
       // ~105s on a 237-page wiki), the reindex, and the history snapshot. A 30s kill therefore
@@ -32377,8 +33014,8 @@ async function dreamDiscard(args) {
   }
   const dreamDir = assertWithin(dreamsDir(), args.dream_id);
   try {
-    await fs14.rm(join14(dreamDir, "staging"), { recursive: true, force: true });
-    await fs14.rm(join14(dreamDir, "transcripts"), {
+    await fs15.rm(join15(dreamDir, "staging"), { recursive: true, force: true });
+    await fs15.rm(join15(dreamDir, "transcripts"), {
       recursive: true,
       force: true
     });
@@ -32403,366 +33040,6 @@ async function dreamCancel(args) {
   status.ended_at = (/* @__PURE__ */ new Date()).toISOString();
   await writeStatus(args.dream_id, status);
   return { ok: true };
-}
-
-// src/tools/episodic-search.ts
-import { promises as fs15 } from "fs";
-import { join as join15, basename as basename5, relative as relative4, isAbsolute as isAbsolute6 } from "path";
-
-// src/tools/sanitize.ts
-var INVISIBLE_RE = /[\u{200B}\u{2060}\u{FEFF}\u{E0000}-\u{E007F}]/gu;
-function stripInvisible(s) {
-  return s.replace(INVISIBLE_RE, "");
-}
-
-// src/tools/episodic-search.ts
-var INDEX_FILE = "episodic-index.json";
-var DEFAULT_LIMIT = 10;
-var MAX_LIMIT = 30;
-var PEER_PREFIX = "Another Claude session sent a message:";
-var MACHINE_TAG_PREFIXES = [
-  "<task-notification>",
-  "<system-reminder>",
-  "<agent-message",
-  "<cross-session-message",
-  "<command-",
-  // command-name, command-message, command-args
-  "<local-command-",
-  // local-command-stdout, local-command-caveat, …
-  "<bash-"
-  // bash-input, bash-stdout, bash-stderr (the ! shell mode)
-];
-var MACHINE_TURN_PREFIXES = [
-  ...MACHINE_TAG_PREFIXES,
-  PEER_PREFIX,
-  "Stop hook feedback:",
-  "This session is being continued from a previous conversation",
-  // Archive-only: the harness writes these as user turns, but they never reach the hook as a prompt.
-  "Base directory for this skill:",
-  "Caveat: The messages below were generated"
-];
-var MACHINE_LINE_PREFIXES = ["[Image: source:", "[Image: original", "[Request interrupted by user"];
-function stripLead(text) {
-  return text.replace(/^[\s﻿]+/, "");
-}
-function isMachineTurnText(text) {
-  const t = stripLead(text);
-  return MACHINE_TURN_PREFIXES.some((p) => t.startsWith(p)) || MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p));
-}
-var SUBAGENT_REPORT_MARK = "(subagent report) ";
-var PEER_MESSAGE_MARK = "(peer message) ";
-function peerReportBody(rest) {
-  const lines = rest.split("\n");
-  let i = 0;
-  while (i < lines.length && !lines[i].trim()) i++;
-  const open = lines[i]?.trim().match(/^<([a-z]+(?:-[a-z]+)+)\b[^>]*>(.*)$/);
-  let body;
-  if (open) {
-    const close = `</${open[1]}>`;
-    body = [open[2], ...lines.slice(i + 1)];
-    const end = body.findIndex((l) => l.trim().startsWith(close));
-    if (end >= 0) body = body.slice(0, end);
-  } else {
-    body = lines.slice(i);
-  }
-  const flags = [];
-  let j2 = 0;
-  for (; j2 < body.length; j2++) {
-    const l = body[j2].trim();
-    if (!l || l.startsWith("[Subagent hand-back]")) continue;
-    if (l.startsWith("[harness:")) {
-      flags.push(foldServedSnippet(l));
-      continue;
-    }
-    break;
-  }
-  const report = body.slice(j2).join("\n").trim();
-  if (!report) return "";
-  const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
-  return mark + [report, ...flags].join("\n");
-}
-var FOLD_TO_SPACE = /* @__PURE__ */ new Set([9, 10, 11, 12, 13, 133, 8232, 8233]);
-var FOLD_TO_OPEN = /* @__PURE__ */ new Set([91, 65339, 12304, 10214, 12314, 8261, 65095, 12308]);
-var FOLD_TO_CLOSE = /* @__PURE__ */ new Set([93, 65341, 12305, 10215, 12315, 8262, 65096, 12309]);
-function foldServedSnippet(text) {
-  let out = "";
-  for (const ch of text) {
-    const c = ch.codePointAt(0);
-    out += FOLD_TO_SPACE.has(c) ? " " : FOLD_TO_OPEN.has(c) ? "(" : FOLD_TO_CLOSE.has(c) ? ")" : ch;
-  }
-  return out;
-}
-function episodeUserLine(userSnippet) {
-  const u3 = cleanUserText(userSnippet).trim();
-  if (!u3) return "[machine turn]";
-  if (u3.startsWith(SUBAGENT_REPORT_MARK)) return `**Subagent report**: ${foldServedSnippet(u3.slice(SUBAGENT_REPORT_MARK.length))}`;
-  if (u3.startsWith(PEER_MESSAGE_MARK)) return `**Peer message**: ${foldServedSnippet(u3.slice(PEER_MESSAGE_MARK.length))}`;
-  return `**User**: ${foldServedSnippet(u3)}`;
-}
-function cleanUserText(text) {
-  if (!isMachineTurnText(text)) return text;
-  const t = stripLead(text);
-  if (MACHINE_LINE_PREFIXES.some((p) => t.startsWith(p))) {
-    const lines = t.split("\n");
-    let i = 0;
-    while (i < lines.length && (!lines[i].trim() || MACHINE_LINE_PREFIXES.some((p) => stripLead(lines[i]).startsWith(p)))) i++;
-    const rest = lines.slice(i).join("\n").trim();
-    return rest ? cleanUserText(rest) : "";
-  }
-  if (t.startsWith(PEER_PREFIX)) return peerReportBody(t.slice(PEER_PREFIX.length));
-  return "";
-}
-function parseSessionMeta(lines) {
-  const meta = { sessionId: "", project: "", date: "" };
-  let i = 0;
-  if (lines[0]?.startsWith("--- session-meta ---")) {
-    i = 1;
-    while (i < lines.length && !lines[i].startsWith("---")) {
-      const m = lines[i].match(/^(\w+):\s*(.+)/);
-      if (m) {
-        if (m[1] === "session_id") meta.sessionId = m[2].trim();
-        else if (m[1] === "project_slug") meta.project = m[2].trim();
-        else if (m[1] === "date") meta.date = m[2].trim();
-      }
-      i++;
-    }
-    i++;
-    if (i < lines.length && lines[i] === "") i++;
-  }
-  return { meta, bodyStart: i };
-}
-var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
-async function loadIndex(brainDir2) {
-  const indexPath = join15(brainDir2, INDEX_FILE);
-  let data;
-  try {
-    data = await fs15.readFile(indexPath, "utf-8");
-  } catch (e) {
-    if (e.code === "ENOENT") return emptyIndex();
-    await appendErrorLog(
-      brainDir2,
-      "episodic-index",
-      `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
-    );
-    return emptyIndex();
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(data);
-  } catch (e) {
-    await appendErrorLog(
-      brainDir2,
-      "episodic-index",
-      `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
-    );
-    return emptyIndex();
-  }
-  const o = parsed;
-  if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
-    await appendErrorLog(
-      brainDir2,
-      "episodic-index",
-      `corrupt episodic index reset: ${indexPath} has no exchanges array`
-    );
-    return emptyIndex();
-  }
-  const files = o.indexed_files;
-  return {
-    model: typeof o.model === "string" ? o.model : emptyIndex().model,
-    indexed_files: files && typeof files === "object" && !Array.isArray(files) ? files : {},
-    exchanges: o.exchanges
-  };
-}
-async function episodicSearch(args, brainDir2) {
-  const index = await loadIndex(brainDir2);
-  if (index.exchanges.length === 0) return { results: [] };
-  const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-  const query = args.query;
-  if (Array.isArray(query)) {
-    return multiConceptSearch(query, index, limit, args, brainDir2);
-  }
-  const mode = args.mode ?? "both";
-  const candLimit = args.activeProject && !args.project ? Math.max(limit * 5, 25) : limit * 2;
-  let vectorResults = [];
-  let textResults = [];
-  let degraded;
-  if (mode === "vector" || mode === "both") {
-    const v = await vectorSearch(query, index, candLimit, args, brainDir2);
-    vectorResults = v.hits;
-    if (v.unavailable) degraded = mode === "both" ? "text-only" : "vector-unavailable";
-  }
-  if (mode === "text" || mode === "both") {
-    textResults = textSearch(query, index, candLimit, args);
-  }
-  const seen = /* @__PURE__ */ new Set();
-  const merged = [];
-  for (const r of vectorResults) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id);
-      merged.push(r);
-    }
-  }
-  for (const r of textResults) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id);
-      merged.push(r);
-    }
-  }
-  merged.sort((a, b) => b.similarity - a.similarity);
-  return {
-    results: scopeAndBroaden(aboveFloor(merged, args), args).slice(0, limit).map((r) => ({
-      sessionId: r.sessionId,
-      project: r.project,
-      date: r.date,
-      userSnippet: r.userSnippet,
-      assistantSnippet: r.assistantSnippet,
-      similarity: Math.round(r.similarity * 1e3) / 1e3,
-      archivePath: r.archivePath,
-      lineStart: r.lineStart,
-      lineEnd: r.lineEnd
-    })),
-    ...degraded ? { degraded } : {}
-  };
-}
-async function vectorSearch(query, index, limit, filters, brainDir2) {
-  const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) return { hits: [], unavailable: filtered.length > 0 };
-  const queryEmbedding = await embedTexts(
-    [query],
-    join15(brainDir2, "transcripts"),
-    [""]
-  );
-  if (!queryEmbedding) return { hits: [], unavailable: true };
-  const qVec = queryEmbedding[0];
-  return {
-    hits: withEmbeddings.map((e) => ({ ...e, similarity: cosineSimilarity(qVec, e.embedding) })).sort((a, b) => b.similarity - a.similarity).slice(0, limit),
-    unavailable: false
-  };
-}
-function textSearch(query, index, limit, filters) {
-  const filtered = applyFilters(index.exchanges, filters);
-  const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
-  if (tokens.length === 0) return [];
-  const scored = [];
-  for (const e of filtered) {
-    const hay = (e.userSnippet + " " + e.assistantSnippet).toLowerCase();
-    let allHit = true;
-    let tf = 0;
-    for (const t of tokens) {
-      const occ = hay.split(t).length - 1;
-      if (occ === 0) {
-        allHit = false;
-        break;
-      }
-      tf += occ;
-    }
-    if (allHit) {
-      const similarity = 0.5 * (tf / (tf + tokens.length));
-      scored.push({ ...e, similarity });
-    }
-  }
-  scored.sort((a, b) => b.similarity - a.similarity);
-  return scored.slice(0, limit);
-}
-async function multiConceptSearch(concepts, index, limit, filters, brainDir2) {
-  const filtered = applyFilters(index.exchanges, filters);
-  const withEmbeddings = filtered.filter((e) => e.embedding.length > 0);
-  if (withEmbeddings.length === 0) {
-    return { results: [], ...filtered.length > 0 ? { degraded: "vector-unavailable" } : {} };
-  }
-  const conceptEmbeddings = await embedTexts(
-    concepts,
-    join15(brainDir2, "transcripts"),
-    concepts.map((_, i) => `concept-${i}`)
-  );
-  if (!conceptEmbeddings) return { results: [], degraded: "vector-unavailable" };
-  const scored = withEmbeddings.map((e) => {
-    const similarities = conceptEmbeddings.map((cv) => cosineSimilarity(cv, e.embedding));
-    const minSim = Math.min(...similarities);
-    const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
-    return { ...e, similarity: avgSim, minSimilarity: minSim };
-  });
-  const threshold = 0.2;
-  const ranked = scopeAndBroaden(
-    aboveFloor(scored.filter((s) => s.minSimilarity >= threshold).sort((a, b) => b.similarity - a.similarity), filters),
-    filters
-  );
-  return {
-    results: ranked.slice(0, limit).map((r) => ({
-      sessionId: r.sessionId,
-      project: r.project,
-      date: r.date,
-      userSnippet: r.userSnippet,
-      assistantSnippet: r.assistantSnippet,
-      similarity: Math.round(r.similarity * 1e3) / 1e3,
-      archivePath: r.archivePath,
-      lineStart: r.lineStart,
-      lineEnd: r.lineEnd
-    }))
-  };
-}
-function applyFilters(exchanges, filters) {
-  let result = exchanges;
-  if (filters.project) {
-    const p = filters.project.toLowerCase();
-    result = result.filter((e) => e.project.toLowerCase() === p);
-  }
-  if (filters.after) {
-    result = result.filter((e) => e.date >= filters.after);
-  }
-  if (filters.before) {
-    result = result.filter((e) => e.date <= filters.before);
-  }
-  if (filters.excludeSessionId) {
-    const sid = filters.excludeSessionId;
-    result = result.filter((e) => e.sessionId !== sid);
-  }
-  if (filters.requireUserText) {
-    result = result.filter((e) => cleanUserText(e.userSnippet).trim() !== "");
-  }
-  return result;
-}
-function aboveFloor(ranked, filters) {
-  const floor = filters.minSimilarity;
-  return floor === void 0 ? ranked : ranked.filter((r) => r.similarity >= floor);
-}
-function withActiveScope(args, activeSlug) {
-  if (args.project) {
-    if (args.project.toLowerCase() === "all") {
-      const { project, activeProject, ...rest } = args;
-      return rest;
-    }
-    return args;
-  }
-  return activeSlug ? { ...args, activeProject: activeSlug } : args;
-}
-function scopeAndBroaden(ranked, args) {
-  if (!args.activeProject || args.project) return ranked;
-  const slug = args.activeProject.toLowerCase();
-  const inScope = ranked.filter((r) => r.project.toLowerCase() === slug);
-  const parsed = parseInt(process.env.SB_EPISODIC_SCOPE_MIN_HITS ?? "", 10);
-  const minHits = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
-  return inScope.length >= minHits ? inScope : ranked;
-}
-function assertTranscriptPath(brainDir2, filePath) {
-  const base = join15(brainDir2, "transcripts");
-  const rel = isAbsolute6(filePath) ? relative4(base, filePath) : filePath;
-  return assertWithin(base, rel);
-}
-async function episodicRead(filePath, startLine, endLine) {
-  const content = stripInvisible(await fs15.readFile(filePath, "utf-8"));
-  const lines = content.split("\n");
-  const { meta } = parseSessionMeta(lines);
-  const start = (startLine ?? 1) - 1;
-  const end = endLine ?? lines.length;
-  const selected = lines.slice(start, end).join("\n");
-  return {
-    content: selected,
-    sessionId: meta.sessionId,
-    project: meta.project,
-    date: meta.date
-  };
 }
 
 // src/tools/persona-think.ts
@@ -33208,7 +33485,7 @@ import { stat as stat2 } from "fs/promises";
 // src/tools/codemap/scan-sources.ts
 import { execFile as execFile2 } from "child_process";
 import { promisify as promisify2 } from "util";
-import { existsSync as existsSync4, statSync as statSync3 } from "fs";
+import { existsSync as existsSync5, statSync as statSync3 } from "fs";
 import { readFile, stat } from "fs/promises";
 import * as path3 from "path";
 var execFileAsync = promisify2(execFile2);
@@ -34062,7 +34339,7 @@ registerJsonTool(
 );
 registerJsonTool(
   "episodic_search",
-  "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading. Result carries degraded:'text-only' when vector search is unavailable (embeddings missing) and only text matching ran.",
+  "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading. When vector search is unavailable (embeddings missing) the text says so: a footer under text-only results, or a no-results line for a concept array (vector-only) that says to retry as a single string query.",
   {
     query: external_exports.union([
       external_exports.string().describe("Search query for semantic + text matching"),
@@ -34076,20 +34353,7 @@ registerJsonTool(
   },
   async (args) => {
     const result = await episodicSearch(withActiveScope(args, resolveActiveSlug2()), BRAIN_DIR);
-    if (result.results.length === 0) {
-      return "No matching conversations found.";
-    }
-    const render = (r) => {
-      const sim = r.similarity > 0 ? ` (${Math.round(r.similarity * 100)}%)` : "";
-      return [
-        `### ${foldServedSnippet(r.project)} \u2014 ${foldServedSnippet(r.date)}${sim}`,
-        episodeUserLine(r.userSnippet),
-        `**Assistant**: ${foldServedSnippet(r.assistantSnippet)}`,
-        `*Session: ${r.sessionId} | Lines ${r.lineStart}-${r.lineEnd} | ${r.archivePath}*`
-      ].join("\n");
-    };
-    const capped = capList(result.results, render, egressBudgetTokens(), "narrow the query or use episodic_read on a specific result");
-    return capped.text;
+    return renderEpisodicSearch(result, egressBudgetTokens());
   }
 );
 registerJsonTool(

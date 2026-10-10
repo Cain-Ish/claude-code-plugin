@@ -44,6 +44,21 @@ _now_ms() {
 }
 
 _now_ms; T0=$_MS
+# G2 (R3, 2026-10-07): a verdict written after Claude Code cancelled the hook was enforced by no one
+# (the tool ran), yet counted like any other. SB_HOOK_LATE_MS is the epoch ms from which a verdict
+# counts as late: the budget, less a 2000 ms margin, from this wrapper's start. The margin is the
+# CLI's own head start: its timeout clock starts before it launches `bash hook-timer.sh`, which took
+# 70-2000 ms on a loaded MSYS box (R3 measurements) — so a verdict 3 s in may already be past a 5 s
+# timeout. Conservative on purpose: "late" may over-report, never claim a cancelled verdict was
+# enforced. The guards' audit rows stamp it (_fp_audit, sb_log_audit; EPOCHREALTIME, bash 5 only).
+# SB_HOOK_LATE_PID (GT11, R3B): this wrapper's PID — the deadline belongs to its direct child (whose
+# $PPID it is) and to nothing that child spawns: a claude -p under stop-extract runs hooks of its own
+# with this export still in their environment. A budget of 0 (or none) hands no deadline on, and drops
+# one inherited from a wrapper further up.
+case "$BUDGET_S" in
+  ''|*[!0-9]*|0) unset SB_HOOK_LATE_MS SB_HOOK_LATE_PID ;;
+  *) export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 )) SB_HOOK_LATE_PID=$$ ;;
+esac
 bash "$SCRIPT" "$@"
 EC=$?
 _now_ms; T1=$_MS
@@ -59,16 +74,23 @@ _now_ms; T1=$_MS
       if [ $(( DUR * 10 )) -ge $(( BUDGET_S * 1000 * 7 )) ]; then
         WARN=',"budget_warn":true'
       fi
+      # late: the hook was still running when the CLI may already have cancelled it (see above).
+      [ -n "${SB_HOOK_LATE_MS:-}" ] && [ "$T1" -ge "$SB_HOOK_LATE_MS" ] && WARN="$WARN"',"late":true'
       ;;
   esac
+  # plugin_version: which hook code wrote the row (two installed versions' sessions coexist; a stale
+  # hook's rows looked like a regression). Read beside the script, builtins only.
+  PV="" PJ=""
+  IFS= read -r -d '' -n 8192 PJ < "${SCRIPT%/*}/../.claude-plugin/plugin.json"
+  [[ $PJ =~ \"version\"[[:space:]]*:[[:space:]]*\"([0-9A-Za-z.+-]{1,32})\" ]] && PV=',"plugin_version":"'"${BASH_REMATCH[1]}"'"'
   HOOK="${SCRIPT##*/}"
   if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
     TZ=UTC0 printf -v TS '%(%Y-%m-%dT%H:%M:%SZ)T' -1
   else
     TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   fi
-  printf '{"ts":"%s","kind":"latency","hook":"%s","duration_ms":%s,"exit_code":%s%s}\n' \
-    "$TS" "$HOOK" "$DUR" "$EC" "$WARN" >> "$BRAIN_DIR/audit-log.jsonl"
+  printf '{"ts":"%s","kind":"latency","hook":"%s","duration_ms":%s,"exit_code":%s%s%s}\n' \
+    "$TS" "$HOOK" "$DUR" "$EC" "$WARN" "$PV" >> "$BRAIN_DIR/audit-log.jsonl"
 } 2>/dev/null || true
 
 exit "$EC"

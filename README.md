@@ -56,10 +56,10 @@ Eleven hook events wire the autonomous loop (`hooks/hooks.json`):
 - **PreToolUse** — rules-based guards: tool guard (risky bash, hot-tier writes), wiki-write guard, symlink guard (denies writes resolving into `~/.ssh` and friends), outbound credential-flow guard, a plan-first gate — with `SB_INTENT_SPINE` on (the default), it hard-denies-once on multi-file code work with no plan on record (Gate A) and again on goal drift (Gate B); `SB_INTENT_SPINE=off` restores the original advisory-only nudge that never blocks — and the working-agreement guard (delegation tier checks, path-triggered repo memory, search-before-create), advisory-only.
 - **PostToolUse** — quality gate on writes, injection-pattern scan of tool returns (telemetry, never blocks), simplicity nudge on large single changes, observation ledger.
 - **PostToolUseFailure** — the observation ledger's failure side. `PostToolUse` fires only on success, so without this event every FAILED tool call — the error→fix pattern the ledger exists to mine — left no record.
-- **Stop** — verify gate, then the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
-- **SubagentStop** — archives substantive subagent results into the episodic transcript store.
+- **Stop** — verify gate, then the raw window is archived first (credential-shaped strings redacted as `[redacted:<kind>]`, tool-free windows included) and the LLM extractor files what mattered into hot tier + wiki; SAR safety-summary banner.
+- **SubagentStop** — archives substantive subagent results (credential-scrubbed before they are quoted) into the episodic transcript store.
 - **SubagentStart** — delivers a role card scoped to the spawned agent's type (working agreement, advisory-only).
-- **PreCompact** — same extraction before a context compaction, so nothing is lost to the window.
+- **PreCompact** — same archive-then-extract before a context compaction, so nothing is lost to the window.
 - **ConfigChange** — audit-logs every settings/skills change (never blocks).
 
 Nearly every guard and pipeline has an `SB_*` kill switch — including the PostToolUse quality
@@ -91,10 +91,12 @@ dreams stage changes for review, forgetting archives rather than deletes.
 
 One output style, `second-brain:dev-focused` (select it under `/config` > Output style, or set `"outputStyle": "second-brain:dev-focused"` in settings). It shapes every reply for a reader who needs to act now: next action first, numbered steps, state restated each turn, no tangents, concrete time estimates, and work routed to the cheapest model tier (SCOUT/DO/THINK) that can do it. Opt-in only; it never overrides your chosen style.
 
-`/second-brain:capture` documents the raw-inbox CLI (`--list` to inspect, `--discard <id>` to
-prune); its frontmatter disables both user AND model invocation, so nothing can invoke it as a
-skill — it exists to document the bundled `raw-capture-cli` for direct/scripted use. The only
-automatic path into the raw inbox is `/second-brain:setup`'s one-time deep-scan.
+The `second-brain:capture` skill only documents the raw-inbox CLI; its frontmatter disables both
+user AND model invocation, so nothing can invoke it. Run the CLI directly:
+`node "$CLAUDE_PLUGIN_ROOT/mcp/dist/tools/raw-capture-cli.bundle.js" list` to inspect the inbox,
+`discard <id>` to drop an item, `prune-processed` to delete processed ones, `capture <path|url|"text">`
+to add one. The only automatic path into the raw inbox is `/second-brain:setup`'s one-time
+deep-scan, and only `/second-brain:maintain` drains it.
 
 `query` and `using-second-brain` are invoked by the model, not as slash commands. Four agents
 back the loop: `dream-runner`, `knowledge-maintainer`, `raw-drainer`, and `search-conversations`
@@ -160,7 +162,7 @@ Two directories under your home, both entirely local:
 
 | Path | Contents |
 |---|---|
-| `~/.second-brain/` | Runtime state: hot tier (`USER.md`, `projects/`), transcripts, config, audit/error logs, dream working state (`dreams/`), and two IRREPLACEABLE stores worth backing up: `wiki-archive/` (the only copy of pages FORGET has archived) and, when `wiki_git: true`, `wiki-history.git/` (the reversibility window for unattended writes) |
+| `~/.second-brain/` | Runtime state: hot tier (`USER.md`, `projects/`), transcripts (session archives, 400 files / 25 MB soft cap, 1200 files / 75 MB hard), config, audit/error logs, dream working state (`dreams/`), and two IRREPLACEABLE stores worth backing up: `wiki-archive/` (the only copy of pages FORGET has archived) and, when `wiki_git: true`, `wiki-history.git/` (the reversibility window for unattended writes) |
 | `~/knowledge/` | The wiki (standard Markdown + `[[wiki-links]]`, Obsidian-compatible) plus `graph/` (`edges.jsonl`, `project-registry.jsonl` — the typed relationship graph) |
 
 Nothing is synced, pushed, or shared by the plugin — no telemetry, no cloud services, no external

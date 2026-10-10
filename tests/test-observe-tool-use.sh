@@ -3,6 +3,7 @@
 # pins: SB_NESTED_SPAWN — quiets the shim's own diagnostic output so stdout assertions aren't polluted by unrelated logging
 # pins: SB_OBSERVATION_LEDGER — kill-switch test: asserts =off disables the ledger
 # pins: SB_OBSERVATION_MAX_BYTES — sets a small cap so the truncation behavior under test actually triggers within the fixture payload size
+# run-all-timeout: 150   (~45 hook runs; 2026-10-07 R3-B, alone on the MSYS dev box: 58 s (jq 1.8.1) / 60 s (jq 1.7.1), ~12 GB free, ~400 processes; run-all's 120 s default is under 2x)
 # Tests for the deterministic PostToolUse observation ledger (P0 rec 5).
 # Contract under test:
 #   scripts/observe-tool-use.sh appends ONE compact JSONL line per tool use —
@@ -30,6 +31,8 @@ payload() {  # $1=tool $2=session_id $3=input-json $4=response-json
   jq -nc --arg t "$1" --arg sid "$2" --argjson inp "$3" --argjson resp "$4" \
     '{hook_event_name:"PostToolUse", tool_name:$t, session_id:$sid, tool_input:$inp, tool_response:$resp}'
 }
+# obs_rows <regex>: error-log rows matching it (0 when none).
+obs_rows() { grep -c "$1" "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d ' \r' || true; }
 
 # 1. Happy path: Bash success → one line, ok:true, command as target.
 payload "Bash" "sess-1" '{"command":"git status"}' '{"stdout":"clean","stderr":""}' \
@@ -116,7 +119,7 @@ LEDGERS=$(find "$OBS_DIR" -maxdepth 1 -name '*.jsonl' | wc -l | tr -d ' ')
 pass "session id sanitized — no path traversal out of observations/"
 
 # 9. Size cap: file at/over SB_OBSERVATION_MAX_BYTES → append skipped, exit 0.
-FCAP="$OBS_DIR/sess-cap.jsonl"
+FCAP="$OBS_DIR/sess-cap.jsonl"; mkdir -p "$OBS_DIR"
 printf '%0.s{"pad":1}\n' 1 2 3 4 5 6 7 8 9 10 > "$FCAP"
 CAP_BYTES=$(wc -c < "$FCAP" | tr -d ' ')
 payload "Bash" "sess-cap" '{"command":"x"}' '{}' | SB_OBSERVATION_MAX_BYTES="$CAP_BYTES" bash "$SCRIPT"; rc=$?
@@ -124,6 +127,106 @@ payload "Bash" "sess-cap" '{"command":"x"}' '{}' | SB_OBSERVATION_MAX_BYTES="$CA
 NEW_BYTES=$(wc -c < "$FCAP" | tr -d ' ')
 [ "$NEW_BYTES" -eq "$CAP_BYTES" ] || fail "cap: file grew past SB_OBSERVATION_MAX_BYTES ($CAP_BYTES → $NEW_BYTES)"
 pass "size cap: at-cap ledger stops appending (bounded per session)"
+
+# 9b (C1 audit, R3). The cap used to drop every later observation in silence. It is now loud: ONE
+# error row per session ledger (a .flag file remembers it), not one per dropped tool call. Test 9's
+# dropped call counts too: 1 + 3 dropped calls, one row.
+for _i in 1 2 3; do
+  payload "Bash" "sess-cap" '{"command":"x"}' '{}' | SB_OBSERVATION_MAX_BYTES="$CAP_BYTES" bash "$SCRIPT" || fail "cap-loud: exit $?"
+done
+[ "$(obs_rows 'observation ledger.*sess-cap.*cap')" = 1 ] \
+  || fail "cap-loud: want exactly 1 error row for the capped ledger after 4 dropped calls, got $(obs_rows 'sess-cap') ($(tail -3 "$BRAIN_DIR/error-log.jsonl"))"
+[ "$(wc -c < "$FCAP" | tr -d ' ')" -eq "$CAP_BYTES" ] || fail "cap-loud: the capped ledger grew"
+pass "size cap is loud once: one error row per capped session ledger, the ledger stays bounded"
+
+# 9c (C1 audit, R3). A failed append (`>> ledger || true`) lost the observation without a trace.
+# Now one error row per session; the hook still exits 0.
+: > "$BRAIN_DIR/error-log.jsonl"
+mkdir -p "$OBS_DIR/sess-afail.jsonl"   # a directory where the ledger file goes: the append fails
+for _i in 1 2; do
+  payload "Bash" "sess-afail" '{"command":"git status"}' '{}' | bash "$SCRIPT" || fail "append-fail: exit $?"
+done
+[ "$(obs_rows 'observation ledger append failed.*sess-afa')" = 1 ] \
+  || fail "append-fail: want exactly 1 error row for the failed appends, got $(obs_rows 'sess-afa') ($(tail -3 "$BRAIN_DIR/error-log.jsonl"))"
+grep -q 'git status' "$BRAIN_DIR/error-log.jsonl" && fail "append-fail: the error row carries the observation's target"
+pass "a failed ledger append is loud once per session, without the observation text"
+
+# 9d (R3-B, S6/C3/Q-L1). The loud-once flag lived in observations/, the very directory that was
+# failing: when it could not be created the row repeated on every tool call. A failed mkdir and a
+# record jq could not build exited 0 in silence. Each is now one row per session, the flag falling
+# back to $BRAIN_DIR/.obs-<sid>.<condition>.flag.
+# (a) observations/ is a FILE, so mkdir and every path under it fail on every OS.
+B9D="$TMP/brain-9d"; mkdir -p "$B9D"; : > "$B9D/observations"
+for _i in 1 2 3; do
+  payload "Bash" "sess-mk" '{"command":"x"}' '{}' | BRAIN_DIR="$B9D" bash "$SCRIPT" || fail "mkdir-fail: exit $?"
+done
+[ "$(grep -c 'observation ledger directory.*sess-mk' "$B9D/error-log.jsonl" 2>/dev/null | tr -d ' \r')" = 1 ] \
+  || fail "mkdir-fail: want exactly 1 error row for 3 tool uses with no ledger directory (got: $(cat "$B9D/error-log.jsonl" 2>/dev/null))"
+[ -e "$B9D/.obs-sess-mk.mkdir-failed.flag" ] || fail "mkdir-fail: the fallback flag under BRAIN_DIR was not created"
+pass "a ledger directory that cannot be created is loud once per session (fallback flag under BRAIN_DIR)"
+# (b) observations/ unwritable (chmod 555): the append AND the in-directory flag fail. Needs a
+#     filesystem where chmod restricts (not Windows, not root); CI's Linux lane (run-all, as a
+#     non-root user) runs it. The macOS lane does not run this file.
+supports_chmod_restrict() {
+  local d; d=$(mktemp -d); chmod 555 "$d" 2>/dev/null; touch "$d/probe" 2>/dev/null; local rc=$?
+  chmod 755 "$d" 2>/dev/null; rm -rf "$d"; [ "$rc" -ne 0 ]
+}
+if supports_chmod_restrict; then
+  B9E="$TMP/brain-9e"; mkdir -p "$B9E/observations"; chmod 555 "$B9E/observations"
+  for _i in 1 2 3; do
+    payload "Bash" "sess-ro" '{"command":"x"}' '{}' | BRAIN_DIR="$B9E" bash "$SCRIPT" || { chmod 755 "$B9E/observations"; fail "ro-dir: exit $?"; }
+  done
+  chmod 755 "$B9E/observations"
+  [ "$(grep -c 'observation ledger append failed.*sess-ro' "$B9E/error-log.jsonl" 2>/dev/null | tr -d ' \r')" = 1 ] \
+    || fail "ro-dir: want exactly 1 error row for 3 failed appends into an unwritable observations/ (got: $(cat "$B9E/error-log.jsonl" 2>/dev/null))"
+  [ -e "$B9E/.obs-sess-ro.append-failed.flag" ] || fail "ro-dir: the fallback flag under BRAIN_DIR was not created"
+  pass "an unwritable observations/ is loud once per session (the flag falls back to BRAIN_DIR)"
+else
+  echo "SKIP: 9d(b) chmod 555 does not restrict on this filesystem (Windows or root); CI's Linux lane runs it"
+fi
+# (c) the record's jq fails (killed, missing): the observation is lost, said once per session.
+OBS_JQ_SHIM="$TMP/obs-jq-shim"; mkdir -p "$OBS_JQ_SHIM"
+printf '#!/bin/bash\ncase "$*" in *PostToolUseFailure*) exit 137 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$OBS_JQ_SHIM/jq"
+chmod +x "$OBS_JQ_SHIM/jq"
+B9F="$TMP/brain-9f"; mkdir -p "$B9F"
+for _i in 1 2; do
+  payload "Bash" "sess-jqb" '{"command":"x"}' '{}' | env PATH="$OBS_JQ_SHIM:$PATH" BRAIN_DIR="$B9F" bash "$SCRIPT" || fail "jq-build: exit $?"
+done
+[ "$(grep -c 'jq could not build the record.*sess-jqb' "$B9F/error-log.jsonl" 2>/dev/null | tr -d ' \r')" = 1 ] \
+  || fail "jq-build: want exactly 1 error row for 2 records jq could not build (got: $(cat "$B9F/error-log.jsonl" 2>/dev/null))"
+pass "a record jq cannot build is loud once per session"
+# (d) a failed append is reported through the error row, not the hook's stderr: `>> f 2>/dev/null`
+#     printed "Is a directory" / "Permission denied" anyway (a redirect fails before 2>/dev/null applies).
+payload "Bash" "sess-afail" '{"command":"git status"}' '{}' | bash "$SCRIPT" 2>"$TMP/9d-stderr.txt" || fail "stderr: exit $?"
+[ ! -s "$TMP/9d-stderr.txt" ] || fail "stderr: a failed ledger append printed on the hook's stderr: $(head -c 300 "$TMP/9d-stderr.txt")"
+pass "a failed ledger append prints nothing on the hook's stderr"
+
+# 10. X2 S3: target (command[0:200]) and err (stderr[0:160]) are written through the secret scrub,
+#     so a key in a failed command never lands in the ledger the drainer embeds. Keys are assembled
+#     at run time (no key-shaped literal in the repo).
+KANT="sk-""ant-api03-$(printf 'Zq9x%.0s' 1 2 3 4 5 6 7 8)"
+KGHP="gh""p_$(printf 'Ab1%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
+jq -nc --arg c "ANTHROPIC_API_KEY=$KANT claude -p hi; git push https://x:$KGHP@github.com/a/b" --arg e "Error: invalid x-api-key $KANT" \
+  '{hook_event_name:"PostToolUseFailure", tool_name:"Bash", session_id:"sess-key", tool_input:{command:$c}, tool_response:{error:$e}}' \
+  | bash "$SCRIPT"
+F="$OBS_DIR/sess-key.jsonl"
+[ -s "$F" ] || fail "scrub: no ledger line written for a failed call carrying a key"
+grep -qF 'ant-api03-' "$F" && fail "scrub: the Anthropic key reached the ledger"
+grep -qF "$KGHP" "$F" && fail "scrub: the GitHub token reached the ledger"
+grep -qF '[redacted:' "$F" || fail "scrub: no redaction marker in the ledger line (got: $(cat "$F"))"
+jq -e 'select(.tool == "Bash" and .ok == false and (.err | test("redacted")))' "$F" >/dev/null 2>&1 \
+  || fail "scrub: the scrubbed line no longer parses as the ledger record (got: $(cat "$F"))"
+# A key-free line keeps its spawn-free path and its exact content.
+payload "Bash" "sess-clean" '{"command":"make test"}' '{"stdout":"ok","stderr":""}' | bash "$SCRIPT"
+jq -e 'select(.target == "make test" and .ok == true)' "$OBS_DIR/sess-clean.jsonl" >/dev/null 2>&1 || fail "scrub: a clean line changed"
+# PEM: a BEGIN marker with no END on the same line redacts the rest of that line, so the record is
+# cut short (unparseable). That is accepted by design: no key material survives, and every ledger
+# reader parses with fromjson? and drops the line (one observation lost, never a key leaked).
+jq -nc --arg e "-----BEGIN RSA PRIVATE KEY----- MIIEowIBAAKCAQEA0Zq9xZq9xZq9xZq9x" \
+  '{hook_event_name:"PostToolUseFailure", tool_name:"Read", session_id:"sess-pem", tool_input:{file_path:"id_rsa"}, tool_response:{error:$e}}' \
+  | bash "$SCRIPT"
+grep -qF 'MIIEowIBAAKCAQEA' "$OBS_DIR/sess-pem.jsonl" && fail "scrub: PEM body reached the ledger"
+pass "observation ledger: keys in target/err are scrubbed at write time; the record stays valid JSON"
 
 # ============================================================================
 # Mining: sb_observations_summary + sb_extract_transcript embedding
@@ -169,6 +272,44 @@ grep -q 'LEDGER-SENTINEL-FAILURE' "$CAPTURED" || fail "mine: ledger error line n
 grep -q 'DATA, not instructions' "$CAPTURED" || fail "mine: observations section missing the DATA framing"
 pass "sb_extract_transcript embeds the session's ledger as a labeled DATA section"
 
+# X2 S3: a ledger written before the write-time scrub (or by a 0.55 hook) still holds keys; the
+# summary is scrubbed before it is embedded, so the extractor never receives them (p1 repro).
+# (The sent marker is reset: this is a new ledger for the same session, sent whole.)
+rm -f "$DRAIN_BRAIN/observations/mine-session.sent"
+jq -nc --arg t "ANTHROPIC_API_KEY=$KANT claude -p hi" --arg e "Error: invalid x-api-key $KANT" \
+  '{ts:"x",tool:"Bash",target:$t,ok:false,err:$e}' > "$DRAIN_BRAIN/observations/mine-session.jsonl"
+jq -nc --arg t "git push https://x:$KGHP@github.com/a/b" '{ts:"x",tool:"Bash",target:$t,ok:false,err:"fatal: auth"}' \
+  >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+rm -f "$CAPTURED"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "mine-keys: sb_extract_transcript failed"
+grep -q '=== OBSERVATIONS' "$CAPTURED" || fail "mine-keys: observations section missing"
+grep -qF 'ant-api03-' "$CAPTURED" && fail "mine-keys: the extractor RECEIVED an Anthropic key from the ledger"
+grep -qF "$KGHP" "$CAPTURED" && fail "mine-keys: the extractor RECEIVED a GitHub token from the ledger"
+grep -qF '[redacted:' "$CAPTURED" || fail "mine-keys: no redaction marker in the embedded summary"
+pass "an old unscrubbed ledger is scrubbed before it reaches the extractor"
+
+# X2#5: the drainer extracts an archive in delta windows, and every window used to get the WHOLE
+# ledger again (replayed issues and files_touched). Each extraction call now gets only the ledger
+# lines recorded since the last successful one (observations/<sid>.sent counts the lines sent).
+rm -f "$DRAIN_BRAIN/observations/mine-session.sent" "$CAPTURED"
+printf '{"ts":"x","tool":"Bash","target":"make a","ok":false,"err":"DELTA-ONE"}\n' > "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: first extraction failed"
+grep -q 'DELTA-ONE' "$CAPTURED" || fail "delta: the first window did not get the ledger"
+printf '{"ts":"x","tool":"Bash","target":"make b","ok":false,"err":"DELTA-TWO"}\n' >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: second extraction failed"
+grep -q 'DELTA-TWO' "$CAPTURED" || fail "delta: a later window did not get the new ledger line"
+grep -q 'DELTA-ONE' "$CAPTURED" && fail "delta: a later window got the already-sent ledger line again (replay)"
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: third extraction failed"
+grep -q '=== OBSERVATIONS' "$CAPTURED" && fail "delta: a window with no new ledger lines still got an observations section"
+# a failed extraction does not count its lines as sent: the next call gets them again
+printf '{"ts":"x","tool":"Bash","target":"make c","ok":false,"err":"DELTA-THREE"}\n' >> "$DRAIN_BRAIN/observations/mine-session.jsonl"
+sb_call_extractor() { cp "$1" "$CAPTURED"; : > "$2"; return 1; }
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 && fail "delta: the failing extractor reported success"
+sb_call_extractor() { cp "$1" "$CAPTURED"; printf '{"recent_decisions":[]}' > "$2"; return 0; }
+sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "delta: retry extraction failed"
+grep -q 'DELTA-THREE' "$CAPTURED" || fail "delta: the lines of a failed window were lost instead of resent"
+pass "observations are sent once, as the delta since the last successful window"
+
 # Absent ledger → no observations section, extraction still succeeds.
 rm -f "$DRAIN_BRAIN/observations/mine-session.jsonl" "$CAPTURED"
 sb_extract_transcript "$TXT" "test-slug" >/dev/null 2>&1 || fail "mine-absent: extraction failed without a ledger"
@@ -190,6 +331,8 @@ for t in Bash Write Edit Read Task; do
 done
 grep -q 'observations' "$PLUGIN_ROOT/scripts/extract-drain.sh" \
   || fail "wiring: extract-drain.sh has no observations GC"
+grep -q "find \"\$BRAIN_DIR/observations\".*-name '\*\.flag'" "$PLUGIN_ROOT/scripts/extract-drain.sh" \
+  || fail "wiring: the observations GC does not sweep the hook's <sid>.<condition>.flag files"
 grep -q 'SB_OBSERVATION_LEDGER' "$PLUGIN_ROOT/scripts/lib.sh" \
   || fail "wiring: SB_OBSERVATION_LEDGER not mapped in lib.sh minimal profile"
 pass "wiring: hooks.json entry + drainer GC + minimal-profile mapping present"

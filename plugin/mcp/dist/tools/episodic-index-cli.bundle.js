@@ -18,6 +18,20 @@ async function atomicWriteJson(filePath, value) {
     }
   }
 }
+var strictWriteCounter = 0;
+async function atomicWriteJsonStrict(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${strictWriteCounter++}`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(value));
+    await fs.rename(tmp, filePath);
+  } catch (err) {
+    try {
+      await fs.unlink(tmp);
+    } catch {
+    }
+    throw err;
+  }
+}
 
 // src/tools/episodic-search.ts
 import { join as join3, basename, relative, isAbsolute as isAbsolute2 } from "path";
@@ -72,6 +86,13 @@ var lastLoadError = null;
 function brainDirFromEnv() {
   return resolveBrainDir();
 }
+function installVectorDepsCommand(scriptPath) {
+  const p = (scriptPath ?? "").replace(/\\/g, "/");
+  const cut = p.lastIndexOf("/mcp/dist/");
+  if (cut < 0) return 'bash "$CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh"';
+  const script = `${p.slice(0, cut)}/bin/install-vector-deps.sh`;
+  return `bash "${script.replace(/(["$`])/g, "\\$1")}"`;
+}
 async function logLoadError(message, brainDir2) {
   if (!lastLoadError || lastLoadError.msg !== message) {
     lastLoadError = { msg: message, loggedTo: /* @__PURE__ */ new Set() };
@@ -120,7 +141,7 @@ async function getPipeline() {
     return pipelineInstance;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const hint = msg.includes("Cannot find package") ? " \u2014 run: bash $CLAUDE_PLUGIN_ROOT/bin/install-vector-deps.sh" : "";
+    const hint = msg.includes("Cannot find package") ? ` \u2014 run: ${installVectorDepsCommand(process.argv[1])}` : "";
     await logLoadError(`transformers model load failed: ${msg}${hint}`, brainDir2);
     return null;
   }
@@ -144,23 +165,27 @@ async function loadCache(wikiRoot) {
 async function saveCache(wikiRoot, cache) {
   await atomicWriteJson(join2(wikiRoot, CACHE_FILE), cache);
 }
+function isFiniteVector(v) {
+  return Array.isArray(v) && v.every(Number.isFinite);
+}
 async function embedTexts(texts, wikiRoot, paths) {
   const pipe = await getPipeline();
   if (!pipe) return null;
-  const cache = await loadCache(wikiRoot);
+  const cache = paths.some((p) => p) ? await loadCache(wikiRoot) : { model: MODEL_ID, entries: {} };
   const results = [];
   let cacheUpdated = false;
   for (let i = 0; i < texts.length; i++) {
     const hash = simpleHash(texts[i]);
     const key = paths[i] || `query-${i}`;
-    if (cache.entries[key]?.hash === hash) {
-      results.push(cache.entries[key].vector);
+    const hit = cache.entries[key];
+    if (hit?.hash === hash && isFiniteVector(hit.vector)) {
+      results.push(hit.vector);
       continue;
     }
     const output = await pipe(texts[i], { pooling: "mean", normalize: true });
     const vec = Array.from(output.data).slice(0, EMBEDDING_DIM);
     results.push(vec);
-    if (paths[i]) {
+    if (paths[i] && isFiniteVector(vec)) {
       cache.entries[key] = { hash, vector: vec };
       cacheUpdated = true;
     }
@@ -179,6 +204,36 @@ function stripInvisible(s) {
 var INDEX_FILE = "episodic-index.json";
 var SNIPPET_LEN = 200;
 var EMBEDDING_TEXT_CAP = 512;
+function quantizeEmbedding(vec) {
+  let maxAbs = 0;
+  for (let i = 0; i < vec.length; i++) {
+    const a = Math.abs(vec[i]);
+    if (a > maxAbs) maxAbs = a;
+  }
+  const es = maxAbs / 127;
+  const q = new Int8Array(vec.length);
+  if (es > 0) for (let i = 0; i < vec.length; i++) q[i] = Math.max(-127, Math.min(127, Math.round(vec[i] / es)));
+  return { e8: Buffer.from(q.buffer, q.byteOffset, q.byteLength).toString("base64"), es };
+}
+function decodeE8(e8) {
+  const b = Buffer.from(e8, "base64");
+  return new Int8Array(b.buffer, b.byteOffset, b.byteLength);
+}
+function hasVector(e) {
+  return typeof e.e8 === "string" && e.e8.length > 0;
+}
+function currentRow(stored) {
+  const { embedding, e8, es, ...row } = stored;
+  if (typeof e8 === "string" && e8) {
+    const ok = typeof es === "number" && Number.isFinite(es) && es >= 0 && decodeE8(e8).length === EMBEDDING_DIM;
+    return ok ? { row: { ...row, e8, es }, dropped: false } : { row, dropped: true };
+  }
+  if (Array.isArray(embedding) && embedding.length > 0) {
+    const ok = embedding.length === EMBEDDING_DIM && embedding.every((x) => typeof x === "number" && Number.isFinite(x));
+    return ok ? { row: { ...row, ...quantizeEmbedding(embedding) }, dropped: false } : { row, dropped: true };
+  }
+  return { row, dropped: false };
+}
 var EPISODIC_PARSER_VERSION = 3;
 function isCurrentEntry(entry, hash) {
   return typeof entry === "object" && entry !== null && entry.hash === hash && entry.parser >= EPISODIC_PARSER_VERSION;
@@ -245,16 +300,89 @@ function peerReportBody(rest) {
   const mark = open?.[1] === "agent-message" ? SUBAGENT_REPORT_MARK : PEER_MESSAGE_MARK;
   return mark + [report, ...flags].join("\n");
 }
-var FOLD_TO_SPACE = /* @__PURE__ */ new Set([9, 10, 11, 12, 13, 133, 8232, 8233]);
-var FOLD_TO_OPEN = /* @__PURE__ */ new Set([91, 65339, 12304, 10214, 12314, 8261, 65095, 12308]);
-var FOLD_TO_CLOSE = /* @__PURE__ */ new Set([93, 65341, 12305, 10215, 12315, 8262, 65096, 12309]);
-function foldServedSnippet(text) {
-  let out = "";
-  for (const ch of text) {
-    const c = ch.codePointAt(0);
-    out += FOLD_TO_SPACE.has(c) ? " " : FOLD_TO_OPEN.has(c) ? "(" : FOLD_TO_CLOSE.has(c) ? ")" : ch;
+var cps = (...xs) => String.fromCodePoint(...xs);
+var ZWNJ = cps(8204);
+var ZWJ = cps(8205);
+var FOLD_SPACE_RE = /[\p{Cc}\p{Cf}\p{Zs}\p{Zl}\p{Zp}]/gu;
+var FOLD_OPEN_EXTRA = cps(9121, 9122, 9123, 8988, 8990, 9150, 9151, 9484, 9492, 9500);
+var FOLD_CLOSE_EXTRA = cps(9124, 9125, 9126, 8989, 8991, 9163, 9164, 9488, 9496, 9508);
+var FOLD_OPEN_RE = new RegExp(`[\\p{Ps}\\p{Pi}${FOLD_OPEN_EXTRA}]`, "gu");
+var FOLD_CLOSE_RE = new RegExp(`[\\p{Pe}\\p{Pf}${FOLD_CLOSE_EXTRA}]`, "gu");
+var FOLD_QUOTE_KEEP = new Set(cps(
+  8218,
+  8222,
+  11842,
+  12317,
+  12318,
+  12319,
+  171,
+  187,
+  8216,
+  8217,
+  8219,
+  8220,
+  8221,
+  8223,
+  8249,
+  8250
+));
+var FRAME_PHRASE_SKELETON = "untrustedreference";
+var CONFUSABLE = /* @__PURE__ */ new Map();
+for (const [latin, from] of [
+  ["c", [1089, 962, 963, 7428, 42202]],
+  ["d", [1281, 7429, 42195]],
+  ["e", [1077, 949, 1108, 7431, 42224]],
+  ["f", [989, 42800, 42205]],
+  ["n", [951, 957, 1087, 1400, 628, 42208]],
+  ["r", [1075, 640, 638, 42211]],
+  ["s", [1109, 42801, 42210]],
+  ["t", [964, 1090, 7451, 42196]],
+  ["u", [965, 1405, 7452, 651, 42228]]
+]) {
+  for (const c of from) CONFUSABLE.set(cps(c), latin);
+}
+var LETTER_OR_DIGIT_RE = /^[\p{L}\p{N}]$/u;
+var SKELETON_CACHE = /* @__PURE__ */ new Map();
+function skeletonOf(ch) {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c < 128) {
+    if (c >= 97 && c <= 122 || c >= 48 && c <= 57) return ch;
+    return c >= 65 && c <= 90 ? String.fromCharCode(c + 32) : "";
   }
-  return out;
+  let s = SKELETON_CACHE.get(c);
+  if (s === void 0) {
+    s = "";
+    for (const d of ch.normalize("NFKD").toLowerCase().normalize("NFKD")) {
+      const m = CONFUSABLE.get(d) ?? d;
+      if (LETTER_OR_DIGIT_RE.test(m)) s += m;
+    }
+    if (SKELETON_CACHE.size < 4096) SKELETON_CACHE.set(c, s);
+  }
+  return s;
+}
+function neutraliseFramePhrase(text) {
+  let skeleton = "";
+  for (const ch of text) skeleton += skeletonOf(ch);
+  if (!skeleton.includes(FRAME_PHRASE_SKELETON)) return text;
+  const start = [], end = [];
+  let i = 0;
+  for (const ch of text) {
+    const n = skeletonOf(ch).length;
+    for (let k = 0; k < n; k++) {
+      start.push(i);
+      end.push(i + ch.length);
+    }
+    i += ch.length;
+  }
+  let out = "", last = 0;
+  for (let j = skeleton.indexOf(FRAME_PHRASE_SKELETON); j >= 0; j = skeleton.indexOf(FRAME_PHRASE_SKELETON, j + FRAME_PHRASE_SKELETON.length)) {
+    out += `${text.slice(last, Math.max(start[j], last))}untrusted-reference`;
+    last = end[j + FRAME_PHRASE_SKELETON.length - 1];
+  }
+  return out + text.slice(last);
+}
+function foldServedSnippet(text) {
+  return neutraliseFramePhrase(text.replace(FOLD_SPACE_RE, (m) => m === ZWNJ || m === ZWJ ? m : " ").replace(FOLD_OPEN_RE, (m) => m === "(" || m === "{" || FOLD_QUOTE_KEEP.has(m) ? m : "(").replace(FOLD_CLOSE_RE, (m) => m === ")" || m === "}" || FOLD_QUOTE_KEEP.has(m) ? m : ")"));
 }
 function cleanUserText(text) {
   if (!isMachineTurnText(text)) return text;
@@ -351,19 +479,26 @@ function parseExchanges(lines, bodyStart, meta, archivePath) {
   return exchanges;
 }
 var emptyIndex = () => ({ model: "Xenova/all-MiniLM-L6-v2", indexed_files: {}, exchanges: [] });
+var ROW_STRING_FIELDS = ["id", "sessionId", "project", "date", "userSnippet", "assistantSnippet", "archivePath"];
+function isStoredRow(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const o = v;
+  return ROW_STRING_FIELDS.every((k) => typeof o[k] === "string");
+}
 async function loadIndex(brainDir2) {
   const indexPath = join3(brainDir2, INDEX_FILE);
+  const reset = { index: emptyIndex(), dropped: 0, malformed: 0 };
   let data;
   try {
     data = await fs3.readFile(indexPath, "utf-8");
   } catch (e) {
-    if (e.code === "ENOENT") return emptyIndex();
+    if (e.code === "ENOENT") return reset;
     await appendErrorLog(
       brainDir2,
       "episodic-index",
       `corrupt episodic index reset: ${indexPath} unreadable (${e instanceof Error ? e.message : String(e)})`
     );
-    return emptyIndex();
+    return reset;
   }
   let parsed;
   try {
@@ -374,7 +509,7 @@ async function loadIndex(brainDir2) {
       "episodic-index",
       `corrupt episodic index reset: ${indexPath} is not JSON (${e instanceof Error ? e.message : String(e)})`
     );
-    return emptyIndex();
+    return reset;
   }
   const o = parsed;
   if (!o || typeof o !== "object" || Array.isArray(o) || !Array.isArray(o.exchanges)) {
@@ -383,17 +518,84 @@ async function loadIndex(brainDir2) {
       "episodic-index",
       `corrupt episodic index reset: ${indexPath} has no exchanges array`
     );
-    return emptyIndex();
+    return reset;
   }
   const files = o.indexed_files;
+  const indexedFiles = files && typeof files === "object" && !Array.isArray(files) ? files : {};
+  let dropped = 0;
+  let malformed = 0;
+  const exchanges = [];
+  for (const stored of o.exchanges) {
+    if (!isStoredRow(stored)) {
+      malformed++;
+      const archivePath = stored?.archivePath;
+      if (typeof archivePath === "string") delete indexedFiles[basename(archivePath)];
+      continue;
+    }
+    const r = currentRow(stored);
+    if (r.dropped) dropped++;
+    exchanges.push(r.row);
+  }
   return {
-    model: typeof o.model === "string" ? o.model : emptyIndex().model,
-    indexed_files: files && typeof files === "object" && !Array.isArray(files) ? files : {},
-    exchanges: o.exchanges
+    index: {
+      model: typeof o.model === "string" ? o.model : emptyIndex().model,
+      indexed_files: indexedFiles,
+      exchanges
+    },
+    dropped,
+    malformed
   };
 }
 async function saveIndex(brainDir2, index) {
-  await atomicWriteJson(join3(brainDir2, INDEX_FILE), index);
+  const indexPath = join3(brainDir2, INDEX_FILE);
+  try {
+    await atomicWriteJsonStrict(indexPath, index);
+  } catch (e) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `episodic index write failed: ${indexPath} (${e instanceof Error ? e.message : String(e)}); the previous index is kept and the next build retries`
+    );
+  }
+}
+var SCRUB_MARK = ".archive-scrub-v1";
+var SCRUB_TODO = `${SCRUB_MARK}.todo`;
+function parseScrubTodo(text) {
+  const entries = [];
+  for (const raw of text.split("\n")) {
+    const [first, fc = ""] = raw.replace(/\r$/, "").split("	");
+    if (!first) continue;
+    const path = first.includes("/") ? first : `transcripts/${first}`;
+    entries.push({ path, fails: /^[0-9]+$/.test(fc) ? Number(fc) : 0 });
+  }
+  return entries;
+}
+async function scrubPendingArchives(brainDir2) {
+  const pending = /* @__PURE__ */ new Set();
+  try {
+    await fs3.stat(join3(brainDir2, SCRUB_MARK));
+    return pending;
+  } catch {
+  }
+  const todoPath = join3(brainDir2, SCRUB_TODO);
+  let text;
+  try {
+    text = await fs3.readFile(todoPath, "utf-8");
+  } catch (e) {
+    if (e.code !== "ENOENT") {
+      await appendErrorLog(
+        brainDir2,
+        "episodic-index",
+        `cannot read the archive-scrub to-do list ${todoPath} (${e instanceof Error ? e.message : String(e)}); nothing is held out of the episodic index, so archives the scrub has not reached yet are indexed in clear`
+      );
+    }
+    return pending;
+  }
+  for (const { path } of parseScrubTodo(text)) {
+    const m = /^transcripts\/([^/]+)$/.exec(path);
+    if (m) pending.add(m[1]);
+  }
+  return pending;
 }
 async function buildEpisodicIndex(brainDir2) {
   const archiveDir = join3(brainDir2, "transcripts");
@@ -402,16 +604,37 @@ async function buildEpisodicIndex(brainDir2) {
     const entries = await fs3.readdir(archiveDir);
     files = entries.filter((f) => f.endsWith(".txt")).map((f) => join3(archiveDir, f));
   } catch {
-    return { indexed: 0, total: 0, repaired: 0, pending: 0 };
+    return { indexed: 0, total: 0, repaired: 0, pending: 0, held: 0 };
   }
-  const index = await loadIndex(brainDir2);
+  const scrubPending = await scrubPendingArchives(brainDir2);
+  let held = 0;
+  const { index, dropped, malformed } = await loadIndex(brainDir2);
+  if (malformed > 0) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `${malformed} malformed row(s) (not an object with the row's string fields) were dropped from the episodic index; an archive such a row names is re-parsed`
+    );
+  }
+  if (dropped > 0) {
+    await appendErrorLog(
+      brainDir2,
+      "episodic-index",
+      `${dropped} stored vector(s) not ${EMBEDDING_DIM} components were dropped from the episodic index; those rows re-embed`
+    );
+  }
   const newExchanges = [];
   const reparsed = {};
   const previous = /* @__PURE__ */ new Map();
   for (const filePath of files) {
+    const fname = basename(filePath);
+    if (scrubPending.has(fname)) {
+      delete index.indexed_files[fname];
+      held++;
+      continue;
+    }
     const content = stripInvisible(await fs3.readFile(filePath, "utf-8"));
     const hash = simpleHash2(content);
-    const fname = basename(filePath);
     if (isCurrentEntry(index.indexed_files[fname], hash)) continue;
     reparsed[fname] = hash;
     for (const e of index.exchanges) if (basename(e.archivePath) === fname) previous.set(e.id, e);
@@ -421,12 +644,15 @@ async function buildEpisodicIndex(brainDir2) {
     newExchanges.push(...parseExchanges(lines, bodyStart, meta, filePath));
   }
   const validFiles = new Set(files.map((f) => basename(f)));
-  index.exchanges = index.exchanges.filter((e) => validFiles.has(basename(e.archivePath)));
+  index.exchanges = index.exchanges.filter((e) => {
+    const fname = basename(e.archivePath);
+    return validFiles.has(fname) && !scrubPending.has(fname);
+  });
   for (const e of newExchanges) {
     const userSnippet = e.userMessage.slice(0, SNIPPET_LEN);
     const assistantSnippet = e.assistantMessage.slice(0, SNIPPET_LEN);
     const old = previous.get(e.id);
-    const carried = old && old.userSnippet === userSnippet && old.assistantSnippet === assistantSnippet && Array.isArray(old.embedding) && old.embedding.length > 0 ? old.embedding : [];
+    const carried = old && old.userSnippet === userSnippet && old.assistantSnippet === assistantSnippet && hasVector(old) ? { e8: old.e8, es: old.es } : {};
     index.exchanges.push({
       id: e.id,
       sessionId: e.sessionId,
@@ -437,10 +663,10 @@ async function buildEpisodicIndex(brainDir2) {
       archivePath: e.archivePath,
       lineStart: e.lineStart,
       lineEnd: e.lineEnd,
-      embedding: carried
+      ...carried
     });
   }
-  const needsEmbed = index.exchanges.filter((e) => !e.embedding || e.embedding.length === 0);
+  const needsEmbed = index.exchanges.filter((e) => !hasVector(e));
   let repaired = 0;
   if (needsEmbed.length > 0) {
     const texts = needsEmbed.map((r) => `${r.userSnippet}
@@ -448,11 +674,23 @@ ${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
     const paths = needsEmbed.map((r) => `episodic:${r.id}`);
     const embeddings = await embedTexts(texts, join3(brainDir2, "transcripts"), paths);
     if (embeddings) {
+      let nonFinite = 0;
       for (let i = 0; i < needsEmbed.length; i++) {
-        if (embeddings[i] && embeddings[i].length > 0) {
-          needsEmbed[i].embedding = embeddings[i];
-          repaired++;
+        const vec = embeddings[i];
+        if (!vec || vec.length !== EMBEDDING_DIM) continue;
+        if (!vec.every(Number.isFinite)) {
+          nonFinite++;
+          continue;
         }
+        Object.assign(needsEmbed[i], quantizeEmbedding(vec));
+        repaired++;
+      }
+      if (nonFinite > 0) {
+        await appendErrorLog(
+          brainDir2,
+          "episodic-index",
+          `${nonFinite} embedding(s) with a non-finite component were not stored; those rows stay pending and the next build embeds them again (the embedding cache does not keep such a vector)`
+        );
       }
     }
   }
@@ -463,7 +701,7 @@ ${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
     if (!validFiles.has(fname)) delete index.indexed_files[fname];
   }
   await saveIndex(brainDir2, index);
-  const pending = index.exchanges.filter((e) => !e.embedding || e.embedding.length === 0).length;
+  const pending = index.exchanges.filter((e) => !hasVector(e)).length;
   if (pending > 0 && !embeddingsOptedOut()) {
     await appendErrorLog(
       brainDir2,
@@ -471,7 +709,7 @@ ${r.assistantSnippet}`.slice(0, EMBEDDING_TEXT_CAP));
       `${pending} of ${index.exchanges.length} rows have no embedding after the repair pass: vector recall misses them until a build can embed them (check the embedding model / vector deps)`
     );
   }
-  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending };
+  return { indexed: newExchanges.length, total: index.exchanges.length, repaired, pending, held };
 }
 
 // src/tools/episodic-index-cli.ts
@@ -479,4 +717,7 @@ var brainDir = resolveBrainDir();
 var result = await buildEpisodicIndex(brainDir);
 if (result.indexed > 0) {
   console.error(`episodic-index: indexed ${result.indexed} new exchanges (${result.total} total)`);
+}
+if (result.held > 0) {
+  console.error(`episodic-index: ${result.held} archive(s) held out until the 0.56.0 secret scrub reaches them`);
 }

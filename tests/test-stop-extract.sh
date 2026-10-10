@@ -4,13 +4,22 @@
 # pins: SB_SUBAGENT_SCAN_MAX_BYTES — R7 lowers the subagent-scan byte cap to exercise the loud skip + resume path
 # pins: SB_RULES_LAYERS — L2 exercises sb_rules_hard_lines' raw-file branch (layers off), not a gate bypass
 # pins: SB_HEADLESS_CONTEXT — opt-in test (H0): asserts =on restores extraction for a headless child
+# pins: SB_EXTRACTOR_LOCAL_URL — AF2 blanks it so only the recording claude stub can answer (not a gate bypass)
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
-#   review batch added the C2-9b..C2-14 cases; measured 174s alone on a loaded MSYS box; the S0
-#   F1 ruler cases (R5b-R13: ~20 more Stops + a 33 MB subagent volume fixture) measured 649s
-#   under heavy load (~70 concurrent bash) — raised from 480; each ~13s on MSYS under load)
+#   review batch added the C2-9b..C2-14 cases; the S0 F1 ruler cases (R5b-R13: ~20 more Stops
+#   + a 33 MB subagent volume fixture) measured 649s under heavy load (~70 concurrent bash).
+#   0.56.0 R2-F, same MSYS box, alone: 414s at the R2-F head vs 428s at fcb1abf (the cheap prune
+#   gate barely moves it: few archives here); 506-627s alone and 1334s under load were reported
+#   earlier, so this budget holds alone (~2x headroom) and not under a 2-3x load factor.
+#   2026-10-07 R3-B (+JQ1/TC2/HD1, ~14 more hook runs), alone on the MSYS dev box: 519 s before
+#   them (jq 1.8.1 and 1.7.1), 561 s (jq 1.8.1) / 530 s (jq 1.7.1) after, ~12-13 GB free, ~390
+#   processes. 2x would be ~1120 s, past run-all's 900 s hard ceiling: 900 is the most a header
+#   can declare, so this file now holds ~1.6x alone; splitting it is the remaining fix.
+#   2026-10-08 R3-C (+NJ1: ~16 short hook runs that stop at the payload check): 392 s alone on jq
+#   1.8.1 before NJ1's PostCompact cases, on a quieter box than R3-B's)
 # session deltas from the conversation transcript and merges them into
 # PROJECT.md + wiki via merge-project-update.sh.
 #
@@ -32,9 +41,20 @@ trap 'rm -rf "$TMP"' EXIT
 fail() {
   echo "FAIL: $1"
   # Diagnostics for remote-CI failures (macOS job has no shell access):
-  echo "── error-log:"; tail -5 "$SANDBOX/.second-brain/error-log.jsonl" 
-  echo "── extractor-health:"; cat "$SANDBOX/.second-brain/extractor-health.json" 
-  echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" 
+  echo "── error-log:"; tail -5 "$SANDBOX/.second-brain/error-log.jsonl"
+  echo "── audit-log:"; tail -5 "$SANDBOX/.second-brain/audit-log.jsonl"
+  echo "── extractor-health:"; cat "$SANDBOX/.second-brain/.extractor-health.json"
+  # A case that keeps the hook's stderr writes it here (marker-clamp failed once under load in
+  # 0.56.0 review with no evidence because stderr went to /dev/null).
+  [ -s "$SANDBOX/hook.err" ] && { echo "── hook stderr:"; tail -20 "$SANDBOX/hook.err"; }
+  # R3: a hook that stops before its archive step leaves only a gate row (empty-stdin,
+  # stdin-not-json-object, transcript-*, slug-empty) or a differently named archive (a slug the
+  # case did not expect); the plain 5-line tails above can hide both. A case that saves its stdin
+  # payload ($SANDBOX/payload.json) shows whether the TEST's own jq built one.
+  echo "── gate rows:"; grep -h '"gate=' "$SANDBOX/.second-brain/audit-log.jsonl" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | tail -8
+  echo "── transcripts/:"; ls -la "$SANDBOX/.second-brain/transcripts" 2>&1 | tail -6
+  [ -e "$SANDBOX/payload.json" ] && { echo "── hook stdin payload ($(wc -c < "$SANDBOX/payload.json" | tr -d ' ') bytes):"; head -c 400 "$SANDBOX/payload.json"; echo; }
+  echo "── PROJECT.md:"; head -20 "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
   exit 1
 }
 pass() { echo "PASS: $1"; }
@@ -451,7 +471,7 @@ init_sandbox "marker-clamp"
 seed_transcript_with_edit
 stub_claude_json '{"recent_decisions":["use clamp semantics for stale extraction markers"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
 echo "5000" > "$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
-stop_payload | "$SCRIPT" >/dev/null 2>&1
+stop_payload | "$SCRIPT" >/dev/null 2>"$SANDBOX/hook.err"
 PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
 grep -q "use clamp semantics for stale extraction markers" "$PROJ" || fail "marker-clamp: stale marker > EOF still gated extraction"
 [ "$(cat "$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session")" = "3" ] \
@@ -490,7 +510,11 @@ rm -rf "$PROJ"
 mkdir -p "$PROJ"   # PROJECT.md is now a DIRECTORY -> merge-project-update.sh must fail
 MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
 rm -f "$MARKER"
-stop_payload | "$SCRIPT" >/dev/null 2>&1
+# R3: one unreproduced failure (jq 1.7.1, ~620 processes: no merge row, no archive; 6 reruns alone
+# clean) left no evidence, so the payload and the hook's stderr are kept for fail() to print.
+stop_payload > "$SANDBOX/payload.json"
+[ -s "$SANDBOX/payload.json" ] || fail "merge-failed-trap: the test's own payload builder (jq -nc) wrote nothing: a harness failure, not a hook result"
+"$SCRIPT" < "$SANDBOX/payload.json" >/dev/null 2>"$SANDBOX/hook.err"
 rc=$?
 [ "$rc" -eq 0 ] || fail "merge-failed-trap: expected exit 0 (fail-soft), got $rc"
 ( grep -q 'gate=merge-failed' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
@@ -498,6 +522,15 @@ rc=$?
   || fail "merge-failed-trap: no 'gate=merge-failed' row in audit-log or error-log — the second EXIT trap silenced the first"
 [ ! -f "$MARKER" ] || fail "merge-failed-trap: marker advanced despite a failed merge — window would never be retried"
 pass "D177: merge-failed is logged (chained trap) and the marker does not advance on a failed merge"
+# R2#2: the retried window is extracted again but NOT archived again. The archive has its own
+# raw_line cursor (.last-archived-line-*), advanced by the checked append, so a merge failure no
+# longer re-appends the same window on every retry (the 18x re-archive class).
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "merge-failed-trap: the window was not archived"
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = 1 ] || fail "merge-failed-trap: the first Stop archived the window $(grep -c 'src/foo.ts' "$ARCHIVE") times"
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = 1 ] || fail "merge-failed-trap: the retry after a failed merge re-archived the same window"
+pass "R2#2: a merge-failed retry re-extracts the window but does not re-archive it"
 restore_path
 
 # --- Test 13 (D077): SB_EXTRACT=off skips the LLM extraction call entirely
@@ -523,6 +556,325 @@ grep -q "auto-captured" "$PROJ" || fail "extract-off: deterministic delta not me
 ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
 [ -n "$ARCHIVE" ] || fail "extract-off: transcript window was not archived"
 pass "D077: SB_EXTRACT=off skips the LLM call but still archives + advances the marker"
+restore_path
+
+# === R3 (C1 audit): PreCompact parity with Stop, per-line transcript parsing ===================
+# ANTHROPIC_API_KEY / SB_EXTRACTOR_LOCAL_URL are blanked in every case so only the claude stub can
+# answer. A record cut mid-write (a half-flushed line) sits in front of the window's only tool call.
+CUT_LINE='{"type":"assistant","message":{"role":"assistant","content":[{"type":"te'
+FOO_EDIT='{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}'
+stub_claude_empty() {   # the extractor answers nothing: LLM extraction unavailable
+  printf '#!/bin/bash\nexit 0\n' > "$SANDBOX/path-stub/claude"; chmod +x "$SANDBOX/path-stub/claude"
+  export PATH="$SANDBOX/path-stub:$PATH"
+}
+stub_claude_sentinel() {   # records that it ran, then answers $1
+  printf '#!/bin/bash\necho ran >> "%s"\ncat <<'"'"'JSON'"'"'\n%s\nJSON\n' "$SANDBOX/claude-ran" "$1" > "$SANDBOX/path-stub/claude"
+  chmod +x "$SANDBOX/path-stub/claude"; export PATH="$SANDBOX/path-stub:$PATH"
+}
+run_pc() { stop_payload "${2:-test-session}" | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "${1:-$REPO_ROOT/scripts/pre-compact.sh}" >/dev/null 2>"$SANDBOX/hook.err"; }
+run_stop() { stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= "$SCRIPT" >/dev/null 2>"$SANDBOX/hook.err"; }
+
+# PC1: an LLM failure on PreCompact merges the deterministic files-changed floor, like Stop (7b).
+# Both branches: no breadcrumb yet today (the breadcrumb is written too), and one already logged.
+for pc1 in fresh logged; do
+  init_sandbox "pc-floor-$pc1"
+  seed_transcript_long_with_edit
+  stub_claude_empty
+  PENDING="$SANDBOX/.second-brain/projects/test-slug/pending-extraction.log"
+  [ "$pc1" = logged ] && printf '[%s] [degraded] LLM extraction unavailable; earlier session\n' "$(date -u +%Y-%m-%d)" > "$PENDING"
+  run_pc
+  PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+  grep -q 'auto-captured' "$PROJ" || fail "PC1 ($pc1): PreCompact merged no [auto-captured] floor after an LLM failure"
+  grep -q 'src/foo.ts' "$PROJ" || fail "PC1 ($pc1): the floor decision does not cite src/foo.ts"
+  grep -qF '[degraded]' "$PROJ" && fail "PC1 ($pc1): [degraded] leaked into PROJECT.md"
+  [ "$(grep -c '\[degraded\]' "$PENDING")" = 1 ] || fail "PC1 ($pc1): want exactly one [degraded] breadcrumb today, got $(grep -c '\[degraded\]' "$PENDING")"
+  restore_path
+done
+pass "PC1: a PreCompact LLM failure merges the deterministic floor (breadcrumb once per day), like Stop"
+
+# PC2 (D177 on PreCompact): a failed merge keeps the marker, so the next PreCompact or Stop retries
+# the window. The merge is failed by a stub in a scratch copy of scripts/ (a PROJECT.md directory
+# would stop PreCompact at its project-md-missing gate, before the merge).
+init_sandbox "pc-merge-failed"
+seed_transcript_long_with_edit
+stub_claude_json '{"recent_decisions":["pc2 decision survives a failed merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+PC2_ROOT="$TMP/pc2-root"; mkdir -p "$PC2_ROOT"; cp -R "$REPO_ROOT/scripts" "$PC2_ROOT/"
+printf '#!/bin/bash\ncat > /dev/null\necho "stub: merge refused" >&2\nexit 1\n' > "$PC2_ROOT/scripts/merge-project-update.sh"
+MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+run_pc "$PC2_ROOT/scripts/pre-compact.sh"
+grep -q 'merge-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PC2: the stubbed merge failure left no merge-failed row (the case proves nothing)"
+[ ! -f "$MARKER" ] || fail "PC2: PreCompact advanced the marker to $(cat "$MARKER") despite a failed merge: the window is lost"
+run_pc
+grep -q 'pc2 decision survives a failed merge' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PC2: the retry did not merge the window's decision"
+[ "$(cat "$MARKER" 2>/dev/null)" = 20 ] || fail "PC2: the successful retry did not advance the marker to 20 (got $(cat "$MARKER" 2>/dev/null))"
+pass "PC2: a failed PreCompact merge keeps the marker; the next run retries and advances it"
+restore_path
+
+# TC1: a record cut mid-write must not hide the rest of the window. A plain `jq` stops at the first
+# record that does not parse, so the Edit after it was never counted: the window read as
+# tool-count-zero and its marker advanced (Stop and PreCompact), and the deterministic floor
+# (`jq -s` over the window) came out empty.
+init_sandbox "tc-cut-stop"
+{ echo '{"type":"user","message":{"role":"user","content":"hi"}}'; echo "$CUT_LINE"; echo "$FOO_EDIT"; } > "$SANDBOX/transcript/session.jsonl"
+stub_claude_json '{"recent_decisions":["tc1 window behind a cut record"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+run_stop
+grep -q 'gate=tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null && fail "TC1 (Stop): a cut record hid the window's Edit (gate=tool-count-zero)"
+grep -q 'tc1 window behind a cut record' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC1 (Stop): the window behind the cut record was not extracted"
+restore_path
+init_sandbox "tc-cut-stop-floor"
+{ echo '{"type":"user","message":{"role":"user","content":"hi"}}'; echo "$CUT_LINE"; echo "$FOO_EDIT"; } > "$SANDBOX/transcript/session.jsonl"
+stub_claude_empty
+run_stop
+grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC1 (Stop floor): the deterministic floor lost src/foo.ts behind the cut record"
+restore_path
+init_sandbox "tc-cut-pc"
+seed_transcript_long_with_edit
+{ head -1 "$SANDBOX/transcript/session.jsonl"; echo "$CUT_LINE"; tail -n +2 "$SANDBOX/transcript/session.jsonl"; } > "$SANDBOX/transcript/s.tmp" && mv "$SANDBOX/transcript/s.tmp" "$SANDBOX/transcript/session.jsonl"
+stub_claude_json '{"recent_decisions":["tc1 precompact window behind a cut record"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+run_pc
+grep -q 'tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null && fail "TC1 (PreCompact): a cut record hid the window's Edit (tool-count-zero)"
+grep -q 'tc1 precompact window behind a cut record' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC1 (PreCompact): the window behind the cut record was not extracted"
+pass "TC1: a record cut mid-write hides nothing: Stop and PreCompact count and extract the rest of the window, and the floor keeps its files"
+restore_path
+
+# PR1: an extractor input whose transcript part could not be rendered (sb_preprocess_transcript
+# failed: jq killed, the scrub failed) is never sent: the hook logs it and merges the floor. The
+# render's jq is failed by a PATH shim that matches only the render program (`def cut(`), and only
+# its SECOND run in the hook (Q-L9): the first is the archive's (archive-first), which must succeed,
+# or the case could not tell the extractor input's failure from the archive's.
+REAL_JQ=$(command -v jq)
+PR_SHIM="$TMP/pr-jq-shim"; mkdir -p "$PR_SHIM"; PR_CNT="$TMP/pr-render-count"
+printf '#!/bin/bash\ncase "$*" in *"def cut("*) echo x >> "%s"; if [ "$(grep -c x "%s")" = 2 ]; then cat > /dev/null; echo "jq: error: simulated render failure" >&2; exit 2; fi ;; esac\nexec "%s" "$@"\n' "$PR_CNT" "$PR_CNT" "$REAL_JQ" > "$PR_SHIM/jq"
+chmod +x "$PR_SHIM/jq"
+for pr in stop pre-compact; do
+  init_sandbox "pr-render-$pr"; : > "$PR_CNT"
+  if [ "$pr" = stop ]; then seed_transcript_with_edit; HOOK_PR="$SCRIPT"; else seed_transcript_long_with_edit; HOOK_PR="$REPO_ROOT/scripts/pre-compact.sh"; fi
+  stub_claude_sentinel '{"recent_decisions":["pr1 must not be extracted"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  P_PR=$(stop_payload)
+  printf '%s' "$P_PR" | env PATH="$PR_SHIM:$PATH" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$HOOK_PR" >/dev/null 2>"$SANDBOX/hook.err"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "PR1 ($pr): the extractor ran on an input whose transcript could not be rendered"
+  grep -q 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PR1 ($pr): the failed render was not logged"
+  grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PR1 ($pr): no deterministic floor after the failed render"
+  # Q-L9: only the extractor input's render failed; the archive (rendered first) holds the window.
+  PR_ARCH=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+  [ -n "$PR_ARCH" ] && grep -q '\[Edit\] src/foo.ts' "$PR_ARCH" || fail "PR1 ($pr): the archive render was failed too, so the case cannot tell the extractor input's render failure apart"
+  restore_path
+done
+pass "PR1: a window the render could not produce is never sent to the extractor (Stop and PreCompact): logged, floor merged"
+
+# A jq shim that fails ONE program: the call whose arguments contain $JQ_FAIL_MATCH exits $JQ_FAIL_RC
+# without running (126: jq not executable, 137: jq killed); every other jq call (the error row's
+# own jq included) runs the real jq.
+JQ_FAIL_SHIM="$TMP/jq-fail-shim"; mkdir -p "$JQ_FAIL_SHIM"
+printf '#!/bin/bash\nif [ -n "${JQ_FAIL_MATCH:-}" ]; then case "$*" in *"$JQ_FAIL_MATCH"*) exit "${JQ_FAIL_RC:-137}" ;; esac; fi\nexec "%s" "$@"\n' "$REAL_JQ" > "$JQ_FAIL_SHIM/jq"
+chmod +x "$JQ_FAIL_SHIM/jq"
+# run_jqfail <hook> <match> <rc> [hook arg]: one hook run with the shim first on PATH.
+run_jqfail() {
+  stop_payload | env PATH="$JQ_FAIL_SHIM:$PATH" JQ_FAIL_MATCH="$2" JQ_FAIL_RC="$3" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= \
+    bash "$1" ${4:+"$4"} >/dev/null 2>"$SANDBOX/hook.err"
+}
+# jq_err_row <text>: an exit_code 1 error-log row carrying <text>.
+jq_err_row() { grep -F "$1" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep -q '"exit_code":1'; }
+
+# JQ1 (R3-B): before the archive step, a jq that cannot run (exit 126) or was killed (137) is not a
+# payload that "is not a JSON object" or "has no transcript_path". Stop and PreCompact used to
+# write that routine gate row (audit-log, exit 0) and exit: the window went unarchived with no
+# error anywhere (a failed session_id read archived it under an empty session id). Now an error row
+# names jq's exit status, nothing is archived, and the next hook retries the window.
+for jq1 in "stop|$SCRIPT|type == \"object\"|126|stdin-not-json-object" \
+           "stop-field|$SCRIPT|.transcript_path // empty|137|transcript-path-empty" \
+           "pc|$REPO_ROOT/scripts/pre-compact.sh|type == \"object\"|126|stdin-not-json-object" \
+           "pc-field|$REPO_ROOT/scripts/pre-compact.sh|.session_id // \"unknown\"|137|-" \
+           "pc-post|$REPO_ROOT/scripts/pre-compact.sh|type == \"object\"|137|postcompact-capture reason=bad-stdin"; do
+  IFS='|' read -r J1_NAME J1_HOOK J1_MATCH J1_RC J1_GATE <<< "$jq1"
+  init_sandbox "jq1-$J1_NAME"
+  seed_transcript_long_with_edit
+  J1_ARG=""; [ "$J1_NAME" = pc-post ] && J1_ARG=post   # PostCompact mode: its Pending Tasks capture
+  run_jqfail "$J1_HOOK" "$J1_MATCH" "$J1_RC" "$J1_ARG"
+  jq_err_row "jq exited $J1_RC" || fail "JQ1 ($J1_NAME): jq exit $J1_RC before the archive step left no error row naming it"
+  [ "$J1_GATE" = - ] || ! grep -qF "gate=$J1_GATE" "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+    || fail "JQ1 ($J1_NAME): jq exit $J1_RC was logged as the routine gate '$J1_GATE'"
+  [ -z "$(ls "$SANDBOX/.second-brain/transcripts/" 2>/dev/null)" ] || fail "JQ1 ($J1_NAME): a window was archived with a payload jq never read"
+done
+# Control: a payload that really is not an object keeps its routine gate (jq status 1 and 5).
+for jq1c in '[1]' 'not json'; do
+  init_sandbox "jq1-control"
+  printf '%s' "$jq1c" | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$SCRIPT" >/dev/null 2>"$SANDBOX/hook.err"
+  grep -qF 'gate=stdin-not-json-object' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null || fail "JQ1 control: stdin '$jq1c' lost its routine stdin-not-json-object gate"
+  grep -qF 'jq exited' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "JQ1 control: stdin '$jq1c' was reported as a jq failure"
+done
+pass "JQ1: a jq exec failure (126/137) before the archive step is an error row with jq's exit status, not a routine gate (Stop, PreCompact, PostCompact); a non-object payload keeps its gate"
+
+# NJ1 (R3-C P-F6): jq missing (exit 127) is a host state that lasts, and JQ1's error row then came
+# on EVERY Stop, PreCompact and PostCompact. It is one row per outage now (subagent-capture.sh's
+# pattern; one outage per script, so a compaction's PostCompact stays quiet after its PreCompact
+# said it): the first run whose jq runs again, whatever the payload, ends the outage, so the next
+# one is reported again. 126/137 keep their row per hook (JQ1).
+nj_rows() { grep -F 'jq exited 127' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep -c '"exit_code":1' | tr -d ' \r'; }
+for nj in "stop|$SCRIPT|" "pc|$REPO_ROOT/scripts/pre-compact.sh|" "pc-post|$REPO_ROOT/scripts/pre-compact.sh|post"; do
+  IFS='|' read -r NJ_NAME NJ_HOOK NJ_ARG <<< "$nj"
+  init_sandbox "nj1-$NJ_NAME"
+  seed_transcript_long_with_edit
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  [ "$(nj_rows)" = 1 ] || fail "NJ1 ($NJ_NAME): want 1 error row for 2 hooks with jq missing, got $(nj_rows)"
+  [ -z "$(ls "$SANDBOX/.second-brain/transcripts/" 2>/dev/null)" ] || fail "NJ1 ($NJ_NAME): archived a window with jq missing"
+  # jq back on a payload that is not JSON (jq status 5: the routine gate), then a new outage
+  printf 'not json' | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$NJ_HOOK" ${NJ_ARG:+"$NJ_ARG"} >/dev/null 2>"$SANDBOX/hook.err"
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  [ "$(nj_rows)" = 2 ] || fail "NJ1 ($NJ_NAME): an outage after jq ran on a non-JSON payload was not reported (rows $(nj_rows), want 2)"
+  # jq back on an object payload (status 0; the transcript is gone, so it stops at its gate), then another
+  rm -f "$SANDBOX/transcript/session.jsonl"
+  stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$NJ_HOOK" ${NJ_ARG:+"$NJ_ARG"} >/dev/null 2>"$SANDBOX/hook.err"
+  run_jqfail "$NJ_HOOK" 'type == "object"' 127 "$NJ_ARG"
+  [ "$(nj_rows)" = 3 ] || fail "NJ1 ($NJ_NAME): an outage after jq ran on an object payload was not reported (rows $(nj_rows), want 3)"
+done
+# One compaction with jq missing: PreCompact reports the outage, its PostCompact does not again.
+init_sandbox "nj1-compaction"
+seed_transcript_long_with_edit
+run_jqfail "$REPO_ROOT/scripts/pre-compact.sh" 'type == "object"' 127
+run_jqfail "$REPO_ROOT/scripts/pre-compact.sh" 'type == "object"' 127 post
+[ "$(nj_rows)" = 1 ] || fail "NJ1 (compaction): want 1 error row for a PreCompact + PostCompact pair with jq missing, got $(nj_rows)"
+pass "NJ1: jq missing (127) is one error row per outage on Stop, PreCompact and PostCompact; any run whose jq runs ends the outage"
+
+# TC2 (R3-B, S1): sb_window_tool_count returned 0 when its jq failed (killed, missing): the hooks
+# logged a routine tool-count-zero and ADVANCED the marker past a window the archive kept, so it was
+# never extracted. A failed count is now an error row and the marker stays; the next run extracts.
+for tc2 in stop pc; do
+  init_sandbox "tc2-count-fail-$tc2"
+  if [ "$tc2" = stop ]; then seed_transcript_with_edit; TC2_HOOK="$SCRIPT"; TC2_END=3; else seed_transcript_long_with_edit; TC2_HOOK="$REPO_ROOT/scripts/pre-compact.sh"; TC2_END=20; fi
+  stub_claude_sentinel '{"recent_decisions":["tc2 window extracted after the failed count"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
+  run_jqfail "$TC2_HOOK" buddy_react 137
+  [ ! -f "$MARKER" ] || fail "TC2 ($tc2): the marker advanced to $(cat "$MARKER") past a window whose tool count failed"
+  grep -q 'tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null && fail "TC2 ($tc2): a failed tool count was logged as a routine tool-count-zero"
+  jq_err_row "the marker stays at 0" || fail "TC2 ($tc2): the failed tool count left no error row saying the marker stays"
+  jq_err_row "header says tool_count: 0" || fail "TC2 ($tc2): the new archive's failed header count was not logged"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "TC2 ($tc2): the extractor ran on a window whose tool count failed"
+  TC2_ARCH=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+  [ -n "$TC2_ARCH" ] || fail "TC2 ($tc2): archive-first did not archive the window"
+  grep -q '^tool_count: -' "$TC2_ARCH" && fail "TC2 ($tc2): a negative tool count reached the archive header"
+  if [ "$tc2" = stop ]; then run_stop; else run_pc; fi
+  [ "$(cat "$MARKER" 2>/dev/null)" = "$TC2_END" ] || fail "TC2 ($tc2): the next run did not extract the kept window (marker $(cat "$MARKER" 2>/dev/null), want $TC2_END)"
+  grep -q 'tc2 window extracted after the failed count' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "TC2 ($tc2): the kept window's decision was not merged by the next run"
+  restore_path
+done
+pass "TC2: a failed tool count keeps the marker with an error row (Stop and PreCompact); the next run extracts the window"
+
+# HD1 (R3-B, S9): the extractor input's PROJECT.md header failing (here: a `cat` of PROJECT.md that
+# fails) was reported as "render pipe status 0 0", a render failure whose status says it succeeded.
+# The row names the part that failed; the input is still never sent and the floor still merges.
+REAL_CAT=$(command -v cat)
+CAT_SHIM="$TMP/cat-fail-shim"; mkdir -p "$CAT_SHIM"
+printf '#!/bin/bash\ncase "$*" in *PROJECT.md) exit 1 ;; esac\nexec "%s" "$@"\n' "$REAL_CAT" > "$CAT_SHIM/cat"
+chmod +x "$CAT_SHIM/cat"
+for hd in stop pre-compact; do
+  init_sandbox "hd1-header-$hd"
+  if [ "$hd" = stop ]; then seed_transcript_with_edit; HD_HOOK="$SCRIPT"; else seed_transcript_long_with_edit; HD_HOOK="$REPO_ROOT/scripts/pre-compact.sh"; fi
+  stub_claude_sentinel '{"recent_decisions":["hd1 must not be extracted"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+  stop_payload | env PATH="$CAT_SHIM:$PATH" ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$HD_HOOK" >/dev/null 2>"$SANDBOX/hook.err"
+  [ ! -e "$SANDBOX/claude-ran" ] || fail "HD1 ($hd): the extractor ran on an input without its PROJECT.md header"
+  grep -q 'render pipe status 0 0' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && fail "HD1 ($hd): a header failure was reported as a render failure with status 0 0"
+  grep 'extractor input' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null | grep 'PROJECT.md header' | grep -q '"exit_code":1' \
+    || fail "HD1 ($hd): no error row says the extractor input's PROJECT.md header could not be written"
+  # R3-C (claimed, untested until now): the window is not lost, the deterministic floor still merges.
+  grep -q 'auto-captured.*src/foo.ts' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" \
+    || fail "HD1 ($hd): no deterministic floor was merged after the header failure"
+  restore_path
+done
+pass "HD1: a failed PROJECT.md header of the extractor input is reported as such, not as a render with status 0 0, and the floor still merges (Stop and PreCompact)"
+
+# === R2 (0.56.0) archive-first + secret scrub on the hook paths ===============================
+# Fixture credentials are assembled at run time, so no credential-shaped literal sits in the repo.
+rep() { local s="" k=0; while [ "$k" -lt "$2" ]; do s="$s$1"; k=$((k + 1)); done; printf '%s' "$s"; }
+K_ANT="sk-ant-api03-$(rep aB3_ 12)-$(rep Zq9 6)AA"
+EDIT_LINE='{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.ts","old_string":"a","new_string":"b"}}]}}'
+
+# AF1: a tool-count-zero window (Q&A only) is archived before the gate skips its extraction, and
+# the archive's raw_line cursor lands on the transcript end.
+init_sandbox "af-qna"
+seed_transcript_qna_only
+stub_claude_json '{"recent_decisions":["should-not-merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+grep -q 'gate=tool-count-zero' "$SANDBOX/.second-brain/audit-log.jsonl" 2>/dev/null \
+  || fail "AF1: the Q&A window did not take the tool-count-zero gate (the case proves nothing)"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF1: a tool-count-zero window was not archived"
+grep -q '^USER: hi' "$ARCHIVE" || fail "AF1: the Q&A window is missing from the archive"
+[ "$(cut -f1 "$SANDBOX/.second-brain/.last-archived-line-test-slug--test-session" 2>/dev/null)" = 2 ] \
+  || fail "AF1: the archive cursor did not land on line 2"
+pass "AF1: a tool-count-zero Stop window is archived (archive-first) and its cursor advances"
+restore_path
+
+# AF2 (R2#3): the extractor NEVER receives sk-ant- text on the Stop path, the archive holds the
+# marker instead, and the window is archived BEFORE the extractor runs. The stub records its stdin
+# and the archive listing at call time. ANTHROPIC_API_KEY / SB_EXTRACTOR_LOCAL_URL are blanked so
+# no other backend can answer instead of the stub.
+init_sandbox "af-sk-ant"
+jq -nc --arg t "here is the key $K_ANT keep it safe" '{type:"user",message:{role:"user",content:$t}}' \
+  > "$SANDBOX/transcript/session.jsonl"
+printf '%s\n' "$EDIT_LINE" >> "$SANDBOX/transcript/session.jsonl"
+cat > "$SANDBOX/path-stub/claude" <<EOF
+#!/bin/bash
+cat > "$SANDBOX/extractor-input"
+ls "$SANDBOX/.second-brain/transcripts" > "$SANDBOX/archive-at-extract" 2>/dev/null
+echo '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+EOF
+chmod +x "$SANDBOX/path-stub/claude"
+export PATH="$SANDBOX/path-stub:$PATH"
+stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= "$SCRIPT" >/dev/null 2>&1
+[ -s "$SANDBOX/extractor-input" ] || fail "AF2: the extractor stub never received input (the case proves nothing)"
+grep -q 'sk-ant-' "$SANDBOX/extractor-input" && fail "AF2: the extractor received the raw Anthropic key"
+grep -q '\[redacted:anthropic\]' "$SANDBOX/extractor-input" || fail "AF2: the extractor input lacks the [redacted:anthropic] marker"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF2: the window was not archived"
+grep -q 'sk-ant-' "$ARCHIVE" && fail "AF2: the archive holds the raw Anthropic key"
+grep -q '\[redacted:anthropic\]' "$ARCHIVE" || fail "AF2: the archive lacks the [redacted:anthropic] marker"
+grep -q 'test-session_test-slug_' "$SANDBOX/archive-at-extract" 2>/dev/null \
+  || fail "AF2: the window was not archived before the extractor ran (archive-first)"
+pass "AF2: the Stop extractor and the archive get [redacted:anthropic], never the key; archive precedes extraction"
+restore_path
+
+# AF3: PreCompact archives the window even below its own extraction gates (window < 20 lines,
+# no tool_use, no PROJECT.md: archiving needs none of them), and the next Stop appends only its
+# own new window (one raw_line cursor shared by both hooks: disjoint, no duplicate).
+init_sandbox "af-precompact"
+seed_transcript_qna_only
+rm -f "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+stop_payload | bash "$REPO_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF3: PreCompact did not archive a window that its extraction gates skip"
+printf '%s\n' "$EDIT_LINE" >> "$SANDBOX/transcript/session.jsonl"
+stub_claude_json '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stop_payload | "$SCRIPT" >/dev/null 2>&1
+[ "$(grep -c '^USER: hi' "$ARCHIVE")" = 1 ] || fail "AF3: the Stop after a PreCompact re-archived the PreCompact window"
+[ "$(grep -c 'src/foo.ts' "$ARCHIVE")" = 1 ] || fail "AF3: the Stop did not archive its own new window exactly once"
+pass "AF3: PreCompact archives below its extraction gates; the next Stop appends only the new window"
+restore_path
+
+# AF4 (fix round item 6): the PreCompact extractor never receives sk-ant- text either (AF2 covers
+# Stop; the drainer's own test covers sb_extract_transcript, the third sb_call_extractor caller).
+# The window clears PreCompact's gates (PROJECT.md, >= 20 new lines, a tool_use), or the stub would
+# never run and the case would prove nothing.
+init_sandbox "af-precompact-key"
+seed_transcript_long_with_edit
+{ jq -nc --arg t "deploy with $K_ANT and nothing else" '{type:"user",message:{role:"user",content:$t}}'
+  cat "$SANDBOX/transcript/session.jsonl"; } > "$SANDBOX/transcript/s.tmp" && mv "$SANDBOX/transcript/s.tmp" "$SANDBOX/transcript/session.jsonl"
+cat > "$SANDBOX/path-stub/claude" <<EOF
+#!/bin/bash
+cat > "$SANDBOX/extractor-input"
+echo '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+EOF
+chmod +x "$SANDBOX/path-stub/claude"
+export PATH="$SANDBOX/path-stub:$PATH"
+stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$REPO_ROOT/scripts/pre-compact.sh" >/dev/null 2>&1
+[ -s "$SANDBOX/extractor-input" ] || fail "AF4: the PreCompact extractor stub never received input (the case proves nothing)"
+grep -q 'sk-ant-' "$SANDBOX/extractor-input" && fail "AF4: the PreCompact extractor received the raw Anthropic key"
+grep -q 'deploy with \[redacted:anthropic\] and nothing else' "$SANDBOX/extractor-input" || fail "AF4: the PreCompact extractor input lacks the redacted line"
+ARCHIVE=$(ls "$SANDBOX/.second-brain/transcripts/"test-session_test-slug_*.txt 2>/dev/null | head -1)
+[ -n "$ARCHIVE" ] || fail "AF4: the PreCompact window was not archived"
+grep -q 'sk-ant-' "$ARCHIVE" && fail "AF4: the PreCompact archive holds the raw Anthropic key"
+pass "AF4: the PreCompact extractor and archive get [redacted:anthropic], never the key"
 restore_path
 
 # --- Test 14 (D179): the background episodic-index node process must not

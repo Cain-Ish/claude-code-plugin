@@ -190,8 +190,9 @@ ls -1 ~/.second-brain/.llm-maintain-quarantine ~/.second-brain/.llm-maintain-fai
   (`maintain-llm-drain.sh:97`) fails instantly → 3-strike quarantine file → SessionStart banner
   names the fix (`install-extract-timer.sh --apply --oauth`). This is incident 0.24.41 (100%
   auto_maintain failure), documented in **sb-failure-archaeology**.
-- A present `.llm-maintain-quarantine` file → the maintainer is parked; it self-clears when the
-  cheap preflight passes again, on a success, or on manual delete.
+- A present `.llm-maintain-quarantine` file → the maintainer is parked. Only a CLI-version
+  quarantine clears itself (when the cheap preflight passes again); any other cause stays until
+  you delete it AND `.llm-maintain-fails` (the strike count alone re-quarantines on the next failure).
 
 ### 0.5 — Confirm the shipped P6 substrate you build ON
 
