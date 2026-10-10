@@ -1,4 +1,6 @@
 #!/bin/bash
+# run-all-timeout: 240   (~40 merge runs; the E1/E3 cases run the REAL lib.sh 9 more times plus a 1 s
+#   lock wait; measured 121 s alone on a loaded MSYS box, 2026-10-11)
 # Tests for scripts/merge-persona-signals.sh — signal dedup + auto-graduation.
 # Goal: prove that the loosened dedup (set-min, 50%) catches paraphrased
 # repeats, and that two high-confidence sightings now auto-graduate.
