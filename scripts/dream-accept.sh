@@ -439,28 +439,45 @@ else
   # survive too, not just new pages: stash every protected page, merge-copy
   # staging over live (namesakes overwritten), restore the stash — the newer
   # live version wins, the same contract as the rsync exclude above.
-  _stash=""
+  # D1: both stash loops run in THIS shell (not a pipe subshell) so a failed copy is seen. A failed
+  # fill aborts before the apply (live untouched, so the partial stash holds nothing unique); a
+  # failed or short restore keeps the stash (the only copy of those edits) and fails the accept.
+  _stash=""; _stashed=0
   if [ -n "$PROTECT" ]; then
-    _stash=$(mktemp -d)
-    printf '%s\n' "$PROTECT" | while IFS= read -r _rel; do
+    _stash=$(mktemp -d) || { _stash=""; APPLY_RC=1; APPLY_ERR="could not create a stash dir for the post-snapshot live pages; nothing was applied"; }
+    while [ -n "$_stash" ] && IFS= read -r _rel; do
       { [ -n "$_rel" ] && [ -f "$LIVE_WIKI/$_rel" ]; } || continue
-      mkdir -p "$_stash/$(dirname "$_rel")" && cp -p "$LIVE_WIKI/$_rel" "$_stash/$_rel"
-    done
+      if mkdir -p "$_stash/$(dirname "$_rel")" && cp -p "$LIVE_WIKI/$_rel" "$_stash/$_rel"; then
+        _stashed=$((_stashed + 1))
+      else
+        APPLY_RC=1; APPLY_ERR="could not stash post-snapshot live page '$_rel' before the merge; nothing was applied, the live wiki is untouched"
+        rm -rf "$_stash"; _stash=""
+      fi
+    done < <(printf '%s\n' "$PROTECT")
   fi
-  # First attempt's stderr is discarded on purpose — it commonly fails only
-  # because $LIVE_WIKI doesn't exist yet, which the mkdir -p fallback fixes;
-  # the SECOND attempt's exit status/stderr is the one that matters.
-  cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>/dev/null
-  APPLY_RC=$?
-  if [ "$APPLY_RC" -ne 0 ]; then
-    APPLY_ERR=$(mkdir -p "$LIVE_WIKI" && cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
+  if [ "$APPLY_RC" -eq 0 ]; then
+    # First attempt's stderr is discarded on purpose — it commonly fails only
+    # because $LIVE_WIKI doesn't exist yet, which the mkdir -p fallback fixes;
+    # the SECOND attempt's exit status/stderr is the one that matters.
+    cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>/dev/null
+    APPLY_RC=$?
+    if [ "$APPLY_RC" -ne 0 ]; then
+      APPLY_ERR=$(mkdir -p "$LIVE_WIKI" && cp -r "$STAGING_WIKI/." "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
+    fi
   fi
   if [ "$APPLY_RC" -eq 0 ] && [ -n "$_stash" ]; then
-    (cd "$_stash" 2>/dev/null && find . -type f 2>/dev/null | sed 's#^\./##') | while IFS= read -r _rel; do
-      [ -n "$_rel" ] && cp -p "$_stash/$_rel" "$LIVE_WIKI/$_rel"
-    done
-    echo "Preserved $(printf '%s\n' "$PROTECT" | grep -c .) live page(s) modified after the dream snapshot (restored over staging copies)."
-    rm -rf "$_stash"   # only cleared once its contents are safely restored onto live
+    _restored=0; _rfail=""
+    while IFS= read -r _rel; do
+      [ -n "$_rel" ] || continue
+      if cp -p "$_stash/$_rel" "$LIVE_WIKI/$_rel"; then _restored=$((_restored + 1)); else _rfail="$_rfail '$_rel'"; fi
+    done < <(cd "$_stash" && find . -type f | sed 's#^\./##')
+    if [ -z "$_rfail" ] && [ "$_restored" -eq "$_stashed" ]; then
+      echo "Preserved $_restored live page(s) modified after the dream snapshot (restored over staging copies)."
+      rm -rf "$_stash"   # only cleared once its contents are safely restored onto live
+    else
+      APPLY_RC=1
+      APPLY_ERR="restored $_restored of $_stashed post-snapshot live page(s) from the stash over their staging copies; failed:${_rfail:- (stash listing came up short)}"
+    fi
   fi
   # D084 (review follow-up): $_stash is the ONLY copy of every post-snapshot
   # live page edit. The unconditional `rm -rf` that used to sit here deleted

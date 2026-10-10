@@ -185,17 +185,6 @@ supports_chmod_restrict() {
   # touch_rc≠0 means touch FAILED  → chmod DID restrict     → return 0 (true)
   [ "$touch_rc" -ne 0 ]
 }
-# supports_chmod_file_restrict: true only if chmod 444 on a FILE actually blocks overwriting it
-# (Git-Bash maps it to the read-only attribute, so it does there; root on Linux ignores it). The
-# D084 follow-up below called this without a definition, so "command not found" sent every host
-# to its SKIP branch (R3-B).
-supports_chmod_file_restrict() {
-  local d rc; d=$(mktemp -d)
-  printf 'a\n' > "$d/probe"; chmod 444 "$d/probe" 2>/dev/null
-  ( printf 'b\n' > "$d/probe" ) 2>/dev/null; rc=$?
-  chmod 644 "$d/probe" 2>/dev/null; rm -f "$d/probe"; rmdir "$d" 2>/dev/null
-  [ "$rc" -ne 0 ]
-}
 if supports_chmod_restrict; then
   setup 4 SAME
   BEFORE=$(count "$KNOWLEDGE_DIR/wiki")
@@ -390,38 +379,102 @@ rm -rf "$SB"
 # destroyed those edits with no way back; the fix keeps it and names its path
 # in the failure message. This is the primary Windows git-bash apply path (no
 # rsync), so it is exercised directly rather than only via a stub.
-if command -v rsync >/dev/null 2>&1; then
-  echo "SKIP: D084 follow-up — rsync present on this host; the no-rsync \$_stash path is not exercised"
-  pass "D084 follow-up: \$_stash-on-failure guard (skipped — rsync present, different apply path)"
-elif supports_chmod_file_restrict; then
+# T7 (audit): it used to SKIP wherever rsync exists (every Linux/macOS host) and inject the failure
+# with chmod 444 (ignored by root). Now rsync is hidden from PATH (norsync_path) and the failure is
+# the ENOTDIR trick of the D084 test above, so it runs on every OS. D1 (audit) adds the two copies
+# that were never checked: filling the stash, and restoring it over the merged staging copy.
+# norsync_path: PATH with rsync hidden. rsync shares /usr/bin with every tool the accept needs, so
+# each PATH dir that holds it is replaced by a link farm of its other entries. Built once.
+NORSYNC_ROOT=$(mktemp -d)
+norsync_path() {
+  local IFS=: d out="" n=0
+  for d in $PATH; do
+    if [ -n "$d" ] && [ -e "$d/rsync" ]; then
+      n=$((n + 1)); mkdir -p "$NORSYNC_ROOT/$n"
+      ln -s "$d"/* "$NORSYNC_ROOT/$n/" 2>/dev/null; rm -f "$NORSYNC_ROOT/$n/rsync"
+      d="$NORSYNC_ROOT/$n"
+    fi
+    out="${out:+$out:}$d"
+  done
+  printf '%s' "$out"
+}
+NORSYNC_PATH=""
+# `ln -s` deep-copies on MSYS, so a Windows host that has rsync keeps the SKIP (git-bash ships none).
+if ! command -v rsync >/dev/null 2>&1 || ! command -v cygpath >/dev/null 2>&1; then
+  NORSYNC_PATH=$(norsync_path)
+  PATH="$NORSYNC_PATH" command -v rsync >/dev/null 2>&1 && NORSYNC_PATH=""
+fi
+# stash_fixture: live p1..p3 predate created_at, p2 is edited live after it (PROTECT -> stashed);
+# staging rewrites p1 (CONSOLIDATED) and holds the snapshot p2, which the apply copies over live p2.
+stash_fixture() {
   setup 3 "p1 p2 p3"
   D="$BRAIN_DIR/dreams/drm_test"
-  # created_at in the past so p2's live edit below is POST-snapshot (-> PROTECT -> stashed).
   jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' > "$D/status.json"
   touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md" \
                         "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
-                        "$KNOWLEDGE_DIR/wiki/entities/p3.md" 2>/dev/null
+                        "$KNOWLEDGE_DIR/wiki/entities/p3.md"
   printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"
   touch "$KNOWLEDGE_DIR/wiki/entities/p2.md"
-  # Staging modifies p1 so the merge-copy actually attempts to overwrite it; chmod 444
-  # forces THAT overwrite to fail (p2's protection/stashing is what we're checking survives).
   printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
-  chmod 444 "$KNOWLEDGE_DIR/wiki/entities/p1.md"
-  ERR=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1 1>/dev/null); rc=$?
-  chmod 644 "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/null
+}
+# apply_shim <fill|restore>: a PATH dir whose cp fails the stash copy of p2 (fill: live -> stash;
+# restore: stash -> live) and passes every other call to the real cp.
+apply_shim() {
+  mkdir -p "$SB/cpshim"
+  printf '#!%s\ncase "%s:$1:$2:$3" in\n  fill:-p:*/wiki/entities/p2.md:*|restore:-p:*:*/wiki/entities/p2.md) echo "cp: simulated %s failure" >&2; exit 1 ;;\nesac\nexec %q "$@"\n' \
+    "$BASH" "$1" "$1" "$(command -v cp)" > "$SB/cpshim/cp"
+  chmod +x "$SB/cpshim/cp"
+  printf '%s' "$SB/cpshim:$NORSYNC_PATH"
+}
+stash_path() { printf '%s' "$1" | grep -oE 'stashed at [^ ]+' | sed 's/^stashed at //'; }
+if [ -n "$NORSYNC_PATH" ]; then
+  # Apply failure: live p1.md is a non-empty DIRECTORY, older than staging's p1.md file so cp -u
+  # still tries (and fails) to replace it.
+  stash_fixture
+  rm -f "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+  mkdir -p "$KNOWLEDGE_DIR/wiki/entities/p1.md" && printf 'keep\n' > "$KNOWLEDGE_DIR/wiki/entities/p1.md/keep.txt"
+  touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md"
+  ERR=$(PATH="$NORSYNC_PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1 1>/dev/null); rc=$?
   [ "$rc" -ne 0 ] || fail "D084 follow-up: cp-fallback apply failure returned rc=0"
-  STASH_PATH=$(printf '%s' "$ERR" | grep -oE 'stashed at [^ ]+' | sed 's/^stashed at //')
+  STASH_PATH=$(stash_path "$ERR")
   [ -n "$STASH_PATH" ] || fail "D084 follow-up: failure message did not name the stash path (got: $ERR)"
   [ -d "$STASH_PATH" ] || fail "D084 follow-up: stash dir $STASH_PATH was deleted despite the failed apply"
   grep -q 'LIVE EDIT after snapshot' "$STASH_PATH/entities/p2.md" 2>/dev/null \
     || fail "D084 follow-up: stash did not retain the post-snapshot live edit to p2"
-  pass "D084 follow-up: failed cp-fallback apply keeps \$_stash ($STASH_PATH) instead of deleting it"
+  pass "D084 follow-up: failed cp-fallback apply keeps \$_stash ($STASH_PATH) instead of deleting it (rsync hidden, every OS)"
+  rm -rf "$STASH_PATH" "$SB"
+
+  # D1 fill: stashing a protected page fails -> abort BEFORE the apply (live untouched).
+  stash_fixture
+  OUT=$(PATH="$(apply_shim fill)" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+  A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+  [ "$rc" -ne 0 ] || fail "D1: a failed stash fill returned rc=0: $OUT"
+  grep -q 'CONSOLIDATED' "$KNOWLEDGE_DIR/wiki/entities/p1.md" && fail "D1: the apply ran although the stash fill failed: $OUT"
+  grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+    || fail "D1: p2's live edit was lost after a failed stash fill: $OUT"
+  { [ -z "$A" ] || [ "$A" = "null" ]; } || fail "D1: a failed stash fill still archived the dream"
+  pass "D1: a failed stash fill aborts before the apply (live untouched, not archived)"
+  rm -rf "$(stash_path "$OUT")" "$SB"
+
+  # D1 restore: the copy back onto live fails -> the stash is the only copy of the edit: keep it,
+  # fail the accept, and never print "Preserved".
+  stash_fixture
+  OUT=$(PATH="$(apply_shim restore)" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+  STASH_PATH=$(stash_path "$OUT")
+  A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+  [ "$rc" -ne 0 ] || fail "D1: a failed stash restore returned rc=0: $OUT"
+  printf '%s' "$OUT" | grep -q 'Preserved' && fail "D1: a failed stash restore still printed Preserved: $OUT"
+  [ -n "$STASH_PATH" ] && grep -q 'LIVE EDIT after snapshot' "$STASH_PATH/entities/p2.md" 2>/dev/null \
+    || fail "D1: the stash holding p2's live edit was not kept/named after a failed restore: $OUT"
+  { [ -z "$A" ] || [ "$A" = "null" ]; } && [ -d "$D/staging" ] \
+    || fail "D1: a failed stash restore still archived the dream (archived_at='$A')"
+  pass "D1: a failed stash restore fails the accept and keeps the stash ($STASH_PATH)"
   rm -rf "$STASH_PATH" "$SB"
 else
-  echo "SKIP: D084 follow-up — chmod 444 does not restrict file overwrite on this filesystem"
-  pass "D084 follow-up: \$_stash-on-failure guard (skipped — chmod does not restrict here)"
-  rm -rf "$SB"
+  echo "SKIP: D084 follow-up / D1 — rsync could not be hidden from PATH on this host"
+  pass "D084 follow-up / D1: stash guards (skipped — no rsync-free PATH)"
 fi
+rm -rf "$NORSYNC_ROOT"
 
 # === D212: the shipped 30-day FORGET age floor is a REAL gate, not just
 # something every test pins to 0. A page younger than SB_FORGET_MIN_AGE_DAYS
