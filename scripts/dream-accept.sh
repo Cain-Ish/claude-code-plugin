@@ -550,9 +550,11 @@ if [ -s "$_PE" ] && [ -f "$(dirname "$0")/merge-edges.sh" ]; then
     # merge-edges.sh is a FAIL-SOFT boundary: it exits 0 even when it appends nothing (the same
     # dead-`||` class this repo documents for the code-map CLI), so its exit code proves nothing.
     # COUNT what actually landed instead of announcing success on faith.
-    _EB=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl"  || echo 0)
+    # D10: grep -c prints 0 AND exits 1 on an empty file, so `|| echo 0` made "0\n0" (arithmetic
+    # syntax error); a missing file prints nothing, hence the :-0 default.
+    _EB=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl"); _EB=${_EB:-0}
     bash "$(dirname "$0")/merge-edges.sh" --knowledge-dir "$KNOWLEDGE_DIR" --source "dream:$DREAM_ID" < "$_PEF" >/dev/null 2>&1       || sb_log_error "dream-accept" "merge-edges exited nonzero for $DREAM_ID (pages applied; graph may be unchanged)" 0
-    _EA=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl"  || echo 0)
+    _EA=$(grep -c . "$KNOWLEDGE_DIR/graph/edges.jsonl"); _EA=${_EA:-0}
     _APPLIED=$(( _EA - _EB ))
     if [ "$_APPLIED" -gt 0 ]; then
       echo "Applied $_APPLIED relation edge(s) from $DREAM_ID ($(( _PE_N - _APPLIED )) unresolvable -> quarantined)."

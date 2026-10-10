@@ -531,4 +531,20 @@ jq -c 'select(.script == "dream-accept" and .exit_code == 1 and ((.message // ""
 pass "P-C4: a .applied planted in the dream dir does not short-circuit the accept (p9 applied, archived, one error row)"
 rm -rf "$SB"
 
+# === D10 (audit): an EMPTY graph/edges.jsonl made `grep -c . f || echo 0` print "0\n0" (grep -c
+# prints 0 AND exits 1), so the edge count arithmetic died with a syntax error AFTER the apply and
+# FORGET: rc=1, no .applied marker, no archived_at stamp. ORACLE: the accept finishes and the edge lands.
+setup 3 "p1 p2 p3"
+D="$BRAIN_DIR/dreams/drm_test"
+mkdir -p "$KNOWLEDGE_DIR/graph"; : > "$KNOWLEDGE_DIR/graph/edges.jsonl"
+printf '{"relations":[{"from":"p1","type":"relates","to":"p2"}]}\n' > "$D/staging/proposed-edges.json"
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1); rc=$?
+A=$(jq -r '.archived_at // ""' "$D/status.json" 2>/dev/null | tr -d '\r')
+{ [ "$rc" -eq 0 ] && [ -n "$A" ] && [ "$A" != "null" ]; } \
+  || fail "D10: accept with an empty edges.jsonl did not finish (rc=$rc archived_at='$A'): $OUT"
+printf '%s' "$OUT" | grep -q 'Applied 1 relation edge' \
+  || fail "D10: the edge count is wrong with an empty edges.jsonl: $OUT"
+pass "D10: an empty edges.jsonl no longer aborts the accept (rc=0, archived, 1 edge applied)"
+rm -rf "$SB"
+
 echo "ALL PASS"
