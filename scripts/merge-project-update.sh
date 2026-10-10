@@ -255,25 +255,9 @@ function owned_text(line,   t, t2) {
 }
 '
 
-# One gate verdict per untrusted item (plan[] and compact_pending share it). Classes, in this
-# precedence: control = any \p{Cc} (items are single-line by the time they get here, so no
-# character is exempt); format = invisible/format characters (\p{Cf} incl. the Tags block,
-# line/paragraph separators, variation selectors incl. the E0100 supplement, Hangul fillers,
-# U+034F); phrase = every tool-return-scanner.sh pattern, case-INSENSITIVE (that scanner is
-# case-sensitive after the first letter), plus the evasions it misses: "ignore the above
-# instructions", "disregard", a system: marker or a <system>/<system-reminder> tag ANYWHERE in
-# the text (not only at line start -- a leading "[ ] " used to defeat the anchor). jq/Oniguruma,
-# 1.7.1-safe; apostrophe-free (it lives inside single quotes).
-GATE_CLASS_JQ='
-  def bad_class:
-    if test("\\p{Cc}") then "control"
-    elif test("[\\p{Cf}\\p{Zl}\\p{Zp}\\x{FE00}-\\x{FE0F}\\x{E0100}-\\x{E01EF}\\x{115F}\\x{1160}\\x{3164}\\x{FFA0}\\x{034F}]") then "format"
-    elif test("ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above)\\s+(instructions?|context|messages?|directions?|prompts?)|disregard\\s+(all\\s+|any\\s+)?(the\\s+|your\\s+)?(previous|prior|above|earlier|preceding|former)\\b|\\bsystem\\s*:|<\\s*/?\\s*system([\\s>/-]|$)|</?(human|assistant)[\\s>]|(begin|end)\\s+(system\\s+prompt|instructions?)|do\\s+not\\s+(tell|inform|notify|mention)\\s+(the\\s+)?user|execute\\s+the\\s+following\\s+(command|code|instructions?|prompt)|new\\s+(instructions?|system\\s+prompt|directive)\\s*:"; "i") then "phrase"
-    else "" end;
-  def gate_row($v):
-    [ $v[] | select(.c != "") ] as $bad
-    | "GATE \($bad | length) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .i | tostring ] | join(",")) end) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .c ] | join(",")) end)";
-'
+# One gate verdict per untrusted item (plan[] and compact_pending share it): the control/format/
+# phrase classifier lives in lib.sh (SB_GATE_CLASS_JQ) since it also gates persona graduation.
+GATE_CLASS_JQ="$SB_GATE_CLASS_JQ"
 
 # Failure-row helper (R2-SF8): the flattened, bounded head of a captured stderr text. Only ever
 # called on a failure path, so its spawns never touch the happy path.
