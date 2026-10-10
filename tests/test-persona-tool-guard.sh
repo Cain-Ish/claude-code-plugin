@@ -128,6 +128,30 @@ for _g8 in Edit:USER.md:warn-direct-write-hot-tier-edit MultiEdit:PROJECT.md:war
 done
 pass "G8: Edit/MultiEdit of a hot-tier file ask via the -edit/-multiedit twins"
 
+# G1 (audit 2026-10-10): the PowerShell tool's command (tool_input.command, as Bash's) met no rule —
+# hooks.json did not route it here and the rules name tool "Bash". Bash rules now apply to it.
+for _g1 in 'warn-force-push-main|git push --force origin main' 'warn-rm-rf|rm -Recurse -Force .\build' 'warn-rm-rf|rm -r -fo .\build'; do
+  rm -f "$T27_BRAIN/audit-log.jsonl"
+  out=$(jq -nc --arg c "${_g1#*|}" '{tool_name:"PowerShell",tool_input:{command:$c},session_id:"g1"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    && grep -q "\"rule\":\"${_g1%%|*}\"" "$T27_BRAIN/audit-log.jsonl" \
+    || fail "G1: PowerShell '${_g1#*|}' must ask via ${_g1%%|*} (got: $out; audit: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+done
+out=$(jq -nc '{tool_name:"PowerShell",tool_input:{command:"Get-ChildItem -Force"},session_id:"g1"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "G1: a harmless PowerShell command must stay silent (got: $out)"
+# A Bash REWRITE rule is not carried over: its sed targets bash syntax, and a rewrite emits "allow",
+# which would auto-approve a PowerShell command past the user's prompt.
+G1RW=$(mktemp -d)
+jq '.rules += [{name:"rw-g1",tool:"Bash",action:"rewrite",match_command:"foo",replace:"bar",reason:"rw"}]' \
+  "$(dirname "$SCRIPT")/persona-rules.default.json" > "$G1RW/persona-rules.json"
+out=$(jq -nc '{tool_name:"Bash",tool_input:{command:"echo foo"},session_id:"g1rw"}' | BRAIN_DIR="$G1RW" bash "$SCRIPT")
+echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command == "echo bar"' >/dev/null 2>&1 \
+  || fail "G1 control: the Bash rewrite rule must rewrite a Bash command (got: $out)"
+out=$(jq -nc '{tool_name:"PowerShell",tool_input:{command:"echo foo"},session_id:"g1rw"}' | BRAIN_DIR="$G1RW" bash "$SCRIPT")
+[ -z "$out" ] || fail "G1: a Bash rewrite rule must not rewrite (and auto-allow) a PowerShell command (got: $out)"
+rm -rf "$G1RW"
+pass "G1: PowerShell commands meet the Bash ask rules (force-push, rm); Bash rewrite rules stay Bash-only"
+
 # Test 4: harmless ls → silent
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"t4"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
 [ -z "$out" ] || fail "harmless Bash should be silent (got: $out)"
@@ -1029,6 +1053,10 @@ for c in 'rm -rf /tmp/x' 'rm -fr x' 'sudo rm -Rf x' $'ls\nrm -rf x' $'rm\n-rf x'
          'git push origin main;ls -f' 'git push origin main && ls -f' 'git push origin +mainline' \
          'git push origin main:main-force' 'git push -f+main'; do
   par Bash command "$c"
+done
+# G1: the PowerShell tool reaches the same table on both paths.
+for c in 'git push --force origin main' 'rm -r -fo .\build' 'rm -Recurse -Force x' 'Get-ChildItem -Force'; do
+  par PowerShell command "$c"
 done
 # G9/T8: every rm spelling of tests/fixtures/rm-rf-cases.txt, on both paths.
 while IFS='|' read -r _v c; do [ -n "$_v" ] && par Bash command "$c"; done < "$(dirname "$0")/fixtures/rm-rf-cases.txt"

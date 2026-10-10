@@ -151,10 +151,12 @@ Kill switch `SB_COMPACT_CAPTURE=off`.
 
 ### PreToolUse — persona-tool-guard.sh
 
-matcher covers the file (Read/Write/Edit/MultiEdit), shell (Bash), network
+matcher covers the file (Read/Write/Edit/MultiEdit), shell (Bash, PowerShell), network
 (WebFetch/WebSearch), and subagent-spawn surface where tool_scope and sar_tool
 apply. Both Task and Agent match — both agent-spawn tool names exist across CLI
-versions and both must be guarded. MCP tools and read-only
+versions and both must be guarded. PowerShell (Claude Code's Windows shell tool,
+same `tool_input.command` field) meets every Bash ask/deny/warn rule; a Bash
+rewrite rule is not applied to it (its "allow" would auto-approve the call). MCP tools and read-only
 Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. That exclusion is a
 recorded decision, pinned by the out-of-scope contract in
 tests/test-guard-wiring.sh.
@@ -179,7 +181,8 @@ writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws,
 ### PreToolUse — flow-guard.sh
 
 outbound info-flow guard (sar_flow channel) — asks when an egress tool call (Bash
-with network tool, or WebFetch/WebSearch) carries credential-shaped content.
+or PowerShell with a network tool — Invoke-WebRequest/iwr/Invoke-RestMethod/irm
+count — or WebFetch/WebSearch) carries credential-shaped content.
 Defense-in-depth against the agent helpfully pasting session secrets into a curl
 request. Kill switch SB_FLOW_GUARD=off.
 

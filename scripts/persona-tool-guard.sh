@@ -979,7 +979,8 @@ _ptg_fast() {
   tool="$_FP"
   # Read (G1): no rule in the default names it, but resource_scope covers it and a credential store
   # asks — both decided below, without the locked-rule table.
-  case "$tool" in Bash|Write|Edit|MultiEdit|Read) ;; *) return 1 ;; esac
+  # PowerShell (G1): its command meets the Bash rules, as in the full logic's RULE_FRAMES.
+  case "$tool" in Bash|PowerShell|Write|Edit|MultiEdit|Read) ;; *) return 1 ;; esac
   # P must be the default this table mirrors — the one beside this script: CLAUDE_PLUGIN_ROOT's copy
   # is that same file, or byte-identical to it. A different P (another plugin version, an edited
   # default) goes to the full logic, which reads whatever P actually says.
@@ -1012,7 +1013,7 @@ _ptg_fast() {
     for f in "$bd"/projects/*/.rules-effective.json "$bd/.rules-effective.json"; do _ptg_cache_ok "$f" || return 1; done
   fi
   _PTG_RULE="" _PTG_REASON="" _PTG_SFX=""
-  if [ "$tool" = Bash ]; then
+  if [ "$tool" = Bash ] || [ "$tool" = PowerShell ]; then
     _fp_str command || return 1
     _fp_nocr cmd "$_FP"
     _fp_trimnl cmd "$cmd"
@@ -1060,7 +1061,7 @@ _ptg_fast() {
   #   respell under an MSYS mount (amb, _ptg_mnt): with a rule hit the call asks all the same (the
   #   reason may name the scope where the full logic names the rule); without one this path stands
   #   down rather than risk a false ask.
-  if [ "$tool" != Bash ]; then
+  if [ "$tool" != Bash ] && [ "$tool" != PowerShell ]; then
     # The full logic's _PTG_LONG: the length before the lexical steps (a \\?\ prefix counts).
     if [ "$plen" -gt 4096 ]; then
       if [ -z "$_PTG_RULE" ]; then
@@ -1395,8 +1396,10 @@ EFF_UF="$USER_RULES"; [ -f "$EFF_UF" ] || EFF_UF=/dev/null
 # Bash, file -> match_path against the file-touching tools. Only action=warn
 # is honored from .learned — a poisoned learned entry can therefore never
 # escalate itself into a deny/rewrite.
+# G1: the PowerShell tool's command meets the Bash rules too — except a rewrite, whose sed targets bash
+# syntax and whose "allow" would auto-approve the PowerShell call past the user's prompt.
 RULE_FRAMES='
-  (.rules[] | select(.tool == $t) |
+  (.rules[] | select(.tool == $t or ($t == "PowerShell" and .tool == "Bash" and (.action // "") != "rewrite")) |
     (.name // "anonymous"),
     (.action // ""),
     (.match_command // ""),
