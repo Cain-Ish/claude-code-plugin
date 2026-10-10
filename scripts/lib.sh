@@ -53,14 +53,16 @@ sb_normalize_path() {
   # ways to spell the same local drive path. D182: only //?/ was stripped, so
   # //./C:/… never matched the drive-letter case below, cygpath never ran, and
   # every credential/scope prefix compare silently missed it (fail-open).
+  # \\?\UNC\host\share\… (→ //?/UNC/host/…) is the long-path spelling of \\host\share\…
+  case "$p" in //"?"/[Uu][Nn][Cc]/*) p="//${p#//"?"/???/}" ;; esac
   p="${p#"//?/"}"
   p="${p#"//./"}"
-  # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…) is the same
-  # local drive in disguise — rewrite to drive form. Other-host UNC paths are
+  # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…; host is case-insensitive)
+  # is the same local drive in disguise — rewrite to drive form. Other-host UNC paths are
   # not locally resolvable and pass through unchanged (documented limit).
   case "$p" in
-    //localhost/[A-Za-z]\$/*)  d="${p#//localhost/}";  d="${d%%\$*}"; p="$d:${p#//localhost/[A-Za-z]\$}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  d="${p#//127.0.0.1/}";  d="${d%%\$*}"; p="$d:${p#//127.0.0.1/[A-Za-z]\$}" ;;
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$/*)
+      d="${p#//*/}"; d="${d%%\$*}"; p="$d:${p#//*/?\$}" ;;
   esac
   case "$p" in
     [A-Za-z]:/*)
@@ -189,14 +191,6 @@ fi
 # Sourced here so every lib.sh consumer has them. Fail-soft (no-op if jq/manifest absent).
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
-
-# Parse hook input from stdin. Sets: SB_INPUT, SB_SESSION_ID, SB_TRANSCRIPT_PATH, SB_TIMESTAMP
-sb_parse_input() {
-  SB_INPUT=$(cat)
-  SB_SESSION_ID=$(echo "$SB_INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
-  SB_TRANSCRIPT_PATH=$(echo "$SB_INPUT" | jq -r '.transcript_path // ""' 2>/dev/null | tr -d '\r')
-  SB_TIMESTAMP=$(date +"%Y-%m-%d")
-}
 
 # Echo $1 if it parses as a JSON array; otherwise echo "[]". Used to harden
 # --argjson against non-JSON or non-array handoff values. Requires jq.
@@ -2921,21 +2915,6 @@ sb_generate_dream_id() {
 # No dream dir/status helpers exist here by design: dream paths are composed
 # inline as "$BRAIN_DIR/dreams/<id>" and status reads are inline jq — the
 # canonical pattern across the scripts.
-
-sb_dream_set_status() {
-  local dream_id="$1" field="$2" value="$3"
-  local status_file="$BRAIN_DIR/dreams/$dream_id/status.json"
-  [ -f "$status_file" ] || return 1
-  local tmp
-  tmp=$(mktemp)
-  if [ "$value" = "null" ]; then
-    jq --arg f "$field" '.[$f] = null' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  elif echo "$value" | jq -e 'type == "number"' >/dev/null 2>&1; then
-    jq --arg f "$field" --argjson v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  else
-    jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  fi
-}
 
 # Single source of truth for "is this dream wedged?" — the one staleness policy
 # shared by dream-snapshot.sh (deadlock-break before staging a new dream),
