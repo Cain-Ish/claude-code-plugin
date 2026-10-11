@@ -7,6 +7,8 @@
 # pins: SB_EXTRACTOR_LOCAL_URL — AF2 blanks it so only the recording claude stub can answer (not a gate bypass)
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
+# pins: SB_ARCHIVE_LOCK_WAIT_S — C2-18/18b shorten the PROJECT.md lock wait 5 -> 2 s (the retry, not the wait, is under test;
+#   2 s, not 1, leaves the background releaser time to drop the lock before the retry gives up)
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
 #   review batch added the C2-9b..C2-14 cases; the S0 F1 ruler cases (R5b-R13: ~20 more Stops
@@ -33,6 +35,9 @@
 unset CLAUDECODE
 # The headless-child gate (R1#2) keys on these: inherited values must not no-op every case below.
 unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED SB_HEADLESS_CONTEXT
+# TST-R4: the persona merge must get the PAYLOAD's session id (--session); a live session's own id
+# in the environment would otherwise stand in for a dropped flag.
+unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$REPO_ROOT/scripts/stop-extract.sh"
@@ -611,6 +616,9 @@ grep -q 'pc2 decision survives a failed merge' "$SANDBOX/.second-brain/projects/
 [ "$(cat "$MARKER" 2>/dev/null)" = 20 ] || fail "PC2: the successful retry did not advance the marker to 20 (got $(cat "$MARKER" 2>/dev/null))"
 [ "$(jq -rs '[.[] | select(.signal | test("pc2 persona signal")) | .count] | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = 1 ] \
   || fail "E1: the window's persona signal should be merged exactly once, by the successful retry: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
+# TST-R4: graduation counts DISTINCT sessions, so the payload's session id must reach the evidence.
+[ "$(jq -rs '[.[] | select(.signal | test("pc2 persona signal")) | .evidence[].session] | unique | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = test-session ] \
+  || fail "TST-R4: PreCompact did not pass the payload session id to the persona merge: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
 pass "PC2: a failed PreCompact merge keeps the marker; the next run retries and advances it"
 restore_path
 
@@ -627,6 +635,8 @@ grep -q 'stop persona signal' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/
 run_stop
 [ "$(jq -rs '[.[] | select(.signal | test("stop persona signal")) | .count] | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = 1 ] \
   || fail "E1 Stop: the window's persona signal should be merged exactly once, by the successful retry: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
+[ "$(jq -rs '[.[] | select(.signal | test("stop persona signal")) | .evidence[].session] | unique | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = test-session ] \
+  || fail "TST-R4: Stop did not pass the payload session id to the persona merge: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
 pass "E1: a failed Stop merge skips the persona merge; the successful retry merges it once"
 restore_path
 
@@ -1329,7 +1339,7 @@ c218_hold 1
 compact_payload "test-session" 'Summary:
 7. Pending Tasks:
    - Retry past a busy lock
-' | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+' | SB_ARCHIVE_LOCK_WAIT_S=2 bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
 wait "$C218_REL"
 grep -q 'Retry past a busy lock' "$PROJ" \
   || fail "C2-18: the Pending Task was dropped after one busy-lock attempt (no retry): $(grep -h 'merge-failed\|still held' "$SANDBOX/.second-brain/error-log.jsonl" | head -3)"
@@ -1343,7 +1353,7 @@ c218_hold 0
 compact_payload "test-session" 'Summary:
 7. Pending Tasks:
    - Lost to a lock that never frees
-' | bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+' | SB_ARCHIVE_LOCK_WAIT_S=2 bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
 rm -f "$C218_LOCK"
 grep -q 'Lost to a lock' "$PROJ" && fail "C2-18b: the merge wrote PROJECT.md while another writer held its lock"
 grep 'postcompact-capture merge-failed rc=3 tries=2' "$SANDBOX/.second-brain/error-log.jsonl" | grep -q '"exit_code":1' \

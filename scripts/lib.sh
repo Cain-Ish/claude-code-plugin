@@ -1780,7 +1780,10 @@ sb_sanitize_slug() {
 # that replaced it in between is put back (noclobber) instead of deleted. On bash 3.2 (no
 # BASHPID) two subshells of one process share the pid part of the token; the nonce separates
 # them unless $RANDOM repeats, which only same-process subshells contending one lock could hit.
-_SB_ARCHIVE_LOCK_WAIT_S=5
+# SB_ARCHIVE_LOCK_WAIT_S overrides the wait (TST-R5: tests that hold a lock on purpose); anything
+# but a plain decimal (no leading zero: 08 is bad octal) falls back to 5, since it feeds $(( )).
+_SB_ARCHIVE_LOCK_WAIT_S="${SB_ARCHIVE_LOCK_WAIT_S:-5}"
+case "$_SB_ARCHIVE_LOCK_WAIT_S" in ''|0?*|*[!0-9]*) _SB_ARCHIVE_LOCK_WAIT_S=5 ;; esac
 _SB_ARCHIVE_LOCK_STALE_S=60
 _SB_ARCHIVE_LOCK_HUNG_S=600
 _SB_ARCHIVE_LOCK_TOKEN=""
