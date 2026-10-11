@@ -203,4 +203,31 @@ run || { echo "FAIL T12: non-zero without lockfile"; exit 1; }
 grep -q '^install ' "$NPM_CALLS.args" || { echo "FAIL T12: no lockfile but npm install not used"; exit 1; }
 echo "PASS T12: lockfile-exact npm ci when a lockfile ships; npm install otherwise"
 
+# T13 (residual 2026-10-11): the deps-key covers the shipped lockfile's production entries, so a
+# lockfile-only change (a pinned transitive bumped, dependencies block unchanged) rebuilds the shared
+# tree; a dev-only lockfile change does not; and with no lockfile the key is the old dependencies-only one.
+lock() {  # lock <prod-transitive-version> <dev-version>
+  printf '{"name":"fake-mcp","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"fake-mcp","version":"1.0.0"},"node_modules/onnx-x":{"version":"%s"},"node_modules/vitest-x":{"version":"%s","dev":true}}}\n' "$1" "$2" > "$TMP/plugin/mcp/package-lock.json"
+}
+rm -rf "$TMP/shared/node_modules" "$TMP/shared/.deps-key"; rm -f "$TMP/plugin/mcp/node_modules"; : > "$NPM_CALLS"
+OLD_KEY="$(node -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).dependencies||{}))' "$TMP/plugin/mcp/package.json" | { sha256sum 2>/dev/null || shasum -a 256; } | awk '{print $1}')"
+run || { echo "FAIL T13: non-zero without lockfile"; exit 1; }
+[ "$(cat "$TMP/shared/.deps-key")" = "$OLD_KEY" ] || { echo "FAIL T13: no-lockfile key changed format (existing installs would all rebuild)"; exit 1; }
+lock 1.0.0 1.0.0; : > "$NPM_CALLS"
+run || { echo "FAIL T13: non-zero with lockfile A"; exit 1; }
+[ "$(calls)" = "1" ] || { echo "FAIL T13: shipping a lockfile did not rebuild to it ($(calls))"; exit 1; }
+lock 1.0.1 1.0.0
+run || { echo "FAIL T13: non-zero after a lockfile-only change"; exit 1; }
+[ "$(calls)" = "2" ] || { echo "FAIL T13: lockfile-only change did not rebuild the shared tree ($(calls))"; exit 1; }
+run || { echo "FAIL T13: non-zero on rerun"; exit 1; }
+[ "$(calls)" = "2" ] || { echo "FAIL T13: unchanged lockfile rebuilt again ($(calls))"; exit 1; }
+lock 1.0.1 9.9.9
+run || { echo "FAIL T13: non-zero after a dev-only lockfile change"; exit 1; }
+[ "$(calls)" = "2" ] || { echo "FAIL T13: a dev-only lockfile change rebuilt the shared tree ($(calls))"; exit 1; }
+echo '{not json' > "$TMP/plugin/mcp/package-lock.json"
+run && { echo "FAIL T13: an unreadable lockfile must fail loud, not hash to a key"; exit 1; }
+[ "$(calls)" = "2" ] || { echo "FAIL T13: an unreadable lockfile still ran npm ($(calls))"; exit 1; }
+rm -f "$TMP/plugin/mcp/package-lock.json"
+echo "PASS T13: lockfile-only change rebuilds; dev-only change and no-lockfile key unchanged; bad lockfile fails loud"
+
 echo "ALL PASS"

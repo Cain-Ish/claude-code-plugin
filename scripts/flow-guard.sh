@@ -537,7 +537,7 @@ FG_RES=(
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '(@|<[[:space:]]*|(^|[^A-Za-z0-9_-])([Cc][Aa][Tt]|[Gg][Cc]|[Gg][Ee][Tt]-[Cc][Oo][Nn][Tt][Ee][Nn][Tt]|[Tt][Yy][Pp][Ee]|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+((-[^[:space:]]*|[0-9]+)[[:space:]]+){0,8}|(^|[[:space:]])(-T|--upload-file|--post-file|-[Ii][Nn][Ff][Ii][Ll][Ee])(=|[[:space:]]*)|[Uu][Pp][Ll][Oo][Aa][Dd][Ff][Ii][Ll][Ee][(][^;&|)]*,[[:space:]]*)[^[:space:]@<>|;&]*(\.[Ss][Ss][Hh][/\\]([Ii][Dd]_[Rr][Ss][Aa]|[Ii][Dd]_[Ee][Dd]25519|[Ii][Dd]_[Ee][Cc][Dd][Ss][Aa]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Ee][Dd]_[Kk][Ee][Yy][Ss])|\.[Aa][Ww][Ss][/\\][Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|\.netrc|\.npmrc|\.git-credentials|\.docker[/\\]config\.json|\.kube[/\\]config|\.credentials\.json|\.pem|\.p12)([^A-Za-z0-9_.-]|$)'
+  '(@|<[[:space:]]*|(^|[^A-Za-z0-9_-])([Cc][Aa][Tt]|[Gg][Cc]|[Gg][Ee][Tt]-[Cc][Oo][Nn][Tt][Ee][Nn][Tt]|[Tt][Yy][Pp][Ee]|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+((-[^[:space:]]*|[0-9]+)[[:space:]]+){0,8}|(^|[^A-Za-z0-9_-])(scp|rsync|tar)[[:space:]]+((-[io][[:space:]]+[^[:space:]|;&]+|([^[:space:]|;&-]|-[^io[:space:]|;&]|-[io][^[:space:]|;&])[^[:space:]|;&]*|-)[[:space:]]+){0,8}|(^|[[:space:]])(-T|--upload-file|--post-file|-[Ii][Nn][Ff][Ii][Ll][Ee])(=|[[:space:]]*)|[Uu][Pp][Ll][Oo][Aa][Dd][Ff][Ii][Ll][Ee][(][^;&|)]*,[[:space:]]*)[^[:space:]@<>|;&]*(\.[Ss][Ss][Hh][/\\]([Ii][Dd]_[Rr][Ss][Aa]|[Ii][Dd]_[Ee][Dd]25519|[Ii][Dd]_[Ee][Cc][Dd][Ss][Aa]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Ee][Dd]_[Kk][Ee][Yy][Ss])|\.[Aa][Ww][Ss][/\\][Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|\.netrc|\.npmrc|\.git-credentials|\.docker[/\\]config\.json|\.kube[/\\]config|\.credentials\.json|\.pem|\.p12|\.[Ss][Ss][Hh][/\\]?)([^A-Za-z0-9_./\\-]|$)'
 )
 # The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
 # be followed by something else is retried from every start inside a long run of its own characters,
@@ -551,6 +551,15 @@ FG_RES=(
 #   < redirect, a reader word (cat, base64, …, its -flags/value tokens) — piped or $(…)-substituted —
 #   an upload flag (-T, --upload-file, --post-file, -InFile; glued `-T<path>` too), and a .NET
 #   WebClient .UploadFile(url, "path"). An identity flag (ssh -i ~/.ssh/id_rsa) is no start.
+#   Residual (2026-10-11): scp/rsync/tar start too — a source or member among their next 8 words
+#   (`tar czf - ~/.ssh | curl`, `rsync ~/.ssh/ host:`). A standalone -i or -o takes its value with
+#   it (`scp -i <key>`, `-o IdentityFile=<key>`), so the key that only authenticates the copy is no
+#   start. shortcut: rsync's own -i (itemize) and -o (owner) swallow the next word the same way; a
+#   credential right after them goes unasked — split the flag table per tool if that shows up. The
+#   bare .ssh directory is a credential path, and the end boundary excludes / and \, so
+#   .ssh/known_hosts or .ssh/config never reads as the directory. Each word is followed by its
+#   whitespace INSIDE the repeated group, as the reader flags are: a run at the END of a {0,8}
+#   body is not possessified by Oniguruma, and one long word went O(n^2) (160K word 4.2 s).
 #   SEC-R1 (review 2026-10-11): the reader's flag run was unbounded `(-[^space]*[space]+)*` — a dense
 #   `od -/od -/od …` pad is a reader word (`od`) + a run of `-/od ` flag tokens, and Oniguruma retried it
 #   from every `od` start: 16 KB 1.2 s, 64 KB 17.7 s on jq 1.7 — the whole guard killed with no verdict.
