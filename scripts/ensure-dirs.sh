@@ -159,6 +159,10 @@ if [ ! -f "$_D118_MARK" ] && [ -s "$BRAIN_DIR/projects.jsonl" ] && command -v jq
   : > "$_D118_MARK"
 fi
 
+# SEC-R5 one-time move: persona signals auto-graduated into USER.md before 0.57.0 go to the untrusted
+# persona-learned.md (marker-gated in lib.sh: one stat once done; a busy lock retries next session).
+sb_migrate_learned_pins
+
 WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
 # Build the index on a fresh wiki, else validate+autofix an existing one. Delegated to the
 # canonical lib.sh helpers (dynamic-import + error-logging) — NOT an inline `node -e`, which had

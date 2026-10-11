@@ -637,6 +637,14 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
       read -r _hdr wbytes cend <<< "$win"
       [ "$cend" -gt "$from" ] || break
     else
+      x_rc=$?
+      if [ "$x_rc" -eq 3 ]; then
+        # The merge's exit 3: PROJECT.md busy (its lock still held after the wait) or a refused
+        # read/write, "retry later". No row: a retry row counts toward MAX_FAILS, and any other
+        # outcome would reset the run of retries before it.
+        sb_log_error "extract-drain.sh" "window $from..$cend of $base deferred: the merge exited 3 (PROJECT.md busy or refused, see its row); retried next tick, not counted toward SB_DRAIN_MAX_FAILS" 0
+        break
+      fi
       fails=$((fails + 1)); drain_clock
       if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" != "off" ] && sb_floor_transcript "$tf" "$slug"; then
         # Last-resort deterministic floor (P1): the LLM backend has failed MAX_FAILS times on this

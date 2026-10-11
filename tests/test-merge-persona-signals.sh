@@ -1,7 +1,7 @@
 #!/bin/bash
 # run-all-timeout: 240   (~40 merge runs; the E1/E3 cases run the REAL lib.sh 9 more times plus a 1 s
 #   lock wait; measured 121 s alone on a loaded MSYS box, 2026-10-11)
-# pins: SB_ARCHIVE_LOCK_WAIT_S — R1 (held signals lock) and E3 sets lib.sh's _SB_ARCHIVE_LOCK_WAIT_S=1 (the census reads the env name inside it): the bounded wait failing loud is under test, not its length
+# pins: SB_ARCHIVE_LOCK_WAIT_S — R1 (held signals lock) and E3 sets lib.sh's _SB_ARCHIVE_LOCK_WAIT_S=1 (the census reads the env name inside it): the bounded wait failing loud is under test, not its length; R1's 6 concurrent merges raise it to 30 s so a loaded box does not drop the 6th (the lost update is under test)
 # Tests for scripts/merge-persona-signals.sh — signal dedup + auto-graduation.
 # Goal: prove that the loosened dedup (set-min, 50%) catches paraphrased
 # repeats, and that two high-confidence sightings now auto-graduate.
@@ -477,10 +477,56 @@ grep -q 'learned number 16$' "$LF" || fail "SEC-R5: the newest learned line is m
 pass "SEC-R5: sb_pin_to_learned flattens, dedupes, caps at 15 by evicting the oldest, never touches USER.md"
 rm -rf "$L_BRAIN"
 
+# --- Final review must-fix 4: signals auto-graduated into USER.md BEFORE SEC-R5 stay trusted there
+# unless moved. sb_migrate_learned_pins (ensure-dirs.sh, SessionStart) moves each USER.md pin line
+# whose text is a graduated:true record, flattened as the old graduation wrote it, to
+# persona-learned.md; human pins and ungraduated look-alikes stay; a marker makes it run once.
+M_BRAIN=$(mktemp -d)
+printf '# USER preferences\n\n## Pinned\n- [2026-01-01] human pin stays trusted\n- [2026-02-01] always rebases feature branches before review\n- [2026-03-01] prefers tabs ## and spaces in makefiles\n- [2026-03-02] ungraduated look-alike stays\n\n## About\nprose\n' > "$M_BRAIN/USER.md"
+{ jq -nc '{signal:"always rebases feature branches before review", graduated:true}'
+  printf '{"torn\n'
+  jq -nc --arg s "$(printf 'prefers tabs\n## and `spaces`\tin makefiles  ')" '{signal:$s, graduated:true}'
+  jq -nc '{signal:"ungraduated look-alike stays", graduated:false}'
+} > "$M_BRAIN/persona-signals.jsonl"
+( export BRAIN_DIR="$M_BRAIN"
+  # shellcheck source=/dev/null
+  source "$ROOT/scripts/lib.sh" >/dev/null 2>&1
+  sb_migrate_learned_pins || exit 11
+  cp "$BRAIN_DIR/USER.md" "$BRAIN_DIR/user-after-1"
+  printf -- '- [2026-04-01] always rebases feature branches before review\n' >> "$BRAIN_DIR/USER.md"
+  sb_migrate_learned_pins || exit 12   # marker present: a no-op
+) || fail "migrate: sb_migrate_learned_pins returned non-zero (step $?)"
+grep -q 'human pin stays trusted' "$M_BRAIN/user-after-1" || fail "migrate: a human pin left USER.md: $(cat "$M_BRAIN/user-after-1")"
+grep -q 'ungraduated look-alike stays' "$M_BRAIN/user-after-1" || fail "migrate: a pin matching an UNgraduated record moved"
+grep -qE 'rebases feature branches|prefers tabs' "$M_BRAIN/user-after-1" && fail "migrate: an auto-graduated pin stayed in USER.md: $(cat "$M_BRAIN/user-after-1")"
+grep -q '^prose$' "$M_BRAIN/user-after-1" || fail "migrate: USER.md lost its hand-written section"
+grep -qE '^- \[[0-9-]{10}\] always rebases feature branches before review$' "$M_BRAIN/persona-learned.md" 2>/dev/null \
+  && grep -qE '^- \[[0-9-]{10}\] prefers tabs ## and spaces in makefiles$' "$M_BRAIN/persona-learned.md" \
+  || fail "migrate: the moved pins are not in persona-learned.md: $(cat "$M_BRAIN/persona-learned.md" 2>/dev/null)"
+[ -f "$M_BRAIN/.persona-learned-migrated" ] || fail "migrate: no marker after a complete pass"
+grep -q 'moved 2 auto-graduated pin' "$M_BRAIN/error-log.jsonl" 2>/dev/null || fail "migrate: the move left no log row: $(cat "$M_BRAIN/error-log.jsonl" 2>/dev/null)"
+[ "$(grep -c 'always rebases' "$M_BRAIN/USER.md")" = 1 ] || fail "migrate: the marker did not stop a second pass"
+ls -A "$M_BRAIN" | grep -qE '\.lock$|\.tmp\.|\.moved\.' && fail "migrate: left a lock or temp file: $(ls -A "$M_BRAIN")"
+pass "migrate: auto-graduated USER.md pins move to persona-learned.md once (human + ungraduated pins stay, logged)"
+# A held USER.md lock: nothing moves, no marker (retried next session); ensure-dirs.sh runs it.
+rm -f "$M_BRAIN/.persona-learned-migrated"; printf '%s\n' "$$.held" > "$M_BRAIN/.USER.md.lock"
+M_HASH=$(cksum < "$M_BRAIN/USER.md")
+( export BRAIN_DIR="$M_BRAIN"
+  # shellcheck source=/dev/null
+  source "$ROOT/scripts/lib.sh" >/dev/null 2>&1
+  sb_migrate_learned_pins ) && fail "migrate: reported done while the USER.md lock was held"
+[ "$(cksum < "$M_BRAIN/USER.md")" = "$M_HASH" ] || fail "migrate: USER.md changed while its lock was held"
+[ ! -f "$M_BRAIN/.persona-learned-migrated" ] || fail "migrate: marker written although the move did not run"
+grep -q '^sb_migrate_learned_pins' "$ROOT/scripts/ensure-dirs.sh" || fail "migrate: ensure-dirs.sh does not run sb_migrate_learned_pins"
+pass "migrate: a held USER.md lock defers the move (no marker); ensure-dirs.sh runs it at SessionStart"
+rm -rf "$M_BRAIN"
+
 # --- Residual 1: persona-signals.jsonl read-modify-write holds .persona-signals.jsonl.lock, so two
 # concurrent merges (Stop + Stop, Stop + drainer) cannot lose each other's signal. Real lib.sh.
 CC_BRAIN="$TMP/cc-brain"; CC_HOME="$TMP/cc-home"; mkdir -p "$CC_BRAIN" "$CC_HOME"
-cc_merge() { printf '%s' "$1" | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" bash "$SCRIPT" --session "$2" >/dev/null 2>&1; }
+# 6 merges queue on one lock: the 6th waits for 5 holds, ~5-6 s on a quiet MSYS box, so the 5 s default
+# wait made the case flaky under load. The wait is raised for this phase; the lost update is under test.
+cc_merge() { printf '%s' "$1" | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" SB_ARCHIVE_LOCK_WAIT_S=30 bash "$SCRIPT" --session "$2" >/dev/null 2>&1; }
 cc_pids=""
 for w in alpha bravo charlie delta echo foxtrot; do
   cc_merge "[{\"category\":\"workflow\",\"signal\":\"zzq${w}one zzq${w}two zzq${w}three marker\",\"evidence\":\"e\",\"confidence\":\"low\"}]" "cc-$w" &
