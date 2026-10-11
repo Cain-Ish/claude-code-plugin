@@ -494,6 +494,18 @@ $(od -c "$SD/$fx.out" | head -12)"
   sb_scrub_secrets < "$SD/$fx.out" > "$SD/$fx.again" && cmp -s "$SD/$fx.again" "$SD/$fx.out" \
     || fail "scrub[$fx]: a second pass changed the output (not idempotent)"
 done
+# TST-R7: the X2 fix (no "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)" alternation in the awk program;
+# mawk split() on it missed the first match) stays locked on every awk, not only where mawk is installed.
+awk '/^sb_scrub_secrets\(\) \{/{f=1} f&&!/^[[:space:]]*#/{print} f&&/^\}$/{exit}' "$REPO_ROOT/scripts/lib.sh" > "$SD/scrub.body"
+[ -s "$SD/scrub.body" ] || fail "TST-R7: could not extract sb_scrub_secrets from lib.sh"
+grep -qE 'aws_secret_access_key\|AWS_SECRET|AWS_SECRET_ACCESS_KEY\|aws_secret' "$SD/scrub.body" \
+  && fail "TST-R7: sb_scrub_secrets holds an aws_secret_access_key|AWS_SECRET_ACCESS_KEY alternation (mawk split() missed its first match, X2)"
+# ...and where mawk is installed the formats fixture must redact identically through it.
+if command -v mawk >/dev/null 2>&1; then
+  ( awk() { mawk "$@"; }; sb_scrub_secrets < "$SD/formats.in" > "$SD/formats.mawk" ) || fail "TST-R7: scrub through mawk exited non-zero"
+  cmp -s "$SD/formats.mawk" "$SD/formats.want" || fail "TST-R7: the formats fixture differs under mawk"
+fi
+pass "scrub: no aws-keyword alternation in the awk program; formats fixture also clean under mawk when installed"
 # The fast-path literal list (_SB_SCRUB_LITERALS: sb_scrub_archive_file and the drainer's one-time
 # migration skip a file holding none) covers every format: no line the scrub changes escapes it.
 LIT_MISS=$(LC_ALL=C grep -hvF "${_SB_SCRUB_LITERALS[@]}" "$SD/kinds.in" "$SD/formats.in" "$SD/zw.in" "$SD/adjacent.in")

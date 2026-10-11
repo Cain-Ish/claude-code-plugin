@@ -609,8 +609,15 @@ rm -rf "$SB"
 # both --delete arms (exclude list / none) are covered where rsync exists. The shim sleeps 1 s first:
 # rsync compares mtimes to the whole second by default, and the accept's own staging normalization
 # rewrites p3 moments before the apply (a same-second write is the residual limit of -u there).
-for d8_protect in 1 0; do
-  if ! command -v rsync >/dev/null 2>&1 && ! cp --version >/dev/null 2>&1; then
+# TST-R8: a third pass (N) runs the no-rsync cp arm on hosts that have rsync (NORSYNC_PATH), so both
+# apply tools are exercised everywhere; it is skipped where rsync is absent (arms 1/0 are already cp).
+for d8_arm in 1 0 N; do
+  d8_path="$PATH"; d8_protect=$d8_arm
+  if [ "$d8_arm" = N ]; then
+    [ -n "$NORSYNC_PATH" ] || continue
+    d8_path="$NORSYNC_PATH"; d8_protect=1
+  fi
+  if ! PATH="$d8_path" command -v rsync >/dev/null 2>&1 && ! cp --version >/dev/null 2>&1; then
     echo "SKIP: D8 — no rsync and a BSD cp without -u: this host keeps the plain merge-copy (macOS ships rsync)"
     pass "D8: apply-window write (skipped — no rsync and no cp -u)"; break
   fi
@@ -620,12 +627,12 @@ for d8_protect in 1 0; do
   find "$D/staging/wiki" -name '*.md' -type f -exec touch -t 202512010000 {} +   # snapshot copies keep old mtimes
   printf -- '---\ntitle: p1\ntype: entities\nrelated: []\n---\n\n# p1\n\nCONSOLIDATED\n' > "$D/staging/wiki/entities/p1.md"
   [ "$d8_protect" = 1 ] && printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"
-  d8_tool=cp; command -v rsync >/dev/null 2>&1 && d8_tool=rsync
+  d8_tool=cp; PATH="$d8_path" command -v rsync >/dev/null 2>&1 && d8_tool=rsync
   mkdir -p "$SB/d8shim"
   printf '#!%s\nfor a in "$@"; do case "$a" in */staging/wiki/|*/staging/wiki/.) [ -e %q ] || { sleep 1; printf "WINDOW WRITE\\n" >> %q; : > %q; } ;; esac; done\nexec %q "$@"\n' \
-    "$BASH" "$SB/d8.done" "$KNOWLEDGE_DIR/wiki/entities/p3.md" "$SB/d8.done" "$(command -v "$d8_tool")" > "$SB/d8shim/$d8_tool"
+    "$BASH" "$SB/d8.done" "$KNOWLEDGE_DIR/wiki/entities/p3.md" "$SB/d8.done" "$(PATH="$d8_path" command -v "$d8_tool")" > "$SB/d8shim/$d8_tool"
   chmod +x "$SB/d8shim/$d8_tool"
-  OUT=$(PATH="$SB/d8shim:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1); rc=$?
+  OUT=$(PATH="$SB/d8shim:$d8_path" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$ACCEPT" drm_test 2>&1); rc=$?
   [ -e "$SB/d8.done" ] || fail "D8: precondition — the $d8_tool shim never saw the apply call: $OUT"
   [ "$rc" -eq 0 ] || fail "D8: accept failed (rc=$rc): $OUT"
   grep -q 'WINDOW WRITE' "$KNOWLEDGE_DIR/wiki/entities/p3.md" \
@@ -633,7 +640,7 @@ for d8_protect in 1 0; do
   grep -q 'CONSOLIDATED' "$KNOWLEDGE_DIR/wiki/entities/p1.md" || fail "D8 ($d8_tool): the dream's change to p1 no longer lands"
   [ "$d8_protect" = 0 ] || grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
     || fail "D8 ($d8_tool): the post-snapshot edit to p2 was lost"
-  pass "D8 ($d8_tool, protected page=$d8_protect): a live write during the apply survives; the dream's p1 change still lands"
+  pass "D8 ($d8_tool, arm=$d8_arm, protected page=$d8_protect): a live write during the apply survives; the dream's p1 change still lands"
   rm -rf "$SB"
 done
 

@@ -92,6 +92,11 @@ got=$(sb_normalize_path '//LocalHost/c$/Users/me/x')
 aeq "/c/Users/me/x" "$got" "//LocalHost/c\$ (mixed-case host) -> /c POSIX (G3)"
 got=$(sb_normalize_path '\\?\UNC\localhost\c$\Users\me\.ssh\id_rsa')
 aeq "/c/Users/me/.ssh/id_rsa" "$got" "\\\\?\\UNC\\localhost\\c\$ -> /c POSIX (G3)"
+# SEC-R7: the device-namespace spelling \\.\UNC\... is the same share as \\?\UNC\...
+got=$(sb_normalize_path '\\.\UNC\localhost\c$\Users\me\.ssh\id_rsa')
+aeq "/c/Users/me/.ssh/id_rsa" "$got" "device-namespace UNC localhost c$ -> /c POSIX (SEC-R7)"
+got=$(sb_normalize_path '\\.\UNC\fileserver\share\doc.md')
+aeq "//fileserver/share/doc.md" "$got" "device-namespace UNC other-host stays UNC (SEC-R7)"
 got=$(sb_normalize_path '\\?\unc\127.0.0.1\d$\x')
 aeq "/d/x" "$got" "\\\\?\\unc\\127.0.0.1\\d\$ -> /d POSIX (G3)"
 got=$(sb_normalize_path '\\?\UNC\fileserver\share\doc.md')
