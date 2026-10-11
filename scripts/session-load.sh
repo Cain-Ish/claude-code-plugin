@@ -1111,9 +1111,11 @@ sb_append() {
   if [ "$max" -gt 0 ] && [ "$size" -gt "$max" ]; then
     # Cap by bytes, then drop the torn last line so a rule/JSON row is whole or absent (audit H4).
     local cut; cut=$(printf '%s' "$text" | head -c "$max")
-    if [ "${text#"$cut"$'\n'}" = "$text" ]; then
-      case "$cut" in *$'\n'*) cut="${cut%$'\n'*}";; *) cut="";; esac
-    fi
+    # PORT-R5: case-prefix test is linear; the old ${text#"$cut"...} compare was O(cap^2).
+    case "$text" in
+      "$cut"$'\n'*) ;;
+      *) case "$cut" in *$'\n'*) cut="${cut%$'\n'*}";; *) cut="";; esac ;;
+    esac
     sb_log_error "session-load.sh" "gate=byte-budget $label truncated ${size}->${#cut}B" 0
     text="$cut"
     [ -z "$text" ] && return 0
@@ -1250,8 +1252,11 @@ if [ "${SB_RULES_GAP_BANNER:-on}" != "off" ] && [ -f "$USER_FILE" ]; then
       in_s && /^- / { c++ }
       END { print c+0 }
     ' "$USER_FILE" 2>/dev/null)
+    # IMP-R3: no Never/Always rules in USER.md = nothing to enforce, so no nag every session.
+    if [ $(( ${NEVER_COUNT:-0} + ${ALWAYS_COUNT:-0} )) -gt 0 ]; then
     sb_append "$(printf '## ⓘ second-brain — USER.md rules are advisory, not enforced\nUSER.md has %s Never + %s Always bullet(s) but is newer than (or has no) %s. Only rules in that file block tool calls; USER.md is context only.\nTo hard-enforce a Never rule, add it there. Suppress: `SB_RULES_GAP_BANNER=off`.\n\n' \
       "$NEVER_COUNT" "$ALWAYS_COUNT" "$RULES_FILE_RUNTIME")" "rules-gap-banner" 500
+    fi
   fi
 fi
 

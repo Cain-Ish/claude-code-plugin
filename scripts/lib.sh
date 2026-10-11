@@ -54,7 +54,7 @@ sb_normalize_path() {
   # //./C:/… never matched the drive-letter case below, cygpath never ran, and
   # every credential/scope prefix compare silently missed it (fail-open).
   # \\?\UNC\host\share\… (→ //?/UNC/host/…) is the long-path spelling of \\host\share\…
-  case "$p" in //"?"/[Uu][Nn][Cc]/*) p="//${p#//"?"/???/}" ;; esac
+  case "$p" in //[?.]/[Uu][Nn][Cc]/*) p="//${p#//?/???/}" ;; esac   # SEC-R7: \\.\UNC\ too
   p="${p#"//?/"}"
   p="${p#"//./"}"
   # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…; host is case-insensitive)

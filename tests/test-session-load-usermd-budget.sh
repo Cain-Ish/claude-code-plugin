@@ -77,5 +77,18 @@ touch -d '2001-01-01' "$USER_FILE"; echo '{"rules":[]}' > "$GB/persona-rules.jso
 touch -d '2002-01-01' "$USER_FILE"; touch -d '2001-01-01' "$GB/persona-rules.json"
 run_rg | grep -q "persona-rules.json" || fail "H5: rules file older than USER.md must fire"
 pass "H5: rules-gap compares against the brain dir's persona-rules.json"
+# IMP-R3: USER.md with no Never/Always bullets has nothing to enforce -> no banner even with rules file missing.
+printf '# notes\nno rules here\n' > "$USER_FILE"; rm -f "$GB/persona-rules.json"
+[ -z "$(run_rg)" ] || fail "IMP-R3: USER.md without rules must not fire the rules-gap banner"
+pass "IMP-R3: rules-gap banner skipped when USER.md has no rules"
+# PORT-R5: torn-line check must be linear (was O(cap^2): ~1.1s at 16KB). Generous 2s bound.
+eval "$(awk '/^sb_append\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$SL")"
+sb_log_error(){ :; }
+BIG16=""; i=0; while [ $i -lt 500 ]; do BIG16="${BIG16}- Never do thing number $i in this repo please ok"$'\n'; i=$((i+1)); done
+T0=$(date +%s); : > "$OUT"; USED=0; BYTE_BUDGET=100000
+sb_append "$BIG16" "perf" 16000 force
+[ $(( $(date +%s) - T0 )) -le 2 ] || fail "PORT-R5: 16KB sb_append cap too slow (quadratic torn-line check?)"
+case "$(tail -n1 "$OUT")" in *please\ ok) ;; *) fail "PORT-R5: last line torn";; esac
+pass "PORT-R5: 16KB capped sb_append is fast and keeps whole lines"
 rm -f "$TMP" "$OUT" "$LOGF"
 echo; echo "ALL PASS"
