@@ -127,7 +127,7 @@ else
 fi
 ```
 
-Graduation is automatic: `merge-persona-signals.sh` (Stop hook) auto-pins count≥2 high-confidence signals to USER.md. If ungraduated signals linger here, offer to pin them explicitly via the `pin_to_user` MCP tool.
+Graduation is automatic: `merge-persona-signals.sh` (Stop hook) moves high-confidence signals seen in 2+ distinct sessions into `~/.second-brain/persona-learned.md` (served at SessionStart as untrusted data, not as USER.md rules). If ungraduated signals linger here, or a learned line should become a trusted rule, offer to pin it explicitly via the `pin_to_user` MCP tool.
 
 ### 4d. Dream status
 

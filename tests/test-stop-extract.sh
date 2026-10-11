@@ -1361,6 +1361,26 @@ grep 'postcompact-capture merge-failed rc=3 tries=2' "$SANDBOX/.second-brain/err
 grep -q 'gate=postcompact-capture.*pending=1 merge=failed tries=2' "$SANDBOX/.second-brain/audit-log.jsonl" \
   || fail "C2-18b: expected merge=failed tries=2 on the hook's row: $(grep postcompact "$SANDBOX/.second-brain/audit-log.jsonl")"
 pass "C2-18b: a lock still held on the retry drops the tasks loudly (error row ec 1, merge=failed tries=2)"
+# C2-18c (TST-R6): the retry is gated on the hook budget LEFT (30 s less elapsed, more than the
+# first attempt took plus 2 s), not on a fixed 15 s from start. The elapsed time is set through
+# SECONDS in the hook's environment (bash imports it as the counter's start, 3.2.57 and 5.x alike;
+# a shell that does not skips the case) and the merge is a stub in PC2's scripts copy that answers
+# "busy" (exit 3) at once.
+if [ "$(SECONDS=50 bash -c 'echo $SECONDS')" -ge 50 ] 2>/dev/null; then
+  printf '#!/bin/bash\ncat > /dev/null\nexit 3\n' > "$PC2_ROOT/scripts/merge-project-update.sh"
+  for c218c in 15:2 28:1; do
+    init_sandbox "c2-18c-budget-${c218c%%:*}"
+    compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Budget-gated retry
+' | SECONDS="${c218c%%:*}" bash "$PC2_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+    grep -q "gate=postcompact-capture.*pending=1 merge=failed tries=${c218c#*:}" "$SANDBOX/.second-brain/audit-log.jsonl" \
+      || fail "C2-18c: started ${c218c%%:*} s into the hook, want tries=${c218c#*:}: $(grep postcompact "$SANDBOX/.second-brain/audit-log.jsonl")"
+  done
+  pass "C2-18c: the PostCompact retry runs while the hook budget left covers it (15 s in: retried) and not past it (28 s in)"
+else
+  echo "SKIP: C2-18c -- this bash does not import SECONDS from the environment"
+fi
 
 # R1 (S0 B7 ruler, docs/concepts/2026-09-27-repo-brain-concept.md sec 5 S0): a
 # hook_cancelled attachment already sitting in the transcript this Stop reads is
