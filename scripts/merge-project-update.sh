@@ -1675,7 +1675,15 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     ai_region=""
     aiblk=$(echo "$update" | jq -c '.ai_block // empty' 2>/dev/null)
     if [ -n "$aiblk" ] && [ "$aiblk" != "null" ] && command -v node >/dev/null 2>&1 && [ -f "$RENDER_CLI" ]; then
-      ai_region=$(jq -nc --arg t "$category" --argjson b "$aiblk" '{type:$t,block:$b}' 2>/dev/null | node "$RENDER_CLI" 2>/dev/null)
+      # Runs under the PROJECT.md lock, so it is bounded: a hung renderer must not hold the lock for
+      # good. A timeout (124) skips the ai-block refresh for this page and logs; the merge continues.
+      _rt="${SB_AI_RENDER_TIMEOUT_S:-20}"; case "$_rt" in ''|0|*[!0-9]*) _rt=20 ;; esac
+      _rin=$(jq -nc --arg t "$category" --argjson b "$aiblk" '{type:$t,block:$b}' 2>/dev/null)
+      ai_region=$(printf '%s' "$_rin" | sb_timeout "$_rt" node "$RENDER_CLI" 2>/dev/null); _rrc=$?
+      if [ "$_rrc" -eq 124 ]; then
+        ai_region=""
+        sb_log_error "merge-project-update.sh" "ai-block render timed out after ${_rt}s for $category/$slug; ai-block refresh skipped, merge continues" 1
+      fi
     fi
 
     # Gate: reject MR/session-style slugs
