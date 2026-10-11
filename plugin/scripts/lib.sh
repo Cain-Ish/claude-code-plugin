@@ -1247,6 +1247,56 @@ sb_pin_to_learned() {
   return "$rc"
 }
 
+# One-time move (ensure-dirs.sh, SessionStart): before SEC-R5, graduation wrote persona signals into
+# USER.md as trusted priority-1 pins. Every USER.md pin line whose text is a graduated:true record of
+# persona-signals.jsonl, flattened as that old sb_pin_to_user wrote it, moves to persona-learned.md;
+# human pins stay. Held under the USER.md lock with a 1 s wait (the hook has 5 s); every line is
+# pinned to the learned store BEFORE USER.md is rewritten, so a failure leaves at worst a duplicate
+# (sb_pin_to_learned dedupes the retry). The marker is written only after a complete pass: a busy
+# lock or a failed write retries at the next SessionStart. Returns 0 done, 1 retry later.
+sb_migrate_learned_pins() {
+  local u="$BRAIN_DIR/USER.md" s="$BRAIN_DIR/persona-signals.jsonl" m="$BRAIN_DIR/.persona-learned-migrated"
+  local _SB_ARCHIVE_LOCK_WAIT_S=1 texts t list="" tok moved_f rc=0 n ws=$'\t\v\f\r'
+  [ -f "$m" ] && return 0
+  if [ ! -s "$u" ] || [ ! -s "$s" ]; then : > "$m"; return 0; fi
+  command -v jq >/dev/null 2>&1 || return 1
+  texts=$(jq -Rr 'fromjson? | select(type == "object" and .graduated == true) | .signal | select(type == "string") | gsub("[\r\n`]"; " ")' "$s") \
+    || { sb_log_error "lib.sh" "sb_migrate_learned_pins: cannot read $s; retried next session" 1; return 1; }
+  # The rest of the old flatten (_sb_pin_flatten) on builtins, one jq spawn in all: every other
+  # ASCII space becomes a space, runs squeeze to one, trim, cut at 400.
+  while IFS= read -r t; do
+    t="${t//[$ws]/ }"
+    while [ "${t#*  }" != "$t" ]; do t="${t//  / }"; done
+    t="${t#"${t%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"; t="${t:0:400}"
+    [ -n "$t" ] && list="$list$t"$'\n'
+  done < <(printf '%s\n' "$texts")
+  [ -n "$list" ] || { : > "$m"; return 0; }
+  sb_archive_lock "$u" sb_migrate_learned_pins || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"; moved_f="$u.moved.$$"
+  MIG_TEXTS="$list" LC_ALL=C awk -v mf="$moved_f" '
+    BEGIN { n = split(ENVIRON["MIG_TEXTS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") g[a[i]] = 1 }
+    /^- \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] / { t = substr($0, 16); sub(/\r$/, "", t); if (t in g) { print t > mf; next } }
+    { print }
+  ' "$u" > "$u.tmp.$$" || rc=1
+  if [ "$rc" -eq 0 ] && [ -s "$moved_f" ]; then
+    while IFS= read -r t; do
+      sb_pin_to_learned "$t" || rc=1
+    done < "$moved_f"
+    [ "$rc" -eq 0 ] && { mv "$u.tmp.$$" "$u" || rc=1; }
+    if [ "$rc" -eq 0 ]; then
+      n=$(grep -c . "$moved_f")
+      sb_log_error "lib.sh" "persona-learned migration: moved $n auto-graduated pin(s) from USER.md to persona-learned.md (served as untrusted data): $(tr '\n' ';' < "$moved_f" | head -c 400)" 0
+    fi
+  fi
+  rm -f "$u.tmp.$$" "$moved_f"
+  sb_archive_unlock "$u" "$tok"
+  if [ "$rc" -ne 0 ]; then
+    sb_log_error "lib.sh" "sb_migrate_learned_pins: USER.md not rewritten (a learned-store or USER.md write failed); retried next session" 1
+    return 1
+  fi
+  : > "$m"
+}
+
 # Portable canonicalization of a path to an absolute, symlink-resolved form. Works on GNU
 # (realpath / readlink -f) AND stock macOS/BSD where NEITHER exists, via a `cd … && pwd -P`
 # parent-resolve plus a one-level leaf deref — the same doctrine as scripts/symlink-guard.sh.
@@ -4148,7 +4198,7 @@ TMPL
   if [ "$is_subagent" -eq 0 ] && [ -n "$sess_id" ]; then
     sess_flag=(--session "$sess_id")
   fi
-  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err
+  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err merge_rc
   # P0 rec 5: this session's deterministic observation ledger gives the extractor ground truth for
   # files_touched / error→fix issues / procedures. SUBAGENT archives are excluded: sub-*.txt
   # carries the PARENT session's id (sb_archive_subagent_result), so embedding here would re-mine
@@ -4217,12 +4267,16 @@ TMPL
     # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
     # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
     # is diagnosable instead of a bare "return 1" with zero trace of why.
-    extract_merge_err=$(mktemp)
-    if ! printf '%s' "$delta" \
-        | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
-          >/dev/null 2>"$extract_merge_err"; then
-      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
+    # Exit 3 is the merge's "PROJECT.md busy or refused, retry later": returned as 3, which the drainer
+    # retries without counting it toward SB_DRAIN_MAX_FAILS.
+    extract_merge_err=$(mktemp); merge_rc=0
+    printf '%s' "$delta" \
+      | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
+          >/dev/null 2>"$extract_merge_err" || merge_rc=$?
+    if [ "$merge_rc" -ne 0 ]; then
+      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed (exit $merge_rc) slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
       rm -f "$extract_merge_err"
+      [ "$merge_rc" -eq 3 ] && return 3
       return 1
     fi
     rm -f "$extract_merge_err"
@@ -4426,13 +4480,14 @@ sb_auto_memory_state() {
 # Is the per-OS extract-drain scheduler registered? Returns 0 (installed) / 1 (absent).
 # OS arg optional ($1); else SB_INSTALL_OS_OVERRIDE; else uname-derived (systemd|launchd|windows).
 # Signal = the install artifact the matching install-extract-timer.sh --apply branch writes and
-# --uninstall removes: the systemd user TIMER unit (Linux) / the LaunchAgent plist (macOS) / a
-# live schtasks query (Windows leaves no file artifact, so we ask the scheduler). Using the unit
-# FILE rather than `systemctl --user is-enabled` keeps this portable and unit-testable, and stays
-# in lockstep with what uninstall deletes. A unit present-but-administratively-disabled is a rare
-# partial state that the self-healing --ensure re-applies harmlessly.
+# --uninstall removes — the systemd user TIMER unit (Linux) / the LaunchAgent plist (macOS) — and
+# then the scheduler's own answer: `systemctl --user is-enabled` / `launchctl print`, so a disabled
+# timer or an unloaded agent reads as absent and --ensure re-applies it. Windows leaves no file
+# artifact: a live schtasks query. When the scheduler cannot be asked at all (no user bus, a
+# container, WSL without systemd, no gui domain) the file stands as the signal: an --apply could not
+# be verified there either, so 'absent' would only re-run --ensure on every session.
 sb_timer_installed() {
-  local os="${1:-${SB_INSTALL_OS_OVERRIDE:-}}"
+  local os="${1:-${SB_INSTALL_OS_OVERRIDE:-}}" st rc
   if [ -z "$os" ]; then
     case "$(uname -s 2>/dev/null)" in
       Linux)                os=systemd ;;
@@ -4450,14 +4505,34 @@ sb_timer_installed() {
   [ -f "${BRAIN_DIR:-$HOME/.second-brain}/bin/sb-extract-drain.sh" ] || return 1
   case "$os" in
     systemd)
-      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] ;;
+      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] || return 1
+      # A reachable user manager always prints a state word (enabled, disabled, not-found…);
+      # unreachable — or no systemctl — prints nothing on stdout.
+      st=$(systemctl --user is-enabled sb-extract-drain.timer 2>/dev/null); rc=$?
+      [ "$rc" = 0 ] && return 0
+      [ -n "$st" ] && return 1
+      _sb_timer_unverifiable systemd ;;
     launchd)
-      [ -f "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ] ;;
+      [ -f "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ] || return 1
+      launchctl print "gui/$(id -u)/sb-extract-drain" >/dev/null 2>&1 && return 0
+      # The gui domain answers but holds no such service: not loaded.
+      launchctl print "gui/$(id -u)" >/dev/null 2>&1 && return 1
+      _sb_timer_unverifiable launchd ;;
     windows)
       MSYS_NO_PATHCONV=1 schtasks /Query /TN sb-extract-drain >/dev/null 2>&1 ;;
     *)
       return 1 ;;
   esac
+}
+
+# _sb_timer_unverifiable OS: the unit/plist file is there but the scheduler cannot be asked. Reads
+# as installed (see sb_timer_installed), with one error-log row the first time, not one per session.
+_sb_timer_unverifiable() {
+  local m="$BRAIN_DIR/.timer-unverifiable"
+  [ -f "$m" ] && return 0
+  sb_log_error "lib.sh" "sb_timer_installed: the $1 drainer scheduler's unit file is present but whether it is enabled/loaded cannot be verified (no user bus or gui session: a container, WSL without systemd, an ssh-only login) - treated as installed; logged once (delete $m to log again)" 0
+  : > "$m"
+  return 0
 }
 
 # One-line human status of the drainer scheduler: "installed" | "absent" (passes $@ through to

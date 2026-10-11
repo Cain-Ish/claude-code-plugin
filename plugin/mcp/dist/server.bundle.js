@@ -21297,7 +21297,7 @@ async function appendEdge(path5, rec) {
 }
 
 // src/tools/pin-to-user.ts
-import { promises as fs3 } from "fs";
+import { promises as fs4 } from "fs";
 import { join as join3 } from "path";
 
 // src/brain-paths.ts
@@ -21540,14 +21540,49 @@ async function withFileLock(file, busy, fn, waitMs = LOCK_WAIT_MS) {
     } else console.error(`[hot-file-lock] the lock on ${basename(file)} is no longer ours (ours ${token}, now ${held || "none"}: stolen while held); left as it is`);
   }
 }
+
+// src/tools/atomic-write.ts
+import { promises as fs3 } from "fs";
+var writeCounter = 0;
+function uniqueTmp(filePath) {
+  return `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter++}`;
+}
+async function atomicWriteJson(filePath, value) {
+  const tmp = uniqueTmp(filePath);
+  try {
+    await fs3.writeFile(tmp, JSON.stringify(value));
+    await fs3.rename(tmp, filePath);
+  } catch (err) {
+    console.error(
+      `atomicWriteJson: FAILED to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    try {
+      await fs3.unlink(tmp);
+    } catch {
+    }
+  }
+}
+async function atomicWriteJsonStrict(filePath, value) {
+  const tmp = uniqueTmp(filePath);
+  try {
+    await fs3.writeFile(tmp, JSON.stringify(value));
+    await fs3.rename(tmp, filePath);
+  } catch (err) {
+    try {
+      await fs3.unlink(tmp);
+    } catch {
+    }
+    throw err;
+  }
+}
 var seq = 0;
 var RENAME_RETRY = /* @__PURE__ */ new Set(["EPERM", "EACCES", "EBUSY"]);
 var RENAME_BACKOFF_MS = [10, 20, 40, 80, 160, 200, 200, 200, 200, 200, 200];
 var realIo = {
-  writeFile: (f, d) => fs2.writeFile(f, d, "utf-8"),
-  rename: (a, b) => fs2.rename(a, b),
-  rm: (f) => fs2.rm(f, { force: true }),
-  sleep
+  writeFile: (f, d) => fs3.writeFile(f, d, "utf-8"),
+  rename: (a, b) => fs3.rename(a, b),
+  rm: (f) => fs3.rm(f, { force: true }),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms))
 };
 async function writeFileAtomic(file, data, io = realIo) {
   const tmp = `${file}.${process.pid}.${Date.now()}.${seq++}.tmp`;
@@ -21589,7 +21624,7 @@ async function pinToUser(args) {
     return { ok: false, line_added: "", reason: "empty text after sanitization" };
   }
   const newLine = `- [${date3}] ${trimmed}`;
-  await fs3.mkdir(dir, { recursive: true });
+  await fs4.mkdir(dir, { recursive: true });
   return withFileLock(
     file,
     (reason) => ({ ok: false, line_added: "", reason }),
@@ -21599,7 +21634,7 @@ async function pinToUser(args) {
 async function pinUserLocked(file, trimmed, newLine) {
   let content = "";
   try {
-    content = await fs3.readFile(file, "utf-8");
+    content = await fs4.readFile(file, "utf-8");
   } catch (e) {
     const code = e.code;
     if (code !== "ENOENT") return { ok: false, line_added: "", reason: `cannot read USER.md (${code ?? String(e)}); nothing written` };
@@ -21636,7 +21671,7 @@ ${PIN_SECTION}
 }
 
 // src/tools/pin-to-project.ts
-import { promises as fs4 } from "fs";
+import { promises as fs5 } from "fs";
 var SECTION_HEADER = { blockers: "## Open blockers", decisions: "## Recent decisions", conventions: "## Conventions" };
 var ENTRY_PREFIX = { blockers: "- [active] ", decisions: "- [decision] ", conventions: "- " };
 function flattenField2(s, cap) {
@@ -21682,7 +21717,7 @@ async function pinToProject(args) {
   );
 }
 async function pinLocked(args, file) {
-  const content = await fs4.readFile(file, "utf-8");
+  const content = await fs5.readFile(file, "utf-8");
   const sectionHeader = SECTION_HEADER[args.section];
   const trimmed = flattenField2(args.text, 400);
   if (!trimmed) {
@@ -21757,7 +21792,7 @@ async function pinLocked(args, file) {
 }
 
 // src/tools/archive-to-wiki.ts
-import { promises as fs5 } from "fs";
+import { promises as fs6 } from "fs";
 import { join as join4 } from "path";
 var ALLOWED_TARGET_CATEGORIES = /* @__PURE__ */ new Set(["issues", "decisions"]);
 var SOURCE_SECTION_HEADER = {
@@ -21792,7 +21827,7 @@ async function archiveToWiki(args) {
     }
     throw e;
   }
-  await fs5.mkdir(wikiDir, { recursive: true });
+  await fs6.mkdir(wikiDir, { recursive: true });
   return withFileLock(
     projectFile,
     (reason) => ({ ok: false, archived_path: "", reason }),
@@ -21800,7 +21835,7 @@ async function archiveToWiki(args) {
   );
 }
 async function archiveLocked(args, projectFile, wikiDir) {
-  const content = await fs5.readFile(projectFile, "utf-8");
+  const content = await fs6.readFile(projectFile, "utf-8");
   const lines = content.split("\n");
   const sectionHeader = SOURCE_SECTION_HEADER[args.sourceSection];
   const startIdx = lines.findIndex((l) => l.trim() === sectionHeader);
@@ -21850,7 +21885,7 @@ async function archiveLocked(args, projectFile, wikiDir) {
   for (let n = 1; !archiveName; n++) {
     const name = `${date3}-${slugSafe}${n > 1 ? `-${n}` : ""}.md`;
     try {
-      await fs5.writeFile(join4(wikiDir, name), page, { encoding: "utf-8", flag: "wx" });
+      await fs6.writeFile(join4(wikiDir, name), page, { encoding: "utf-8", flag: "wx" });
       archiveName = name;
     } catch (e) {
       if (e.code !== "EEXIST" || n >= 100) throw e;
@@ -21861,7 +21896,7 @@ async function archiveLocked(args, projectFile, wikiDir) {
   try {
     await writeFileAtomic(projectFile, lines.join("\n"));
   } catch (e) {
-    await fs5.rm(archivePath, { force: true }).catch(() => {
+    await fs6.rm(archivePath, { force: true }).catch(() => {
     });
     throw e;
   }
@@ -21870,43 +21905,6 @@ async function archiveLocked(args, projectFile, wikiDir) {
 
 // src/tools/knowledge-search.ts
 import { promises as fs12 } from "fs";
-
-// src/tools/atomic-write.ts
-import { promises as fs6 } from "fs";
-var writeCounter = 0;
-function uniqueTmp(filePath) {
-  return `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter++}`;
-}
-async function atomicWriteJson(filePath, value) {
-  const tmp = uniqueTmp(filePath);
-  try {
-    await fs6.writeFile(tmp, JSON.stringify(value));
-    await fs6.rename(tmp, filePath);
-  } catch (err) {
-    console.error(
-      `atomicWriteJson: FAILED to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`
-    );
-    try {
-      await fs6.unlink(tmp);
-    } catch {
-    }
-  }
-}
-async function atomicWriteJsonStrict(filePath, value) {
-  const tmp = uniqueTmp(filePath);
-  try {
-    await fs6.writeFile(tmp, JSON.stringify(value));
-    await fs6.rename(tmp, filePath);
-  } catch (err) {
-    try {
-      await fs6.unlink(tmp);
-    } catch {
-    }
-    throw err;
-  }
-}
-
-// src/tools/knowledge-search.ts
 import { join as join12 } from "path";
 
 // src/tools/embeddings.ts
@@ -29738,6 +29736,12 @@ async function reportInjectPrecision(brainDir2, script, status = injectPrecision
   if (status.warning) await appendErrorLog(brainDir2, script, status.warning, 1);
   if (status.mode === "off") await appendGateTrace(brainDir2, script, "gate=inject-precision mode=off");
 }
+function frameSearchResult(result) {
+  return {
+    ...result,
+    candidates: result.candidates.map((c) => c.description ? { ...c, description: untrustedFrame("search snippet", c.description) } : c)
+  };
+}
 var HANGUL_FILLER_RE = new RegExp(`[${String.fromCodePoint(4447)}${String.fromCodePoint(4448)}]`, "u");
 function capCodePoints(s, max) {
   const cps2 = [...s];
@@ -33140,6 +33144,7 @@ async function dreamStatus(args) {
       const lines = content.split("\n");
       diffPreview = lines.slice(0, 50).join("\n");
       if (lines.length > 50) diffPreview += "\n... (truncated)";
+      diffPreview = untrustedFrame("dream diff preview", diffPreview);
     } catch {
     }
   }
@@ -33328,10 +33333,12 @@ function personaSpawnArgs(model, system, apiKey = process.env.ANTHROPIC_API_KEY)
   return [
     "-p",
     ...apiKey ? ["--bare"] : [],
-    "--strict-mcp-config",
-    "--no-session-persistence",
     "--tools",
-    "Read,Grep,Glob",
+    "",
+    "--strict-mcp-config",
+    "--setting-sources",
+    "",
+    "--no-session-persistence",
     "--model",
     model,
     "--system-prompt",
@@ -33483,7 +33490,8 @@ async function personaStats(args = {}) {
   } catch {
   }
   return {
-    identity_summary: identity2,
+    // persona-card.md lines are store text: framed like knowledge_fetch's (audit M4).
+    identity_summary: identity2 && untrustedFrame("persona card lines", identity2),
     persona_card_bytes: cardBytes,
     ungraduated_signals: ungraduated,
     graduated_signals: graduated,
@@ -34349,7 +34357,7 @@ registerJsonTool(
     query: external_exports.string().describe("Search query \u2014 tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
     scope: external_exports.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all.")
   },
-  ({ query, scope }) => knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug2() })
+  async ({ query, scope }) => frameSearchResult(await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug2() }))
 );
 registerJsonTool(
   "knowledge_fetch",

@@ -526,7 +526,7 @@ _fp_jqfail() {
 # must arrive before the hook timeout.
 # PowerShell names its cmdlets and aliases in any case (IWR, invoke-restmethod): spelled as classes,
 # since the same string feeds bash =~, grep -E and jq test(), and none of them shares a case flag.
-FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl|[Nn]et\.[Ww]eb[Cc]lient|[Uu]pload[Ff]ile|[Hh]ttp[Cc]lient|[Ii][Nn][Vv][Oo][Kk][Ee]-[Ww][Ee][Bb][Rr][Ee][Qq][Uu][Ee][Ss][Tt]|[Ii][Ww][Rr]|[Ii][Nn][Vv][Oo][Kk][Ee]-[Rr][Ee][Ss][Tt][Mm][Ee][Tt][Hh][Oo][Dd]|[Ii][Rr][Mm])([^A-Za-z_]|$)'
+FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl|[Nn]et\.[Ww]eb[Cc]lient|[Uu]pload[Ff]ile|[Hh]ttp[Cc]lient|[Ii][Nn][Vv][Oo][Kk][Ee]-[Ww][Ee][Bb][Rr][Ee][Qq][Uu][Ee][Ss][Tt]|[Ii][Ww][Rr]|[Ii][Nn][Vv][Oo][Kk][Ee]-[Rr][Ee][Ss][Tt][Mm][Ee][Tt][Hh][Oo][Dd]|[Ii][Rr][Mm]|[Ss][Tt][Aa][Rr][Tt]-[Bb][Ii][Tt][Ss][Tt][Rr][Aa][Nn][Ss][Ff][Ee][Rr]|[Ss][Ee][Nn][Dd]-[Mm][Aa][Ii][Ll][Mm][Ee][Ss][Ss][Aa][Gg][Ee]|[Nn][Ee][Tt]\.[Ww][Ee][Bb][Rr][Ee][Qq][Uu][Ee][Ss][Tt])([^A-Za-z_]|$)'
 FG_LABELS=(jwt aws-access-key github-pat anthropic-key openai-key slack-token pem-private bearer-blob credential-file-upload)
 FG_RES=(
   'ey[A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
@@ -537,7 +537,7 @@ FG_RES=(
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '(@|<[[:space:]]*|(^|[^A-Za-z0-9_-])([Cc][Aa][Tt]|[Gg][Cc]|[Gg][Ee][Tt]-[Cc][Oo][Nn][Tt][Ee][Nn][Tt]|[Tt][Yy][Pp][Ee]|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+((-[^[:space:]]*|[0-9]+)[[:space:]]+){0,8}|(^|[[:space:]])(-T|--upload-file|--post-file|-[Ii][Nn][Ff][Ii][Ll][Ee])(=|[[:space:]]*)|[Uu][Pp][Ll][Oo][Aa][Dd][Ff][Ii][Ll][Ee][(][^;&|)]*,[[:space:]]*)[^[:space:]@<>|;&]*(\.[Ss][Ss][Hh][/\\]([Ii][Dd]_[Rr][Ss][Aa]|[Ii][Dd]_[Ee][Dd]25519|[Ii][Dd]_[Ee][Cc][Dd][Ss][Aa]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Ee][Dd]_[Kk][Ee][Yy][Ss])|\.[Aa][Ww][Ss][/\\][Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|\.netrc|\.npmrc|\.git-credentials|\.docker[/\\]config\.json|\.kube[/\\]config|\.credentials\.json|\.pem|\.p12)([^A-Za-z0-9_.-]|$)'
+  '((@|<[[:space:]]*|(^|[^A-Za-z0-9_-])([Cc][Aa][Tt]|[Gg][Cc]|[Gg][Ee][Tt]-[Cc][Oo][Nn][Tt][Ee][Nn][Tt]|[Tt][Yy][Pp][Ee]|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+((-[^[:space:]]*|[0-9]+)[[:space:]]+){0,8}|(^|[^A-Za-z0-9_-])(scp|rsync|tar)[[:space:]]+((-[io][[:space:]]+[^[:space:]|;&]+|([^[:space:]|;&-]|-[^io[:space:]|;&]|-[io][^[:space:]|;&])[^[:space:]|;&]*|-)[[:space:]]+){0,8}|(^|[[:space:]])(-T|--upload-file|--post-file|-[Ii][Nn][Ff][Ii][Ll][Ee]|-[Ss][Oo][Uu][Rr][Cc][Ee]|-[Aa][Tt][Tt][Aa][Cc][Hh][Mm][Ee][Nn][Tt][Ss]?)(=|[[:space:]]*)|[Uu][Pp][Ll][Oo][Aa][Dd][Ff][Ii][Ll][Ee][(][^;&|)]*,[[:space:]]*)[^[:space:]@<>|;&]*|[Rr][Ee][Aa][Dd][Aa][Ll][Ll]([Tt][Ee][Xx][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Ll][Ii][Nn][Ee][Ss])[(][[:space:]]*[^[:space:]@<>|;&()]*)(\.[Ss][Ss][Hh][/\\]([Ii][Dd]_[Rr][Ss][Aa]|[Ii][Dd]_[Ee][Dd]25519|[Ii][Dd]_[Ee][Cc][Dd][Ss][Aa]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Ee][Dd]_[Kk][Ee][Yy][Ss])|\.[Aa][Ww][Ss][/\\][Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|[._][Nn][Ee][Tt][Rr][Cc]|\.[Nn][Pp][Mm][Rr][Cc]|\.[Gg][Ii][Tt]-[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|\.[Dd][Oo][Cc][Kk][Ee][Rr][/\\][Cc][Oo][Nn][Ff][Ii][Gg]\.[Jj][Ss][Oo][Nn]|\.[Kk][Uu][Bb][Ee][/\\][Cc][Oo][Nn][Ff][Ii][Gg]|\.[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]\.[Jj][Ss][Oo][Nn]|\.[Pp][Ee][Mm]|\.[Pp]12|\.[Ss][Ss][Hh][/\\]?)([^A-Za-z0-9_./\\-]|$)'
 )
 # The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
 # be followed by something else is retried from every start inside a long run of its own characters,
@@ -551,12 +551,27 @@ FG_RES=(
 #   < redirect, a reader word (cat, base64, …, its -flags/value tokens) — piped or $(…)-substituted —
 #   an upload flag (-T, --upload-file, --post-file, -InFile; glued `-T<path>` too), and a .NET
 #   WebClient .UploadFile(url, "path"). An identity flag (ssh -i ~/.ssh/id_rsa) is no start.
+#   Residual (2026-10-11): scp/rsync/tar start too — a source or member among their next 8 words
+#   (`tar czf - ~/.ssh | curl`, `rsync ~/.ssh/ host:`). A standalone -i or -o takes its value with
+#   it (`scp -i <key>`, `-o IdentityFile=<key>`), so the key that only authenticates the copy is no
+#   start. shortcut: rsync's own -i (itemize) and -o (owner) swallow the next word the same way; a
+#   credential right after them goes unasked — split the flag table per tool if that shows up. The
+#   bare .ssh directory is a credential path, and the end boundary excludes / and \, so
+#   .ssh/known_hosts or .ssh/config never reads as the directory. Each word is followed by its
+#   whitespace INSIDE the repeated group, as the reader flags are: a run at the END of a {0,8}
+#   body is not possessified by Oniguruma, and one long word went O(n^2) (160K word 4.2 s).
 #   SEC-R1 (review 2026-10-11): the reader's flag run was unbounded `(-[^space]*[space]+)*` — a dense
 #   `od -/od -/od …` pad is a reader word (`od`) + a run of `-/od ` flag tokens, and Oniguruma retried it
 #   from every `od` start: 16 KB 1.2 s, 64 KB 17.7 s on jq 1.7 — the whole guard killed with no verdict.
 #   Bounded to {0,8} (64 KB → 35 ms). SEC-R3: readers (gc/Get-Content/type), upload flags (-InFile) and
 #   credential path parts (.ssh/.aws/id_rsa) are spelled as case classes, since none of bash =~, grep -E
 #   or jq test() case-folds here, and PowerShell/NTFS are case-insensitive.
+#   SEC-R3b (final review 2026-10-11): every credential name is a case class (.NETRC, SERVER.PEM, .Npmrc;
+#   curl's Windows _netrc too); -Source (Start-BitsTransfer) and -Attachments (Send-MailMessage) are
+#   upload flags, and those cmdlets and [Net.WebRequest] egress words. A .NET [IO.File]::ReadAllText/
+#   Bytes/Lines( starts a run of its OWN that stops at the next '(': in the shared run a dense
+#   'ReadAllBytes(.ss' pad went O(n^2) on jq 1.7 (86 KB 9.4 s; own run 12 ms). shortcut: a path built
+#   by a nested call (ReadAllText((Join-Path …))) goes unasked; the linear token check is the upgrade.
 # - jwt: the first segment's run must end where its '.' is — the end of its run of token
 #   characters — so whether some 'ey' in a run starts a match is decided by the first 'ey' of that
 #   run with 10 characters after it. The copy starts only at a run's start (lookbehind), takes that

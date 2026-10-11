@@ -84,7 +84,8 @@ fi
 # file is never touched. The audited count is what was actually DELETED: a count, the -delete pass,
 # a recount (the old `-print -delete | wc -l` counted what find listed, deleted or not). A find
 # that exits non-zero is logged through sb_log_error. The common case (no debris) costs one find.
-_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' \) -mtime +0 "$@"; }
+# .hook-timer-<pid>.timeout: the pre-watchdog hook-timer's flag files, which nothing reads any more.
+_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' -o -name '.hook-timer-*.timeout' \) -mtime +0 "$@"; }
 _ed_debris_count() {
   local l rc
   l=$(_ed_debris -print 2>/dev/null); rc=$?
@@ -100,7 +101,7 @@ if [ "${_ED_BEFORE:-0}" -gt 0 ]; then
     sb_log_error "ensure-dirs.sh" "tmp-debris-gc: find -delete exited $_ed_rc in $BRAIN_DIR (${_ED_AFTER:-?} of $_ED_BEFORE stale file(s) left): ${_ed_err:0:300}" "$_ed_rc"
   fi
   if [ "$_ED_PRUNED" -gt 0 ]; then
-    sb_log_audit "ensure-dirs.sh" "allow" "tmp-debris-gc" "$BRAIN_DIR" "pruned $_ED_PRUNED stale *.tmp.*/*.rot.* file(s)"
+    sb_log_audit "ensure-dirs.sh" "allow" "tmp-debris-gc" "$BRAIN_DIR" "pruned $_ED_PRUNED stale *.tmp.*/*.rot.*/.hook-timer-*.timeout file(s)"
   fi
 fi
 
@@ -157,6 +158,10 @@ if [ ! -f "$_D118_MARK" ] && [ -s "$BRAIN_DIR/projects.jsonl" ] && command -v jq
   rm -f "$_D118_PURGED"
   : > "$_D118_MARK"
 fi
+
+# SEC-R5 one-time move: persona signals auto-graduated into USER.md before 0.57.0 go to the untrusted
+# persona-learned.md (marker-gated in lib.sh: one stat once done; a busy lock retries next session).
+sb_migrate_learned_pins
 
 WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
 # Build the index on a fresh wiki, else validate+autofix an existing one. Delegated to the

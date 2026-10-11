@@ -169,7 +169,13 @@ echo "$RAW" | jq -c '.relations[]?' 2>/dev/null | while IFS= read -r rel; do
         && printf '%s' "$upd" > "$SNAP"
     fi
   else
-    printf '%s\n' "$rec" >> "$QLOG"
+    # Same lock maintain-deterministic.sh holds while it rewrites the quarantine. Busy past the wait:
+    # append anyway (logged by sb_archive_lock) - a quarantined edge must never be dropped.
+    if sb_archive_lock "$QLOG" merge-edges.sh; then
+      printf '%s\n' "$rec" >> "$QLOG"; sb_archive_unlock "$QLOG" "$_SB_ARCHIVE_LOCK_TOKEN"
+    else
+      printf '%s\n' "$rec" >> "$QLOG"
+    fi
   fi
 done
 
