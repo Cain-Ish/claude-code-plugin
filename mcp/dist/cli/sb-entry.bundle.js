@@ -7882,6 +7882,7 @@ var firstLine = async (f) => (await fs9.readFile(f, "utf-8")).split(/\r?\n/)[0];
 function holderGone(token) {
   const pid = token.split(".")[0];
   if (!/^\d+$/.test(pid)) return true;
+  if (process.platform === "win32") return true;
   try {
     process.kill(Number(pid), 0);
     return false;
@@ -7938,18 +7939,39 @@ async function withFileLock(file, busy, fn, waitMs = LOCK_WAIT_MS) {
     return await fn();
   } finally {
     const held = await firstLine(lf).catch(() => "");
-    if (held === token) await fs9.rm(lf, { force: true });
-    else console.error(`[hot-file-lock] the lock on ${basename2(file)} is no longer ours (ours ${token}, now ${held || "none"}: stolen while held); left as it is`);
+    if (held === token) {
+      await fs9.rm(lf, { force: true }).catch((e) => console.error(`[hot-file-lock] could not remove the lock on ${basename2(file)}: ${e.message}; it goes stale in ${STALE_MS / 1e3} s`));
+    } else console.error(`[hot-file-lock] the lock on ${basename2(file)} is no longer ours (ours ${token}, now ${held || "none"}: stolen while held); left as it is`);
   }
 }
 var seq = 0;
-async function writeFileAtomic(file, data) {
+var RENAME_RETRY = /* @__PURE__ */ new Set(["EPERM", "EACCES", "EBUSY"]);
+var RENAME_BACKOFF_MS = [10, 20, 40, 80, 160, 200, 200, 200, 200, 200, 200];
+var realIo = {
+  writeFile: (f, d) => fs9.writeFile(f, d, "utf-8"),
+  rename: (a, b) => fs9.rename(a, b),
+  rm: (f) => fs9.rm(f, { force: true }),
+  sleep
+};
+async function writeFileAtomic(file, data, io = realIo) {
   const tmp = `${file}.${process.pid}.${Date.now()}.${seq++}.tmp`;
   try {
-    await fs9.writeFile(tmp, data, "utf-8");
-    await fs9.rename(tmp, file);
+    await io.writeFile(tmp, data);
+    for (let i = 0; ; i++) {
+      try {
+        await io.rename(tmp, file);
+        return;
+      } catch (e) {
+        if (!RENAME_RETRY.has(e.code ?? "")) throw e;
+        if (i >= RENAME_BACKOFF_MS.length) break;
+        await io.sleep(RENAME_BACKOFF_MS[i]);
+      }
+    }
+    await io.writeFile(file, data);
+    await io.rm(tmp);
   } catch (e) {
-    await fs9.rm(tmp, { force: true });
+    await io.rm(tmp).catch(() => {
+    });
     throw e;
   }
 }

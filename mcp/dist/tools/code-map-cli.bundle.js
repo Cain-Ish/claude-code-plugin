@@ -6969,7 +6969,12 @@ async function isDirty(repoRoot, runGit = defaultRunGit) {
   try {
     const out = await runGit(["status", "--porcelain", "--untracked-files=no"], repoRoot);
     return out.trim().length > 0;
-  } catch {
+  } catch (e) {
+    const err = e;
+    if (err.killed || err.signal || err.code === "ETIMEDOUT") {
+      console.error(`[codemap] git status did not finish in ${repoRoot} (${err.signal ?? err.code ?? "killed"}); treating the tree as dirty`);
+      return true;
+    }
     return false;
   }
 }
