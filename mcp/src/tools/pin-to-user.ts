@@ -1,7 +1,8 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
-import { withFileLock, writeFileAtomic } from './hot-file-lock.js';
+import { withFileLock } from './hot-file-lock.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 // Cap on PIN LINES ONLY ("- [YYYY-MM-DD] …"), never on the whole file. The previous cap
 // (15 non-blank lines of the ENTIRE file, pin appended at EOF) counted the operator's own

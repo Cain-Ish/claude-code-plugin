@@ -2,7 +2,8 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
-import { withFileLock, writeFileAtomic } from './hot-file-lock.js';
+import { withFileLock } from './hot-file-lock.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export type PinSection = 'blockers' | 'decisions' | 'conventions';
 export interface PinToProjectArgs {
