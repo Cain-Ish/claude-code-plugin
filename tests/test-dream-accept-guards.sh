@@ -273,6 +273,34 @@ else
 fi
 rm -rf "$SB"
 
+# === P1b (SIL-R8): no-rsync copy-back keeps a live page that changed DURING the apply ===
+# The cp -ru apply overwrites a protected page whose staging copy is newer; the restore then copies
+# the stash back ONLY while live still equals the staging copy the apply just wrote. A cp shim
+# appends a sentinel to live p2 right after the apply cp (a drainer write landing in that window):
+# the differing live page must be kept, not clobbered by the older stash. Only the no-rsync path
+# has this restore, so a host with rsync skips.
+if command -v rsync >/dev/null 2>&1; then
+  echo "SKIP: P1b copy-back cmp path — rsync on PATH; the restore exists only on the no-rsync apply"
+else
+  setup 3 "p1 p2"
+  jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' \
+    > "$BRAIN_DIR/dreams/drm_test/status.json"
+  touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md" "$KNOWLEDGE_DIR/wiki/entities/p3.md"
+  printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"   # protected: newer than created_at
+  touch -t 203001010000 "$BRAIN_DIR/dreams/drm_test/staging/wiki/entities/p2.md"  # staging newer: cp -u will overwrite live
+  mkdir -p "$SB/cpshim"
+  printf '#!%s\ncp_real=%q\n"$cp_real" "$@"; rc=$?\ncase " $* " in *"/staging/wiki/."*) printf "WRITTEN DURING APPLY\\n" >> %q ;; esac\nexit $rc\n' \
+    "$BASH" "$(command -v cp)" "$KNOWLEDGE_DIR/wiki/entities/p2.md" > "$SB/cpshim/cp"
+  chmod +x "$SB/cpshim/cp"
+  OUT=$(PATH="$SB/cpshim:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "P1b: accept failed (rc=$rc): $OUT"
+  grep -q 'WRITTEN DURING APPLY' "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+    || fail "P1b: a live page written during the apply was clobbered by the stash restore"
+  printf '%s' "$OUT" | grep -q 'Preserved 1 live page' || fail "P1b: the kept page was not counted as preserved: $OUT"
+  pass "P1b: a live page that differs from the staging copy after the apply is kept (cmp -s path)"
+fi
+rm -rf "$SB"
+
 # === P2: missing/unusable created_at → FAIL-SAFE (no deletions this accept) ===
 # With no trustworthy snapshot time the accept cannot tell which live pages
 # postdate the dream, so `rsync --delete` must not run at all: dream-dropped
