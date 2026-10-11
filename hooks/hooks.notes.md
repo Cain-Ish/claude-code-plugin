@@ -11,6 +11,21 @@ resolve to a live command under that event, and every hook group in `hooks.json`
 must be named by at least one heading. A note for a deleted hook, or a hook added
 without a note, fails the suite.
 
+**`hook-timer.sh` wrapper** (A7/R7, audit H7): `bash hook-timer.sh <budget> <script>`,
+`<budget>` mirroring the entry's `timeout`, appends one `kind:"latency"` row per
+run and is transparent — stdin, stdout, stderr and the hook's own exit code pass
+through. Its watchdog sleeps the WHOLE budget, never less: the CLI's clock starts
+before the wrapper's, so it has given up by then, and a verdict printed in budget
+is never touched. If the hook still runs, the watchdog writes the row itself
+(`timeout:true`, `exit_code` 124) — the CLI kills the wrapper at the budget, so
+the wrapper cannot. Budgets under 10 s (the 5 s PreToolUse guards) also reap the
+hook's process group, grandchildren included, and a still-living wrapper exits
+124. Budgets of 10 s and up (session-load, `--compact` at 10 included,
+dream-autostage, persona-context, stop-extract, pre-compact) are never killed:
+the hook finishes its side effects as an orphan, as before the watchdog. No state
+is kept between runs (no flag file: a PID-keyed one once turned a later healthy
+guard into 124, i.e. fail-open).
+
 ---
 
 ## SessionStart
@@ -40,7 +55,7 @@ No writes: no pin refresh, memo, registration, baseline copy, session count or
 projects.jsonl change — SessionStart(compact) fires in the same second as
 PostCompact and before it, so it can only ever render what PROJECT.md already
 holds. Wrapped in `hook-timer.sh 10` (A7: heavy hooks are timed) — the
-budget/timeout stay at 10s. Kill switch `SB_COMPACT_REINJECT=off`. A pairing alarm (run once per
+budget/timeout stay at 10s; a run past it gets a timeout row, never a kill. Kill switch `SB_COMPACT_REINJECT=off`. A pairing alarm (run once per
 startup, in the `startup|resume|clear|fork` group above) logs an error-log row
 when a `gate=postcompact-capture` row has no matching `gate=compact-reinject`
 row for the same session — signal that SessionStart(compact) output regressed
@@ -144,7 +159,8 @@ missing sanitizer), and merges it add-only into `## Plan` as
 whose in-session extraction always queues. Never blocks; nothing waits on
 Stop (Stop does not fire on user interrupts). Wrapped in `hook-timer.sh 30`
 (A7: heavy hooks are timed) — timeout raised 15s -> 30s in 0.54.0 (measured
-31-54s on a loaded box: the gate spawns node plus the injection scanner).
+31-54s on a loaded box: the gate spawns node plus the injection scanner). A run
+past 30s gets a timeout row and is never killed: its merge still lands.
 A merge that finds PROJECT.md locked (exit 3 after its ~5 s wait) is retried
 once, while the run is under 15 s: no later hook retries a PostCompact. Still
 locked: one error row (ec 1) says the Pending Tasks were dropped.
