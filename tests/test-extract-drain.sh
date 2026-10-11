@@ -8,6 +8,7 @@
 # pins: SB_DRAIN_BATCH — D8/D8b/D9 size the per-tick extractor-call budget that is under test
 # pins: SB_DRAIN_FLOOR — D2 turns the deterministic floor off so MAX_FAILS yields the error row under test
 # pins: SB_DRAIN_MAX_FAILS — D2 fixes the dead-letter threshold the retry/error rows are asserted against
+# pins: SB_DRAIN_MAX_DEFERS — D2c fixes the consecutive-merge-deferral cap the dead-letter is asserted against
 # pins: SB_DRAIN_MIN_BYTES — 0 for the tiny legacy fixtures; D7 and D16 set 1024 to test the too-small gate itself
 # pins: SB_SCRUB_MIGRATE_MAX_FILES — D11c/D17a/D18 size the per-run scrub cap that is under test (1 = one scrub per tick)
 # pins: SB_SCRUB_MIGRATE_MAX_S — D18 sets 0 to test the per-run time bound itself (one scrub, then stop)
@@ -435,6 +436,34 @@ grep -q 'bz1_proj_2026-05-24.txt.*not counted toward SB_DRAIN_MAX_FAILS' "$BRAIN
   && ok "busy: the deferral is logged" || no "busy: no deferral row in the error log"
 rm -f "$RBUSY"; SB_DRAIN_FLOOR=off SB_DRAIN_MAX_FAILS=1 rdrain
 eq "busy: the next free tick extracts the window" "$(cmap bz1_proj_2026-05-24.txt 2) $(cmap bz1_proj_2026-05-24.txt 4)" "10 done"
+
+# D2c: a PERMANENT merge exit 3 (e.g. an unwritable PROJECT.md) must not re-extract forever: after
+# SB_DRAIN_MAX_DEFERS consecutive deferrals each further one counts as a failure and dead-letters via
+# MAX_FAILS. The health line names the deferrals; a transient exit 3 followed by success resets.
+reset; rm -f "$RLOG" "$RFAIL" "$RBUSY"
+mk_lines "pb1_proj_2026-05-24.txt" 3                       # 10 lines
+echo "pb1_proj_2026-05-24.txt 0" > "$RBUSY"
+pdrain() { SB_DRAIN_FLOOR=off SB_DRAIN_MAX_FAILS=2 SB_DRAIN_MAX_DEFERS=2 rdrain; }
+pdrain
+grep -q 'deferred=1' "$BRAIN_DIR/.extractor-health.json" 2>/dev/null \
+  && ok "defer cap: the health line reports deferred=1" || no "defer cap: health line lacks deferred=1 (got: $(cat "$BRAIN_DIR/.extractor-health.json" 2>/dev/null))"
+pdrain; pdrain; pdrain
+eq "defer cap: 2 deferrals + 2 counted failures = 4 attempts" "$(rcalls)" "4"
+rows_for pb1_proj_2026-05-24.txt | grep -q '"outcome":"error","from":0,"lines":10' \
+  && ok "defer cap: the endless deferral is dead-lettered" || no "defer cap: no error row (got: $(rows_for pb1_proj_2026-05-24.txt))"
+grep -q 'pb1_proj_2026-05-24.txt.*consecutive deferrals' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && ok "defer cap: the cap crossing is logged loudly" || no "defer cap: no cap log row"
+N_BEFORE=$(rcalls); pdrain
+eq "defer cap: a dead-lettered archive is not re-extracted" "$(rcalls)" "$N_BEFORE"
+# a transient exit 3 then success: no dead letter, counter cleared
+reset; rm -f "$RLOG" "$RBUSY"
+mk_lines "pb2_proj_2026-05-24.txt" 3
+echo "pb2_proj_2026-05-24.txt 0" > "$RBUSY"
+pdrain; pdrain
+rm -f "$RBUSY"; pdrain
+eq "defer cap: transient busy then success extracts, no dead letter" "$(cmap pb2_proj_2026-05-24.txt 2) $(cmap pb2_proj_2026-05-24.txt 4)" "10 done"
+grep -q 'pb2_proj' "$BRAIN_DIR/.drain-merge-defers" 2>/dev/null \
+  && no "defer cap: success left a deferral counter" || ok "defer cap: success clears the deferral counter"
 
 # D3: first-tick migration. Legacy row (no lines) + archive unchanged since -> baseline, no LLM;
 # grown since -> legacy-regrow re-mined from the header end; legacy error unchanged -> stays dead.
