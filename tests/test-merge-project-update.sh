@@ -8,6 +8,7 @@
 # [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Exits 0 on success;
 # non-zero on an unparseable PROJECT.md, invalid JSON, or (since 2026-08-23, EC-13) a
 # FAILED PROJECT.md write — so the drainer retries instead of marking the transcript done.
+# pins: SB_AI_RENDER_TIMEOUT_S — R3 shortens the render-CLI bound 20 -> 2 s: that the bound fires and the merge carries on is under test, not its length
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/merge-project-update.sh"
 TMP=$(mktemp -d)
@@ -1152,5 +1153,24 @@ grep -q 'no longer ours' "$R6D/error-log.jsonl" 2>/dev/null || fail "SIL-R6: the
 [ "$(cat "$R6D/projects/r6p/.PROJECT.md.lock" 2>/dev/null)" = "foreign.token" ] || fail "SIL-R6: the merge removed a lock that was not its own"
 [ "$(ls -A "${R6P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "SIL-R6: the refused merge left its temp file behind: $(ls -A "${R6P%/*}")"
 pass "SIL-R6: a lock that is no longer ours at the final mv refuses the write (exit 3), the foreign lock stays"
+
+# --- Residual 3: the ai-block render CLI runs while the PROJECT.md lock is held, so it is bounded. A
+# node shim that hangs ONLY on the render bundle must not hang the merge: the refresh is skipped with
+# an error row, the page is still written, the merge exits 0.
+R3D="$TMP/r3"; mkdir -p "$R3D/bin" "$R3D/kd" "$R3D/projects/r3p"
+REAL_NODE=$(command -v node)
+printf '#!%s\ncase "$*" in *ai-block-render-cli*) exec sleep 60 ;; esac\nexec "%s" "$@"\n' "$BASH" "$REAL_NODE" > "$R3D/bin/node"
+chmod +x "$R3D/bin/node"
+R3P="$R3D/projects/r3p/PROJECT.md"; seed_project "$R3P"
+R3_START=$SECONDS; R3_RC=0
+jq -nc '{wiki_updates:[{category:"learnings",slug:"r3-render-hang",action:"create",title:"T",description:"d",
+  content:"R3 BODY SENTINEL",ai_block:{summary:"x"}}]}' \
+  | PATH="$R3D/bin:$PATH" BRAIN_DIR="$R3D" SB_AI_RENDER_TIMEOUT_S=2 bash "$SCRIPT" --project-md "$R3P" --knowledge-dir "$R3D/kd" >/dev/null 2>&1 || R3_RC=$?
+[ "$R3_RC" -eq 0 ] || fail "R3: a hung render CLI must not fail the merge, got exit $R3_RC"
+[ $((SECONDS - R3_START)) -lt 40 ] || fail "R3: the merge waited for the hung render CLI ($((SECONDS - R3_START)) s)"
+grep -q 'ai-block render timed out' "$R3D/error-log.jsonl" 2>/dev/null || fail "R3: the render timeout left no error row: $(cat "$R3D/error-log.jsonl" 2>/dev/null)"
+grep -qF 'R3 BODY SENTINEL' "$R3D/kd/wiki/learnings/r3-render-hang.md" 2>/dev/null || fail "R3: the page was not written after the render timeout"
+[ ! -e "$R3D/projects/r3p/.PROJECT.md.lock" ] || fail "R3: the merge left the PROJECT.md lock behind"
+pass "R3: a hung ai-block render CLI is bounded (timeout row, page still written, exit 0, lock released)"
 
 echo "ALL PASS"

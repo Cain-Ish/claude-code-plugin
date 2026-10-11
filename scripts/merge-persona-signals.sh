@@ -60,6 +60,14 @@ if echo "$NEW_SIGNALS" | jq -e 'length == 0' >/dev/null 2>&1 \
   exit 0
 fi
 
+# Residual 1: the read-modify-write of persona-signals.jsonl (read here, mv below) holds the same
+# .persona-signals.jsonl.lock primitive as PROJECT.md; two merges (Stop+Stop, Stop+drainer) otherwise
+# lose a signal update. Busy past SB_ARCHIVE_LOCK_WAIT_S: sb_archive_lock logs, exit 1 (retried later).
+_MPS_LOCK_TOKEN=""; _MPS_TMP_E=""; _MPS_TMP_N=""
+trap 'rm -f ${_MPS_TMP_E:+"$_MPS_TMP_E"} ${_MPS_TMP_N:+"$_MPS_TMP_N"}; [ -z "$_MPS_LOCK_TOKEN" ] || sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"' EXIT
+sb_archive_lock "$SIGNALS_FILE" merge-persona-signals.sh || exit 1
+_MPS_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
+
 # Load existing signals as JSON array. D139: `jq -s '.'` aborts the WHOLE slurp on
 # one unparseable line (a partial append, a crash mid-write, a concurrent-write
 # tear — see D120) and the `|| echo '[]'` then treats every accumulated signal as
@@ -81,7 +89,6 @@ _MPS_TMP_E=$(mktemp "${TMPDIR:-/tmp}/mps-existing.XXXXXX") && _MPS_TMP_N=$(mktem
   rm -f "${_MPS_TMP_E:-}"
   exit 1
 }
-trap 'rm -f "$_MPS_TMP_E" "$_MPS_TMP_N"' EXIT
 printf '%s' "$EXISTING" > "$_MPS_TMP_E"
 printf '%s' "$NEW_SIGNALS" > "$_MPS_TMP_N"
 MERGED=$(jq -nc \
@@ -261,6 +268,7 @@ if [ -n "$MERGED" ] && echo "$MERGED" | jq -e 'type == "array"' >/dev/null 2>&1;
     rm -f "$TMP_SIG" 2>/dev/null
   fi
 fi
+sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN" && _MPS_LOCK_TOKEN=""
 
 # --- Rule-candidate accumulation → auto-arm as learned WARN rules ---
 # Candidates come from the extractor only when the transcript showed an

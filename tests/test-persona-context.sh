@@ -1,4 +1,5 @@
 #!/bin/bash
+# pins: SB_VECTOR_DEPS_DIR — points the hook at a sandbox vector-deps dir (path override, not a gate): the reindex-lock cases need a controlled dir
 # run-all-timeout: 480   (measured 171s alone on MSYS 2026-10-05 after the R1 machine-turn / headless / session-id cases; the 120s default timed it out under run-all load)
 # pins: SB_INTENT_SPINE — kill-switch test: asserts =off leaves the legacy advisory path alone
 # pins: SB_PERSONA_GATE — kill-switch test: asserts =off is honored (Test 4)

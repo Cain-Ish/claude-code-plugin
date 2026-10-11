@@ -81,13 +81,20 @@ if [ -s "$QF" ] && [ -f "$SDIR/merge-edges.sh" ] && command -v jq >/dev/null 2>&
     sb_log_error "maintain-deterministic" "graph quarantine: replayed $(grep -c . "$_q_ship") edge(s) whose endpoints now resolve" 0
   fi
   # Atomic rewrite (tmp+mv): a torn quarantine file would lose edges outright.
-  # shortcut: an append landing between this tail and the mv is still lost; a lock shared with
-  # merge-edges.sh closes that if it ever shows up.
-  tail -c +"$((_q_n + 1))" "$QF" >> "$_q_keep"
-  if ! cmp -s "$_q_keep" "$QF"; then
-    mv "$_q_keep" "$QF"  || rm -f "$_q_keep" 
+  # The tail-copy and the mv hold the SAME .edges-quarantine.jsonl.lock merge-edges.sh takes around its
+  # quarantine append, so no append lands between them. Busy past the wait: sb_archive_lock logs and the
+  # rewrite is skipped (the replayed edges are re-asserted next run; nothing is lost).
+  if sb_archive_lock "$QF" maintain-deterministic.sh; then
+    _q_tok="$_SB_ARCHIVE_LOCK_TOKEN"
+    tail -c +"$((_q_n + 1))" "$QF" >> "$_q_keep"
+    if ! cmp -s "$_q_keep" "$QF"; then
+      mv "$_q_keep" "$QF" || rm -f "$_q_keep"
+    else
+      rm -f "$_q_keep"
+    fi
+    sb_archive_unlock "$QF" "$_q_tok"
   else
-    rm -f "$_q_keep" 
+    rm -f "$_q_keep"
   fi
   rm -f "$_q_ship" 
 fi

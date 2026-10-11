@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pins: SB_AUDIT_FILE — points rotation at a sandbox audit log so the real one is untouched; the rotation itself is under test
+# pins: SB_AUDIT_MAX_LINES — lowers the rotation cap to 10 lines so rotation triggers; whether it rotates at the cap is under test
 # R6b (HOOK-9): error-log hygiene.
 # (1) gate=* breadcrumbs with exit_code 0 are TRACE, not errors — they belong
 #     in audit-log.jsonl (the trajectory channel), not error-log.jsonl, where

@@ -134,7 +134,7 @@ An audit log with zero deny/ask ever is itself a symptom — write verdicts so t
 
 `bash ${CLAUDE_PLUGIN_ROOT}/scripts/hook-timer.sh <budget_s> ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.sh`
 with `<budget_s>` mirroring the entry's `timeout`. The wrapper is TRANSPARENT telemetry only —
-it never kills or gates the child; it appends `{kind:"latency",…,budget_warn}` to audit-log at
+it never gates the child, reaps a guard (budget < 10 s) after its budget and never kills a heavy hook (>= 10 s); it appends `{kind:"latency",…,budget_warn}` to audit-log at
 >70% of budget (`hook-timer.sh:2-17,45-54`). Wrapped today: session-load (15), dream-autostage
 (20), persona-context (10), stop-extract (45), pre-compact (45). 5-second advisory hooks are not
 wrapped.
