@@ -4426,13 +4426,14 @@ sb_auto_memory_state() {
 # Is the per-OS extract-drain scheduler registered? Returns 0 (installed) / 1 (absent).
 # OS arg optional ($1); else SB_INSTALL_OS_OVERRIDE; else uname-derived (systemd|launchd|windows).
 # Signal = the install artifact the matching install-extract-timer.sh --apply branch writes and
-# --uninstall removes: the systemd user TIMER unit (Linux) / the LaunchAgent plist (macOS) / a
-# live schtasks query (Windows leaves no file artifact, so we ask the scheduler). Using the unit
-# FILE rather than `systemctl --user is-enabled` keeps this portable and unit-testable, and stays
-# in lockstep with what uninstall deletes. A unit present-but-administratively-disabled is a rare
-# partial state that the self-healing --ensure re-applies harmlessly.
+# --uninstall removes — the systemd user TIMER unit (Linux) / the LaunchAgent plist (macOS) — and
+# then the scheduler's own answer: `systemctl --user is-enabled` / `launchctl print`, so a disabled
+# timer or an unloaded agent reads as absent and --ensure re-applies it. Windows leaves no file
+# artifact: a live schtasks query. When the scheduler cannot be asked at all (no user bus, a
+# container, WSL without systemd, no gui domain) the file stands as the signal: an --apply could not
+# be verified there either, so 'absent' would only re-run --ensure on every session.
 sb_timer_installed() {
-  local os="${1:-${SB_INSTALL_OS_OVERRIDE:-}}"
+  local os="${1:-${SB_INSTALL_OS_OVERRIDE:-}}" st rc
   if [ -z "$os" ]; then
     case "$(uname -s 2>/dev/null)" in
       Linux)                os=systemd ;;
@@ -4450,14 +4451,34 @@ sb_timer_installed() {
   [ -f "${BRAIN_DIR:-$HOME/.second-brain}/bin/sb-extract-drain.sh" ] || return 1
   case "$os" in
     systemd)
-      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] ;;
+      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] || return 1
+      # A reachable user manager always prints a state word (enabled, disabled, not-found…);
+      # unreachable — or no systemctl — prints nothing on stdout.
+      st=$(systemctl --user is-enabled sb-extract-drain.timer 2>/dev/null); rc=$?
+      [ "$rc" = 0 ] && return 0
+      [ -n "$st" ] && return 1
+      _sb_timer_unverifiable systemd ;;
     launchd)
-      [ -f "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ] ;;
+      [ -f "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ] || return 1
+      launchctl print "gui/$(id -u)/sb-extract-drain" >/dev/null 2>&1 && return 0
+      # The gui domain answers but holds no such service: not loaded.
+      launchctl print "gui/$(id -u)" >/dev/null 2>&1 && return 1
+      _sb_timer_unverifiable launchd ;;
     windows)
       MSYS_NO_PATHCONV=1 schtasks /Query /TN sb-extract-drain >/dev/null 2>&1 ;;
     *)
       return 1 ;;
   esac
+}
+
+# _sb_timer_unverifiable OS: the unit/plist file is there but the scheduler cannot be asked. Reads
+# as installed (see sb_timer_installed), with one error-log row the first time, not one per session.
+_sb_timer_unverifiable() {
+  local m="$BRAIN_DIR/.timer-unverifiable"
+  [ -f "$m" ] && return 0
+  sb_log_error "lib.sh" "sb_timer_installed: the $1 drainer scheduler's unit file is present but whether it is enabled/loaded cannot be verified (no user bus or gui session: a container, WSL without systemd, an ssh-only login) - treated as installed; logged once (delete $m to log again)" 0
+  : > "$m"
+  return 0
 }
 
 # One-line human status of the drainer scheduler: "installed" | "absent" (passes $@ through to
