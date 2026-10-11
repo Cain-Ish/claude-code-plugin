@@ -1,7 +1,7 @@
 #!/bin/bash
 # run-all-timeout: 240   (~40 merge runs; the E1/E3 cases run the REAL lib.sh 9 more times plus a 1 s
 #   lock wait; measured 121 s alone on a loaded MSYS box, 2026-10-11)
-# pins: SB_ARCHIVE_LOCK_WAIT_S — R1 (held signals lock) and E3 sets lib.sh's _SB_ARCHIVE_LOCK_WAIT_S=1 (the census reads the env name inside it): the bounded wait failing loud is under test, not its length
+# pins: SB_ARCHIVE_LOCK_WAIT_S — R1 (held signals lock) and E3 sets lib.sh's _SB_ARCHIVE_LOCK_WAIT_S=1 (the census reads the env name inside it): the bounded wait failing loud is under test, not its length; R1's 6 concurrent merges raise it to 30 s so a loaded box does not drop the 6th (the lost update is under test)
 # Tests for scripts/merge-persona-signals.sh — signal dedup + auto-graduation.
 # Goal: prove that the loosened dedup (set-min, 50%) catches paraphrased
 # repeats, and that two high-confidence sightings now auto-graduate.
@@ -524,7 +524,9 @@ rm -rf "$M_BRAIN"
 # --- Residual 1: persona-signals.jsonl read-modify-write holds .persona-signals.jsonl.lock, so two
 # concurrent merges (Stop + Stop, Stop + drainer) cannot lose each other's signal. Real lib.sh.
 CC_BRAIN="$TMP/cc-brain"; CC_HOME="$TMP/cc-home"; mkdir -p "$CC_BRAIN" "$CC_HOME"
-cc_merge() { printf '%s' "$1" | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" bash "$SCRIPT" --session "$2" >/dev/null 2>&1; }
+# 6 merges queue on one lock: the 6th waits for 5 holds, ~5-6 s on a quiet MSYS box, so the 5 s default
+# wait made the case flaky under load. The wait is raised for this phase; the lost update is under test.
+cc_merge() { printf '%s' "$1" | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" SB_ARCHIVE_LOCK_WAIT_S=30 bash "$SCRIPT" --session "$2" >/dev/null 2>&1; }
 cc_pids=""
 for w in alpha bravo charlie delta echo foxtrot; do
   cc_merge "[{\"category\":\"workflow\",\"signal\":\"zzq${w}one zzq${w}two zzq${w}three marker\",\"evidence\":\"e\",\"confidence\":\"low\"}]" "cc-$w" &

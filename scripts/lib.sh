@@ -1279,7 +1279,9 @@ sb_migrate_learned_pins() {
     { print }
   ' "$u" > "$u.tmp.$$" || rc=1
   if [ "$rc" -eq 0 ] && [ -s "$moved_f" ]; then
-    while IFS= read -r t; do sb_pin_to_learned "$t" || rc=1; done < "$moved_f"
+    while IFS= read -r t; do
+      sb_pin_to_learned "$t" || rc=1
+    done < "$moved_f"
     [ "$rc" -eq 0 ] && { mv "$u.tmp.$$" "$u" || rc=1; }
     if [ "$rc" -eq 0 ]; then
       n=$(grep -c . "$moved_f")
