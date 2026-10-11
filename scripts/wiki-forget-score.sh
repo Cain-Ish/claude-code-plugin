@@ -68,14 +68,14 @@ LC_ALL=C awk -v dl="$_t/dates" '
     cr = ""; inr = 0; hasend = 0; skip = 0; strip = 0
     while ((getline l < p) > 0) {
       if (inr) {
-        if (cr == "" && l ~ /^created:[[:space:]]*"?[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
-          v = l; sub(/^created:[[:space:]]*"?/, "", v); cr = substr(v, 1, 10)
+        if (cr == "" && l ~ /^created:[ \t]*"?[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
+          v = l; sub(/^created:[ \t]*"?/, "", v); cr = substr(v, 1, 10)
         }
         if (l ~ /^---$/) inr = 0
       } else if (l ~ /^---$/) inr = 1
-      if (l ~ /<!--[[:space:]]*ai:end[[:space:]]*-->/) hasend = 1
-      if (l ~ /<!--[[:space:]]*ai:begin/) skip = 1
-      if (skip) { if (l ~ /<!--[[:space:]]*ai:end[[:space:]]*-->/) skip = 0 }
+      if (l ~ /<!--[ \t]*ai:end[ \t]*-->/) hasend = 1
+      if (l ~ /<!--[ \t]*ai:begin/) skip = 1
+      if (skip) { if (l ~ /<!--[ \t]*ai:end[ \t]*-->/) skip = 0 }
       else strip += length(l) + 1
     }
     close(p)
@@ -105,7 +105,7 @@ LC_ALL=C awk -F'\t' -v now="$now" -v minage="$MINAGE" -v wc="$WC" -v wg="$WG" \
   -v prot=" $SB_FORGET_PROTECTED " -v disc=" $SB_FORGET_DISCOUNTED " \
   -v lf="$_t/links" -v af="$_t/acc" -v ef="$_t/epochs" '
   BEGIN {
-    while ((getline l < lf) > 0) { n = l; sub(/^[[:space:]]*[0-9]+ /, "", n); split(l, x, " "); if (!(n in inb)) inb[n] = x[1] }
+    while ((getline l < lf) > 0) { n = l; sub(/^[ \t]*[0-9]+ /, "", n); split(l, x, " "); if (!(n in inb)) inb[n] = x[1] }
     while ((getline l < af) > 0) { i = index(l, "\t"); if (i) acc[substr(l, 1, i - 1)] = substr(l, i + 1) }
     while ((getline l < ef) > 0) { split(l, x, " "); ep[x[1]] = x[2] }
   }
