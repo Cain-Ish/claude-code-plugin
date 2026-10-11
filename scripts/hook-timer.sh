@@ -12,7 +12,8 @@
 # and lets /second-brain:status render p50/p95 with budget warnings.
 #
 # Contract: TRANSPARENT — child stdin/stdout/stderr and exit code pass
-# through untouched; any timer-side failure is swallowed (fail-open). The
+# through untouched (124 only for a child the watchdog below killed past its
+# budget); any timer-side failure is swallowed (fail-open). The
 # child's own SB_NESTED_SPAWN guard still applies inside it; the wrapper
 # itself never gates.
 set -u
@@ -59,72 +60,83 @@ case "$BUDGET_S" in
   ''|*[!0-9]*|0) unset SB_HOOK_LATE_MS SB_HOOK_LATE_PID ;;
   *) export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 )) SB_HOOK_LATE_PID=$$ ;;
 esac
-# Watchdog (audit H7): the CLI SIGKILLs a hook at its budget and this wrapper dies with it, writing no
-# row while the child runs on. So the child runs in the background and a watchdog fires 0.3 s early
-# (a whole second cost the 5 s PreToolUse guards a fifth of their budget, so more of them failed open
-# under load; GNU, BSD and MSYS sleep all take the fraction): it flags the timeout, TERMs the child and
-# the child's direct children (a node under the hook script survives a bare kill, MSYS included), and
-# KILLs them 0.2 s later, so the row is written before the CLI's own kill at the budget. shortcut:
-# grandchildren deeper than that are not reached; switch to a process group (set -m) if one is ever
-# seen surviving.
-# Stdin passes through (<&0); the watchdog's fds are detached so an orphaned sleep cannot hold a
-# caller's output pipe open.
+# One latency row: exit code $1, extra members $2. Written by the wrapper, or by the watchdog below
+# when the hook outran its budget (the wrapper may be dead by then).
+_row() {
+  _now_ms; T1=$_MS
+  {
+    DUR=$(( T1 - T0 )); [ "$DUR" -lt 0 ] && DUR=0
+    WARN=""
+    case "$BUDGET_S" in
+      ''|*[!0-9]*) : ;;
+      0) : ;;
+      *)
+        # warn when duration exceeds 70% of the budget (ms compare, int math)
+        if [ $(( DUR * 10 )) -ge $(( BUDGET_S * 1000 * 7 )) ]; then
+          WARN=',"budget_warn":true'
+        fi
+        # late: the hook was still running when the CLI may already have cancelled it (see above).
+        [ -n "${SB_HOOK_LATE_MS:-}" ] && [ "$T1" -ge "$SB_HOOK_LATE_MS" ] && WARN="$WARN"',"late":true'
+        ;;
+    esac
+    # plugin_version: which hook code wrote the row (two installed versions' sessions coexist; a stale
+    # hook's rows looked like a regression). Read beside the script, builtins only.
+    PV="" PJ=""
+    IFS= read -r -d '' -n 8192 PJ < "${SCRIPT%/*}/../.claude-plugin/plugin.json"
+    [[ $PJ =~ \"version\"[[:space:]]*:[[:space:]]*\"([0-9A-Za-z.+-]{1,32})\" ]] && PV=',"plugin_version":"'"${BASH_REMATCH[1]}"'"'
+    HOOK="${SCRIPT##*/}"
+    if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+      TZ=UTC0 printf -v TS '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+    else
+      TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    fi
+    printf '{"ts":"%s","kind":"latency","hook":"%s","duration_ms":%s,"exit_code":%s%s%s%s}\n' \
+      "$TS" "$HOOK" "$DUR" "$1" "$WARN" "$PV" "$2" >> "$BRAIN_DIR/audit-log.jsonl"
+  } 2>/dev/null || true
+}
+
+# Watchdog (audit H7; review SEC-R6, IMP-R1/R2/R8, SIL-R1/R3/R7, TST-R3, PORT-R1): the CLI kills a hook
+# at its budget and this wrapper dies with it, writing no row while the child runs on. So the child
+# runs in the background and a watchdog sleeps the WHOLE budget — never less: the CLI's clock starts
+# before this wrapper does, so by then it has given up, and a verdict printed any earlier passes
+# through untouched. If the child still runs, the watchdog writes the timeout row itself. Under a
+# short budget (< 10 s: the PreToolUse guards) it then reaps the child's process group, grandchildren
+# included (set -m gives each job its own group; git-bash has no pkill). A heavy hook (>= 10 s:
+# session-load, stop-extract, pre-compact, persona-context, dream-autostage) is never killed: it
+# finishes its side effects, as before the watchdog. No state outlives the run: the wrapper learns of
+# a reap from the watchdog's exit status, never from a file.
+# Stdin passes through (<&0); the watchdog's fds are detached so it cannot hold a caller's pipe open.
+set -m
 bash "$SCRIPT" "$@" <&0 &
 CHILD=$!
 WD=""
-TO_FLAG="$BRAIN_DIR/.hook-timer-$$.timeout"
 case "$BUDGET_S" in
-  ''|*[!0-9]*|0|1) : ;;
+  ''|*[!0-9]*|0) : ;;
   *)
-    ( sleep "$(( BUDGET_S - 1 )).7"
-      kill -0 "$CHILD" 2>/dev/null || exit 0
-      : > "$TO_FLAG"
-      command -v pkill >/dev/null 2>&1 && pkill -TERM -P "$CHILD" 2>/dev/null
-      kill "$CHILD" 2>/dev/null
+    ( sleep "$BUDGET_S"
+      trap '' TERM   # fired: the wrapper's stop below can no longer cut the row or the reap short
+      kill -0 "$CHILD" 2>/dev/null || exit 1
+      _row 124 ',"timeout":true'
+      [ "$BUDGET_S" -lt 10 ] || exit 0
+      kill -TERM -- "-$CHILD" 2>/dev/null
       sleep 0.2
-      command -v pkill >/dev/null 2>&1 && pkill -KILL -P "$CHILD" 2>/dev/null
-      kill -KILL "$CHILD" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+      kill -KILL -- "-$CHILD" 2>/dev/null
+      exit 0 ) </dev/null >/dev/null 2>&1 &
     WD=$!
     ;;
 esac
-wait "$CHILD"
+set +m
+wait "$CHILD" 2>/dev/null   # 2>/dev/null: bash 3.2's "Terminated" job notice (the child's stderr is its own)
 EC=$?
-[ -n "$WD" ] && kill "$WD" 2>/dev/null
-TIMEOUT=""
-if [ -e "$TO_FLAG" ]; then
-  TIMEOUT=',"timeout":true'; EC=124
-  rm -f "$TO_FLAG" 2>/dev/null
-fi
-_now_ms; T1=$_MS
-
-{
-  DUR=$(( T1 - T0 )); [ "$DUR" -lt 0 ] && DUR=0
-  WARN=""
-  case "$BUDGET_S" in
-    ''|*[!0-9]*) : ;;
-    0) : ;;
-    *)
-      # warn when duration exceeds 70% of the budget (ms compare, int math)
-      if [ $(( DUR * 10 )) -ge $(( BUDGET_S * 1000 * 7 )) ]; then
-        WARN=',"budget_warn":true'
-      fi
-      # late: the hook was still running when the CLI may already have cancelled it (see above).
-      [ -n "${SB_HOOK_LATE_MS:-}" ] && [ "$T1" -ge "$SB_HOOK_LATE_MS" ] && WARN="$WARN"',"late":true'
-      ;;
-  esac
-  # plugin_version: which hook code wrote the row (two installed versions' sessions coexist; a stale
-  # hook's rows looked like a regression). Read beside the script, builtins only.
-  PV="" PJ=""
-  IFS= read -r -d '' -n 8192 PJ < "${SCRIPT%/*}/../.claude-plugin/plugin.json"
-  [[ $PJ =~ \"version\"[[:space:]]*:[[:space:]]*\"([0-9A-Za-z.+-]{1,32})\" ]] && PV=',"plugin_version":"'"${BASH_REMATCH[1]}"'"'
-  HOOK="${SCRIPT##*/}"
-  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
-    TZ=UTC0 printf -v TS '%(%Y-%m-%dT%H:%M:%SZ)T' -1
-  else
-    TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+if [ -n "$WD" ]; then
+  # The watchdog's group, its sleep included (a bare kill orphaned it). shortcut: if a heavy hook
+  # outlived a watchdog that already fired, this group id is long dead; production never gets here
+  # (the CLI kills the wrapper at the budget).
+  kill -- "-$WD" 2>/dev/null
+  if wait "$WD" 2>/dev/null; then   # it fired: the row is written
+    [ "$BUDGET_S" -lt 10 ] && [ "$EC" -ge 128 ] && EC=124
+    exit "$EC"
   fi
-  printf '{"ts":"%s","kind":"latency","hook":"%s","duration_ms":%s,"exit_code":%s%s%s%s}\n' \
-    "$TS" "$HOOK" "$DUR" "$EC" "$WARN" "$PV" "$TIMEOUT" >> "$BRAIN_DIR/audit-log.jsonl"
-} 2>/dev/null || true
-
+fi
+_row "$EC" ""
 exit "$EC"
