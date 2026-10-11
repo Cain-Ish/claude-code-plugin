@@ -353,14 +353,16 @@ grep -q '"basename":"gone_proj_2026-05-24.txt"' "$STATE" 2>/dev/null && no "ledg
 
 # ==== R2-B (0.56.0): line-cursor delta drain ====================================================
 # The stub records "<basename> <from> <to>" per call and fails when "<basename> <from>" is listed
-# in $RFAIL. Rows are checked on the done-set; cursors through the real sb_drain_cursor_map.
+# in $RFAIL (exit 1), or reports the merge's "PROJECT.md busy" when it is listed in $RBUSY (exit 3).
+# Rows are checked on the done-set; cursors through the real sb_drain_cursor_map.
 echo "Test: R2-B delta drain"
-RLOG="$SANDBOX/rstub.log"; RFAIL="$SANDBOX/rstub.fail"
+RLOG="$SANDBOX/rstub.log"; RFAIL="$SANDBOX/rstub.fail"; RBUSY="$SANDBOX/rstub.busy"
 RSTUB="$SANDBOX/rstub.sh"
 cat > "$RSTUB" <<EOF6
 #!/bin/bash
 printf '%s %s %s\n' "\${1##*/}" "\${3:-}" "\${4:-}" >> "$RLOG"
 [ -f "$RFAIL" ] && grep -qxF "\${1##*/} \${3:-}" "$RFAIL" && exit 1
+[ -f "$RBUSY" ] && grep -qxF "\${1##*/} \${3:-}" "$RBUSY" && exit 3
 exit 0
 EOF6
 chmod +x "$RSTUB"
@@ -418,6 +420,21 @@ eq "dead-letter: the passed-over dead window still counts (windows lines)" "$(cm
 DROW=$(grep 'reconcile' "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tail -1)
 printf '%s' "$DROW" | grep -q 'dead_archives=1 dead_windows=1 dead_lines=3' \
   && ok "dead-letter: the reconcile row surfaces the dead window" || no "dead-letter: reconcile row lacks the dead totals (got: $DROW)"
+
+# D2b (final review should-fix): exit 3 from the extraction is the merge's "PROJECT.md busy / refused,
+# retry later", not an extraction failure. It writes no row (a retry row counts toward MAX_FAILS;
+# any other outcome would reset the run of retries) and never dead-letters the window.
+reset; rm -f "$RLOG" "$RFAIL" "$RBUSY"
+mk_lines "bz1_proj_2026-05-24.txt" 3                       # 10 lines
+echo "bz1_proj_2026-05-24.txt 0" > "$RBUSY"
+SB_DRAIN_FLOOR=off SB_DRAIN_MAX_FAILS=1 rdrain; SB_DRAIN_FLOOR=off SB_DRAIN_MAX_FAILS=1 rdrain
+eq "busy: the window was attempted on both ticks" "$(rcalls)" "2"
+eq "busy: exit 3 writes no done-set row" "$(rows_for bz1_proj_2026-05-24.txt)" ""
+eq "busy: the archive stays pending, never dead" "$(cmap bz1_proj_2026-05-24.txt 4)" "pending"
+grep -q 'bz1_proj_2026-05-24.txt.*not counted toward SB_DRAIN_MAX_FAILS' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && ok "busy: the deferral is logged" || no "busy: no deferral row in the error log"
+rm -f "$RBUSY"; SB_DRAIN_FLOOR=off SB_DRAIN_MAX_FAILS=1 rdrain
+eq "busy: the next free tick extracts the window" "$(cmap bz1_proj_2026-05-24.txt 2) $(cmap bz1_proj_2026-05-24.txt 4)" "10 done"
 
 # D3: first-tick migration. Legacy row (no lines) + archive unchanged since -> baseline, no LLM;
 # grown since -> legacy-regrow re-mined from the header end; legacy error unchanged -> stays dead.

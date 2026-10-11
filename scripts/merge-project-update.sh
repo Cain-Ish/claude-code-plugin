@@ -1873,8 +1873,8 @@ if [ "$CHANGED" -eq 1 ]; then
   # so an unwritable PROJECT.md (permissions, full disk, a path that stopped existing) returned
   # success to the drainer, which recorded the transcript `outcome:ok` — and the archive cap
   # then evicted it FIRST as "already extracted". Knowledge destroyed, health file still `ok`,
-  # no log row. Sandbox-reproduced 2026-08-23 (ledger EC-13). A non-zero here becomes `retry`
-  # in the drainer (error after SB_DRAIN_MAX_FAILS) and the transcript is retained.
+  # no log row. Sandbox-reproduced 2026-08-23 (ledger EC-13). Exit 3 is "retry later": the drainer
+  # redoes the window next tick without counting it toward SB_DRAIN_MAX_FAILS; the transcript is kept.
   # SIL-R6: the lock must still be OURS at this point. A holder pid another runtime cannot see
   # (an MSYS pid read by the TS pin_to_project) is stolen as stale after 60 s, and that writer is
   # then writing PROJECT.md too: replacing the file now would drop its update. Same lock-path rule

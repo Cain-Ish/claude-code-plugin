@@ -4,6 +4,7 @@
 # pins: SB_EXTRACT_MAX_BYTES — set per call to force 2 forward chunks on a small fixture (the chunking IS the behavior under test)
 # pins: SB_TRANSCRIPT_CAP — the X2 S1/S2 eviction cases cap at 3 so a 4-archive fixture is over the cap
 # pins: SB_SUBAGENT_ARCHIVE_CAP — the X2 S4 cases cap the subagent archives at 2 (soft) / 6 (hard) to exercise both passes
+# pins: SB_ARCHIVE_LOCK_WAIT_S — the busy case shortens the PROJECT.md lock wait 5 -> 1 s: the exit 3 it ends in is under test, not the wait
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # shellcheck disable=SC2317  # sb_call_extractor is overridden as a stub; reached indirectly via sb_extract_transcript
 set -euo pipefail
@@ -97,6 +98,16 @@ rm -rf "/tmp/sb-pwned-$$" 2>/dev/null || true
 # --- extract returns non-zero when the LLM yields nothing ---
 sb_call_extractor() { : > "$2"; return 1; }
 sb_extract_transcript "$TX" "my-proj" && no "extract fails on empty LLM" || ok "extract fails on empty LLM"
+
+# --- final review should-fix: a merge exit 3 (PROJECT.md busy, retry later) comes back as 3, not 1,
+# so the drainer retries the window without counting it toward SB_DRAIN_MAX_FAILS. The lock holder is
+# this shell ($$: alive, never stolen as stale); the merge child takes the 1 s wait from the env.
+sb_call_extractor() { printf '{"recent_decisions":["busy lock decision"]}' > "$2"; return 0; }
+printf '%s\n' "$$.held" > "$BRAIN_DIR/projects/my-proj/.PROJECT.md.lock"
+x_rc=0; SB_ARCHIVE_LOCK_WAIT_S=1 sb_extract_transcript "$TX" "my-proj" >/dev/null 2>&1 || x_rc=$?
+rm -f "$BRAIN_DIR/projects/my-proj/.PROJECT.md.lock"
+eq "busy: a merge exit 3 (PROJECT.md lock held) returns 3" "$x_rc" "3"
+grep -q "busy lock decision" "$BRAIN_DIR/projects/my-proj/PROJECT.md" && no "busy: the merge wrote under a held lock" || ok "busy: nothing merged under the held lock"
 
 # --- DR-1 (Slice 1 §5.4): the drainer passes --session from the archive header, and a seeded
 # .prov file makes the Handoff stamp reflect the ORIGINAL session's epoch (not drainer merge

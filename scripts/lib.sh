@@ -4196,7 +4196,7 @@ TMPL
   if [ "$is_subagent" -eq 0 ] && [ -n "$sess_id" ]; then
     sess_flag=(--session "$sess_id")
   fi
-  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err
+  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err merge_rc
   # P0 rec 5: this session's deterministic observation ledger gives the extractor ground truth for
   # files_touched / error→fix issues / procedures. SUBAGENT archives are excluded: sub-*.txt
   # carries the PARENT session's id (sb_archive_subagent_result), so embedding here would re-mine
@@ -4265,12 +4265,16 @@ TMPL
     # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
     # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
     # is diagnosable instead of a bare "return 1" with zero trace of why.
-    extract_merge_err=$(mktemp)
-    if ! printf '%s' "$delta" \
-        | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
-          >/dev/null 2>"$extract_merge_err"; then
-      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
+    # Exit 3 is the merge's "PROJECT.md busy or refused, retry later": returned as 3, which the drainer
+    # retries without counting it toward SB_DRAIN_MAX_FAILS.
+    extract_merge_err=$(mktemp); merge_rc=0
+    printf '%s' "$delta" \
+      | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
+          >/dev/null 2>"$extract_merge_err" || merge_rc=$?
+    if [ "$merge_rc" -ne 0 ]; then
+      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed (exit $merge_rc) slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
       rm -f "$extract_merge_err"
+      [ "$merge_rc" -eq 3 ] && return 3
       return 1
     fi
     rm -f "$extract_merge_err"
