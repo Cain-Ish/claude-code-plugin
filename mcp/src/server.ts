@@ -7,7 +7,7 @@ import { EDGE_TYPES, type EdgeType } from "./tools/graph-store.js";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
-import { knowledgeSearch, reportInjectPrecision } from "./tools/knowledge-search.js";
+import { knowledgeSearch, reportInjectPrecision, frameSearchResult } from "./tools/knowledge-search.js";
 import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
@@ -142,7 +142,7 @@ registerJsonTool(
     query: z.string().describe("Search query — tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
     scope: z.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all."),
   },
-  ({ query, scope }) => knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() })
+  async ({ query, scope }) => frameSearchResult(await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() }))
 );
 
 registerJsonTool(

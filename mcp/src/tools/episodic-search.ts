@@ -364,8 +364,9 @@ function neutraliseFramePhrase(text: string): string {
 }
 
 /** The MCP twin of the hooks' "[Untrusted reference ...]" frame (audit M4): store text returned by
- *  knowledge_fetch / episodic_read / episodic_search is DATA. The frame phrase is neutralised inside
- *  the content first (any spelling), so the content cannot close the frame or open a forged one. */
+ *  knowledge_fetch / knowledge_search / episodic_read / episodic_search / dream_status / persona_stats
+ *  is DATA. The frame phrase is neutralised inside the content first (any spelling), so the content
+ *  cannot close the frame or open a forged one. */
 export function untrustedFrame(label: string, text: string): string {
   // neutraliseFramePhrase hyphenates the phrase in any spelling; un-bracket what is left so no closer-like "[End untrusted-reference]" survives.
   const body = neutraliseFramePhrase(text).replace(/\[([^[\]]{0,40}?untrusted-reference[^[\]]{0,40}?)\]/gi, '($1)');

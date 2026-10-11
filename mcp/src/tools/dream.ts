@@ -5,6 +5,7 @@ import { cleanEnvPath, assertWithin, validateSlug, PathGuardError } from '../pat
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { resolveActiveSlug } from './project-dir.js';
 import { projectFamily } from './project-registry.js';
+import { untrustedFrame } from './episodic-search.js';
 import { join, basename } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -304,6 +305,8 @@ export async function dreamStatus(
       const lines = content.split("\n");
       diffPreview = lines.slice(0, 50).join("\n");
       if (lines.length > 50) diffPreview += "\n... (truncated)";
+      // diff.md is model-written dream output: store text, framed like knowledge_fetch's (audit M4).
+      diffPreview = untrustedFrame("dream diff preview", diffPreview);
     } catch {}
   }
 

@@ -44,6 +44,16 @@ describe('server.ts tool-registration contract', () => {
     expect(block).not.toMatch(/capList\(/);
   });
 
+  // Final review should-fix (MCP frame): knowledge_search returned page descriptions raw. The handler
+  // frames them with frameSearchResult (unit-tested in knowledge-search.test.ts); knowledgeSearch stays
+  // raw for the injecting CLIs. The object shape is kept: buddyNote counts result.candidates.
+  it('knowledge_search returns frameSearchResult(await knowledgeSearch(...))', () => {
+    const idx = src.search(/registerJsonTool\(\s*"knowledge_search"/);
+    expect(idx, 'knowledge_search registration not found').toBeGreaterThan(-1);
+    const block = src.slice(idx, src.indexOf('registerJsonTool(', idx + 1));
+    expect(block).toMatch(/frameSearchResult\(\s*await knowledgeSearch\(/);
+  });
+
   // Audit M7/M8: unvalidated line numbers (0 -> last line) and dates reached the tools.
   it('episodic_read lines are int >= 1, episodic_search dates are YYYY-MM-DD, read output is rendered by renderEpisodicRead', () => {
     expect(src).toMatch(/startLine: z\.number\(\)\.int\(\)\.min\(1\)/);

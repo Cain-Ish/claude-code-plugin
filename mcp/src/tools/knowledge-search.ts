@@ -14,7 +14,7 @@ import { projectFamily } from './project-registry.js';
 import { parseDoc, ParsedDoc } from './frontmatter.js';
 import { walkWiki } from './walk-wiki.js';
 import { assertWithin, validateSlug, cleanEnvPath } from '../path-guard.js';
-import { foldServedSnippet } from './episodic-search.js';
+import { foldServedSnippet, untrustedFrame } from './episodic-search.js';
 
 // Frontmatter parsing lives in ./frontmatter.ts (single source); re-exported here for back-compat.
 export { parseDoc, extractYamlValue, extractYamlList } from './frontmatter.js';
@@ -744,6 +744,16 @@ export function injectableWiki<C extends KnowledgeSearchResult['candidates'][num
   return candidates.filter(c => !c.stub
     && c.score >= o.minScore && c.relevance >= o.minRelevance
     && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
+}
+
+/** knowledge_search's MCP return: every non-empty description (a page description, ai-block or body
+ *  snippet, a local doc's gist — all store text) rides in knowledge_fetch's untrusted frame (audit M4).
+ *  MCP only: the injecting CLIs read knowledgeSearch raw and fold each description into one line. */
+export function frameSearchResult(result: KnowledgeSearchResult): KnowledgeSearchResult {
+  return {
+    ...result,
+    candidates: result.candidates.map(c => (c.description ? { ...c, description: untrustedFrame('search snippet', c.description) } : c)),
+  };
 }
 
 /** The one line an injecting CLI prints per gated candidate: knowledge-search-cli (read by
