@@ -1213,14 +1213,16 @@ if [ "$AUTO" != "off" ] && [ ! -f "$DISABLED_FILE" ]; then
     # shellcheck disable=SC2016  # single quotes intentional: literal backticks + printf %s placeholders
     BANNER=$(printf '## ⓘ second-brain — wiki maintenance suggested\n\nProject `%s` has accumulated %s wiki writes since the last consolidation.\nConsolidate the wiki with either:\n  • `/second-brain:maintain` — the knowledge-maintainer runs live (audit, dedup,\n    relate, enrich, ai-blocks, raw-inbox drain); bounded by a 50-change cap, reversible.\n  • `/second-brain:dream` — stages the changes for you to review before accepting.\n\nRe-appears next session if not run. Suppress entirely: `SB_MAINTAINER_AUTO=off`.\n\n' \
       "$slug" "$COUNT")
-    sb_append "$BANNER" "maintainer-auto-banner" 400
+    # Cap fits the ~510 B text plus a long slug: sb_append keeps whole lines, so an undersized cap
+    # silently drops the /second-brain:dream option and the suppress hint.
+    sb_append "$BANNER" "maintainer-auto-banner" 640
     sb_log_error "session-load.sh" "gate=maintainer-suggested slug=$slug count=$COUNT" 0
   fi
 fi
 PIN_COUNT=$(sb_count_pin_candidates "$slug")
 if [ "$PIN_COUNT" -gt 0 ]; then
   sb_append "$(printf '## ⓘ second-brain — %s pin candidate(s) pending\nExtracted persona signals waiting in `~/.second-brain/projects/%s/.pin-candidates.jsonl`.\nRun: `Review pin candidates in second-brain and decide which to pin to USER.md.`\n\n' \
-    "$PIN_COUNT" "$slug")" "pin-candidates-banner" 250
+    "$PIN_COUNT" "$slug")" "pin-candidates-banner" 360
 fi
 
 # USER.md Never/Always rules vs persona-rules.default.json enforcement gap.

@@ -74,6 +74,7 @@ unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD SB_MAINTAINER_MAX_FAILS
 OUT=$(run_session_load)
 echo "$OUT" | grep -q "wiki maintenance suggested" || fail "at-threshold: suggestion banner missing"
 echo "$OUT" | grep -q "/second-brain:dream" || fail "at-threshold: explicit-invocation path missing"
+echo "$OUT" | grep -q "Suppress entirely: \`SB_MAINTAINER_AUTO=off\`" || fail "at-threshold: the banner's last line was cut (byte cap below the banner's size)"
 echo "$OUT" | grep -q "BLOCKING REQUIREMENT" && fail "at-threshold: legacy BLOCKING wording must not appear"
 echo "$OUT" | grep -q "you MUST" && fail "at-threshold: legacy 'you MUST' wording must not appear"
 # D173: the trace breadcrumb is gate=-prefixed/ec0 -> audit-log, never error-log.
@@ -176,5 +177,20 @@ pass "3 consecutive failures auto-disable; subsequent runs suppressed"
 # (Tests 9-10 retired: they were the sole callers of migrate-to-2.8.0.sh, a dead
 # pre-1.0-scheme migration the 0.x upgrade runner can never reach. Removed with
 # the script.)
+
+# --- Test 11: the pin-candidates banner keeps its Run: line for a long slug -----------------
+# sb_append keeps whole lines under its byte cap, so a cap sized for a short slug dropped the
+# banner's only actionable line once the slug (a directory name) grew past ~28 chars.
+LONG="a-long-project-directory-name-for-pin-banner"
+init_sandbox "pin-long-slug"
+mkdir -p "$SANDBOX/repo/$LONG" "$SANDBOX/.second-brain/projects/$LONG"
+printf '# PROJECT: %s\n## Goal\nseeded.\n' "$LONG" > "$SANDBOX/.second-brain/projects/$LONG/PROJECT.md"
+printf '{"text":"x"}\n' > "$SANDBOX/.second-brain/projects/$LONG/.pin-candidates.jsonl"
+cd "$SANDBOX/repo/$LONG" || fail "cd failed in pin-long-slug"
+unset SB_MAINTAINER_AUTO SB_MAINTAINER_THRESHOLD SB_MAINTAINER_MAX_FAILS
+OUT=$(run_session_load "$LONG")
+echo "$OUT" | grep -q "pin candidate(s) pending" || fail "pin-long-slug: pin banner missing"
+echo "$OUT" | grep -q "Run: \`Review pin candidates" || fail "pin-long-slug: the banner's Run: line was cut for a ${#LONG}-char slug"
+pass "pin banner keeps its Run: line for a ${#LONG}-char slug"
 
 echo "ALL PASS"
