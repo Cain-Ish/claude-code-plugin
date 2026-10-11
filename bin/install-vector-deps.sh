@@ -49,9 +49,14 @@ fi
 # sha256: GNU coreutils ships `sha256sum`; macOS/BSD ship `shasum`. Support both.
 sha256() { sha256sum 2>/dev/null || shasum -a 256; }
 
-# deps-key: a stable hash of the dependencies block, so the shared tree is rebuilt
-# only when the actual dependency set changes — not on every version bump.
-WANT_KEY="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(p.dependencies||{}))' "$PKG" | sha256 | awk '{print $1}')"
+# deps-key: a stable hash of the dependencies block plus the shipped lockfile's production
+# entries (what npm ci --omit=dev installs), so the shared tree is rebuilt when the installed
+# set changes — a lockfile-only transitive bump included — but not on every version bump or a
+# devDependency-only lock change. No lockfile (or no production entries) = the old deps-only key.
+# Assigned on its own line so a node failure (an unreadable package.json/lockfile) exits here
+# under set -e instead of hashing empty input into a key.
+DEPS_SIG="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); let l={}; if (fs.existsSync(process.argv[2])) l=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const lock=Object.entries(l.packages||{}).filter(([k,v])=>k&&!v.dev); process.stdout.write(JSON.stringify(p.dependencies||{})+(lock.length?JSON.stringify(lock):""))' "$PKG" "$MCP_DIR/package-lock.json")"
+WANT_KEY="$(printf '%s' "$DEPS_SIG" | sha256 | awk '{print $1}')"
 [ -n "$WANT_KEY" ] || { echo "install-vector-deps: could not compute deps-key (no sha256sum/shasum on PATH?)." >&2; exit 1; }
 HAVE_KEY="$(cat "$KEY_FILE" 2>/dev/null || echo none)"
 
