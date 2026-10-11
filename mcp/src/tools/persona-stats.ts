@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
+import { untrustedFrame } from './episodic-search.js';
 
 export interface PersonaStatsArgs {
   brainDir?: string;
@@ -66,7 +67,8 @@ export async function personaStats(args: PersonaStatsArgs = {}): Promise<Persona
   } catch {}
 
   return {
-    identity_summary: identity,
+    // persona-card.md lines are store text: framed like knowledge_fetch's (audit M4).
+    identity_summary: identity && untrustedFrame('persona card lines', identity),
     persona_card_bytes: cardBytes,
     ungraduated_signals: ungraduated,
     graduated_signals: graduated,

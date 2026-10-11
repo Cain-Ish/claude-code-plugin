@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync, utimesSync } from 'fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { lockPathFor, withFileLock, writeFileAtomic } from './hot-file-lock.js';
+import { lockPathFor, withFileLock } from './hot-file-lock.js';
 
 describe('hot-file-lock (E3, audit 2026-10)', () => {
   let dir: string, file: string;
@@ -50,44 +50,6 @@ describe('hot-file-lock (E3, audit 2026-10)', () => {
   it('does not steal a young lock even when its holder pid is gone', async () => {
     writeFileSync(lockPathFor(file), '999999999.dead\n');
     expect(await withFileLock(file, () => 'busy', async () => 'ran', 300)).toBe('busy');
-  });
-
-  it('writeFileAtomic replaces the content via a same-directory temp file and leaves none behind', async () => {
-    await writeFileAtomic(file, '# PROJECT: t\nnew body\n');
-    expect(readFileSync(file, 'utf-8')).toBe('# PROJECT: t\nnew body\n');
-    expect(readdirSync(dir)).toEqual(['PROJECT.md']);
-  });
-
-  const eperm = () => Object.assign(new Error('busy'), { code: 'EPERM' });
-  const mkIo = (renames: Array<() => void>) => {
-    const log: string[] = [];
-    const io = {
-      writeFile: async (f: string, d: string) => { log.push(`write ${f === file ? 'target' : 'tmp'}:${d}`); },
-      rename: async () => { log.push('rename'); const r = renames.shift(); if (r) r(); },
-      rm: async () => { log.push('rm'); },
-      sleep: async () => { log.push('sleep'); },
-    };
-    return { io, log };
-  };
-
-  it('writeFileAtomic retries a transient EPERM rename, then succeeds (TS-R1)', async () => {
-    const { io, log } = mkIo([() => { throw eperm(); }, () => { throw eperm(); }]);
-    await writeFileAtomic(file, 'x', io);
-    expect(log.filter(l => l === 'rename').length).toBe(3);
-    expect(log.some(l => l === 'write target:x')).toBe(false);
-  });
-
-  it('writeFileAtomic falls back to an in-place write when the rename stays blocked (TS-R1)', async () => {
-    const { io, log } = mkIo(Array.from({ length: 50 }, () => () => { throw eperm(); }));
-    await writeFileAtomic(file, 'x', io);
-    expect(log).toContain('write target:x');
-    expect(log[log.length - 1]).toBe('rm');
-  });
-
-  it('writeFileAtomic does not retry a non-transient rename error (TS-R1)', async () => {
-    const { io, log } = mkIo([() => { throw Object.assign(new Error('x'), { code: 'ENOSPC' }); }]);
-    await expect(writeFileAtomic(file, 'x', io)).rejects.toThrow('x');
-    expect(log.filter(l => l === 'rename').length).toBe(1);
   });
 
   it('a failing unlock does not fail a successful write (TS-R5)', async () => {

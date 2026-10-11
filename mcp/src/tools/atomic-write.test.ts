@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { atomicWriteJson } from './atomic-write.js';
+import { atomicWriteJson, writeFileAtomic } from './atomic-write.js';
 
 // P9 oracle: the write must be observable as all-or-nothing — after it returns,
 // the target holds the new value AND no `.tmp.*` sidecar is left behind (a leaked
@@ -44,5 +44,54 @@ describe('atomicWriteJson', () => {
 
   it('fails SOFT on an unwritable target (no throw — must never break a hook)', async () => {
     await expect(atomicWriteJson('/nonexistent_dir_zzz/state.json', { v: 1 })).resolves.toBeUndefined();
+  });
+});
+
+// writeFileAtomic: the text writer under the PROJECT.md/USER.md lock (moved from hot-file-lock.ts).
+describe('writeFileAtomic', () => {
+  let dir: string, file: string;
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(join(tmpdir(), 'awt-'));
+    file = join(dir, 'PROJECT.md');
+    await fs.writeFile(file, '# PROJECT: t\n', 'utf-8');
+  });
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
+
+  it('replaces the content via a same-directory temp file and leaves none behind', async () => {
+    await writeFileAtomic(file, '# PROJECT: t\nnew body\n');
+    expect(await fs.readFile(file, 'utf-8')).toBe('# PROJECT: t\nnew body\n');
+    expect(await fs.readdir(dir)).toEqual(['PROJECT.md']);
+  });
+
+  const eperm = () => Object.assign(new Error('busy'), { code: 'EPERM' });
+  const mkIo = (renames: Array<() => void>) => {
+    const log: string[] = [];
+    const io = {
+      writeFile: async (f: string, d: string) => { log.push(`write ${f === file ? 'target' : 'tmp'}:${d}`); },
+      rename: async () => { log.push('rename'); const r = renames.shift(); if (r) r(); },
+      rm: async () => { log.push('rm'); },
+      sleep: async () => { log.push('sleep'); },
+    };
+    return { io, log };
+  };
+
+  it('retries a transient EPERM rename, then succeeds (TS-R1)', async () => {
+    const { io, log } = mkIo([() => { throw eperm(); }, () => { throw eperm(); }]);
+    await writeFileAtomic(file, 'x', io);
+    expect(log.filter(l => l === 'rename').length).toBe(3);
+    expect(log.some(l => l === 'write target:x')).toBe(false);
+  });
+
+  it('falls back to an in-place write when the rename stays blocked (TS-R1)', async () => {
+    const { io, log } = mkIo(Array.from({ length: 50 }, () => () => { throw eperm(); }));
+    await writeFileAtomic(file, 'x', io);
+    expect(log).toContain('write target:x');
+    expect(log[log.length - 1]).toBe('rm');
+  });
+
+  it('does not retry a non-transient rename error (TS-R1)', async () => {
+    const { io, log } = mkIo([() => { throw Object.assign(new Error('x'), { code: 'ENOSPC' }); }]);
+    await expect(writeFileAtomic(file, 'x', io)).rejects.toThrow('x');
+    expect(log.filter(l => l === 'rename').length).toBe(1);
   });
 });

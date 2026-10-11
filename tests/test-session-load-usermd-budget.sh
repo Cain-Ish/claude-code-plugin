@@ -81,14 +81,19 @@ pass "H5: rules-gap compares against the brain dir's persona-rules.json"
 printf '# notes\nno rules here\n' > "$USER_FILE"; rm -f "$GB/persona-rules.json"
 [ -z "$(run_rg)" ] || fail "IMP-R3: USER.md without rules must not fire the rules-gap banner"
 pass "IMP-R3: rules-gap banner skipped when USER.md has no rules"
-# PORT-R5: torn-line check must be linear (was O(cap^2): ~1.1s at 16KB). Generous 2s bound.
+# PORT-R5: torn-line check must be linear. The old ${text#"$cut"...} compare was O(cap^2): measured
+# on MSYS 2026-10-11 at a cap just inside the last line, 25 KB 0.7 s, 50 KB 2.5 s, 100 KB 10.3 s; the
+# linear form 46 ms at 100 KB. At ~100 KB the whole-second bound (2 s) cannot miss the quadratic form.
 eval "$(awk '/^sb_append\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$SL")"
 sb_log_error(){ :; }
-BIG16=""; i=0; while [ $i -lt 500 ]; do BIG16="${BIG16}- Never do thing number $i in this repo please ok"$'\n'; i=$((i+1)); done
-T0=$(date +%s); : > "$OUT"; USED=0; BYTE_BUDGET=100000
-sb_append "$BIG16" "perf" 16000 force
-[ $(( $(date +%s) - T0 )) -le 2 ] || fail "PORT-R5: 16KB sb_append cap too slow (quadratic torn-line check?)"
+BIG100=""; i=0; while [ $i -lt 32 ]; do BIG100="${BIG100}- Never do thing number $i in this repo please ok"$'\n'; i=$((i+1)); done
+i=0; while [ $i -lt 6 ]; do BIG100="$BIG100$BIG100"; i=$((i+1)); done   # 2048 lines, ~100 KB
+T0=$(date +%s); : > "$OUT"; USED=0; BYTE_BUDGET=10000000
+sb_append "$BIG100" "perf" $(( ${#BIG100} - 20 )) force
+[ $(( $(date +%s) - T0 )) -le 2 ] || fail "PORT-R5: 100 KB sb_append cap too slow (quadratic torn-line check?)"
 case "$(tail -n1 "$OUT")" in *please\ ok) ;; *) fail "PORT-R5: last line torn";; esac
-pass "PORT-R5: 16KB capped sb_append is fast and keeps whole lines"
+[ "$(wc -l < "$OUT" | tr -d ' ')" = 2047 ] || fail "PORT-R5: the torn last line must be the only one dropped"
+grep -v '^[[:space:]]*#' "$SL" | grep -qF '${text#"$cut"' && fail "PORT-R5: the quadratic \${text#\"\$cut\"...} compare is back in sb_append"
+pass "PORT-R5: 100 KB capped sb_append is fast and keeps whole lines"
 rm -f "$TMP" "$OUT" "$LOGF"
 echo; echo "ALL PASS"
