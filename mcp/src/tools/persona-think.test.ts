@@ -83,12 +83,15 @@ describe('personaSpawnArgs (audit B3)', () => {
     expect(personaSpawnArgs('m', 's', '')).not.toContain('--bare');
   });
 
-  it('is read-only, MCP-free and non-persisting (SEC-R7)', async () => {
+  it('is tool-less, settings-free, MCP-free and non-persisting (SEC-R7; the house headless form)', async () => {
     const { personaSpawnArgs } = await import('./persona-think.js');
-    const a = personaSpawnArgs('m', 's', undefined);
-    expect(a).toContain('--strict-mcp-config');
-    expect(a).toContain('--no-session-persistence');
-    expect(a[a.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
+    for (const key of ['sk-x', undefined]) {
+      const a = personaSpawnArgs('m', 's', key);
+      expect(a).toContain('--strict-mcp-config');
+      expect(a).toContain('--no-session-persistence');
+      expect(a[a.indexOf('--tools') + 1]).toBe('');
+      expect(a[a.indexOf('--setting-sources') + 1]).toBe('');
+    }
   });
 });
 

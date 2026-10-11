@@ -42,9 +42,10 @@ Output ONLY the JSON object, no prose around it.`;
 
 // --bare skips OAuth/keychain, so it only works with an API key (same rule as lib.sh's extractor).
 export function personaSpawnArgs(model: string, system: string, apiKey = process.env.ANTHROPIC_API_KEY): string[] {
-  // Read-only tools, no MCP servers, no persisted session: the prompt is user text (injection surface).
-  return ['-p', ...(apiKey ? ['--bare'] : []), '--strict-mcp-config', '--no-session-persistence',
-    '--tools', 'Read,Grep,Glob', '--model', model, '--system-prompt', system];
+  // The prompt is user text (injection surface): no tools, no settings, no MCP servers, no persisted
+  // session — maintain-llm-drain.sh's zero-tool headless form (`--tools "" --setting-sources ""`).
+  return ['-p', ...(apiKey ? ['--bare'] : []), '--tools', '', '--strict-mcp-config', '--setting-sources', '',
+    '--no-session-persistence', '--model', model, '--system-prompt', system];
 }
 
 // Mirrors lib.sh's recursive-claude guard: a `claude -p` spawned inside a session on OAuth only
