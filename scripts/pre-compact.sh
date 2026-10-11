@@ -222,10 +222,14 @@ if [ "${1:-}" = "post" ]; then
   # since the hook started must exceed what the first attempt took (its lock wait plus the merge)
   # plus a 2 s margin for the CLI's head start and this hook's tail. TST-R6: a fixed "$SECONDS < 15"
   # skipped the retry whenever a loaded box had merely started slowly.
+  # Three contending writers (Stop, the drainer, a pin) kept the lock past 5 s + one retry, so the
+  # merge waits for the lock as long as the budget allows: 30 s less elapsed less a 10 s reserve for
+  # the merge itself (at most 20 s, never below the 5 s default). An explicit SB_ARCHIVE_LOCK_WAIT_S wins.
   for P_MERGE_TRY in 1 2; do
     P_MERGE_RC=0; P_TRY_T0=$SECONDS
+    P_LOCK_WAIT=$(( 20 - SECONDS )); [ "$P_LOCK_WAIT" -ge 5 ] || P_LOCK_WAIT=5
     jq -nc --argjson b "$P_BULLETS" '{compact_pending: $b}' \
-      | bash "$(dirname "$0")/merge-project-update.sh" --project-md "$P_PROJECT_MD" \
+      | SB_ARCHIVE_LOCK_WAIT_S="${SB_ARCHIVE_LOCK_WAIT_S:-$P_LOCK_WAIT}" bash "$(dirname "$0")/merge-project-update.sh" --project-md "$P_PROJECT_MD" \
           --knowledge-dir "$P_KNOWLEDGE_DIR" --session "$P_SID" >/dev/null 2>"$P_MERGE_ERR" || P_MERGE_RC=$?
     [ "$P_MERGE_RC" -eq 3 ] && [ $(( 30 - SECONDS - 2 )) -gt $(( SECONDS - P_TRY_T0 )) ] || break
   done

@@ -8,7 +8,8 @@
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
 # pins: SB_ARCHIVE_LOCK_WAIT_S — C2-18/18b shorten the PROJECT.md lock wait 5 -> 2 s (the retry, not the wait, is under test;
-#   2 s, not 1, leaves the background releaser time to drop the lock before the retry gives up)
+#   2 s, not 1, leaves the background releaser time to drop the lock before the retry gives up); C2-18d passes
+#   =2 to check that an explicit wait beats the hook's budget-derived one
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
 #   review batch added the C2-9b..C2-14 cases; the S0 F1 ruler cases (R5b-R13: ~20 more Stops
@@ -1381,6 +1382,34 @@ if [ "$(SECONDS=50 bash -c 'echo $SECONDS')" -ge 50 ] 2>/dev/null; then
 else
   echo "SKIP: C2-18c -- this bash does not import SECONDS from the environment"
 fi
+# C2-18d (final review should-fix): three writers contending kept PROJECT.md locked past the 5 s wait
+# plus one retry, and the Pending Tasks were dropped. The PostCompact merge now waits for the lock as
+# long as the hook budget allows: 30 s less elapsed less a 10 s reserve for the merge itself (at most
+# 20 s, at least the 5 s default); an explicit SB_ARCHIVE_LOCK_WAIT_S still wins. A stub merge in PC2's
+# scripts copy records the wait it was handed.
+cat > "$PC2_ROOT/scripts/merge-project-update.sh" <<'EOF'
+#!/bin/bash
+cat > /dev/null
+printf '%s\n' "${SB_ARCHIVE_LOCK_WAIT_S:-unset}" >> "$C218D_LOG"
+EOF
+c218d() {  # c218d <log> [env assignments...]: one PostCompact run with the recording stub
+  local log="$1"; shift
+  init_sandbox "c2-18d-$(basename "$log")"
+  compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Long lock wait
+' | env -u SB_ARCHIVE_LOCK_WAIT_S C218D_LOG="$log" "$@" bash "$PC2_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+}
+c218d "$TMP/c218d-default"; C218D_W=$(cat "$TMP/c218d-default" 2>/dev/null)
+case "$C218D_W" in ''|*[!0-9]*) fail "C2-18d: the PostCompact merge got no numeric lock wait: '$C218D_W'" ;; esac
+[ "$C218D_W" -ge 10 ] && [ "$C218D_W" -le 20 ] || fail "C2-18d: a hook early in its 30 s budget must hand the merge a 10-20 s lock wait, got $C218D_W"
+c218d "$TMP/c218d-explicit" SB_ARCHIVE_LOCK_WAIT_S=2
+[ "$(cat "$TMP/c218d-explicit" 2>/dev/null)" = 2 ] || fail "C2-18d: an explicit SB_ARCHIVE_LOCK_WAIT_S must win, got $(cat "$TMP/c218d-explicit" 2>/dev/null)"
+if [ "$(SECONDS=50 bash -c 'echo $SECONDS')" -ge 50 ] 2>/dev/null; then
+  c218d "$TMP/c218d-late" SECONDS=12; C218D_W=$(cat "$TMP/c218d-late" 2>/dev/null)
+  [ "$C218D_W" -ge 5 ] 2>/dev/null && [ "$C218D_W" -le 8 ] || fail "C2-18d: 12 s into the hook the wait must shrink to the budget left (5-8 s), got $C218D_W"
+fi
+pass "C2-18d: the PostCompact merge waits for the PROJECT.md lock as long as the 30 s budget allows (an explicit wait wins)"
 
 # R1 (S0 B7 ruler, docs/concepts/2026-09-27-repo-brain-concept.md sec 5 S0): a
 # hook_cancelled attachment already sitting in the transcript this Stop reads is
