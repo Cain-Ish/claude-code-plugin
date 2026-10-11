@@ -129,10 +129,11 @@ set +m
 wait "$CHILD" 2>/dev/null   # 2>/dev/null: bash 3.2's "Terminated" job notice (the child's stderr is its own)
 EC=$?
 if [ -n "$WD" ]; then
-  # The watchdog's group, its sleep included (a bare kill orphaned it). shortcut: if a heavy hook
-  # outlived a watchdog that already fired, this group id is long dead; production never gets here
+  # The watchdog's group, its sleep included (a bare kill orphaned it); the bare kill stays as the
+  # fallback so a bash without job control never waits out the budget here. shortcut: if a heavy
+  # hook outlived a watchdog that already fired, these ids are long dead; production never gets here
   # (the CLI kills the wrapper at the budget).
-  kill -- "-$WD" 2>/dev/null
+  kill -- "-$WD" 2>/dev/null || kill "$WD" 2>/dev/null
   if wait "$WD" 2>/dev/null; then   # it fired: the row is written
     [ "$BUDGET_S" -lt 10 ] && [ "$EC" -ge 128 ] && EC=124
     exit "$EC"
