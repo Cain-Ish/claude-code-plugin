@@ -1091,4 +1091,66 @@ grep -q 'no heading' "$E3D/error-log.jsonl" 2>/dev/null || fail "E5: the refused
 [ "$(ls -A "${E5P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "E5: the refused merge left its temp file behind: $(ls -A "${E5P%/*}")"
 pass "E5: an empty PROJECT.md read is refused (exit 3), never replaced by a stub"
 
+# SIL-R2: the E5 refusal must not last forever. A 0-byte file whose mtime is past the 60 s
+# mid-write window is genuinely empty: rebuild it from the scaffold and merge. A non-empty file with
+# no heading gets one prepended. Both used to exit 3 on every run (Stop re-extracted each turn,
+# PostCompact dropped its tasks, the drainer dead-lettered).
+: > "$E5P"; touch -t 200101010000 "$E5P"; : > "$E3D/error-log.jsonl"
+E5_RC=0
+printf '%s' '{"recent_decisions":["sil-r2 decision lands in a rebuilt file"]}' \
+  | BRAIN_DIR="$E3D" bash "$SCRIPT" --project-md "$E5P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1 || E5_RC=$?
+[ "$E5_RC" -eq 0 ] || fail "SIL-R2: a stale 0-byte PROJECT.md must be rebuilt and merged (exit 0), got $E5_RC: $(cat "$E3D/error-log.jsonl")"
+[ "$(head -1 "$E5P")" = "# PROJECT: e5p" ] || fail "SIL-R2: the rebuilt file does not start with the scaffold heading: $(cat "$E5P")"
+grep -q '^## Goal$' "$E5P" || fail "SIL-R2: the rebuilt file is not the scaffold template: $(cat "$E5P")"
+grep -qF 'sil-r2 decision lands in a rebuilt file' "$E5P" || fail "SIL-R2: the decision did not land in the rebuilt file: $(cat "$E5P")"
+grep -q 'rebuilt from the scaffold' "$E3D/error-log.jsonl" 2>/dev/null || fail "SIL-R2: the rebuild left no log row"
+[ ! -e "${E5P%/*}/.PROJECT.md.lock" ] || fail "SIL-R2: the rebuild left its lock behind"
+pass "SIL-R2: a stale 0-byte PROJECT.md is rebuilt from the scaffold and merged (fresh stays refused, E5)"
+
+printf 'hand-written notes with no heading\nand a second line\n' > "$E5P"; : > "$E3D/error-log.jsonl"
+E5_RC=0
+printf '%s' '{"recent_decisions":["sil-r2 decision under a prepended heading"]}' \
+  | BRAIN_DIR="$E3D" bash "$SCRIPT" --project-md "$E5P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1 || E5_RC=$?
+[ "$E5_RC" -eq 0 ] || fail "SIL-R2: a headingless PROJECT.md must get a heading and merge (exit 0), got $E5_RC: $(cat "$E3D/error-log.jsonl")"
+[ "$(head -1 "$E5P")" = "# PROJECT: e5p" ] || fail "SIL-R2: no heading was prepended: $(cat "$E5P")"
+grep -qx 'hand-written notes with no heading' "$E5P" || fail "SIL-R2: the hand-written text was lost: $(cat "$E5P")"
+grep -qF 'sil-r2 decision under a prepended heading' "$E5P" || fail "SIL-R2: the decision did not land: $(cat "$E5P")"
+grep -q 'no heading' "$E3D/error-log.jsonl" 2>/dev/null || fail "SIL-R2: the prepended heading left no log row"
+pass "SIL-R2: a headingless PROJECT.md gets '# PROJECT: <slug>' prepended, logged, and the merge lands"
+
+# SIL-R6: the lock is never held without the EXIT trap (trap set BEFORE the lock, lock released
+# BEFORE the trap is dropped), and a lock that is no longer ours at the final mv refuses the write:
+# a pin_to_project that stole it (a holder pid it cannot see, past the stale age) is writing too.
+MPU_SRC=$(grep -v '^[[:space:]]*#' "$SCRIPT")
+TRAP_L=$(printf '%s\n' "$MPU_SRC" | grep -n "trap '" | head -1 | cut -d: -f1)
+LOCK_L=$(printf '%s\n' "$MPU_SRC" | grep -n 'sb_archive_lock "\$PROJECT_MD"' | head -1 | cut -d: -f1)
+UNLOCK_L=$(printf '%s\n' "$MPU_SRC" | grep -n 'sb_archive_unlock "\$PROJECT_MD"' | tail -1 | cut -d: -f1)
+UNTRAP_L=$(printf '%s\n' "$MPU_SRC" | grep -n 'trap - EXIT' | tail -1 | cut -d: -f1)
+[ -n "$TRAP_L" ] && [ -n "$LOCK_L" ] && [ "$TRAP_L" -lt "$LOCK_L" ] \
+  || fail "SIL-R6: the EXIT trap (line ${TRAP_L:-?}) must be set before the PROJECT.md lock is taken (line ${LOCK_L:-?})"
+[ -n "$UNLOCK_L" ] && [ -n "$UNTRAP_L" ] && [ "$UNLOCK_L" -lt "$UNTRAP_L" ] \
+  || fail "SIL-R6: the lock must be released (line ${UNLOCK_L:-?}) before the EXIT trap is dropped (line ${UNTRAP_L:-?})"
+pass "SIL-R6: static order -- EXIT trap before the lock, release before trap -"
+# A mktemp shim takes the lock away right after the merge took it (the staging-file mktemp is the
+# merge's next step), the way a stealer would: the merge must notice before its final mv.
+R6D="$TMP/r6"; mkdir -p "$R6D/projects/r6p" "$R6D/kd/wiki" "$R6D/bin"
+R6P="$R6D/projects/r6p/PROJECT.md"; seed_project "$R6P"
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v mktemp)"
+  cat <<'EOF'
+case "${1:-}" in */PROJECT.md.XXXXXX) printf 'foreign.token\n' > "${1%/*}/.PROJECT.md.lock" ;; esac
+exec "$REAL" "$@"
+EOF
+} > "$R6D/bin/mktemp"; chmod +x "$R6D/bin/mktemp"
+R6_HASH=$(content_hash "$R6P")
+R6_RC=0
+printf '%s' '{"recent_decisions":["sil-r6 decision must not land under a stolen lock"]}' \
+  | PATH="$R6D/bin:$PATH" BRAIN_DIR="$R6D" bash "$SCRIPT" --project-md "$R6P" --knowledge-dir "$R6D/kd" >/dev/null 2>&1 || R6_RC=$?
+[ "$R6_RC" -eq 3 ] || fail "SIL-R6: a merge whose lock was taken away must exit 3 (retry later), got $R6_RC"
+[ "$(content_hash "$R6P")" = "$R6_HASH" ] || fail "SIL-R6: PROJECT.md was replaced under a lock that was no longer ours: $(cat "$R6P")"
+grep -q 'no longer ours' "$R6D/error-log.jsonl" 2>/dev/null || fail "SIL-R6: the lost lock left no error row: $(cat "$R6D/error-log.jsonl" 2>/dev/null)"
+[ "$(cat "$R6D/projects/r6p/.PROJECT.md.lock" 2>/dev/null)" = "foreign.token" ] || fail "SIL-R6: the merge removed a lock that was not its own"
+[ "$(ls -A "${R6P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "SIL-R6: the refused merge left its temp file behind: $(ls -A "${R6P%/*}")"
+pass "SIL-R6: a lock that is no longer ours at the final mv refuses the write (exit 3), the foreign lock stays"
+
 echo "ALL PASS"

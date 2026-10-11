@@ -312,15 +312,17 @@ CHANGED=0
 # drainer) and pin_to_project / archive_to_wiki (mcp/src/tools/hot-file-lock.ts, same
 # .PROJECT.md.lock and stale rule) read-modify-write PROJECT.md; unlocked, a write landing inside
 # this window was overwritten by the final mv. Still busy after the wait: exit 3, callers retry.
+# SIL-R6: the EXIT trap is set BEFORE the lock (no window where an exit leaves it held); an empty
+# token means "not ours (yet, or any more)", so the trap never releases a lock it does not hold.
+TMP_OUT=""; MPU_LOCK_TOKEN=""
+trap 'rm -f ${TMP_OUT:+"$TMP_OUT"}; [ -z "$MPU_LOCK_TOKEN" ] || sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"' EXIT
 sb_archive_lock "$PROJECT_MD" merge-project-update.sh || exit 3
 MPU_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
 # E5: staged NEXT TO PROJECT.md (not in $TMPDIR), so the final mv is a same-filesystem rename.
 TMP_OUT=$(mktemp "$PROJECT_MD.XXXXXX") || {
   sb_log_error "merge-project-update.sh" "cannot create a temp file next to $PROJECT_MD — merge NOT applied, retried later" 3
-  sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"
-  exit 3
+  exit 3   # the EXIT trap releases the PROJECT.md lock
 }
-trap 'rm -f "$TMP_OUT"; sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"' EXIT
 # tr -d '\r' (not cp): normalize CRLF at ingest so every downstream awk/grep reader sees LF.
 # A CRLF PROJECT.md (Windows/imported) otherwise silently no-ops the ENTIRE merge — section
 # headers like `## Recent decisions` never match `/^## .../`, so decisions/blockers/plan are
@@ -333,11 +335,34 @@ tr -d '\r' < "$PROJECT_MD" | awk 'NR==1 { sub(/^\357\273\277/, "") } /^#+ / { su
 # heading (whatever the human named it), never a hardcoded "# PROJECT" -- a hand-renamed
 # heading used to make every later merge refuse to write, with a misleading message.
 ORIG_HEAD=$(LC_ALL=C grep -m1 -E '^#+ ' "$TMP_OUT")
-# E5: a read with no heading (empty, or caught mid-write by a truncating writer) is refused: the
-# final guard passed on an empty ORIG_HEAD, and the merge replaced the file with a stub.
+# E5: a read with no heading is never merged as-is: the final guard passed on an empty ORIG_HEAD,
+# and the merge replaced the file with a stub. SIL-R2: but refusing it on EVERY run lost every
+# later delta (Stop re-extracted each turn, PostCompact dropped its tasks, the drainer
+# dead-lettered). Only an EMPTY read that is fresh (< 60 s: a truncating writer may be mid-write)
+# is still refused; an older empty file is rebuilt from the scaffold, and text without a heading
+# gets one prepended. Either way the repair is written even when the delta adds nothing.
 if [ -z "$ORIG_HEAD" ]; then
-  sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading (empty or caught mid-write) for $PROJECT_MD — merge REFUSED, retried later" 3
-  exit 3
+  ORIG_HEAD="# PROJECT: ${PROJECT_SLUG:-unknown}"
+  if LC_ALL=C grep -q '[^[:space:]]' "$TMP_OUT"; then
+    { printf '%s\n\n' "$ORIG_HEAD" && cat "$TMP_OUT"; } > "$TMP_OUT.h" && mv "$TMP_OUT.h" "$TMP_OUT" || {
+      rm -f "$TMP_OUT.h"
+      sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading for $PROJECT_MD and the heading could not be prepended — merge REFUSED, retried later" 3
+      exit 3
+    }
+    sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading for $PROJECT_MD — prepended '$ORIG_HEAD', merge continues" 1
+  elif [ $(( $(date +%s) - $(sb_mtime "$PROJECT_MD") )) -lt 60 ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading (empty, modified < 60 s ago: maybe mid-write) for $PROJECT_MD — merge REFUSED, retried later" 3
+    exit 3
+  else
+    # Same scaffold as stop-extract.sh / session-load.sh write for a missing PROJECT.md.
+    printf '%s\n\n## Goal\n(auto-scaffolded — describe this project'"'"'s goal)\n\n## Direction\n(goal · non-goals · priorities through YYYY-MM-DD — edit or run /second-brain:setup)\n\n## State\n\n## Plan\n\n## Conventions\n\n## Handoff\n\n## Recent decisions\n\n## Open blockers\n\n## Cross-references\n\n<!-- last_updated: %s -->\n<!-- last_queried_wiki: -->\n' \
+      "$ORIG_HEAD" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TMP_OUT" || {
+      sb_log_error "merge-project-update.sh" "PROJECT.md is empty and could not be rebuilt for $PROJECT_MD — merge REFUSED, retried later" 3
+      exit 3
+    }
+    sb_log_error "merge-project-update.sh" "PROJECT.md was empty (unchanged for 60 s+) for $PROJECT_MD — rebuilt from the scaffold, merge continues" 1
+  fi
+  CHANGED=1
 fi
 
 # Archive a dropped decision bullet to the wiki decisions log — PER PROJECT, with a
@@ -1803,6 +1828,19 @@ if [ "$CHANGED" -eq 1 ]; then
   # then evicted it FIRST as "already extracted". Knowledge destroyed, health file still `ok`,
   # no log row. Sandbox-reproduced 2026-08-23 (ledger EC-13). A non-zero here becomes `retry`
   # in the drainer (error after SB_DRAIN_MAX_FAILS) and the transcript is retained.
+  # SIL-R6: the lock must still be OURS at this point. A holder pid another runtime cannot see
+  # (an MSYS pid read by the TS pin_to_project) is stolen as stale after 60 s, and that writer is
+  # then writing PROJECT.md too: replacing the file now would drop its update. Same lock-path rule
+  # as lib.sh sb_archive_lock. Exit 3 = retried later; the token is blanked so the EXIT trap leaves
+  # the other writer's lock alone.
+  _mpu_lf="$PROJECT_MD"; case "$_mpu_lf" in */*) ;; *) _mpu_lf="./$_mpu_lf" ;; esac
+  _mpu_lf="${_mpu_lf%/*}/.${_mpu_lf##*/}.lock"
+  _mpu_held=""; IFS= read -r _mpu_held < "$_mpu_lf" 2>/dev/null; _mpu_held="${_mpu_held%$'\r'}"
+  if [ "$_mpu_held" != "$MPU_LOCK_TOKEN" ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md lock is no longer ours (ours $MPU_LOCK_TOKEN, now ${_mpu_held:-none}: stolen while held) for $PROJECT_MD — write REFUSED, delta NOT applied, retried later" 3
+    MPU_LOCK_TOKEN=""
+    exit 3
+  fi
   if ! mv "$TMP_OUT" "$PROJECT_MD"; then
     sb_log_error "merge-project-update.sh" "PROJECT.md write FAILED for $PROJECT_MD — delta NOT applied; transcript must be retried, not marked extracted" 3
     rm -f "$TMP_OUT" 2>/dev/null
@@ -1810,10 +1848,13 @@ if [ "$CHANGED" -eq 1 ]; then
   fi
 fi
 # E3: release right after the final mv (or the no-change path), not at exit: the reindex below can
-# run for seconds and needs no PROJECT.md lock.
-trap - EXIT
+# run for seconds and needs no PROJECT.md lock. SIL-R6: released BEFORE the trap is dropped (an
+# exit in between used to leave the lock held), and the token blanked so a late trap does not
+# release twice.
 rm -f "$TMP_OUT"
 sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"
+MPU_LOCK_TOKEN=""
+trap - EXIT
 
 if [ "$WIKI_WRITES" -eq 1 ]; then
   # Centralized reindex helper (lib.sh) — handles ESM dynamic-import correctly
