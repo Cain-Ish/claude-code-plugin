@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# pins: SB_USE_BWRAP — selects the bwrap-sandboxed extractor branch that case J exercises; the branch is the feature under test, not a gate being bypassed
 # Verify sb_call_extractor backend selection under the four
 # (CLAUDECODE × ANTHROPIC_API_KEY) combinations.
 #
