@@ -163,7 +163,7 @@ describe('code-map-cli bundle (end to end)', () => {
 
   it('dirty tree at generation records dirty:true and --check reports stale', async () => {
     const { repo, brain, env } = fixture();
-    writeFileSync(join(repo, 'uncommitted.ts'), 'export const u = 9;\n'); // untracked => porcelain non-empty
+    writeFileSync(join(repo, 'helper.ts'), 'export const h = 9;\n'); // tracked edit => porcelain non-empty
     await runCli([], env);
     expect(readStoredGraph(brain, repo).dirty).toBe(true);
     const { stdout } = await runCli(['--check'], env);
@@ -172,7 +172,7 @@ describe('code-map-cli bundle (end to end)', () => {
 
   it('previously-dirty graph regenerates on the no-flag path even at the same rev', async () => {
     const { repo, brain, env } = fixture();
-    writeFileSync(join(repo, 'uncommitted.ts'), 'export const u = 9;\n');
+    writeFileSync(join(repo, 'helper.ts'), 'export const h = 9;\n');
     await runCli([], env);
     const before = statSync(join(storeDir(brain, repo), 'graph.json')).mtimeMs;
     const { stderr } = await runCli([], env); // same HEAD, but dirty-generated => regen, not skip
@@ -181,12 +181,21 @@ describe('code-map-cli bundle (end to end)', () => {
     expect(after).toBeGreaterThan(before);
   }, 30_000);
 
+  it('an untracked file alone does not make the graph dirty (audit B9)', async () => {
+    const { repo, brain, env } = fixture();
+    writeFileSync(join(repo, 'uncommitted.ts'), 'export const u = 9;\n'); // ls-files never scans it
+    await runCli([], env);
+    expect(readStoredGraph(brain, repo).dirty).toBe(false);
+    const { stdout } = await runCli(['--check'], env);
+    expect(stdout.trim()).toBe('fresh');
+  }, 30_000);
+
   it('clean regen after a dirty one clears the dirty bit and --check reads fresh', async () => {
     const { repo, brain, env } = fixture();
-    writeFileSync(join(repo, 'uncommitted.ts'), 'export const u = 9;\n');
+    writeFileSync(join(repo, 'helper.ts'), 'export const h = 9;\n');
     await runCli([], env);
     git(repo, 'add', '.');
-    git(repo, 'commit', '--quiet', '-m', 'commit the stray');
+    git(repo, 'commit', '--quiet', '-m', 'commit the edit');
     await runCli([], env); // dirty store => regen; tree now clean
     expect(readStoredGraph(brain, repo).dirty).toBe(false);
     const { stdout } = await runCli(['--check'], env);
