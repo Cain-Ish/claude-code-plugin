@@ -313,8 +313,9 @@ grep for `process.env.SB_` alone MISSES the helper-mediated ones (grep for the b
 
 ## 9. Internal variables (set by the plugin — NOT user axes; do not document as flags)
 
-`SB_INPUT`, `SB_SESSION_ID`, `SB_TRANSCRIPT_PATH`, `SB_TIMESTAMP` — populated by the stdin-parse
-helper in lib.sh. `SB_AUDIT_FILE` (= `$BRAIN_DIR/audit-log.jsonl`, lib.sh:247) with rotation
+`SB_SESSION_ID` — the session id `persona-context.sh` hands its node CLIs (they drop the session's
+own episodic rows); `sb_log_audit` (lib.sh) falls back to it. (`SB_INPUT`, `SB_TRANSCRIPT_PATH`,
+`SB_TIMESTAMP` went with the deleted stdin-parse helper.) `SB_AUDIT_FILE` (= `$BRAIN_DIR/audit-log.jsonl`, lib.sh:247) with rotation
 constants `SB_AUDIT_MAX_LINES=5000` / `SB_AUDIT_MAX_BYTES=5242880` (lib.sh:248-249 — hard-coded
 assignments, NOT env-overridable). `SB_HEALTH_FILE` (= `$BRAIN_DIR/.extractor-health.json`,
 lib.sh:1128). `SB_EPI_INDEX` (episodic index path, session-load.sh). `SB_GATE` (gate-reason
