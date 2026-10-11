@@ -94,4 +94,31 @@ echo "$r_out" | grep -q 'pending (oldest' \
 pass "pending=0 reconcile row renders no suffix (newest row wins)"
 rm -rf "$B3" "$UN"
 
+# --- 7. (final review should-fix) Linux with no user bus (a container, WSL without systemd, an
+# ssh-only login): `systemctl --user` cannot be asked, so the timer state is unknown, not "no" --
+# "no" re-ran the self-heal install every session. uname + systemctl stubs; the install stub
+# leaves a marker when it runs. Control: the bus answers and the timer is inactive -> self-heal.
+LX=$(mktemp -d); printf '#!/bin/bash\necho Linux\n' > "$LX/uname"
+cat > "$LX/systemctl" <<'EOF'
+#!/bin/bash
+case "$*" in *is-active*) exit 3 ;; *show-environment*) exit "${SC_SHOWENV_RC:-1}" ;; esac
+exit 1
+EOF
+chmod +x "$LX/uname" "$LX/systemctl"
+PR_MK=$(mktemp -d); mkdir -p "$PR_MK/scripts"
+printf '#!/bin/bash\n: > "%s/ran"\necho "applied: test scheduler installed."\n' "$PR_MK" > "$PR_MK/scripts/install-extract-timer.sh"
+chmod +x "$PR_MK/scripts/install-extract-timer.sh"
+B4=$(mktemp -d); mkdir -p "$B4/transcripts"; : > "$B4/transcripts/s1.txt"; : > "$B4/USER.md"; touch -t 202001010000 "$B4/USER.md"
+lx_emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' \
+  | env PATH="$LX:$STUB_BIN:$PATH" ANTHROPIC_API_KEY="" CLAUDE_PLUGIN_ROOT="$PR_MK" SC_SHOWENV_RC="$1" BRAIN_DIR="$B4" bash "$SL" 2>/dev/null; }
+lx_out=$(lx_emit 1)
+[ ! -e "$PR_MK/ran" ] || fail "no user bus: the self-heal install ran although the timer state cannot be known"
+echo "$lx_out" | grep -qi 'self-installed' && fail "no user bus: the self-heal banner printed"
+echo "$lx_out" | grep -q 'drainer timer: no' && fail "no user bus: the banner asserts 'drainer timer: no' (got: $(echo "$lx_out" | grep -i 'drainer timer' | head -c 200))"
+pass "no user bus on Linux: timer state unknown, no self-heal install, no 'timer: no'"
+lx_out=$(lx_emit 0)
+[ -e "$PR_MK/ran" ] || fail "user bus up + timer inactive: the self-heal install must run (got: $(echo "$lx_out" | head -c 200))"
+pass "user bus up + timer inactive on Linux: the self-heal still runs"
+rm -rf "$LX" "$PR_MK" "$B4"
+
 rm -rf "$B" "$B2"; echo; echo "ALL PASS"

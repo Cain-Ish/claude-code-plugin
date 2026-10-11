@@ -1519,7 +1519,10 @@ if [ "${SB_CAPTURE_HEALTH_BANNER:-on}" != "off" ]; then
     # Per-OS scheduler probe (else it false-alarms "no timer" off Linux).
     CAP_TIMER=no
     case "$(uname -s)" in
-      Linux)               systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1 && CAP_TIMER=yes ;;
+      # No user bus (a container, WSL without systemd, an ssh-only login): the timer cannot be asked,
+      # so its state is unknown, not "no" -- "no" re-ran the self-heal install on every session.
+      Linux)               if systemctl --user is-active sb-extract-drain.timer >/dev/null 2>&1; then CAP_TIMER=yes
+                           elif ! systemctl --user show-environment >/dev/null 2>&1; then CAP_TIMER=unknown; fi ;;
       Darwin)              launchctl print "gui/$(id -u)/sb-extract-drain" >/dev/null 2>&1 && CAP_TIMER=yes ;;
       # sb_timer_installed (lib.sh), NOT a bare schtasks: MSYS path-mangles `/Query` into a
       # filesystem path, so the bare form returned rc=1 on EVERY start → CAP_TIMER=no → the
