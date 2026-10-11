@@ -1173,4 +1173,67 @@ grep -qF 'R3 BODY SENTINEL' "$R3D/kd/wiki/learnings/r3-render-hang.md" 2>/dev/nu
 [ ! -e "$R3D/projects/r3p/.PROJECT.md.lock" ] || fail "R3: the merge left the PROJECT.md lock behind"
 pass "R3: a hung ai-block render CLI is bounded (timeout row, page still written, exit 0, lock released)"
 
+# --- Final review blocker 1: a FAILED or short PROJECT.md read never becomes a scaffold rebuild. An AV
+# scanner or sync client holding PROJECT.md made the read fail (MSYS: EBUSY on the `<` redirect); the
+# empty staging buffer then took the SIL-R2 "empty for 60 s+" branch and the final mv replaced the
+# human's file with the scaffold. A tr shim stands in for the held file: on the PROJECT.md bytes (the
+# sentinel line) it prints nothing and exits 1 (the redirect failure) or 0 (a silent short read).
+B1D="$TMP/b1"; mkdir -p "$B1D/projects/b1p" "$B1D/kd/wiki" "$B1D/trbin" "$B1D/awkbin"
+B1P="$B1D/projects/b1p/PROJECT.md"
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v tr)"
+  cat <<'EOF'
+in=$(mktemp); cat > "$in"
+if grep -q 'B1-HELD-SENTINEL' "$in"; then rm -f "$in"; exit "${B1_TR_RC:-1}"; fi
+"$REAL" "$@" < "$in"; rc=$?; rm -f "$in"; exit "$rc"
+EOF
+} > "$B1D/trbin/tr"; chmod +x "$B1D/trbin/tr"
+b1_check_untouched() {  # $1 case label, $2 hash before, $3 log text expected
+  [ "$B1_EC" -eq 3 ] || fail "B1 ($1): the merge must exit 3 (retry later), got $B1_EC: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+  [ "$(content_hash "$B1P")" = "$2" ] || fail "B1 ($1): PROJECT.md was replaced: $(cat "$B1P")"
+  grep -qF "$3" "$B1D/error-log.jsonl" 2>/dev/null || fail "B1 ($1): no '$3' error row: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+  [ ! -e "$B1D/projects/b1p/.PROJECT.md.lock" ] || fail "B1 ($1): the refused merge left its lock behind"
+  [ "$(ls -A "${B1P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "B1 ($1): the refused merge left its temp file behind: $(ls -A "${B1P%/*}")"
+}
+for B1_RC in 1 0; do
+  seed_project "$B1P"; printf 'B1-HELD-SENTINEL\n' >> "$B1P"; touch -t 202001010000 "$B1P"
+  B1_HASH=$(content_hash "$B1P"); : > "$B1D/error-log.jsonl"; B1_EC=0
+  printf '%s' '{"recent_decisions":["b1 decision must not replace a held file"]}' \
+    | PATH="$B1D/trbin:$PATH" B1_TR_RC="$B1_RC" BRAIN_DIR="$B1D" bash "$SCRIPT" --project-md "$B1P" --knowledge-dir "$B1D/kd" >/dev/null 2>&1 || B1_EC=$?
+  if [ "$B1_RC" -eq 1 ]; then b1_check_untouched "read fails" "$B1_HASH" 'could not be read'
+  else b1_check_untouched "read comes back empty" "$B1_HASH" 'read came back empty'; fi
+done
+pass "B1: a failed or empty read of a non-empty PROJECT.md exits 3 (logged), never rebuilds it from the scaffold"
+
+# A UTF-16 (or NUL-led) PROJECT.md is refused, not given a prepended heading over the UTF-16 bytes.
+for B1_U in '\377\376#\000 \000P\000\n\000' '\376\377\000#\000 \000P\000\n' '#\000 \000P\000\n\000'; do
+  printf "$B1_U" > "$B1P"; touch -t 202001010000 "$B1P"
+  B1_HASH=$(content_hash "$B1P"); : > "$B1D/error-log.jsonl"; B1_EC=0
+  printf '%s' '{"recent_decisions":["b1 decision must not land in a utf-16 file"]}' \
+    | BRAIN_DIR="$B1D" bash "$SCRIPT" --project-md "$B1P" --knowledge-dir "$B1D/kd" >/dev/null 2>&1 || B1_EC=$?
+  b1_check_untouched "utf-16 $B1_U" "$B1_HASH" 'UTF-16'
+done
+pass "B1: a UTF-16 / NUL-led PROJECT.md is refused (exit 3, logged), bytes untouched"
+
+# A writer that takes no lock (the Edit tool: the knowledge-maintainer, import-host) changed PROJECT.md
+# after the merge read it, and the final mv overwrote that edit. An awk shim appends a line to the file
+# right after the merge's read (keyed on the read program's BOM-strip text).
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v awk)"
+  cat <<'EOF'
+"$REAL" "$@"; rc=$?
+case "$*" in *'\357\273\277'*) [ -z "${B1_EDIT:-}" ] || printf -- '- [2026-01-02] b1 edit made while the merge ran\n' >> "$B1_EDIT" ;; esac
+exit "$rc"
+EOF
+} > "$B1D/awkbin/awk"; chmod +x "$B1D/awkbin/awk"
+seed_project "$B1P"; : > "$B1D/error-log.jsonl"; B1_EC=0
+printf '%s' '{"recent_decisions":["b1 decision must not overwrite an unlocked edit"]}' \
+  | PATH="$B1D/awkbin:$PATH" B1_EDIT="$B1P" BRAIN_DIR="$B1D" bash "$SCRIPT" --project-md "$B1P" --knowledge-dir "$B1D/kd" >/dev/null 2>&1 || B1_EC=$?
+[ "$B1_EC" -eq 3 ] || fail "B1 (changed under us): the merge must exit 3, got $B1_EC: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+grep -qF 'b1 edit made while the merge ran' "$B1P" || fail "B1 (changed under us): the unlocked edit was overwritten: $(cat "$B1P")"
+grep -qF 'b1 decision must not overwrite' "$B1P" && fail "B1 (changed under us): the merge wrote over a file that changed after its read"
+grep -qF 'changed while the merge ran' "$B1D/error-log.jsonl" 2>/dev/null || fail "B1 (changed under us): no error row: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+[ ! -e "$B1D/projects/b1p/.PROJECT.md.lock" ] || fail "B1 (changed under us): the refused merge left its lock behind"
+pass "B1: PROJECT.md changed after the read (an unlocked Edit) refuses the final mv (exit 3, logged), the edit stays"
+
 echo "ALL PASS"

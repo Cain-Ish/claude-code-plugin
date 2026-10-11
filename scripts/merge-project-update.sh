@@ -318,6 +318,24 @@ TMP_OUT=""; MPU_LOCK_TOKEN=""
 trap 'rm -f ${TMP_OUT:+"$TMP_OUT"}; [ -z "$MPU_LOCK_TOKEN" ] || sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"' EXIT
 sb_archive_lock "$PROJECT_MD" merge-project-update.sh || exit 3
 MPU_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
+# Size + mtime of PROJECT.md as read, BEFORE the read (stat opens nothing, so a file another program
+# holds still answers). The final mv re-checks it: a writer that takes no lock (the Edit tool) may
+# have changed the file meanwhile, and the mv would drop that edit.
+mpu_sig() { stat -c '%s %Y' "$PROJECT_MD" 2>/dev/null || stat -f '%z %m' "$PROJECT_MD"; }
+MPU_SIG0=$(mpu_sig)
+# A UTF-16 file (FF FE / FE FF BOM, or a NUL in its first two bytes) is not text this merge can
+# edit: prepending a UTF-8 heading to it mixed two encodings in one file. od fails (and the merge
+# with it) when the file cannot be opened, the case the read check below covers too.
+if ! MPU_HEAD2=$(od -An -tx1 -N2 "$PROJECT_MD"); then
+  sb_log_error "merge-project-update.sh" "PROJECT.md could not be read (od failed: held by another program?) for $PROJECT_MD — merge REFUSED, retried later" 3
+  exit 3
+fi
+MPU_HEAD2="${MPU_HEAD2//[!0-9a-f]/}"
+case "$MPU_HEAD2" in
+  fffe|feff|00*|??00)
+    sb_log_error "merge-project-update.sh" "PROJECT.md is UTF-16 or starts with a NUL byte (first bytes $MPU_HEAD2) for $PROJECT_MD — merge REFUSED until it is converted to UTF-8" 3
+    exit 3 ;;
+esac
 # E5: staged NEXT TO PROJECT.md (not in $TMPDIR), so the final mv is a same-filesystem rename.
 TMP_OUT=$(mktemp "$PROJECT_MD.XXXXXX") || {
   sb_log_error "merge-project-update.sh" "cannot create a temp file next to $PROJECT_MD — merge NOT applied, retried later" 3
@@ -331,6 +349,13 @@ TMP_OUT=$(mktemp "$PROJECT_MD.XXXXXX") || {
 # from every ^# reader. awk is the byte-mode wrapper defined above. E6: trailing blanks on a
 # heading are dropped too; "## Recent decisions " never matched a section writer.
 tr -d '\r' < "$PROJECT_MD" | awk 'NR==1 { sub(/^\357\273\277/, "") } /^#+ / { sub(/[ \t]+$/, "") } { print }' > "$TMP_OUT"
+MPU_READ_RC="${PIPESTATUS[*]}"
+# Final review blocker 1: a read that failed (an AV scanner or sync client holding the file: EBUSY on
+# the redirect) left an empty buffer, and the empty-file repair below then replaced the real file.
+if [ "$MPU_READ_RC" != "0 0" ]; then
+  sb_log_error "merge-project-update.sh" "PROJECT.md could not be read (tr/awk exit $MPU_READ_RC: held by another program?) for $PROJECT_MD — merge REFUSED, retried later" 3
+  exit 3
+fi
 # R2-SF7: the final guard below compares the staged buffer against THIS file's own first
 # heading (whatever the human named it), never a hardcoded "# PROJECT" -- a hand-renamed
 # heading used to make every later merge refuse to write, with a misleading message.
@@ -341,6 +366,8 @@ ORIG_HEAD=$(LC_ALL=C grep -m1 -E '^#+ ' "$TMP_OUT")
 # dead-lettered). Only an EMPTY read that is fresh (< 60 s: a truncating writer may be mid-write)
 # is still refused; an older empty file is rebuilt from the scaffold, and text without a heading
 # gets one prepended. Either way the repair is written even when the delta adds nothing.
+# Blocker 1: "empty" means 0 bytes ON DISK. A read that came back empty from a file holding bytes
+# (a short read, or a whitespace-only file) is refused: only a truly empty file may be rebuilt.
 if [ -z "$ORIG_HEAD" ]; then
   ORIG_HEAD="# PROJECT: ${PROJECT_SLUG:-unknown}"
   if LC_ALL=C grep -q '[^[:space:]]' "$TMP_OUT"; then
@@ -350,6 +377,9 @@ if [ -z "$ORIG_HEAD" ]; then
       exit 3
     }
     sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading for $PROJECT_MD — prepended '$ORIG_HEAD', merge continues" 1
+  elif [ -s "$PROJECT_MD" ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md read came back empty but the file holds ${MPU_SIG0%% *} bytes (held by another program, or whitespace only) for $PROJECT_MD — merge REFUSED, retried later" 3
+    exit 3
   elif [ $(( $(date +%s) - $(sb_mtime "$PROJECT_MD") )) -lt 60 ]; then
     sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading (empty, modified < 60 s ago: maybe mid-write) for $PROJECT_MD — merge REFUSED, retried later" 3
     exit 3
@@ -1847,6 +1877,14 @@ if [ "$CHANGED" -eq 1 ]; then
   if [ "$_mpu_held" != "$MPU_LOCK_TOKEN" ]; then
     sb_log_error "merge-project-update.sh" "PROJECT.md lock is no longer ours (ours $MPU_LOCK_TOKEN, now ${_mpu_held:-none}: stolen while held) for $PROJECT_MD — write REFUSED, delta NOT applied, retried later" 3
     MPU_LOCK_TOKEN=""
+    exit 3
+  fi
+  # A writer that takes no lock (the Edit tool: knowledge-maintainer, import-host) changed the file
+  # after the read: replacing it now would drop that edit. Whole-second mtime: an edit in the same
+  # second that keeps the size passes unseen.
+  _mpu_sig1=$(mpu_sig)
+  if [ "$_mpu_sig1" != "$MPU_SIG0" ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md changed while the merge ran (size mtime $MPU_SIG0 -> ${_mpu_sig1:-gone}: a writer that takes no lock) for $PROJECT_MD — write REFUSED, delta NOT applied, retried later" 3
     exit 3
   fi
   if ! mv "$TMP_OUT" "$PROJECT_MD"; then
