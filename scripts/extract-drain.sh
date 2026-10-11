@@ -570,7 +570,26 @@ do_extract() {  # $1 = txt, $2 = slug, $3 = from, $4 = to (archive lines); honor
 
 processed=0
 failed=0
+deferred=0
 attempts=0
+# Consecutive merge-exit-3 deferrals per archive (basename<TAB>count), cleared on a success or a
+# dead-letter; past SB_DRAIN_MAX_DEFERS the next deferral counts as a failure.
+MAX_DEFERS="${SB_DRAIN_MAX_DEFERS:-6}"; case "$MAX_DEFERS" in ''|*[!0-9]*) MAX_DEFERS=6 ;; esac
+DEFERS_F="$BRAIN_DIR/.drain-merge-defers"
+sb_merge_defer_clear() {
+  [ -f "$DEFERS_F" ] || return 0
+  local t="$DEFERS_F.tmp.$$"
+  awk -F'	' -v b="$1" '$1 != b' "$DEFERS_F" > "$t" && mv -f "$t" "$DEFERS_F"     || sb_log_error "extract-drain.sh" "cannot update $DEFERS_F" 1
+}
+sb_merge_defer_bump() {  # prints the new count
+  local n=0 t="$DEFERS_F.tmp.$$"
+  [ -f "$DEFERS_F" ] && n=$(awk -F'	' -v b="$1" '$1 == b { print $2; exit }' "$DEFERS_F")
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  n=$((n + 1))
+  { [ ! -f "$DEFERS_F" ] || awk -F'	' -v b="$1" '$1 != b' "$DEFERS_F"; printf '%s	%d
+' "$1" "$n"; } > "$t"     && mv -f "$t" "$DEFERS_F" || sb_log_error "extract-drain.sh" "cannot update $DEFERS_F" 1
+  printf '%d' "$n"
+}
 # P8 silence-latency (0.48.0): produced-at = archive mtime (from the map), captured-at = the row's
 # ts. The gap is the window a session's knowledge sat captured-but-unextracted. An unknown mtime
 # reports -1 (unmeasured), never the best-possible 0: the reconcile stats drop -1 rows.
@@ -631,6 +650,7 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
     if do_extract "$tf" "$slug" "$from" "$cend" </dev/null; then
       drain_clock
       drain_row ok "$reason" "$from" "$cend" ",\"latency_s\":$(sb_drain_latency_s "$mt")"
+      sb_merge_defer_clear "$base"
       processed=$((processed + 1)); fails=0; from="$cend"
       { [ "$from" -lt "$lines" ] && [ "$attempts" -lt "$BATCH" ]; } || break
       win=$(sb_archive_window "$tf" "$from" "$lines" "$MAXB") || break
@@ -640,10 +660,17 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
       x_rc=$?
       if [ "$x_rc" -eq 3 ]; then
         # The merge's exit 3: PROJECT.md busy (its lock still held after the wait) or a refused
-        # read/write, "retry later". No row: a retry row counts toward MAX_FAILS, and any other
-        # outcome would reset the run of retries before it.
-        sb_log_error "extract-drain.sh" "window $from..$cend of $base deferred: the merge exited 3 (PROJECT.md busy or refused, see its row); retried next tick, not counted toward SB_DRAIN_MAX_FAILS" 0
-        break
+        # read/write, "retry later". No row while under the cap: a retry row counts toward MAX_FAILS,
+        # and any other outcome would reset the run of retries before it. A PERMANENT exit 3 (UTF-16
+        # or whitespace-only PROJECT.md, unwritable file) would defer forever, so more than
+        # SB_DRAIN_MAX_DEFERS consecutive deferrals of one archive fall through as a failure.
+        nd=$(sb_merge_defer_bump "$base")
+        if [ "$nd" -le "$MAX_DEFERS" ]; then
+          deferred=$((deferred + 1))
+          sb_log_error "extract-drain.sh" "window $from..$cend of $base deferred ($nd/$MAX_DEFERS): the merge exited 3 (PROJECT.md busy or refused, see its row); retried next tick, not counted toward SB_DRAIN_MAX_FAILS" 0
+          break
+        fi
+        sb_log_error "extract-drain.sh" "project $slug: $base hit $nd consecutive deferrals (merge exit 3: PROJECT.md locked, unreadable, UTF-16 or unwritable); counting it as a failure toward SB_DRAIN_MAX_FAILS" 1
       fi
       fails=$((fails + 1)); drain_clock
       if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" != "off" ] && sb_floor_transcript "$tf" "$slug"; then
@@ -653,12 +680,14 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
         # the window done. Counts as a real capture (processed). Falls through to 'error' only if
         # even the floor found no file change.
         drain_row ok deterministic-floor "$from" "$cend" ",\"latency_s\":$(sb_drain_latency_s "$mt")"
+        sb_merge_defer_clear "$base"
         processed=$((processed + 1))
       elif [ "$fails" -ge "$MAX_FAILS" ]; then
         # Dead-letter THIS window only: the error row moves `next` past it, so later growth is
         # still extracted, but never the cursor (D177): its lines stay counted as not extracted.
         failed=$((failed + 1))
         drain_row error "" "$from" "$cend" ",\"fails\":$fails"
+        sb_merge_defer_clear "$base"
       else
         failed=$((failed + 1))
         drain_row retry "" "$from" "$cend" ",\"fails\":$fails"
@@ -776,7 +805,7 @@ if [ -n "$DRAIN_MAP_FAILED" ]; then
 elif [ "$processed" -eq 0 ] && [ "$failed" -gt 0 ]; then
   sb_write_extractor_health "$DRAIN_BACKEND" "fail" "drained 0, $failed failed this run"
 else
-  sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)"
+  sb_write_extractor_health "$DRAIN_BACKEND" "ok" "drained $processed this run ($failed failed)$([ "$deferred" -gt 0 ] && printf ' deferred=%d (merge exit 3: PROJECT.md busy or refused)' "$deferred")"
 fi
 
 # Retention GC stays OUTSIDE the engine gate on purpose: pruning regenerable artifacts
