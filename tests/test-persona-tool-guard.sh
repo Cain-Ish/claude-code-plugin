@@ -150,7 +150,7 @@ echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command == "echo bar"' >/d
 out=$(jq -nc '{tool_name:"PowerShell",tool_input:{command:"echo foo"},session_id:"g1rw"}' | BRAIN_DIR="$G1RW" bash "$SCRIPT")
 [ -z "$out" ] || fail "G1: a Bash rewrite rule must not rewrite (and auto-allow) a PowerShell command (got: $out)"
 rm -rf "$G1RW"
-pass "G1: PowerShell commands meet the Bash ask rules (force-push, rm); Bash rewrite rules stay Bash-only"
+pass "G1: PowerShell commands meet the Bash-SYNTAX ask rules (force-push, bash-style rm -rf / rm -Recurse -Force); a PowerShell-native Remove-Item / ri / del / rmdir rule is deferred; Bash rewrite rules stay Bash-only"
 
 # Test 4: harmless ls → silent
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"t4"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")

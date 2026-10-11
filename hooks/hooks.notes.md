@@ -158,8 +158,11 @@ matcher covers the file (Read/Write/Edit/MultiEdit), shell (Bash, PowerShell), n
 (WebFetch/WebSearch), and subagent-spawn surface where tool_scope and sar_tool
 apply. Both Task and Agent match — both agent-spawn tool names exist across CLI
 versions and both must be guarded. PowerShell (Claude Code's Windows shell tool,
-same `tool_input.command` field) meets every Bash ask/deny/warn rule; a Bash
-rewrite rule is not applied to it (its "allow" would auto-approve the call). MCP tools and read-only
+same `tool_input.command` field) meets the Bash-SYNTAX ask/deny/warn rules only — a command
+spelled in bash syntax (`rm -rf`, `rm -Recurse -Force`, `git push --force`) is caught, but a
+PowerShell-NATIVE destructive cmdlet (`Remove-Item -Recurse -Force`, `ri`, `del`, `rmdir /s /q`)
+is NOT matched; a dedicated Remove-Item rule is deferred (needs a PowerShell-aware classifier). A Bash
+rewrite rule is not applied to PowerShell (its "allow" would auto-approve the call). MCP tools and read-only
 Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. That exclusion is a
 recorded decision, pinned by the out-of-scope contract in
 tests/test-guard-wiring.sh.
