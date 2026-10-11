@@ -8,7 +8,7 @@
 # [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Exits 0 on success;
 # non-zero on an unparseable PROJECT.md, invalid JSON, or (since 2026-08-23, EC-13) a
 # FAILED PROJECT.md write — so the drainer retries instead of marking the transcript done.
-# pins: SB_AI_RENDER_TIMEOUT_S — R3 shortens the render-CLI bound 20 -> 2 s: that the bound fires and the merge carries on is under test, not its length
+# pins: SB_AI_RENDER_TIMEOUT_S — R3 and sanitize-timeout shorten the node-CLI bound 20 -> 2 s: that the bound fires and the merge carries on is under test, not its length
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/merge-project-update.sh"
 TMP=$(mktemp -d)
@@ -1255,5 +1255,22 @@ ADLOG="$ADD/kd/wiki/decisions/adp-decisions-log.md"
 [ "$(grep -c 'ad decision 1$' "$ADLOG" 2>/dev/null)" = 1 ] \
   || fail "archive-dedup: a retried merge must archive the dropped decision once: $(cat "$ADLOG" 2>/dev/null)"
 pass "archive-dedup: a retried merge does not archive the same dropped decision twice"
+
+# --- Final review should-fix: the compact gate's sanitize CLI runs while the PROJECT.md lock is held,
+# so it is bounded like the render CLI (SB_AI_RENDER_TIMEOUT_S): a hung sanitizer drops the untrusted
+# item (logged), the merge exits 0 and releases the lock.
+SZD="$TMP/sz"; mkdir -p "$SZD/root/mcp/dist/tools" "$SZD/projects/szp" "$SZD/kd/wiki"
+printf 'setTimeout(function () {}, 60000);\n' > "$SZD/root/mcp/dist/tools/sanitize-cli.bundle.js"
+SZP="$SZD/projects/szp/PROJECT.md"; seed_project "$SZP"
+SZ_START=$SECONDS; SZ_RC=0
+printf '%s' '{"compact_pending":["sz compact item under a hung sanitizer"]}' \
+  | CLAUDE_PLUGIN_ROOT="$SZD/root" BRAIN_DIR="$SZD" SB_AI_RENDER_TIMEOUT_S=2 bash "$SCRIPT" --project-md "$SZP" --knowledge-dir "$SZD/kd" >/dev/null 2>&1 || SZ_RC=$?
+[ "$SZ_RC" -eq 0 ] || fail "sanitize-timeout: a hung sanitizer must not fail the merge, got exit $SZ_RC"
+[ $((SECONDS - SZ_START)) -lt 40 ] || fail "sanitize-timeout: the merge waited for the hung sanitizer ($((SECONDS - SZ_START)) s)"
+grep -q 'gate=untrusted-items caller=compact_pending reason=sanitize-timeout' "$SZD/error-log.jsonl" 2>/dev/null \
+  || fail "sanitize-timeout: no timeout row: $(cat "$SZD/error-log.jsonl" 2>/dev/null)"
+grep -qF 'sz compact item' "$SZP" && fail "sanitize-timeout: an unsanitized item was stored"
+[ ! -e "$SZD/projects/szp/.PROJECT.md.lock" ] || fail "sanitize-timeout: the merge left the PROJECT.md lock behind"
+pass "sanitize-timeout: a hung sanitize CLI is bounded (item dropped, timeout row, exit 0, lock released)"
 
 echo "ALL PASS"

@@ -117,6 +117,9 @@ KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 # The render CLI turns a structured ai_block into the marked region deterministically
 # (reuses the TS schema → no bash/TS drift). Resolved relative to this script (plugin root).
 RENDER_CLI="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")"/.. && pwd)}/mcp/dist/tools/ai-block-render-cli.bundle.js"
+# The node CLIs (render, sanitize) run under the PROJECT.md lock, so each call is bounded: a hung
+# one must not hold the lock for good.
+NODE_CLI_TIMEOUT_S="${SB_AI_RENDER_TIMEOUT_S:-20}"; case "$NODE_CLI_TIMEOUT_S" in ''|0|*[!0-9]*) NODE_CLI_TIMEOUT_S=20 ;; esac
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
 # Originating project slug = the PROJECT.md parent dir. Stamped as the project: facet on
 # pages this run creates, and the key for the wiki-writes counter.
@@ -580,8 +583,12 @@ gate_untrusted_items() {
   fi
 
   local sani_out sani_ec
-  sani_out=$(printf '%s' "$items" | node "$sani_cli" 2>"$gerr"); sani_ec=$?
+  sani_out=$(printf '%s' "$items" | sb_timeout "$NODE_CLI_TIMEOUT_S" node "$sani_cli" 2>"$gerr"); sani_ec=$?
   sani_out="${sani_out//$'\r'/}"
+  if [ "$sani_ec" -eq 124 ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=sanitize-timeout after ${NODE_CLI_TIMEOUT_S}s" 1
+    rm -f "$gerr"; return 1
+  fi
   if [ "$sani_ec" -ne 0 ] || [ -z "$sani_out" ]; then
     sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=sanitize-failed ec=$sani_ec err=$(err_head "$(cat "$gerr")")" 1
     rm -f "$gerr"; return 1
@@ -1708,14 +1715,13 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     ai_region=""
     aiblk=$(echo "$update" | jq -c '.ai_block // empty' 2>/dev/null)
     if [ -n "$aiblk" ] && [ "$aiblk" != "null" ] && command -v node >/dev/null 2>&1 && [ -f "$RENDER_CLI" ]; then
-      # Runs under the PROJECT.md lock, so it is bounded: a hung renderer must not hold the lock for
-      # good. A timeout (124) skips the ai-block refresh for this page and logs; the merge continues.
-      _rt="${SB_AI_RENDER_TIMEOUT_S:-20}"; case "$_rt" in ''|0|*[!0-9]*) _rt=20 ;; esac
+      # Bounded (NODE_CLI_TIMEOUT_S): a timeout (124) skips the ai-block refresh for this page and
+      # logs; the merge continues.
       _rin=$(jq -nc --arg t "$category" --argjson b "$aiblk" '{type:$t,block:$b}' 2>/dev/null)
-      ai_region=$(printf '%s' "$_rin" | sb_timeout "$_rt" node "$RENDER_CLI" 2>/dev/null); _rrc=$?
+      ai_region=$(printf '%s' "$_rin" | sb_timeout "$NODE_CLI_TIMEOUT_S" node "$RENDER_CLI" 2>/dev/null); _rrc=$?
       if [ "$_rrc" -eq 124 ]; then
         ai_region=""
-        sb_log_error "merge-project-update.sh" "ai-block render timed out after ${_rt}s for $category/$slug; ai-block refresh skipped, merge continues" 1
+        sb_log_error "merge-project-update.sh" "ai-block render timed out after ${NODE_CLI_TIMEOUT_S}s for $category/$slug; ai-block refresh skipped, merge continues" 1
       fi
     fi
 
