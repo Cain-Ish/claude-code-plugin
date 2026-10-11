@@ -10,7 +10,8 @@ Re-verify any row: `grep -rn '<filename>' scripts/ mcp/src/ | head -5`
 
 | Path | Purpose | Evidence |
 |---|---|---|
-| `USER.md` | pinned user preferences (2200-byte cap, dated dedupe); hot tier, force-injected first | `lib.sh` (sb_pin_to_user area), `session-load.sh` |
+| `USER.md` | pinned user preferences (2200-byte cap, dated dedupe); hot tier, force-injected first; HUMAN pins only (pin_to_user, /pin) | `lib.sh` (sb_pin_to_user area), `session-load.sh` |
+| `persona-learned.md` | auto-graduated persona signals (SEC-R5): same `- [date] text` lines, 15-line cap evicting the oldest; served at SessionStart inside the untrusted-data frame, never as USER.md | `lib.sh` (sb_pin_to_learned), `merge-persona-signals.sh`, `session-load.sh` (1b) |
 | `persona-card.md` | persona identity; its `## Charter` section is force-injected (≤500 B reserve) | `session-load.sh:105-110` |
 | `projects.jsonl` | project registry — ONE compact JSON object per line, deduped by slug | `lib.sh:571` (`sb_harden_projects_jsonl`), `session-load.sh` |
 | `projects/<slug>/PROJECT.md` | per-project hot tier (Goal/State/**Plan**/Conventions/Recent decisions/Open blockers/Cross-references) — the `## Plan` section's marker grammar is documented below | `session-load.sh:40-79` |
