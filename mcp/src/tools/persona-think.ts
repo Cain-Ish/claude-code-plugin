@@ -1,4 +1,7 @@
 import { spawn } from 'child_process';
+import { mkdirSync } from 'fs';
+import { join } from 'path';
+import { resolveBrainDir } from '../brain-paths.js';
 import { resolveModel } from '../model-resolve.js';
 
 export interface PersonaThinkArgs {
@@ -39,7 +42,18 @@ Output ONLY the JSON object, no prose around it.`;
 
 // --bare skips OAuth/keychain, so it only works with an API key (same rule as lib.sh's extractor).
 export function personaSpawnArgs(model: string, system: string, apiKey = process.env.ANTHROPIC_API_KEY): string[] {
-  return ['-p', ...(apiKey ? ['--bare'] : []), '--model', model, '--system-prompt', system];
+  // Read-only tools, no MCP servers, no persisted session: the prompt is user text (injection surface).
+  return ['-p', ...(apiKey ? ['--bare'] : []), '--strict-mcp-config', '--no-session-persistence',
+    '--tools', 'Read,Grep,Glob', '--model', model, '--system-prompt', system];
+}
+
+// Mirrors lib.sh's recursive-claude guard: a `claude -p` spawned inside a session on OAuth only
+// re-enters the locked process and hangs to the timeout. SB_FORCE_CLI=1 is lib.sh's escape hatch.
+export function inSessionRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.CLAUDECODE === '1' && env.SB_FORCE_CLI !== '1' && !env.ANTHROPIC_API_KEY) {
+    return 'in-session OAuth only: a nested claude -p would hang; set ANTHROPIC_API_KEY to enable persona_think';
+  }
+  return null;
 }
 
 function defaultRunner(system: string, user: string, model: string): Promise<string> {
@@ -48,8 +62,13 @@ function defaultRunner(system: string, user: string, model: string): Promise<str
   if (process.env.VITEST) {
     return Promise.reject(new Error('persona-think defaultRunner: refusing to spawn a real claude under VITEST; inject deps.runner'));
   }
+  const refusal = inSessionRefusal();
+  if (refusal) return Promise.reject(new Error(refusal));
+  const cwd = join(resolveBrainDir(), 'scratch');
+  mkdirSync(cwd, { recursive: true });
   return new Promise((resolve, reject) => {
     const p = spawn('claude', personaSpawnArgs(model, system), {
+      cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, SB_NESTED_SPAWN: '1' },
     });

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { archiveToWiki } from './archive-to-wiki.js';
@@ -127,5 +127,22 @@ describe('archive_to_wiki', () => {
     expect((await p).ok).toBe(true);
     expect(readFileSync(projectMd, 'utf-8')).toMatch(/→ wiki\/issues\/test-slug\//);
     expect(existsSync(lf)).toBe(false);
+  });
+
+  it('TS-R2: a failed PROJECT.md replace removes the page it wrote, so a retry does not duplicate', async () => {
+    const fsp = (await import('fs')).promises;
+    const realRename = fsp.rename;
+    const spy = vi.spyOn(fsp, 'rename').mockImplementation(async (a: any, b: any) => {
+      if (String(a).endsWith('.tmp')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+      return realRename(a, b);
+    });
+    const args = { slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir } as const;
+    await expect(archiveToWiki({ ...args })).rejects.toThrow('disk full');
+    const wikiDir = join(knowledgeDir, 'wiki', 'issues', 'test-slug');
+    expect(existsSync(wikiDir) ? readdirSync(wikiDir) : []).toEqual([]);
+    spy.mockRestore();
+    const res = await archiveToWiki({ ...args });
+    expect(res.ok).toBe(true);
+    expect(res.archived_path).not.toMatch(/-2\.md$/);
   });
 });

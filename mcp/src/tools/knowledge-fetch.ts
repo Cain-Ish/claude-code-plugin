@@ -126,8 +126,8 @@ export async function knowledgeFetch(args: KnowledgeFetchArgs): Promise<Knowledg
     truncated = capped.truncated;
   }
 
-  // Page text is store content: every tier but the one-line gist rides in the untrusted frame (audit M4).
-  if (tier !== 'gist') text = untrustedFrame(FRAME_LABEL, text);
+  // Page text is store content (the gist is its description): every tier rides in the untrusted frame (audit M4, review SEC-R7).
+  text = untrustedFrame(FRAME_LABEL, text);
 
   return {
     slug: args.slug,
