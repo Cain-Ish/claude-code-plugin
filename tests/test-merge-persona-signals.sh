@@ -1,7 +1,7 @@
 #!/bin/bash
 # run-all-timeout: 240   (~40 merge runs; the E1/E3 cases run the REAL lib.sh 9 more times plus a 1 s
 #   lock wait; measured 121 s alone on a loaded MSYS box, 2026-10-11)
-# pins: SB_ARCHIVE_LOCK_WAIT_S — E3 sets lib.sh's _SB_ARCHIVE_LOCK_WAIT_S=1 (the census reads the env name inside it): the bounded wait failing loud is under test, not its length
+# pins: SB_ARCHIVE_LOCK_WAIT_S — R1 (held signals lock) and E3 sets lib.sh's _SB_ARCHIVE_LOCK_WAIT_S=1 (the census reads the env name inside it): the bounded wait failing loud is under test, not its length
 # Tests for scripts/merge-persona-signals.sh — signal dedup + auto-graduation.
 # Goal: prove that the loosened dedup (set-min, 50%) catches paraphrased
 # repeats, and that two high-confidence sightings now auto-graduate.
@@ -28,6 +28,8 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 sb_safe_json_array() { echo "${1:-[]}"; }
 sb_log_error() { printf 'ERR %s %s\n' "$1" "$2" >> "$BRAIN_DIR/err-log"; }
 sb_log_audit() { printf 'AUDIT %s %s %s %s\n' "$1" "$2" "$3" "$4" >> "$BRAIN_DIR/audit-stub-log"; }
+sb_archive_lock() { _SB_ARCHIVE_LOCK_TOKEN=stub; return 0; }
+sb_archive_unlock() { return 0; }
 sb_pin_to_learned() { echo "PIN: $1" >> "$BRAIN_DIR/pin-log"; return 0; }
 sb_count_torn_lines() {
   local f="${1:-}"
@@ -474,6 +476,29 @@ grep -q 'learned number 16$' "$LF" || fail "SEC-R5: the newest learned line is m
 [ ! -e "$L_BRAIN/USER.md" ] || fail "SEC-R5: sb_pin_to_learned touched USER.md"
 pass "SEC-R5: sb_pin_to_learned flattens, dedupes, caps at 15 by evicting the oldest, never touches USER.md"
 rm -rf "$L_BRAIN"
+
+# --- Residual 1: persona-signals.jsonl read-modify-write holds .persona-signals.jsonl.lock, so two
+# concurrent merges (Stop + Stop, Stop + drainer) cannot lose each other's signal. Real lib.sh.
+CC_BRAIN="$TMP/cc-brain"; CC_HOME="$TMP/cc-home"; mkdir -p "$CC_BRAIN" "$CC_HOME"
+cc_merge() { printf '%s' "$1" | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" bash "$SCRIPT" --session "$2" >/dev/null 2>&1; }
+cc_pids=""
+for w in alpha bravo charlie delta echo foxtrot; do
+  cc_merge "[{\"category\":\"workflow\",\"signal\":\"zzq${w}one zzq${w}two zzq${w}three marker\",\"evidence\":\"e\",\"confidence\":\"low\"}]" "cc-$w" &
+  cc_pids="$cc_pids $!"
+done
+for p in $cc_pids; do wait "$p"; done
+for w in alpha bravo charlie delta echo foxtrot; do
+  grep -q "zzq${w}one" "$CC_BRAIN/persona-signals.jsonl" || fail "R1: concurrent merge lost the $w signal: $(cat "$CC_BRAIN/persona-signals.jsonl")"
+done
+[ ! -e "$CC_BRAIN/.persona-signals.jsonl.lock" ] || fail "R1: the merge left its signals lock behind"
+# A held lock: the merge waits (bounded), fails loud and writes nothing.
+printf '%s\n' "$$.held" > "$CC_BRAIN/.persona-signals.jsonl.lock"
+printf '%s' '[{"category":"workflow","signal":"yyqheld one yyqheld two yyqheld three","evidence":"e","confidence":"low"}]' \
+  | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" SB_ARCHIVE_LOCK_WAIT_S=1 bash "$SCRIPT" --session cc-held >/dev/null 2>&1 \
+  && fail "R1: merge reported success while the signals lock was held"
+grep -q 'yyqheld' "$CC_BRAIN/persona-signals.jsonl" && fail "R1: merge wrote the signals file while its lock was held"
+rm -f "$CC_BRAIN/.persona-signals.jsonl.lock"
+pass "R1: persona-signals read-modify-write is locked (6 concurrent merges keep all signals; held lock fails loud)"
 
 echo
 echo "ALL PASS"
