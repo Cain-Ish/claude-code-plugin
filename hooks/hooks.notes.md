@@ -176,8 +176,8 @@ apply. Both Task and Agent match — both agent-spawn tool names exist across CL
 versions and both must be guarded. PowerShell (Claude Code's Windows shell tool,
 same `tool_input.command` field) meets the Bash-SYNTAX ask/deny/warn rules only — a command
 spelled in bash syntax (`rm -rf`, `rm -Recurse -Force`, `git push --force`) is caught, but a
-PowerShell-NATIVE destructive cmdlet (`Remove-Item -Recurse -Force`, `ri`, `del`, `rmdir /s /q`)
-is NOT matched; a dedicated Remove-Item rule is deferred (needs a PowerShell-aware classifier). A Bash
+PowerShell-NATIVE `Remove-Item -Recurse -Force` is matched by its own PowerShell-only rule
+(`warn-remove-item-recurse-force`); its ri, rd, rmdir, del, erase aliases are matched too; cmd-style `rmdir /s /q` is NOT. A Bash
 rewrite rule is not applied to PowerShell (its "allow" would auto-approve the call). MCP tools and read-only
 Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. That exclusion is a
 recorded decision, pinned by the out-of-scope contract in

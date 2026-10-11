@@ -35,7 +35,7 @@
     {
       "name": "warn-force-push-main",
       "tool": "Bash",
-      "match_command": "git push(.*(--force|-f)\\b.*|.*[^[:alnum:]_][+][^[:space:]]*)\\b(main|master)\\b|git push.*\\b(main|master)\\b[^;&|]*(--force|-f)\\b",
+      "match_command": "git [^;&|]*push(.*[^[:alnum:]_-](--force[^[:space:]]*|-[a-zA-Z]*f[a-zA-Z]*)[^[:alnum:]_-].*|.*[^[:alnum:]_][+][^[:space:]]*)\\b(main|master)\\b|git [^;&|]*push.*\\b(main|master)\\b[^;&|]*[^[:alnum:]_-](--force[^[:space:]]*|-[a-zA-Z]*f[a-zA-Z]*)([^[:alnum:]_-]|$)",
       "action": "ask",
       "reason": "Force-push to main/master is destructive. Confirm intent.",
       "lock": true
@@ -43,7 +43,7 @@
     {
       "name": "warn-direct-write-hot-tier",
       "tool": "Write",
-      "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "match_path": "(^|/)(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
       "action": "ask",
       "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
       "lock": true
@@ -51,7 +51,7 @@
     {
       "name": "warn-direct-write-hot-tier-edit",
       "tool": "Edit",
-      "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "match_path": "(^|/)(USER\\.md|persona-card\\.md|persona-rules\\.json)$",
       "action": "ask",
       "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
       "lock": true
@@ -59,7 +59,7 @@
     {
       "name": "warn-direct-write-hot-tier-multiedit",
       "tool": "MultiEdit",
-      "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "match_path": "(^|/)(USER\\.md|persona-card\\.md|persona-rules\\.json)$",
       "action": "ask",
       "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
       "lock": true
@@ -67,9 +67,17 @@
     {
       "name": "warn-rm-rf",
       "tool": "Bash",
-      "match_command": "(^|[[:space:];&|(`])rm[[:space:]]+([^;&|]*[[:space:]])?(-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+-[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*[[:space:]]+-[a-zA-Z]*[rR]|--recursive[[:space:]]+--force|--force[[:space:]]+--recursive|-[a-zA-Z]*[rR][a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*[rR])",
+      "match_command": "(^|[^[:alnum:]_])rm[[:space:]]+([^;&|]*[[:space:]])?(-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR])[a-zA-Z]*|(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)[[:space:]]([^;&|]*[[:space:]])?(-[a-zA-Z]*f[a-zA-Z]*|--force)|(-[a-zA-Z]*f[a-zA-Z]*|--force)[[:space:]]([^;&|]*[[:space:]])?(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive))",
       "action": "ask",
       "reason": "rm -rf is destructive and irreversible. Confirm target before proceeding.",
+      "lock": true
+    },
+    {
+      "name": "warn-remove-item-recurse-force",
+      "tool": "PowerShell",
+      "match_command": "(^|[^[:alnum:]_-])(remove-item|ri|rd|rmdir|del|erase)[[:space:]]([^;&|]*[[:space:]])?-(r(e(c(u(r(s(e)?)?)?)?)?)?([^[:alnum:]_;&|][^;&|]*)?[[:space:]]-fo(r(c(e)?)?)?|fo(r(c(e)?)?)?([^[:alnum:]_;&|][^;&|]*)?[[:space:]]-r(e(c(u(r(s(e)?)?)?)?)?)?)([^[:alnum:]_]|$)",
+      "action": "ask",
+      "reason": "Remove-Item -Recurse -Force is the PowerShell rm -rf: destructive and irreversible. Confirm target before proceeding.",
       "lock": true
     },
     {
