@@ -504,7 +504,6 @@ else
   echo "SKIP: D084 follow-up / D1 — rsync could not be hidden from PATH on this host"
   pass "D084 follow-up / D1: stash guards (skipped — no rsync-free PATH)"
 fi
-rm -rf "$NORSYNC_ROOT"
 
 # === D212: the shipped 30-day FORGET age floor is a REAL gate, not just
 # something every test pins to 0. A page younger than SB_FORGET_MIN_AGE_DAYS
@@ -671,5 +670,6 @@ for d8_arm in 1 0 N; do
   pass "D8 ($d8_tool, arm=$d8_arm, protected page=$d8_protect): a live write during the apply survives; the dream's p1 change still lands"
   rm -rf "$SB"
 done
+rm -rf "$NORSYNC_ROOT"   # after D8: its arm N reuses NORSYNC_PATH
 
 echo "ALL PASS"

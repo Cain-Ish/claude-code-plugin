@@ -248,7 +248,7 @@ OUT=$(printf 'p' | CHILD_RC=5 bash "$TIMER" 10 "$CHILD" 2>/dev/null); rc=$?
 [ "$rc" -eq 5 ] && [ "$OUT" = "child-stdout:p" ] || fail "(k) an in-budget heavy hook must pass its rc and stdout through (rc=$rc out=$OUT)"
 [ "$(grep -c '"kind":"latency"' "$AUD")" -eq 1 ] || fail "(k) one in-budget run, one row: $(cat "$AUD")"
 LINE=$(grep '"kind":"latency"' "$AUD")
-printf '%s' "$LINE" | jq -e '.exit_code == 5 and (has("timeout") | not) and (has("after_timeout") | not)' >/dev/null \
+[ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.exit_code == 5 and (has("timeout") | not) and (has("after_timeout") | not)' >/dev/null \
   || fail "(k) an in-budget heavy run carries its exit code and no timeout marks: $LINE"
 pass "(k) an in-budget heavy hook: one row with its own exit code, no timeout marks"
 
@@ -271,10 +271,10 @@ for l in l1 l2; do
   l_rows=$(grep -c '"kind":"latency"' "$SANDBOX/$l/audit-log.jsonl" 2>/dev/null)
   [ "$l_rows" = 2 ] || fail "(l) $l: a heavy run past its budget leaves a timeout row and a completion row (got ${l_rows:-0}): $(cat "$SANDBOX/$l/audit-log.jsonl" 2>/dev/null)"
   LINE=$(grep '"kind":"latency"' "$SANDBOX/$l/audit-log.jsonl" | grep '"timeout":true')
-  printf '%s' "$LINE" | jq -e '.hook == "heavy.sh" and .exit_code == 124 and (has("after_timeout") | not)' >/dev/null \
+  [ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.hook == "heavy.sh" and .exit_code == 124 and (has("after_timeout") | not)' >/dev/null \
     || fail "(l) $l: the heavy hook past its budget must leave a timeout row: $LINE"
   DONE_LINE=$(grep '"kind":"latency"' "$SANDBOX/$l/audit-log.jsonl" | grep -v '"timeout":true')
-  printf '%s' "$DONE_LINE" | jq -e '.hook == "heavy.sh" and .exit_code == 3 and .after_timeout == true' >/dev/null \
+  [ -n "$DONE_LINE" ] && printf '%s' "$DONE_LINE" | jq -e '.hook == "heavy.sh" and .exit_code == 3 and .after_timeout == true' >/dev/null \
     || fail "(l) $l: the finished heavy hook must leave its real exit code in an after_timeout row: $DONE_LINE"
   if [ -n "$ms_clock" ]; then
     l_ms=$(row_ms "$LINE")
@@ -284,7 +284,7 @@ for l in l1 l2; do
   fi
 done
 LINE=$(grep '"kind":"latency"' "$SANDBOX/i2/audit-log.jsonl" 2>/dev/null)
-printf '%s' "$LINE" | jq -e '.hook == "hang.sh" and .timeout == true' >/dev/null \
+[ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.hook == "hang.sh" and .timeout == true' >/dev/null \
   || fail "(l) i2: with the wrapper killed, the watchdog must still write the timeout row: $LINE"
 i_gc=$(cat "$SANDBOX/i2/gc.pid" 2>/dev/null)
 [ -n "$i_gc" ] || fail "(l) i2 precondition: hang.sh never recorded its grandchild"

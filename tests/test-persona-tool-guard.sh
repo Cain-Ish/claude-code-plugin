@@ -175,7 +175,7 @@ G1RW=$(mktemp -d)
 jq '.rules += [{name:"rw-g1",tool:"Bash",action:"rewrite",match_command:"foo",replace:"bar",reason:"rw"}]' \
   "$(dirname "$SCRIPT")/persona-rules.default.json" > "$G1RW/persona-rules.json"
 out=$(jq -nc '{tool_name:"Bash",tool_input:{command:"echo foo"},session_id:"g1rw"}' | BRAIN_DIR="$G1RW" bash "$SCRIPT")
-echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command == "echo bar"' >/dev/null 2>&1 \
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command == "echo bar"' >/dev/null 2>&1 \
   || fail "G1 control: the Bash rewrite rule must rewrite a Bash command (got: $out)"
 out=$(jq -nc '{tool_name:"PowerShell",tool_input:{command:"echo foo"},session_id:"g1rw"}' | BRAIN_DIR="$G1RW" bash "$SCRIPT")
 [ -z "$out" ] || fail "G1: a Bash rewrite rule must not rewrite (and auto-allow) a PowerShell command (got: $out)"
