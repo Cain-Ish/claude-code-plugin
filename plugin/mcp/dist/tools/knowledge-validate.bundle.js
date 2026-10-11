@@ -2891,8 +2891,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
       }
       if (issue.autofix === "add_frontmatter" && issue.type === "missing_frontmatter") {
         try {
-          await addFrontmatter(issue.path, wikiDir);
-          fixed++;
+          if (await addFrontmatter(issue.path, wikiDir)) fixed++;
         } catch {
         }
       }
@@ -2974,8 +2973,8 @@ ${missing.map(derive).join("\n")}`;
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs3.readFile(filePath, "utf-8");
-  if (hasFrontmatterFence(original)) return;
-  if (!original.trim()) return;
+  if (hasFrontmatterFence(original)) return false;
+  if (!original.trim()) return false;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
@@ -3016,6 +3015,7 @@ related: [${related.join(", ")}]
 
 `;
   await fs3.writeFile(filePath, fm + original, "utf-8");
+  return true;
 }
 function isMalformedFrontmatter(content) {
   const m = matchFrontmatter(content);
@@ -3028,7 +3028,7 @@ function isMalformedFrontmatter(content) {
   }
 }
 function looksLikeFrontmatter(fm) {
-  return fm.split("\n").every((l) => l.trim() === "" || /^([a-z_][\w.-]*:([ \t]|$)|[ \t]|-[ \t])/.test(l));
+  return fm.split(/\r?\n/).every((l) => l.trim() === "" || /^([a-z_][\w.-]*:([ \t]|$)|[ \t]|-[ \t]|#([ \t]|$))/.test(l));
 }
 function dedupeTopLevelKeys(fm) {
   const lines = fm.split("\n");

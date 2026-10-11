@@ -157,7 +157,7 @@ MERGED=$(echo "$MERGED" | jq -c \
 # weeks rather than nuking the record. Ungraduated signals decayed below 0.2
 # are PRUNED (logged loud below); graduated ones are kept — their record is
 # the dedup ledger that stops a paraphrase from re-graduating into a
-# duplicate USER.md pin.
+# duplicate learned pin (persona-learned.md).
 SCORED=$(echo "$MERGED" | jq -c '
   map(. + {score:
     # The WHOLE value expression is parenthesized: an object value that is a bare
@@ -198,15 +198,23 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
   GRADUATED_INDICES=""
   for i in $(seq 0 $((GRAD_COUNT - 1))); do
     SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal" | tr -d '\r')
-    # E1: USER.md is trusted priority-1 context and this text is transcript-derived, so it passes
-    # the injection classifier first. A hit (or a classifier failure) is refused, logged, and the
-    # record dropped, so it does not re-fire on every later merge.
-    if ! SIG_CLASS=$(sb_text_injection_class "$SIG_TEXT") || [ -n "$SIG_CLASS" ]; then
-      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=${SIG_CLASS:-classifier-failed}, signal dropped: ${SIG_TEXT:0:160}" 1
+    # E1: this text is transcript-derived, so it passes the injection classifier first. A hit is
+    # refused, logged, and the record dropped, so it does not re-fire on every later merge.
+    # SIL-R5: a classifier FAILURE (jq/fork error) is no verdict: the record stays ungraduated and
+    # the next merge classifies it again; dropping it lost the signal for good.
+    if ! SIG_CLASS=$(sb_text_injection_class "$SIG_TEXT"); then
+      sb_log_error "merge-persona-signals.sh" "persona graduation skipped: injection classifier failed, signal kept for the next merge: ${SIG_TEXT:0:160}" 1
+      continue
+    fi
+    if [ -n "$SIG_CLASS" ]; then
+      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=$SIG_CLASS, signal dropped: ${SIG_TEXT:0:160}" 1
       MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT" 'map(select(.signal != $sig))')
       continue
     fi
-    if sb_pin_to_user "$SIG_TEXT"; then
+    # SEC-R5: a phrase classifier cannot hold paraphrases and homoglyphs, so a graduated signal goes
+    # to the machine-learned store that session-load.sh serves inside the untrusted-data frame, never
+    # to the trusted USER.md (human pins only: pin_to_user, /pin).
+    if sb_pin_to_learned "$SIG_TEXT"; then
       GRADUATED_INDICES="$GRADUATED_INDICES $i"
     fi
   done

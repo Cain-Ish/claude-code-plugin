@@ -428,6 +428,9 @@ if command -v rsync >/dev/null 2>&1; then
     printf '%s\n' "$PROTECT" | while IFS= read -r _rel; do
       [ -n "$_rel" ] && printf '/%s\n' "$_rel"
     done > "$_exf"
+    # shortcut (PORT-R6): PROTECT was recomputed just before this apply, but rsync --delete can still
+    # remove a page created after that find and before the delete pass (a window of the apply's length);
+    # upgrade to a post-apply re-check against a pre-apply listing if that ever bites.
     # D8: -u (both --delete arms) keeps a live page written during the apply window, i.e. after
     # PROTECT was computed, when it is newer than staging's copy.
     APPLY_ERR=$(rsync -au --delete --safe-links --exclude-from="$_exf" "$STAGING_WIKI/" "$LIVE_WIKI/" 2>&1); APPLY_RC=$?
@@ -480,6 +483,9 @@ else
     _restored=0; _rfail=""
     while IFS= read -r _rel; do
       [ -n "$_rel" ] || continue
+      # SIL-R8: restore only while live still equals the copy the apply just wrote; a differing live
+      # page was written during the cp -ru, is newer than the stash, and is kept (counts as preserved).
+      if [ -e "$STAGING_WIKI/$_rel" ] && ! cmp -s "$LIVE_WIKI/$_rel" "$STAGING_WIKI/$_rel"; then _restored=$((_restored + 1)); continue; fi
       if cp -p "$_stash/$_rel" "$LIVE_WIKI/$_rel"; then _restored=$((_restored + 1)); else _rfail="$_rfail '$_rel'"; fi
     done < <(cd "$_stash" && find . -type f | sed 's#^\./##')
     if [ -z "$_rfail" ] && [ "$_restored" -eq "$_stashed" ]; then

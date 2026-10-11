@@ -218,13 +218,16 @@ if [ "${1:-}" = "post" ]; then
   P_MERGE_STATUS="ok"
   # Exit 3 = PROJECT.md busy (its lock still held after ~5 s) or a refused read: "retry later".
   # Stop retries on its next run; PostCompact has none, so it retries once here, and only while a
-  # second lock wait plus a merge still fit the 30 s hook budget.
+  # second attempt still fits the 30 s hook budget (hooks.json PostCompact timeout): the time left
+  # since the hook started must exceed what the first attempt took (its lock wait plus the merge)
+  # plus a 2 s margin for the CLI's head start and this hook's tail. TST-R6: a fixed "$SECONDS < 15"
+  # skipped the retry whenever a loaded box had merely started slowly.
   for P_MERGE_TRY in 1 2; do
-    P_MERGE_RC=0
+    P_MERGE_RC=0; P_TRY_T0=$SECONDS
     jq -nc --argjson b "$P_BULLETS" '{compact_pending: $b}' \
       | bash "$(dirname "$0")/merge-project-update.sh" --project-md "$P_PROJECT_MD" \
           --knowledge-dir "$P_KNOWLEDGE_DIR" --session "$P_SID" >/dev/null 2>"$P_MERGE_ERR" || P_MERGE_RC=$?
-    [ "$P_MERGE_RC" -eq 3 ] && [ "$SECONDS" -lt 15 ] || break
+    [ "$P_MERGE_RC" -eq 3 ] && [ $(( 30 - SECONDS - 2 )) -gt $(( SECONDS - P_TRY_T0 )) ] || break
   done
   if [ "$P_MERGE_RC" -ne 0 ]; then
     P_ERR_TAIL=$(tr '\n' ' ' < "$P_MERGE_ERR" | head -c 300)

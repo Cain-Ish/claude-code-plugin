@@ -740,6 +740,7 @@ if [ "$_wwg_tomb" = 1 ] && [ "$TOOL" = "Write" ] && [ ! -f "$FILE_PATH" ]; then
     # Only deny+log if the restore mv actually succeeded; otherwise fall through to
     # normal frontmatter handling (never block a write on a failed restore).
     if mv "$ARCH" "$WIKIROOT/$ACAT/$SLUG.md" 2>/dev/null; then
+      touch "$WIKIROOT/$ACAT/$SLUG.md" 2>/dev/null || true   # SIL-R4: mv keeps the archive's old mtime
       printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
         "$SLUG" "$ACAT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GUARD_BD/wiki-archive-log.jsonl" 2>/dev/null || true
       deny "Auto-restored '$SLUG' from the cold-tier archive (it had been forgotten) to wiki/$ACAT/$SLUG.md. Re-open and Edit that file — do not recreate it."
