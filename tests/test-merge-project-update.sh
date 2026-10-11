@@ -1236,4 +1236,24 @@ grep -qF 'changed while the merge ran' "$B1D/error-log.jsonl" 2>/dev/null || fai
 [ ! -e "$B1D/projects/b1p/.PROJECT.md.lock" ] || fail "B1 (changed under us): the refused merge left its lock behind"
 pass "B1: PROJECT.md changed after the read (an unlocked Edit) refuses the final mv (exit 3, logged), the edit stays"
 
+# --- Final review should-fix: archive_dropped_decision appends to the wiki decisions log BEFORE the
+# final PROJECT.md mv, so a merge refused at the mv (exit 3) and retried archived the same rotated
+# decision twice. The retry is simulated by restoring the pre-merge PROJECT.md and merging again.
+ADD="$TMP/ad"; mkdir -p "$ADD/projects/adp" "$ADD/kd/wiki"
+ADP="$ADD/projects/adp/PROJECT.md"
+printf '# PROJECT: adp\n\n## Recent decisions\n' > "$ADP"
+for n in 1 2 3 4 5; do printf -- '- [2026-01-0%s] ad decision %s\n' "$n" "$n" >> "$ADP"; done
+printf '\n## Open blockers\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n' >> "$ADP"
+cp "$ADP" "$ADD/seed.md"
+for try in 1 2; do
+  cp "$ADD/seed.md" "$ADP"
+  printf '%s' '{"recent_decisions":["ad decision six pushes the oldest out"]}' \
+    | BRAIN_DIR="$ADD" bash "$SCRIPT" --project-md "$ADP" --knowledge-dir "$ADD/kd" >/dev/null 2>&1 \
+    || fail "archive-dedup: merge $try exited non-zero: $(cat "$ADD/error-log.jsonl" 2>/dev/null)"
+done
+ADLOG="$ADD/kd/wiki/decisions/adp-decisions-log.md"
+[ "$(grep -c 'ad decision 1$' "$ADLOG" 2>/dev/null)" = 1 ] \
+  || fail "archive-dedup: a retried merge must archive the dropped decision once: $(cat "$ADLOG" 2>/dev/null)"
+pass "archive-dedup: a retried merge does not archive the same dropped decision twice"
+
 echo "ALL PASS"

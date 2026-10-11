@@ -424,6 +424,9 @@ archive_dropped_decision() {
       printf '# Archived Project Decisions%s\n\n' "${PROJECT_SLUG:+ — $PROJECT_SLUG}"
     } > "$archive_file"
   fi
+  # The append lands before the final PROJECT.md mv: a merge refused there (exit 3) and retried
+  # drops the same bullet again, so an exact line already in the log is not appended twice.
+  LC_ALL=C grep -qxF -- "- $text" "$archive_file" && return 0
   printf '%s\n' "- $text" >> "$archive_file"
   WIKI_WRITES=1
 }
