@@ -68,7 +68,7 @@ done
 
 ### 4. Ungraduated persona signals
 
-Persona signals with `count >= 2` and `graduated == false` are observed-but-not-yet-pinned behaviors. Graduation is automatic (`merge-persona-signals.sh` auto-pins count≥2 high-confidence signals to USER.md at Stop); surface any that linger so the user can pin them explicitly via the `pin_to_user` MCP tool.
+Persona signals with `count >= 2` and `graduated == false` are observed-but-not-yet-pinned behaviors. Graduation is automatic (`merge-persona-signals.sh` moves high-confidence signals seen in 2+ distinct sessions into `~/.second-brain/persona-learned.md`, which SessionStart serves as untrusted data, never as USER.md); surface any that linger, and any learned line the user wants as a trusted rule, so they can pin it explicitly via the `pin_to_user` MCP tool.
 
 ```bash
 PSFILE=~/.second-brain/persona-signals.jsonl

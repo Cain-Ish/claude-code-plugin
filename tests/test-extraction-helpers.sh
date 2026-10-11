@@ -129,6 +129,18 @@ case "$DR1_STAMP" in
   *) no "DR-1: unexpected stamp: $DR1_STAMP" ;;
 esac
 
+# --- TST-R4 (drainer path): the persona merge gets the ARCHIVE HEADER's session_id, the unit
+# graduation counts; a dropped --session would read "unknown" or the drainer's own env id. ---
+sb_call_extractor() {
+  local out="$2"
+  printf '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"persona_signals":[{"category":"workflow","signal":"drainer persona signal carries the archive session","evidence":"e","confidence":"high"}]}' > "$out"
+  return 0
+}
+CLAUDE_CODE_SESSION_ID=drainer-env-decoy sb_extract_transcript "$TX_DR1" "dr-proj" >/dev/null 2>&1 || true
+eq "TST-R4: the drainer's persona merge records the archive header's session_id" \
+  "$(jq -rs '[.[] | select(.signal | test("drainer persona signal")) | .evidence[].session] | unique | join(",")' "$BRAIN_DIR/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" \
+  "sessDRAIN01"
+
 # --- DR-2: the drainer's merge call uses the SAME merge_plan carry guard as in-session capture
 # -- an existing unfinished item the stub's plan omits is carried, not dropped. ---
 printf '%s' '{"plan":["[ ] drainer-kept"]}' \
