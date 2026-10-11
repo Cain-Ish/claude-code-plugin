@@ -6,7 +6,9 @@
 # the warn threshold tracks the real ceiling.)
 #
 # Appends {kind:"latency", hook, duration_ms, exit_code, budget_warn?} to
-# audit-log.jsonl (the trajectory channel — same file the guards write).
+# audit-log.jsonl (the trajectory channel — same file the guards write). A hook
+# still running at its budget gets a timeout row (exit 124); a heavy one that
+# finishes later adds a second row with its real exit code (after_timeout).
 # Why: the R1 ec=124 class (24s hook stacks vs 25s timeouts) was only
 # diagnosable by forensic log mining; this makes per-hook latency queryable
 # and lets /second-brain:status render p50/p95 with budget warnings.
@@ -105,9 +107,26 @@ _row() {
 # session-load, stop-extract, pre-compact, persona-context, dream-autostage) is never killed: it
 # finishes its side effects, as before the watchdog. No state outlives the run: the wrapper learns of
 # a reap from the watchdog's exit status, never from a file.
+# A heavy hook's row comes from its runner, the subshell that waits on it: past the budget the wrapper
+# may be dead (killed by the CLI) and the watchdog has written only the 124 row, so the runner's row is
+# the one that carries the hook's real exit code and duration (marked after_timeout then).
+# shortcut: a hook ending within ms of its budget can leave both rows or an unmarked one beside the
+# watchdog's; the timing decides, not shared state.
 # Stdin passes through (<&0); the watchdog's fds are detached so it cannot hold a caller's pipe open.
+HEAVY=""
+case "$BUDGET_S" in ''|*[!0-9]*) : ;; *) [ "$BUDGET_S" -ge 10 ] && HEAVY=1 ;; esac
 set -m
-bash "$SCRIPT" "$@" <&0 &
+if [ -n "$HEAVY" ]; then
+  # The runner is the hook's parent now: it holds the deadline (bash 3.2 has no BASHPID, and a late
+  # stamp needs bash 5's EPOCHREALTIME anyway).
+  ( SB_HOOK_LATE_PID=${BASHPID:-$$}
+    bash "$SCRIPT" "$@" <&0; rc=$?
+    _now_ms; x=""; [ $(( _MS - T0 )) -ge $(( BUDGET_S * 1000 )) ] && x=',"after_timeout":true'
+    _row "$rc" "$x"
+    exit "$rc" ) <&0 &
+else
+  bash "$SCRIPT" "$@" <&0 &
+fi
 CHILD=$!
 WD=""
 case "$BUDGET_S" in
@@ -139,5 +158,5 @@ if [ -n "$WD" ]; then
     exit "$EC"
   fi
 fi
-_row "$EC" ""
+[ -n "$HEAVY" ] || _row "$EC" ""
 exit "$EC"
