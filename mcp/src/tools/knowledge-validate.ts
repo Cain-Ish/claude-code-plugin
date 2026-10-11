@@ -293,8 +293,7 @@ export async function knowledgeValidate(
       }
       if (issue.autofix === 'add_frontmatter' && issue.type === 'missing_frontmatter') {
         try {
-          await addFrontmatter(issue.path, wikiDir);
-          fixed++;
+          if (await addFrontmatter(issue.path, wikiDir)) fixed++;
         } catch { /* skip pages we can't write */ }
       }
       if (issue.autofix === 'normalize_frontmatter' && issue.type === 'malformed_frontmatter') {
@@ -383,14 +382,14 @@ async function patchFrontmatter(filePath: string, wikiDir: string, graphEnabled 
 // Single source of truth: every recognized wiki category (kb-schema.json via kb-schema.ts).
 const KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 
-export async function addFrontmatter(filePath: string, wikiDir: string): Promise<void> {
+export async function addFrontmatter(filePath: string, wikiDir: string): Promise<boolean> {
   const original = await fs.readFile(filePath, 'utf-8');
   // Defensive: if frontmatter snuck in between scan and write, leave it alone.
   // BOM-tolerant (D054): without this, a BOM'd page that already has valid frontmatter
   // slipped past this guard and got a SECOND block prepended on top of the first.
-  if (hasFrontmatterFence(original)) return;
+  if (hasFrontmatterFence(original)) return false;
   // An empty page belongs to the empty_page pass (D066 keeps a young one): a stub would make it non-empty (audit T9).
-  if (!original.trim()) return;
+  if (!original.trim()) return false;
 
   const slug = basename(filePath, '.md');
 
@@ -447,6 +446,7 @@ export async function addFrontmatter(filePath: string, wikiDir: string): Promise
     `---\n\n`;
 
   await fs.writeFile(filePath, fm + original, 'utf-8');
+  return true;
 }
 
 // Detect frontmatter a real YAML parser rejects — the durable backstop for the
@@ -478,7 +478,8 @@ function isMalformedFrontmatter(content: string): boolean {
 // Frontmatter here is flat: lowercase `key: value` lines, indented continuations, `- ` list items,
 // blank lines. Anything else (a heading, a shell line, a capitalised "Step:") means it is not.
 function looksLikeFrontmatter(fm: string): boolean {
-  return fm.split('\n').every(l => l.trim() === '' || /^([a-z_][\w.-]*:([ \t]|$)|[ \t]|-[ \t])/.test(l));
+  // CRLF pages end every line in \r; a YAML `# comment` is fine, but `##` is a body heading.
+  return fm.split(/\r?\n/).every(l => l.trim() === '' || /^([a-z_][\w.-]*:([ \t]|$)|[ \t]|-[ \t]|#([ \t]|$))/.test(l));
 }
 
 // Collapse duplicate top-level frontmatter keys, keeping each key's LAST

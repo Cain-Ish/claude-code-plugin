@@ -31,6 +31,7 @@ describe('atomicWriteJson', () => {
     const f = join(dir, 'state.json');
     const big = (c: string) => ({ d: c.repeat(2_000_000) });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
     for (let i = 0; i < 20; i++) {
       await Promise.all([atomicWriteJson(f, big('a')), atomicWriteJson(f, big('b'))]);
       JSON.parse(await fs.readFile(f, 'utf-8'));
@@ -38,7 +39,7 @@ describe('atomicWriteJson', () => {
     // Shared tmp name => the loser's rename finds its tmp already consumed (ENOENT). Windows may still
     // EPERM a rename racing an open target; that is an OS limit and leaves valid JSON.
     expect(err.mock.calls.filter(c => String(c[0]).includes('ENOENT'))).toEqual([]);
-    err.mockRestore();
+    } finally { err.mockRestore(); await fs.rm(dir, { recursive: true, force: true }); }
   });
 
   it('fails SOFT on an unwritable target (no throw — must never break a hook)', async () => {

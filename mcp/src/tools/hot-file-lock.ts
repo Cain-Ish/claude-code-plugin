@@ -19,12 +19,14 @@ export function lockPathFor(file: string): string {
   return join(dirname(file), `.${basename(file)}.lock`);
 }
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const firstLine = async (f: string) => (await fs.readFile(f, 'utf-8')).split(/\r?\n/)[0];
 
 function holderGone(token: string): boolean {
   const pid = token.split('.')[0];
   if (!/^\d+$/.test(pid)) return true;
+  // A bash holder's pid is an MSYS pid that means nothing to Windows; the caller has already checked the age.
+  if (process.platform === 'win32') return true;
   try { process.kill(Number(pid), 0); return false; }
   catch (e) { return (e as NodeJS.ErrnoException).code === 'ESRCH'; }
 }
@@ -71,15 +73,49 @@ export async function withFileLock<T>(
   try { return await fn(); }
   finally {
     const held = await firstLine(lf).catch(() => '');
-    if (held === token) await fs.rm(lf, { force: true });
+    if (held === token) {
+      // A failing unlock (Windows EBUSY) must not turn a successful write into an error; the lock goes stale.
+      await fs.rm(lf, { force: true }).catch(e =>
+        console.error(`[hot-file-lock] could not remove the lock on ${basename(file)}: ${(e as Error).message}; it goes stale in ${STALE_MS / 1000} s`));
+    }
     else console.error(`[hot-file-lock] the lock on ${basename(file)} is no longer ours (ours ${token}, now ${held || 'none'}: stolen while held); left as it is`);
   }
 }
 
 let seq = 0;
-/** Replace file atomically: write a temp file in the SAME directory, then rename it over file. */
-export async function writeFileAtomic(file: string, data: string): Promise<void> {
+const RENAME_RETRY = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const RENAME_BACKOFF_MS = [10, 20, 40, 80, 160, 200, 200, 200, 200, 200, 200];   // ~1.5 s
+export interface AtomicIo {
+  writeFile: (f: string, d: string) => Promise<void>;
+  rename: (a: string, b: string) => Promise<void>;
+  rm: (f: string) => Promise<void>;
+  sleep: (ms: number) => Promise<void>;
+}
+const realIo: AtomicIo = {
+  writeFile: (f, d) => fs.writeFile(f, d, 'utf-8'),
+  rename: (a, b) => fs.rename(a, b),
+  rm: f => fs.rm(f, { force: true }),
+  sleep,
+};
+
+/**
+ * Replace file atomically: write a temp file in the SAME directory, then rename it over file.
+ * On Windows the rename fails EPERM/EACCES/EBUSY while any reader has file open: retry ~1.5 s, then
+ * write in place (callers hold the file lock, so only plain readers can see the non-atomic window).
+ */
+export async function writeFileAtomic(file: string, data: string, io: AtomicIo = realIo): Promise<void> {
   const tmp = `${file}.${process.pid}.${Date.now()}.${seq++}.tmp`;
-  try { await fs.writeFile(tmp, data, 'utf-8'); await fs.rename(tmp, file); }
-  catch (e) { await fs.rm(tmp, { force: true }); throw e; }
+  try {
+    await io.writeFile(tmp, data);
+    for (let i = 0; ; i++) {
+      try { await io.rename(tmp, file); return; }
+      catch (e) {
+        if (!RENAME_RETRY.has((e as NodeJS.ErrnoException).code ?? '')) throw e;
+        if (i >= RENAME_BACKOFF_MS.length) break;
+        await io.sleep(RENAME_BACKOFF_MS[i]);
+      }
+    }
+    await io.writeFile(file, data);
+    await io.rm(tmp);
+  } catch (e) { await io.rm(tmp).catch(() => {}); throw e; }
 }

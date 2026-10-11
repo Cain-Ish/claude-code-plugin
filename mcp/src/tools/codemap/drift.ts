@@ -43,7 +43,13 @@ export async function isDirty(
   try {
     const out = await runGit(['status', '--porcelain', '--untracked-files=no'], repoRoot);
     return out.trim().length > 0;
-  } catch {
+  } catch (e) {
+    // A timed-out/killed status says nothing about the tree: report dirty (=> stale) rather than clean.
+    const err = e as { killed?: boolean; signal?: string; code?: string };
+    if (err.killed || err.signal || err.code === 'ETIMEDOUT') {
+      console.error(`[codemap] git status did not finish in ${repoRoot} (${err.signal ?? err.code ?? 'killed'}); treating the tree as dirty`);
+      return true;
+    }
     return false;
   }
 }

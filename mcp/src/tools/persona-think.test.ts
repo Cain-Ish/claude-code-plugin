@@ -82,4 +82,22 @@ describe('personaSpawnArgs (audit B3)', () => {
     expect(personaSpawnArgs('m', 's', undefined)).not.toContain('--bare');
     expect(personaSpawnArgs('m', 's', '')).not.toContain('--bare');
   });
+
+  it('is read-only, MCP-free and non-persisting (SEC-R7)', async () => {
+    const { personaSpawnArgs } = await import('./persona-think.js');
+    const a = personaSpawnArgs('m', 's', undefined);
+    expect(a).toContain('--strict-mcp-config');
+    expect(a).toContain('--no-session-persistence');
+    expect(a[a.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
+  });
+});
+
+describe('inSessionRefusal (TS-R4)', () => {
+  it('refuses in-session without an API key, allows otherwise', async () => {
+    const { inSessionRefusal } = await import('./persona-think.js');
+    expect(inSessionRefusal({ CLAUDECODE: '1' })).toMatch(/ANTHROPIC_API_KEY/);
+    expect(inSessionRefusal({ CLAUDECODE: '1', ANTHROPIC_API_KEY: 'k' })).toBeNull();
+    expect(inSessionRefusal({ CLAUDECODE: '1', SB_FORCE_CLI: '1' })).toBeNull();
+    expect(inSessionRefusal({})).toBeNull();
+  });
 });

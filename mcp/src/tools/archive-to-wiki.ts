@@ -115,6 +115,8 @@ async function archiveLocked(args: ArchiveToWikiArgs, projectFile: string, wikiD
   }
   const archivePath = join(wikiDir, archiveName);
   lines[matchIdx] = `  → wiki/${args.targetCategory}/${args.slug}/${archiveName}`;
-  await writeFileAtomic(projectFile, lines.join('\n'));
+  // The page is already on disk: a failed PROJECT.md replace must not leave an orphan that a retry duplicates as -2.md.
+  try { await writeFileAtomic(projectFile, lines.join('\n')); }
+  catch (e) { await fs.rm(archivePath, { force: true }).catch(() => {}); throw e; }
   return { ok: true, archived_path: archivePath };
 }
