@@ -3,6 +3,7 @@
 # pins: SB_TRANSCRIPT_HARD_CAP — lowers the hard cap to a small fixture-sized value so pruning triggers deterministically
 # pins: SB_TRANSCRIPT_MAX_BYTES — lowers the soft byte cap to a small fixture-sized value so pruning triggers deterministically
 # pins: SB_TRANSCRIPT_MAX_BYTES_HARD — lowers the hard byte cap to a small fixture-sized value so pruning triggers deterministically
+# pins: SB_ARCHIVE_LOCK_WAIT_S — the lock-owner cases set lib.sh's _SB_ARCHIVE_LOCK_WAIT_S=1 (the census reads the env name inside it): who may steal is under test, not the wait length
 # Tests for transcript archive functions in lib.sh.
 # run-all-timeout: 300   (0.56.0 R2 locks the raised default caps with full-size fixtures: 405
 #   and 1205 files, 27.5 MB; measured 109 s alone on a loaded MSYS box, of which the pre-existing
