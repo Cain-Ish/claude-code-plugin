@@ -1,10 +1,10 @@
 {
   "schema": 2,
   "tool_scope": {
-    "_comment": "HarnessAudit sar_tool channel. Asks when a tool not in 'allowlist' is invoked. Opt-in (disabled by default) — flipping to true with a small allowlist is the cheapest way to detect tool-misuse before it touches files. Per-session extension via SB_TOOL_SCOPE_EXTRA='Tool1:Tool2' (colon-separated). Kill switch: SB_TOOL_SCOPE=off.",
+    "_comment": "HarnessAudit sar_tool channel. Asks when a tool not in 'allowlist' is invoked. Opt-in (disabled by default) — flipping to true with a small allowlist is the cheapest way to detect tool-misuse before it touches files. Per-session extension via SB_TOOL_SCOPE_EXTRA='Tool1:Tool2' (colon-separated). Kill switch: SB_TOOL_SCOPE=off. PowerShell is in the allowlist beside Bash (Claude Code's Windows shell tool); its command meets the Bash-SYNTAX ask/deny rules only, so a PowerShell-native Remove-Item rule is deferred.",
     "enabled": false,
     "allowlist": [
-      "Read", "Bash", "BashOutput", "KillShell",
+      "Read", "Bash", "PowerShell", "BashOutput", "KillShell",
       "Edit", "Write", "MultiEdit", "NotebookEdit",
       "Glob", "Grep",
       "TodoWrite", "Task",
