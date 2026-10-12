@@ -435,6 +435,13 @@ OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 SB_DREAM_ACCEP
 [ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ] || fail "S4-1: the archived x.md is gone: $OUT"
 grep -q 'DREAM B EDIT' "$L/p2.md" || fail "S4-1: dream B's own edit to p2 was not applied: $OUT"
 pass "S4-1: this host's apply keeps the earlier accept's n.md, does not copy back the x.md it archived, applies B's own edit"
+# Q-SF3: auto-accept discards stdout, so the drop is audited and the dropped copy is kept in the dream dir.
+jq -c 'select(.script == "dream-accept" and ((.message // "") | test("verdict=not-restored dream=drm_s41b: entities/x.md")))' \
+  "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  || fail "Q-SF3: the not-restored drop of entities/x.md left no audit row: $(tail -3 "$BRAIN_DIR/audit-log.jsonl" 2>&1)"
+[ -f "$BRAIN_DIR/dreams/drm_s41b/not-restored/entities/x.md" ] \
+  || fail "Q-SF3: the dropped staging copy of entities/x.md was not kept under the dream's not-restored/"
+pass "Q-SF3: the not-restored drop is audited and its staging copy kept in the dream dir"
 rm -rf "$SB"
 
 # === D084: a partial apply failure must ABORT loud, not silently "succeed" ===

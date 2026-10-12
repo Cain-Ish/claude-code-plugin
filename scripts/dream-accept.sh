@@ -253,18 +253,23 @@ _pages() { (cd "$1" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type 
 # merged it away, or it was deleted) and that this dream left untouched is not copied back: it is
 # dropped from staging, so both apply paths skip it. Untouched = the staging copy is not newer than
 # created_at (cp -rp kept its live mtime). Checked BEFORE the normalization below rewrites staging.
-# An empty live listing (wiki gone, KNOWLEDGE_DIR moved) drops nothing.
+# An empty live listing (wiki gone, KNOWLEDGE_DIR moved) drops nothing. A dropped copy moves to
+# $DREAM_DIR/not-restored/ (kept until the dream dir is pruned) and the drop is audited (Q-SF3:
+# auto-accept discards this script's stdout).
 if [ -f "$SNAP_LIST" ] && _live=$(_pages "$LIVE_WIKI") && [ -n "$_live" ] && _snap_ref "$DREAM_DIR/.snap-ref.$$"; then
   _gone=""
   while IFS= read -r _rel; do
     [ -n "$_rel" ] || continue
     [ "$STAGING_WIKI/$_rel" -nt "$DREAM_DIR/.snap-ref.$$" ] && continue   # the dream edited it: its edit applies
-    if rm -f "$STAGING_WIKI/$_rel"; then _gone="$_gone $_rel"
+    if mkdir -p "$DREAM_DIR/not-restored/$(dirname "$_rel")" && mv -f "$STAGING_WIKI/$_rel" "$DREAM_DIR/not-restored/$_rel"; then _gone="$_gone $_rel"
     else sb_log_error "dream-accept" "could not drop '$_rel' from $DREAM_ID's staging; the apply copies it back into the live wiki" 0
     fi
   done < <(LC_ALL=C comm -12 <(LC_ALL=C sort "$SNAP_LIST") <(LC_ALL=C comm -23 <(_pages "$STAGING_WIKI") <(printf '%s\n' "$_live")))
   rm -f "$DREAM_DIR/.snap-ref.$$"
-  [ -n "$_gone" ] && echo "Not restoring page(s) removed from the live wiki since the snapshot and unchanged by this dream:$_gone"
+  if [ -n "$_gone" ]; then
+    echo "Not restoring page(s) removed from the live wiki since the snapshot and unchanged by this dream (copies in $DREAM_DIR/not-restored):$_gone"
+    sb_log_error "dream-accept" "gate=snapshot-list verdict=not-restored dream=$DREAM_ID:$_gone" 0
+  fi
 fi
 
 # Node-shape convergence: run the SAME node-shaper the maintainer uses on the
