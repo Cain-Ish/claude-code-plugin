@@ -2,11 +2,12 @@
 # pins: SB_DREAM_ACCEPT_MIN_RATIO — opens the unrelated deletion-ratio gate to 0 to isolate the NO_DELETE/SKIP_BACKUP guards this file actually tests
 # pins: SB_DREAM_ACCEPT_NO_DELETE — the flag itself is the subject of this subtest (dry-run no-delete mode)
 # pins: SB_DREAM_ACCEPT_SKIP_BACKUP — the flag itself is the subject of subtest B3 (skip-backup auto path)
-# run-all-timeout: 240   (~37 dream-accept.sh + 3 dream-snapshot.sh runs; measured alone on MSYS 2026-10-07 after R3-B's
+# run-all-timeout: 900   (~42 dream-accept.sh + 6 dream-snapshot.sh runs; measured alone on MSYS 2026-10-07 after R3-B's
 #   C1/F3c cases and the first real run of the D084 follow-up: 79 s jq 1.8.1 / 83 s jq 1.7.1,
 #   15.1 GB free, 377 processes; the 120 s default was under 2x that. 2026-10-08 after R3-C's P-C4
-#   case, alone: 75 s jq 1.8.1 / 88 s jq 1.7.1. The 0.57.1 S4-1/S4-2/S4-3 cases (+5 accepts, +3
-#   snapshots) were timed only on a loaded box (431 s before them); not re-measured alone)
+#   case, alone: 75 s jq 1.8.1 / 88 s jq 1.7.1. 2026-10-12 with the 0.57.1 S4-1/S4-2/S4-3 + Q-SF3
+#   cases, alone: 175 s jq 1.8.1 (2x = 350). On a loaded box it measured 431-1134 s, so the budget
+#   is run-all's 900 s ceiling, which a heavily loaded box can still exceed (T6))
 # Premise-review fixes (0.25.0 autonomy): dream-accept must never let a broken/
 # truncated dream destroy the LIVE wiki, and auto_accept=safe must truly forbid
 # deletions. ORACLE: the real live-wiki page count on disk BEFORE vs AFTER a
@@ -435,6 +436,13 @@ OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 SB_DREAM_ACCEP
 [ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ] || fail "S4-1: the archived x.md is gone: $OUT"
 grep -q 'DREAM B EDIT' "$L/p2.md" || fail "S4-1: dream B's own edit to p2 was not applied: $OUT"
 pass "S4-1: this host's apply keeps the earlier accept's n.md, does not copy back the x.md it archived, applies B's own edit"
+# Q-SF3: auto-accept discards stdout, so the drop is audited and the dropped copy is kept in the dream dir.
+jq -c 'select(.script == "dream-accept" and ((.message // "") | test("verdict=not-restored dream=drm_s41b: entities/x.md")))' \
+  "$BRAIN_DIR/audit-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  || fail "Q-SF3: the not-restored drop of entities/x.md left no audit row: $(tail -3 "$BRAIN_DIR/audit-log.jsonl" 2>&1)"
+[ -f "$BRAIN_DIR/dreams/drm_s41b/not-restored/entities/x.md" ] \
+  || fail "Q-SF3: the dropped staging copy of entities/x.md was not kept under the dream's not-restored/"
+pass "Q-SF3: the not-restored drop is audited and its staging copy kept in the dream dir"
 rm -rf "$SB"
 
 # === D084: a partial apply failure must ABORT loud, not silently "succeed" ===

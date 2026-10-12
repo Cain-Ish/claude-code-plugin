@@ -218,14 +218,16 @@ rm -rf "$BRAIN4" "$K4" "$REALPROJ" "$FAKEHOME"
 
 
 # 5. G4: SessionStart prunes orphaned atomic-write debris (*.tmp.* / *.rot.*) older than a day from
-# the BRAIN_DIR root only: live state held 15 access-counts.json.tmp.* and a 568 KB
-# audit-log.jsonl.tmp.5543 from killed writers. Newer debris, real state files, subdirs, a debris-named
-# DIRECTORY and a debris-named SYMLINK (never followed) stay. The logged count is what was actually
-# deleted (4 here), not what find listed.
-BRAIN5=$(mktemp -d); K5=$(mktemp -d); OUT5=$(mktemp -d); mkdir -p "$K5/wiki/learnings" "$BRAIN5/sub" "$BRAIN5/old.tmp.dir"
-for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7 sub/deep.tmp.1; do
+# the BRAIN_DIR root and each projects/<slug>/ (TS-3) only: live state held 15 access-counts.json.tmp.*
+# and a 568 KB audit-log.jsonl.tmp.5543 from killed writers. Newer debris, real state files, other
+# subdirs, a debris-named DIRECTORY and a debris-named SYMLINK (never followed) stay. The logged count
+# is what was actually deleted (5 here), not what find listed.
+BRAIN5=$(mktemp -d); K5=$(mktemp -d); OUT5=$(mktemp -d); mkdir -p "$K5/wiki/learnings" "$BRAIN5/sub" "$BRAIN5/old.tmp.dir" "$BRAIN5/projects/x"
+for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7 sub/deep.tmp.1 \
+         projects/x/PROJECT.md.tmp.4242.1700000000.1 projects/x/PROJECT.md; do
   : > "$BRAIN5/$f"; touch -t 202001010000 "$BRAIN5/$f"
 done
+: > "$BRAIN5/projects/x/PROJECT.md.tmp.4343.1800000000.1"   # a live merge's fresh temp file
 touch -t 202001010000 "$BRAIN5/old.tmp.dir"
 : > "$BRAIN5/access-counts.json"; touch -t 202001010000 "$BRAIN5/access-counts.json"
 : > "$BRAIN5/access-counts.json.tmp.fresh"
@@ -238,6 +240,11 @@ for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.t
   [ -e "$BRAIN5/$f" ] && fail "G4: stale debris $f was not pruned"
 done
 pass "G4: >1-day-old *.tmp.* / *.rot.* files in the BRAIN_DIR root are pruned"
+# TS-3: a killed PROJECT.md merge leaves its temp file in projects/<slug>/, below the root sweep.
+[ -e "$BRAIN5/projects/x/PROJECT.md.tmp.4242.1700000000.1" ] && fail "TS-3: a stale projects/x/PROJECT.md.tmp.* was not pruned"
+[ -e "$BRAIN5/projects/x/PROJECT.md.tmp.4343.1800000000.1" ] || fail "TS-3: a fresh projects/x/PROJECT.md.tmp.* (a live merge's file) was deleted"
+[ -e "$BRAIN5/projects/x/PROJECT.md" ] || fail "TS-3: the real projects/x/PROJECT.md was deleted"
+pass "TS-3: a stale PROJECT.md.tmp.* in projects/<slug>/ is pruned; a fresh one and PROJECT.md stay"
 [ -e "$BRAIN5/access-counts.json.tmp.fresh" ] || fail "G4: a fresh *.tmp.* (a live writer's file) was deleted"
 [ -e "$BRAIN5/access-counts.json" ] || fail "G4: the real (non-debris) state file was deleted"
 [ -e "$BRAIN5/sub/deep.tmp.1" ] || fail "G4: pruning recursed below the BRAIN_DIR root (maxdepth 1 violated)"
@@ -251,8 +258,8 @@ fi
 pass "G4: fresh debris, real state files, subdirectory contents, a debris-named dir and symlink are untouched"
 G4_ROW=$(jq -c 'select((.rule // .gate // "") == "tmp-debris-gc")' "$BRAIN5/audit-log.jsonl" 2>/dev/null | tr -d '\r')
 [ -n "$G4_ROW" ] || fail "G4: the pruned count was not logged"
-printf '%s' "$G4_ROW" | grep -q 'pruned 4 stale' || fail "G4: logged count is not the 4 files actually deleted: $G4_ROW"
-pass "G4: the logged count is the number of files actually deleted (4)"
+printf '%s' "$G4_ROW" | grep -q 'pruned 5 stale' || fail "G4: logged count is not the 5 files actually deleted: $G4_ROW"
+pass "G4: the logged count is the number of files actually deleted (5)"
 
 # 5b. G4, find fails on the delete pass: a find that LISTS the debris but cannot delete it (exit 1)
 # must not be audited as a prune, and its failure must reach the error log.

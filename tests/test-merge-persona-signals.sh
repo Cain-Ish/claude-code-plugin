@@ -1,7 +1,7 @@
 #!/bin/bash
-# run-all-timeout: 360   (~50 merge runs; the E1/F2/S3-1 cases run the REAL lib.sh 15 more times plus a
-#   1 s lock wait; measured 121 s alone on a loaded MSYS box, 2026-10-11; 212 s alone with the 0.57.1
-#   cases on a box shared with other fix rounds, 2026-10-12)
+# run-all-timeout: 600   (~55 merge runs; the E1/F2/S3-1/Q-SF1/Q-SF2 cases run the REAL lib.sh 19 more times
+#   plus two 1 s lock waits; measured 121 s alone on a loaded MSYS box, 2026-10-11; 212 s alone with the
+#   0.57.1 cases on a box shared with other fix rounds, 2026-10-12; 283 s alone with the round-2 cases)
 # pins: SB_ARCHIVE_LOCK_WAIT_S — R1 (held signals lock) sets it to 1: the bounded wait failing loud is under test, not its length; R1's 6 concurrent merges raise it to 30 s so a loaded box does not drop the 6th (the lost update is under test)
 # Tests for scripts/merge-persona-signals.sh — signal dedup + auto-graduation.
 # Goal: prove that the loosened dedup (set-min, 50%) catches paraphrased
@@ -27,10 +27,14 @@ cat > "$TMP/stub-scripts/lib.sh" <<'EOF'
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 sb_safe_json_array() { echo "${1:-[]}"; }
 sb_log_error() { printf 'ERR %s %s\n' "$1" "$2" >> "$BRAIN_DIR/err-log"; }
-# The lock stubs leave a marker while "held", so an audit row can record whether it ran under the lock.
-sb_log_audit() { printf 'AUDIT %s %s %s %s held=%s\n' "$1" "$2" "$3" "$4" "$([ -e "$BRAIN_DIR/.stub-lock-held" ] && echo 1 || echo 0)" >> "$BRAIN_DIR/audit-stub-log"; }
-sb_archive_lock() { _SB_ARCHIVE_LOCK_TOKEN=stub; : > "$BRAIN_DIR/.stub-lock-held"; return 0; }
-sb_archive_unlock() { rm -f "$BRAIN_DIR/.stub-lock-held"; return 0; }
+# The lock stubs leave a per-file marker while "held", so an audit row records which locks it ran under.
+sb_log_audit() {
+  local h="" f
+  for f in "$BRAIN_DIR"/.stub-lock-held.*; do [ -e "$f" ] && h="$h${f##*/.stub-lock-held.},"; done
+  printf 'AUDIT %s %s %s %s held=%s\n' "$1" "$2" "$3" "$4" "${h:-none}" >> "$BRAIN_DIR/audit-stub-log"
+}
+sb_archive_lock() { _SB_ARCHIVE_LOCK_TOKEN=stub; : > "$BRAIN_DIR/.stub-lock-held.${1##*/}"; return 0; }
+sb_archive_unlock() { rm -f "$BRAIN_DIR/.stub-lock-held.${1##*/}"; return 0; }
 sb_pin_to_learned() { echo "PIN: $1" >> "$BRAIN_DIR/pin-log"; return 0; }
 sb_count_torn_lines() {
   local f="${1:-}"
@@ -228,11 +232,12 @@ jq -e 'has("rules")' "$BRAIN_DIR/persona-rules.json" >/dev/null \
 grep -q 'learned-warn-rule' "$BRAIN_DIR/audit-stub-log" 2>/dev/null \
   || fail "arming must be audit-logged"
 pass "candidates accumulate and auto-arm at 3 sightings"
-# S3-5 (re-audit): the candidate read-modify-write (pending + rules file) runs under the signals lock.
-grep -q 'learned-warn-rule.*held=1' "$BRAIN_DIR/audit-stub-log" \
-  || fail "S3-5: the rule was armed after the signals lock was released: $(cat "$BRAIN_DIR/audit-stub-log")"
-[ ! -e "$BRAIN_DIR/.stub-lock-held" ] || fail "S3-5: the merge exited without releasing the signals lock"
-pass "S3-5: rule candidates are accumulated and armed under the signals lock, released at exit"
+# S3-5 (re-audit): the candidate read-modify-write (pending + rules file) runs under a lock: the
+# pending file's own, with the signals lock already released (Q-SF2: the slow candidate loop held it).
+grep -q 'learned-warn-rule.*held=persona-rules.pending.json,$' "$BRAIN_DIR/audit-stub-log" \
+  || fail "S3-5/Q-SF2: the rule was not armed under the pending lock alone: $(cat "$BRAIN_DIR/audit-stub-log")"
+for f in "$BRAIN_DIR"/.stub-lock-held.*; do [ -e "$f" ] && fail "S3-5: the merge exited holding ${f##*/}"; done
+pass "S3-5: rule candidates are accumulated and armed under the pending lock (signals lock released), released at exit"
 
 # --- Test 10: arming is idempotent — a 4th sighting never duplicates the rule ---
 CLAUDE_SESSION_ID=rc4 run_merge "$CAND_PAYLOAD"
@@ -252,6 +257,16 @@ CLAUDE_SESSION_ID=s31-other run_merge "$CAND_PAYLOAD"
 CLAUDE_SESSION_ID=s31-third run_merge "$CAND_PAYLOAD"
 jq -e '.learned | length == 1' "$BRAIN_DIR/persona-rules.json" >/dev/null 2>&1 || fail "S3-1: three distinct sessions did not arm the rule"
 pass "S3-1: repeats from one session never arm a rule; three distinct sessions do"
+
+# --- T4 (re-audit): a classifier FAILURE on a rule candidate's message is no verdict: the candidate
+# is refused (fail closed), never accumulated, and the row names the failure.
+rm -f "$BRAIN_DIR/persona-rules.pending.json" "$BRAIN_DIR/persona-rules.json" "$BRAIN_DIR/err-log"
+CLAUDE_SESSION_ID=t4-a STUB_CLASSIFIER_FAIL=1 run_merge "$CAND_PAYLOAD"
+grep -q 'npm install -g' "$BRAIN_DIR/persona-rules.pending.json" 2>/dev/null \
+  && fail "T4: a candidate was accumulated although the classifier gave no verdict"
+grep -q 'rule candidate REFUSED class=classifier-failed' "$BRAIN_DIR/err-log" 2>/dev/null \
+  || fail "T4: the classifier failure left no classifier-failed row: $(cat "$BRAIN_DIR/err-log" 2>/dev/null)"
+pass "T4: a classifier failure refuses the rule candidate (not accumulated, logged classifier-failed)"
 
 # --- Test 11: legacy bare-array stdin still exits 0 (three caller sites) ---
 echo '[]' | bash "$STUB_SCRIPT" || fail "empty legacy array input must exit 0"
@@ -434,6 +449,17 @@ e1_merge "$SIG_F2" --session f2-c
 [ "$(grep -c 'REFUSED class=phrase.*module system' "$E1_BRAIN/error-log.jsonl" || true)" = "$F2_N" ] \
   || fail "F2: the refused signal was re-attempted on the next merge"
 pass "F2: a classifier-flagged signal is kept as graduated \"refused\", never pinned or re-attempted"
+# Q-SF1: a clean paraphrase of that refused record is its own signal: it graduates, and the refused
+# record stays refused (it used to absorb the paraphrase, which then never graduated).
+SIG_Q1='[{"category":"tooling","signal":"Prefers ESM over CommonJS in every new package","evidence":"e","confidence":"high"}]'
+for s in q1-c q1-d q1-e; do e1_merge "$SIG_Q1" --session "$s"; done
+grep -qE '^- \[[0-9-]{10}\] Prefers ESM over CommonJS in every new package$' "$E1_LEARNED" 2>/dev/null \
+  || fail "Q-SF1: a clean paraphrase of a refused signal never graduated: $(cat "$E1_BRAIN/persona-signals.jsonl")"
+jq -e -s '[.[] | select(.signal | test("module system: ESM"))] | length == 1 and .[0].graduated == "refused"' "$E1_BRAIN/persona-signals.jsonl" >/dev/null \
+  || fail "Q-SF1: the paraphrase graduation flipped the refused record: $(cat "$E1_BRAIN/persona-signals.jsonl")"
+[ "$(grep -c 'REFUSED class=phrase.*ESM over CommonJS' "$E1_BRAIN/error-log.jsonl" || true)" = 1 ] \
+  || fail "Q-SF1: expected exactly one REFUSED row for the ESM preference"
+pass "Q-SF1: a clean paraphrase of a refused signal graduates; the refused record stays refused"
 
 # --- S3-1 (re-audit): a rule candidate message passes the injection classifier before it is
 # accumulated; an injection-shaped one never arms, even from 3 distinct sessions, and is logged.
@@ -543,7 +569,22 @@ grep -q 'yyqheld' "$CC_BRAIN/persona-signals.jsonl" && fail "R1: merge wrote the
 # S3-5: nothing retries this batch (callers advance their marker), so the row says it is dropped.
 grep -q 'persona batch dropped (lock busy): session=cc-held signals=1' "$CC_BRAIN/error-log.jsonl" 2>/dev/null \
   || fail "S3-5: the busy lock did not log the dropped batch: $(cat "$CC_BRAIN/error-log.jsonl" 2>/dev/null)"
+# Q-SF5: lib.sh's own busy-lock row must not promise a retry that no caller makes.
+grep -q 'retried later' "$CC_BRAIN/error-log.jsonl" && fail "Q-SF5: the busy-lock row still says the dropped batch is retried later"
 rm -f "$CC_BRAIN/.persona-signals.jsonl.lock"
+# Q-SF2: the candidates hold the pending file's lock, not the signals lock: a busy candidate lock
+# drops only the candidates (logged), the signals still land.
+printf '%s\n' "$$.held" > "$CC_BRAIN/.persona-rules.pending.json.lock"
+printf '%s' '{"persona_signals":[{"category":"workflow","signal":"xxqpend one xxqpend two xxqpend three","evidence":"e","confidence":"low"}],"rule_candidates":[{"event":"bash","pattern":"xxqpend cmd","action":"warn","message":"Prefer the local wrapper."}]}' \
+  | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" SB_ARCHIVE_LOCK_WAIT_S=1 bash "$SCRIPT" --session cc-pend >/dev/null 2>&1; QSF2_RC=$?
+grep -q 'xxqpend cmd' "$CC_BRAIN/persona-rules.pending.json" 2>/dev/null && fail "Q-SF2: the candidate was written while its lock was held"
+grep -q 'xxqpend one' "$CC_BRAIN/persona-signals.jsonl" || fail "Q-SF2: a busy candidate lock lost the signal too"
+grep -q 'rule candidates dropped (lock busy): session=cc-pend rule_candidates=1 lost, signals kept' "$CC_BRAIN/error-log.jsonl" \
+  || fail "Q-SF2: the busy candidate lock did not log the dropped candidates: $(cat "$CC_BRAIN/error-log.jsonl")"
+[ "$QSF2_RC" -ne 0 ] || fail "Q-SF2: merge reported success while the candidates were dropped"
+[ ! -e "$CC_BRAIN/.persona-signals.jsonl.lock" ] || fail "Q-SF2: the signals lock was left behind"
+rm -f "$CC_BRAIN/.persona-rules.pending.json.lock"
+pass "Q-SF2: a busy candidate lock drops only the candidates (logged, exit 1); the signal lands"
 pass "R1: persona-signals read-modify-write is locked (6 concurrent merges keep all signals; held lock fails loud)"
 
 echo

@@ -8,6 +8,7 @@ INSTALL="$SCRIPT_DIR/install-extract-timer.sh"
 SANDBOX=$(mktemp -d)
 trap 'rm -rf "$SANDBOX"' EXIT
 export XDG_CONFIG_HOME="$SANDBOX/config"   # redirect systemd user dir into sandbox
+unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR KNOWLEDGE_DIR   # the "default render" cases need no inherited custom KD
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "  PASS: $1"; }
@@ -91,8 +92,9 @@ KD=/data/mykb
 SDC=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null)
 printf '%s' "$SDC" | grep -q "Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$KD\"" && ok "systemd: custom KD forwarded via Environment=" || no "systemd: custom KD not forwarded"
 printf '%s' "$SDC" | grep -qE "^ReadWritePaths=.*$KD" && ok "systemd: custom KD granted in ReadWritePaths" || no "systemd: custom KD not granted (sandbox would block writes)"
-# default render must NOT inject a CLAUDE env line (back-compat)
-printf '%s' "$SD" | grep -q 'Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
+# default render must NOT inject a CLAUDE env line (back-compat). No `Environment=` prefix in the grep:
+# the line is rendered quoted, `Environment="CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=..."` (re-audit T1).
+printf '%s' "$SD" | grep -q 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
 LAK=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>/dev/null)
 printf '%s' "$LAK" | grep -q "$KD" && ok "launchd: custom KD snapshotted into the plist env" || no "launchd: custom KD not forwarded"
 
@@ -347,6 +349,14 @@ printf '%s' "$U25" | grep -qF "Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=
   && ok "knowledge dir Environment= is quoted" || no "knowledge dir Environment= is not quoted"
 E25=$(HOME="$H25" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$H25/kb\"q" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 >/dev/null || true)
 printf '%s' "$E25" | grep -q 'refusing to render the unit' && ok "a double quote in a granted path is refused" || no "a double quote in the knowledge dir was rendered"
+# B2: a backslash is a systemd escape (\n splits the line) and a sed escape in the replacement (\1
+# fails, \\ loses one); % is a systemd specifier (%n = the unit name). All refused. B5: print mode
+# exits non-zero on a refused render instead of printing the rest and exiting 0.
+for bad in 'kb\nx' 'kb\1x' 'kb\\x' 'kb%nx'; do
+  if E25B=$(HOME="$H25" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$H25/$bad" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 >/dev/null); then RC25B=0; else RC25B=$?; fi
+  printf '%s' "$E25B" | grep -q 'refusing to render the unit' && ok "B2: a granted path with '$bad' is refused" || no "B2: a granted path with '$bad' was rendered: $E25B"
+  [ "$RC25B" -ne 0 ] && ok "B5: print mode exits non-zero on the refused '$bad' render" || no "B5: print mode exited 0 after refusing the '$bad' render"
+done
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

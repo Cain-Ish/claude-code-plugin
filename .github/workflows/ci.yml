@@ -204,7 +204,9 @@ jobs:
     runs-on: windows-latest
     # Raised 25 -> 40 (0.54.1): the lane ran 19m48s and 21m36s before the S0 fix rounds added
     # 300 KB / 1 MB / 50k-newline guard cases; a timeout would read as a hang, not a real failure.
-    timeout-minutes: 40
+    # Raised 40 -> 55 (0.57.1): recent runs took 26-33 min and the lane gained hook-latency +
+    # dream-accept-guards (projected 32-38.5 min), too close to 40 for a loaded runner.
+    timeout-minutes: 55
     defaults:
       run:
         shell: bash

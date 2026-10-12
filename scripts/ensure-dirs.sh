@@ -78,13 +78,17 @@ if [ -d "$BRAIN_DIR/.buddy" ]; then
 fi
 
 # G4: orphaned atomic-write debris. A killed writer leaves <file>.tmp.<pid> / <file>.rot.<n> in the
-# BRAIN_DIR root (live state held 15 access-counts.json.tmp.* and a 568 KB audit-log.jsonl.tmp.5543).
-# Root only (maxdepth 1), regular files only (-type f without -L: a symlink is never followed or
-# removed, a directory never pruned), older than a day (-mtime +0), so a live writer's fresh temp
-# file is never touched. The audited count is what was actually DELETED: a count, the -delete pass,
-# a recount (the old `-print -delete | wc -l` counted what find listed, deleted or not). A find
-# that exits non-zero is logged through sb_log_error. The common case (no debris) costs one find.
-_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' \) -mtime +0 "$@"; }
+# BRAIN_DIR root (live state held 15 access-counts.json.tmp.* and a 568 KB audit-log.jsonl.tmp.5543)
+# and in each projects/<slug>/ (PROJECT.md.tmp.<pid>.<ts>.<n>, rules*.json.tmp.<pid>; TS-3).
+# Those dirs only (maxdepth 1 each; a symlinked project dir is not entered), regular files only
+# (-type f without -L: a symlink is never followed or removed, a directory never pruned), older than
+# a day (-mtime +0), so a live writer's fresh temp file is never touched. The audited count is what
+# was actually DELETED: a count, the -delete pass, a recount (the old `-print -delete | wc -l`
+# counted what find listed, deleted or not). A find that exits non-zero is logged through
+# sb_log_error. The common case (no debris) costs one find.
+_ed_roots=( "$BRAIN_DIR" )
+for _d in "$BRAIN_DIR"/projects/*/; do [ -d "$_d" ] && _ed_roots+=( "${_d%/}" ); done
+_ed_debris() { find "${_ed_roots[@]}" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' \) -mtime +0 "$@"; }
 _ed_debris_count() {
   local l rc
   l=$(_ed_debris -print 2>/dev/null); rc=$?

@@ -84,11 +84,12 @@ render_service() {
   case "$SHIM" in *'"'*) echo "error: refusing to render ExecStart - a double quote in the shim path ($SHIM)" >&2; return 1 ;; esac
   # Every forwarded dir that is not the unit's default must be granted too (ProtectHome=read-only):
   # BRAIN_DIR (lock + state), CLAUDE_CONFIG_DIR on --oauth, the knowledge dir (re-audit S7-3/S7-4).
-  # Each entry is double-quoted (a space survives) and a `"` is refused, like the shim check above.
+  # Each entry is double-quoted (a space survives). Refused: `"` (ends the quote), `\` (a systemd
+  # escape, and sed's in the replacement) and `%` (a systemd specifier: only `%%` is literal) (B2).
   local _rw="" _kd=0
   _rw_add() {
     [ -n "$1" ] && [ "$1" != "$2" ] || return 0
-    case "$1" in *'"'*) echo "error: refusing to render the unit - a double quote in a granted path ($1)" >&2; return 1 ;; esac
+    case "$1" in *'"'*|*'\'*|*%*) echo "error: refusing to render the unit - a double quote, backslash or % in a granted path ($1)" >&2; return 1 ;; esac
     _rw="$_rw \"$1\""
   }
   _rw_add "${BRAIN_DIR:-}" "$HOME/.second-brain" || return 1
@@ -431,7 +432,7 @@ case "$ACTION" in
     ;;
   *)
     echo "# === $SVC (would be written to $UNIT_DIR) ==="
-    render_service
+    render_service || exit 1
     echo
     echo "# === $TIMER ==="
     cat "$TPL_DIR/$TIMER"
