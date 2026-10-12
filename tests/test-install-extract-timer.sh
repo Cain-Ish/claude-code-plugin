@@ -89,7 +89,7 @@ printf '%s' "$SD" | grep -q 'sb-extract-drain.service' && ok "systemd path intac
 # job AND granted in the systemd sandbox (else extraction+consolidation hit the wrong tree).
 KD=/data/mykb
 SDC=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null)
-printf '%s' "$SDC" | grep -q "Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$KD" && ok "systemd: custom KD forwarded via Environment=" || no "systemd: custom KD not forwarded"
+printf '%s' "$SDC" | grep -q "Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$KD\"" && ok "systemd: custom KD forwarded via Environment=" || no "systemd: custom KD not forwarded"
 printf '%s' "$SDC" | grep -qE "^ReadWritePaths=.*$KD" && ok "systemd: custom KD granted in ReadWritePaths" || no "systemd: custom KD not granted (sandbox would block writes)"
 # default render must NOT inject a CLAUDE env line (back-compat)
 printf '%s' "$SD" | grep -q 'Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
@@ -329,6 +329,24 @@ RAN24=$(HOME="$SANDBOX/emptyhome24" CLAUDE_CONFIG_DIR="$SANDBOX/cc24" bash "$BR2
 rm -f "$BR24/.extract-timer-env"
 HOME="$SANDBOX/emptyhome24" BRAIN_DIR="$BR24" CLAUDE_CONFIG_DIR="$SANDBOX/nocache24" bash "$BR24/bin/sb-extract-drain.sh" >/dev/null 2>&1
 grep -q 'sb-extract-drain-shim' "$BR24/error-log.jsonl" 2>/dev/null && ok "shim: logs an error-log row when no drainer is found" || no "shim: not-found left no error-log row"
+
+# Test 25 (re-audit S7-3/S7-4): the rendered systemd unit must GRANT every forwarded dir that is not the
+# unit's default (BRAIN_DIR; CLAUDE_CONFIG_DIR on --oauth; a knowledge dir), each quoted so a space
+# survives; a `"` in a granted path is refused. Print mode only, in a throwaway HOME.
+H25="$SANDBOX/home 25"; mkdir -p "$H25"
+U25=$(HOME="$H25" BRAIN_DIR="$H25/brain-alt" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null || true)
+printf '%s' "$U25" | grep -F 'ReadWritePaths=' | grep -qF "\"$H25/brain-alt\"" \
+  && ok "unit grants a custom BRAIN_DIR" || no "unit does not grant BRAIN_DIR (ReadWritePaths: $(printf '%s' "$U25" | grep 'ReadWritePaths='))"
+U25=$(HOME="$H25" CLAUDE_CONFIG_DIR="$H25/cc-alt" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" --oauth 2>/dev/null || true)
+printf '%s' "$U25" | grep -F 'ReadWritePaths=' | grep -qF "\"$H25/cc-alt\"" \
+  && ok "--oauth unit grants a custom CLAUDE_CONFIG_DIR" || no "--oauth unit does not grant CLAUDE_CONFIG_DIR"
+U25=$(HOME="$H25" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$H25/kb & notes" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null || true)
+printf '%s' "$U25" | grep -F 'ReadWritePaths=' | grep -qF "\"$H25/kb & notes\"" \
+  && ok "unit grants a knowledge dir with a space and & as ONE quoted entry" || no "knowledge dir entry split or mangled (got: $(printf '%s' "$U25" | grep 'ReadWritePaths='))"
+printf '%s' "$U25" | grep -qF "Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$H25/kb & notes\"" \
+  && ok "knowledge dir Environment= is quoted" || no "knowledge dir Environment= is not quoted"
+E25=$(HOME="$H25" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$H25/kb\"q" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 >/dev/null || true)
+printf '%s' "$E25" | grep -q 'refusing to render the unit' && ok "a double quote in a granted path is refused" || no "a double quote in the knowledge dir was rendered"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
