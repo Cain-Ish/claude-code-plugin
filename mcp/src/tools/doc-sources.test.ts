@@ -129,7 +129,8 @@ describe('doc-sources filterIgnored', () => {
       if (seen.has(file)) return;
       seen.add(file);
       for (const m of readFileSync(file, 'utf-8').matchAll(RELATIVE_IMPORT)) {
-        if (!m[1].endsWith('.json')) walk(resolvePath(dirname(file), `${m[1]}.ts`));   // inlined JSON data imports nothing
+        // shortcut: resolves only `<spec>.ts` (inlined JSON imports nothing); a directory import (./dir -> index.ts) would ENOENT, resolve index.ts when one appears.
+        if (!m[1].endsWith('.json')) walk(resolvePath(dirname(file), `${m[1]}.ts`));
       }
     };
     walk(join(here, 'context-serve-cli.ts'));
