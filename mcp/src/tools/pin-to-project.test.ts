@@ -49,6 +49,12 @@ describe('pin_to_project', () => {
     expect(res.ok).toBe(false);
   });
 
+  it('a slug with no PROJECT.md says so instead of failing on the lock file (re-audit R5-6)', async () => {
+    const res = await pinToProject({ text: 'pin for a missing project', slug: 'no-such-project', section: 'blockers', brainDir: dir });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/no PROJECT\.md for no-such-project/);
+  });
+
   it('rejects a traversal or dotted slug before touching any file (re-audit R5-10)', async () => {
     for (const slug of ['../x', 'a/b', '.x']) {
       const res = await pinToProject({ text: 'escaped pin', slug, section: 'blockers', brainDir: dir });

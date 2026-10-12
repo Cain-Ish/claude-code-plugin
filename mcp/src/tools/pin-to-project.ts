@@ -85,6 +85,9 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
     }
     throw e;
   }
+  // Checked before the lock: a missing project otherwise failed as ENOENT on .PROJECT.md.lock.
+  const noFile = await fs.access(file).then(() => '', (e: NodeJS.ErrnoException) => e.code ?? String(e));
+  if (noFile) return { ok: false, line_added: '', project_slug: args.slug, reason: `no PROJECT.md for ${args.slug} (${noFile})` };
   // E3: read-modify-write under the shared .PROJECT.md.lock (merge-project-update.sh holds it too)
   // and replace by temp + rename: an in-place write landing inside a merge's window was erased by it.
   return withFileLock<PinToProjectResult>(file,

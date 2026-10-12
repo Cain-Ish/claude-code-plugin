@@ -50,6 +50,9 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
     }
     throw e;
   }
+  // Checked before the wiki dir and the lock: a missing project otherwise failed as ENOENT on .PROJECT.md.lock.
+  const noFile = await fs.access(projectFile).then(() => '', (e: NodeJS.ErrnoException) => e.code ?? String(e));
+  if (noFile) return { ok: false, archived_path: '', reason: `no PROJECT.md for ${args.slug} (${noFile})` };
   await fs.mkdir(wikiDir, { recursive: true });
   // E3: the PROJECT.md read-modify-write holds the shared .PROJECT.md.lock (the merge holds it too)
   // and replaces the file by temp + rename.

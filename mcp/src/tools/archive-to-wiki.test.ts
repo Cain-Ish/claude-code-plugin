@@ -107,6 +107,13 @@ describe('archive_to_wiki', () => {
     expect(proj).toContain(b.archived_path.split(/[\\/]/).pop());
   });
 
+  it('a slug with no PROJECT.md says so and creates no wiki dir (re-audit R5-6)', async () => {
+    const res = await archiveToWiki({ slug: 'no-such-project', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/no PROJECT\.md for no-such-project/);
+    expect(readdirSync(knowledgeDir)).toEqual([]);
+  });
+
   it('rejects a traversal or dotted slug before touching any file (re-audit R5-10)', async () => {
     for (const slug of ['../x', 'a/b', '.x']) {
       const res = await archiveToWiki({ slug, sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
