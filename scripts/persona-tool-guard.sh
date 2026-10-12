@@ -1743,15 +1743,27 @@ fi
 # a backtick — `rm \⏎ -rf x` is one command, and no per-line grep saw it. CMD_FOLD = the command,
 # then its lines joined at every continuation (one awk pass, only for a command that holds one), so
 # each line matched before still is. Matching reads CMD_FOLD; the target, the spine and a rewrite's
-# sed keep CMD (_PTG_FOLD: see the rewrite arm).
-CMD_FOLD="$CMD" _PTG_FOLD=0
-case "$CMD" in
-  *"$_fp_bs$_fp_nl"*|*'`'"$_fp_nl"*)
-    _PTG_FOLD=1
-    _ptg_fold=$(_fp_feed "$CMD" awk '{ c = substr($0, length($0)); if (c == "\\" || c == "`") printf "%s", substr($0, 1, length($0) - 1); else print }') \
-      || _fp_err "persona-tool-guard.sh" "awk failed folding the line continuations of a ${#CMD}-char command; its lines were matched one by one only"
-    CMD_FOLD="$CMD$_fp_nl$_ptg_fold" _ptg_fold="" ;;
-esac
+# sed keep CMD (_PTG_FOLD, _PTG_FOLDED: see the rewrite arm). SEC-2: each shell folds its own
+# character only — folding both glued a Bash line ending in a backtick (a command substitution's
+# end) or a PowerShell one ending in `\` (cd C:\w\) onto the next command, whose rm then sat behind
+# a letter, past the rules' word boundary. Other tools fold nothing.
+_PTG_CC="" _PTG_PS=0
+case "$TOOL" in Bash) _PTG_CC="$_fp_bs" ;; PowerShell) _PTG_CC='`' _PTG_PS=1 ;; esac
+# _ptg_fold VAR TEXT: VAR = TEXT with its lines joined at each of this tool's continuations. 1 = awk
+# failed (logged; VAR holds what it printed).
+_ptg_fold() {
+  local _pv_o _pv_rc=0
+  _pv_o=$(_fp_feed "$2" awk -v ps="$_PTG_PS" 'BEGIN { k = "\\"; if (ps == 1) k = "`" } { c = substr($0, length($0)); if (c == k) printf "%s", substr($0, 1, length($0) - 1); else print }') \
+    || { _pv_rc=1; _fp_err "persona-tool-guard.sh" "awk failed folding the line continuations of a ${#2}-char command"; }
+  printf -v "$1" '%s' "$_pv_o"
+  return "$_pv_rc"
+}
+CMD_FOLD="$CMD" _PTG_FOLD=0 _PTG_FOLDED=""
+if [ -n "$_PTG_CC" ]; then
+  case "$CMD" in
+    *"$_PTG_CC$_fp_nl"*) _PTG_FOLD=1; _ptg_fold _PTG_FOLDED "$CMD"; CMD_FOLD="$CMD$_fp_nl$_PTG_FOLDED" ;;
+  esac
+fi
 # A big command keeps only the lines some pattern matched (grep is line-based: a line one rule
 # matches is among them), so each rule's grep below reads those, not the whole command again.
 CMD_HIT=0 PATH_HIT=0 CMD_SCAN="$CMD_FOLD"

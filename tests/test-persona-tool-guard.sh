@@ -1478,6 +1478,11 @@ s22 warn-rm-rf Bash $'rm -rf /tmp/s22-dir \\\n  /tmp/s22-other'
 s22 warn-rm-rf Bash $'rm -rf build && docker build \\\n  -t img .'
 grep -q '"fastpath":true' "$S22/audit-log.jsonl" \
   || fail "SEC-4: a continued command whose first line matches alone must ask from the fast path (audit: $(cat "$S22/audit-log.jsonl"))"
+# SEC-2: each shell folds its own continuation only. Folding both glued a Bash line ending in a
+# backtick onto the split rm after it (d=`pwdrm  -rf …: a letter before rm, no word boundary), and a
+# PowerShell line ending in `\` onto the Remove-Item after it.
+s22 warn-rm-rf Bash $'d=`pwd`\nrm \\\n  -rf "$d"'
+s22 warn-remove-item-recurse-force PowerShell $'cd C:\\w\\\nRemove-Item x `\n  -Recurse -Force'
 s22 - Bash $'echo a \\\n  b'
 s22 - PowerShell $'Get-ChildItem `\n  -Force'
 jq '.rules += [{name:"rw-s22",tool:"Bash",action:"rewrite",match_command:"foo bar",replace:"baz",reason:"rw"}]' \
