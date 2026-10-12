@@ -580,6 +580,9 @@ if [ -f "$MANIFEST" ]; then
         || { echo "FORGET: keeping '$_slug' — no longer low-value after consolidation"; continue; }
       _srcp="$LIVE_WIKI/$_cat/$_slug.md"
       [ -f "$_srcp" ] || continue
+      # S4-3: the apply kept a live page written after the snapshot; FORGET must not move it out either.
+      printf '%s\n' "$PROTECT" | grep -qxF -- "$_cat/$_slug.md" \
+        && { echo "FORGET: keeping '$_slug' — edited after the snapshot"; continue; }
       mkdir -p "$ARC_DIR/$_cat" && mv "$_srcp" "$ARC_DIR/$_cat/$_slug.md" || continue
       printf '{"event":"archived","slug":"%s","category":"%s","dream":"%s","date":"%s"}\n' \
         "$_slug" "$_cat" "$DREAM_ID" "$(date -u +%FT%TZ)" >> "$ARC_LOG"

@@ -371,6 +371,20 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 SB_FORGET_MIN_AGE_DA
 pass "F5c: re-score guard keeps a page the dream just linked (enrichment race)"
 rm -rf "$SB"
 
+# --- S4-3 (re-audit): FORGET keeps a manifest page edited in live after the snapshot -------------
+# The apply keeps that page (the newer live version wins); FORGET then moved it to wiki-archive anyway.
+setup 4 SAME; old_snapshot
+D="$BRAIN_DIR/dreams/drm_test"
+printf 'p1\tentities\n' > "$D/forget-manifest.tsv"
+printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p1.md"   # mtime now, after created_at
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "S4-3: accept failed (rc=$rc): $OUT"
+grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/null \
+  || fail "S4-3: FORGET moved p1 out of live although it was edited after the snapshot: $OUT"
+[ ! -e "$BRAIN_DIR/wiki-archive/entities/p1.md" ] || fail "S4-3: p1's post-snapshot edit was archived: $OUT"
+pass "S4-3: FORGET keeps a manifest page edited in live after the snapshot"
+rm -rf "$SB"
+
 # === S4-1 (re-audit): two dreams accepted in a row. Dream B is snapshotted after dream A completed
 # and before A is accepted (only a 4th unreviewed dream is refused). A adds entities/n.md and FORGETs
 # entities/x.md; B edits p2. An accept keeps a page's mtime (rsync -a), so A's n.md is older than B's
