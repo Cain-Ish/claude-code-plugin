@@ -583,6 +583,12 @@ if [ -f "$MANIFEST" ]; then
       # S4-3: the apply kept a live page written after the snapshot; FORGET must not move it out either.
       printf '%s\n' "$PROTECT" | grep -qxF -- "$_cat/$_slug.md" \
         && { echo "FORGET: keeping '$_slug' — edited after the snapshot"; continue; }
+      # S4-2: mv would replace an earlier archived page at this slot, the only copy wiki-restore.sh reaches.
+      if [ -e "$ARC_DIR/$_cat/$_slug.md" ] || [ -L "$ARC_DIR/$_cat/$_slug.md" ]; then
+        echo "FORGET: keeping '$_slug' — wiki-archive/$_cat/$_slug.md already holds an archived page"
+        sb_log_error "dream-accept" "FORGET kept $_cat/$_slug live for $DREAM_ID: the archive slot $ARC_DIR/$_cat/$_slug.md holds an earlier archived page" 0
+        continue
+      fi
       mkdir -p "$ARC_DIR/$_cat" && mv "$_srcp" "$ARC_DIR/$_cat/$_slug.md" || continue
       printf '{"event":"archived","slug":"%s","category":"%s","dream":"%s","date":"%s"}\n' \
         "$_slug" "$_cat" "$DREAM_ID" "$(date -u +%FT%TZ)" >> "$ARC_LOG"

@@ -385,6 +385,24 @@ grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/n
 pass "S4-3: FORGET keeps a manifest page edited in live after the snapshot"
 rm -rf "$SB"
 
+# --- S4-2 (re-audit): FORGET never replaces an earlier archived page at the same slot ------------
+# Slug p1 was archived once, then recreated live; FORGET's mv replaced wiki-archive/entities/p1.md,
+# the only copy wiki-restore.sh reaches.
+setup 4 SAME
+D="$BRAIN_DIR/dreams/drm_test"
+printf 'p1\tentities\n' > "$D/forget-manifest.tsv"
+mkdir -p "$BRAIN_DIR/wiki-archive/entities"
+printf 'ORIGINAL archived p1 (sole copy)\n' > "$BRAIN_DIR/wiki-archive/entities/p1.md"
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "S4-2: accept failed (rc=$rc): $OUT"
+grep -q 'ORIGINAL archived p1' "$BRAIN_DIR/wiki-archive/entities/p1.md" \
+  || fail "S4-2: FORGET replaced the earlier archived p1 in wiki-archive: $OUT"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "S4-2: p1 left the live wiki although its archive slot is taken: $OUT"
+jq -c 'select(.script == "dream-accept" and ((.message // "") | test("archive slot")))' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  | tr -d '\r' | grep -q . || fail "S4-2: the kept page left no error-log row: $OUT"
+pass "S4-2: FORGET keeps the live page and the earlier archived copy when the archive slot is taken"
+rm -rf "$SB"
+
 # === S4-1 (re-audit): two dreams accepted in a row. Dream B is snapshotted after dream A completed
 # and before A is accepted (only a 4th unreviewed dream is refused). A adds entities/n.md and FORGETs
 # entities/x.md; B edits p2. An accept keeps a page's mtime (rsync -a), so A's n.md is older than B's
