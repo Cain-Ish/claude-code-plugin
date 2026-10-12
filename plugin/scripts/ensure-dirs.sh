@@ -84,8 +84,7 @@ fi
 # file is never touched. The audited count is what was actually DELETED: a count, the -delete pass,
 # a recount (the old `-print -delete | wc -l` counted what find listed, deleted or not). A find
 # that exits non-zero is logged through sb_log_error. The common case (no debris) costs one find.
-# .hook-timer-<pid>.timeout: the pre-watchdog hook-timer's flag files, which nothing reads any more.
-_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' -o -name '.hook-timer-*.timeout' \) -mtime +0 "$@"; }
+_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' \) -mtime +0 "$@"; }
 _ed_debris_count() {
   local l rc
   l=$(_ed_debris -print 2>/dev/null); rc=$?
@@ -101,7 +100,7 @@ if [ "${_ED_BEFORE:-0}" -gt 0 ]; then
     sb_log_error "ensure-dirs.sh" "tmp-debris-gc: find -delete exited $_ed_rc in $BRAIN_DIR (${_ED_AFTER:-?} of $_ED_BEFORE stale file(s) left): ${_ed_err:0:300}" "$_ed_rc"
   fi
   if [ "$_ED_PRUNED" -gt 0 ]; then
-    sb_log_audit "ensure-dirs.sh" "allow" "tmp-debris-gc" "$BRAIN_DIR" "pruned $_ED_PRUNED stale *.tmp.*/*.rot.*/.hook-timer-*.timeout file(s)"
+    sb_log_audit "ensure-dirs.sh" "allow" "tmp-debris-gc" "$BRAIN_DIR" "pruned $_ED_PRUNED stale *.tmp.*/*.rot.* file(s)"
   fi
 fi
 

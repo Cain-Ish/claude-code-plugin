@@ -1110,99 +1110,8 @@ sb_text_injection_class() {
   case "$v" in CLASS:*) printf '%s' "${v#CLASS:}" ;; *) return 1 ;; esac
 }
 
-# Pin a preference line to USER.md, under "## Pinned". Cap counts PIN LINES ONLY
-# ("- [YYYY-MM-DD] …", max 15) — NEVER the whole file. The previous 2200-byte whole-file cap
-# counted the operator's hand-written About/Intent prose: the live USER.md was 2716 bytes with
-# ZERO pins, so every pin (and every auto-graduated persona signal, which then went through here)
-# was refused with a bare `return 1`, silently, forever — the signal
-# then re-fired on every extraction (ledger LC-07, 2026-08-23). Auto-graduated signals no longer
-# come here (SEC-R5): they go to sb_pin_to_learned below; USER.md is human pins only. Mirrors
-# mcp/src/tools/pin-to-user.ts's structure (same regex, same MAX, same section) — change both or
-# neither. Returns 0 on success/dupe-noop, 1 on a REFUSAL, which is now logged, never silent.
-sb_pin_to_user() {
-  local raw_text="${1:?sb_pin_to_user: text required}"
-  local user_file="$BRAIN_DIR/USER.md"
-  local max_pins=15
-  local flatten_cap=400
-  local today new_line text
-
-  # D109: flatten BEFORE splicing — text here could be transcript-derived (persona
-  # signals graduated through this function before SEC-R5). USER.md is the priority-1 block
-  # session-load.sh injects into EVERY SessionStart, so an embedded newline/backtick
-  # forges "## Section" headers or fenced directives into that context (the same
-  # memory-poisoning primitive pin-to-project.ts's flattenField closed in 0.48.0).
-  # CR/LF/backtick -> space, collapse whitespace runs, trim, cap length — no NFC
-  # step (bash has none; a JS-only gap the TS twin still normalizes for).
-  _sb_pin_flatten "$raw_text" "$flatten_cap"; text="$_SB_PIN_TEXT"
-  if [ -z "$text" ]; then
-    sb_log_error "lib.sh" "sb_pin_to_user REFUSED: text was empty after flattening (was: ${raw_text:0:80})" 1
-    return 1
-  fi
-  today=$(date -u +%Y-%m-%d)
-  new_line="- [$today] $text"
-
-  # E3: the read-modify-write below holds the same .USER.md.lock as the TS pin_to_user
-  # (mcp/src/tools/hot-file-lock.ts); busy past the wait = logged by sb_archive_lock, return 1.
-  mkdir -p "$BRAIN_DIR"
-  sb_archive_lock "$user_file" sb_pin_to_user || return 1
-  local lock_tok="$_SB_ARCHIVE_LOCK_TOKEN" rc=0
-  _sb_pin_to_user_locked "$user_file" "$text" "$new_line" "$max_pins" || rc=$?
-  sb_archive_unlock "$user_file" "$lock_tok"
-  return "$rc"
-}
-_sb_pin_to_user_locked() {  # $1 USER.md, $2 flattened text, $3 pin line, $4 max pins
-  local user_file="$1" text="$2" new_line="$3" max_pins="$4"
-  local content=""
-  if [ -f "$user_file" ]; then
-    content=$(cat "$user_file")
-  else
-    mkdir -p "$BRAIN_DIR"
-    content="# USER preferences
-
-## Pinned"
-  fi
-
-  # D110: dedupe on the EXACT pin-line text, not a whole-file substring/multi-pattern
-  # grep. `grep -qiF "$text"` treated a multi-line $text as one alternative PATTERN
-  # PER LINE — an embedded blank line was an empty pattern that matched every line
-  # in USER.md (hand-written prose included), so the pin silently no-op'd while the
-  # caller (merge-persona-signals.sh) believed it had graduated. Compare only
-  # "- [DATE] …" pin lines, mirroring the TS twin's PIN_RE test on the captured text.
-  local existing_pin=""
-  while IFS= read -r pin_line; do
-    [ -z "$pin_line" ] && continue
-    if [ "${pin_line#*] }" = "$text" ]; then existing_pin="$pin_line"; break; fi
-  done < <(printf '%s\n' "$content" | grep -E '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] ')
-  if [ -n "$existing_pin" ]; then
-    return 0
-  fi
-
-  local pin_count
-  pin_count=$(printf '%s\n' "$content" | grep -cE '^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] ' || true)
-  case "$pin_count" in ''|*[!0-9]*) pin_count=0 ;; esac
-  if [ "$pin_count" -ge "$max_pins" ]; then
-    sb_log_error "lib.sh" "sb_pin_to_user REFUSED: $max_pins pinned lines already (hand-written sections do not count) — drop a pin before adding: $text" 1
-    return 1
-  fi
-
-  # Insert after the last pin under "## Pinned" (or right under the heading); create the
-  # section at EOF when absent. awk keeps the hand-written sections byte-identical.
-  if ! printf '%s\n' "$content" | grep -q '^## Pinned[[:space:]]*$'; then
-    content=$(printf '%s\n\n## Pinned' "$content")
-  fi
-  printf '%s\n' "$content" | awk -v pin="$new_line" '
-    /^## Pinned[[:space:]]*$/ { print; insec=1; next }
-    insec && /^## /            { if (!done) { print pin; done=1 } ; insec=0 }
-    { print }
-    END { if (insec && !done) print pin }
-  ' > "$user_file.tmp.$$" && mv "$user_file.tmp.$$" "$user_file" || {
-    rm -f "$user_file.tmp.$$" 2>/dev/null
-    sb_log_error "lib.sh" "sb_pin_to_user: USER.md write failed for $user_file" 1
-    return 1
-  }
-  return 0
-}
-# The D109 flatten both pin writers use: $1 raw text, $2 cap -> $_SB_PIN_TEXT (one line).
+# The D109 flatten (CR/LF/backtick to space, squeeze, trim, cap; the pin_to_user tool's flattenField
+# minus NFC): $1 raw text, $2 cap -> $_SB_PIN_TEXT (one line).
 _sb_pin_flatten() {
   local t
   t=$(printf '%s' "$1" | tr '\r\n`' '   ' | tr -s '[:space:]' ' ')
@@ -1214,8 +1123,8 @@ _sb_pin_flatten() {
 # SEC-R5: auto-graduated persona signals (merge-persona-signals.sh) land HERE, never in USER.md.
 # They are transcript-derived and a phrase classifier cannot hold paraphrases or homoglyphs, so
 # session-load.sh serves this file inside the untrusted-data frame; USER.md, the trusted block,
-# keeps human pins only (pin_to_user, /pin). Same "- [YYYY-MM-DD] text" lines and flatten as
-# sb_pin_to_user; exact-text dedupe; at 15 lines the OLDEST is evicted (refusing at the cap would
+# keeps human pins only (the MCP pin_to_user tool, `sb pin user`). Same "- [YYYY-MM-DD] text" lines
+# and flatten as pin_to_user; exact-text dedupe; at 15 lines the OLDEST is evicted (refusing at the cap would
 # leave the signal ungraduated and re-fire it on every merge, the LC-07 class). Held under its own
 # .persona-learned.md.lock (Stop and the drainer can graduate at once). Returns 0 on success or a
 # dupe, 1 on a failure (logged).
@@ -1249,7 +1158,7 @@ sb_pin_to_learned() {
 
 # One-time move (ensure-dirs.sh, SessionStart): before SEC-R5, graduation wrote persona signals into
 # USER.md as trusted priority-1 pins. Every USER.md pin line whose text is a graduated:true record of
-# persona-signals.jsonl, flattened as that old sb_pin_to_user wrote it, moves to persona-learned.md;
+# persona-signals.jsonl, flattened as the old bash USER.md pinner wrote it, moves to persona-learned.md;
 # human pins stay. Held under the USER.md lock with a 1 s wait (the hook has 5 s); every line is
 # pinned to the learned store BEFORE USER.md is rewritten, so a failure leaves at worst a duplicate
 # (sb_pin_to_learned dedupes the retry). The marker is written only after a complete pass: a busy
@@ -2992,7 +2901,7 @@ sb_get_maintainer_fails() {  # $1 = slug
 sb_reset_maintainer_fails() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-fail-count"; }
 
 # Pin candidate queue — populated from extracted persona_signals;
-# session-load.sh banners the count so user can /pin with one prompt.
+# session-load.sh banners the count so the user can pin one with the pin_to_user tool.
 sb_append_pin_candidate() {
   local slug="$1" text="$2"
   local f="$BRAIN_DIR/projects/$slug/.pin-candidates.jsonl"
