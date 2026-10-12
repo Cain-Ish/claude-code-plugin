@@ -1,6 +1,6 @@
 // src/tools/doc-sources.ts
-import { promises as fs, realpathSync as realpathSync2, existsSync } from "fs";
-import { join as join2, relative, resolve, sep as sep2, isAbsolute, parse, win32 as win322 } from "path";
+import { promises as fs } from "fs";
+import { join as join2, relative, resolve as resolve2, sep as sep3, isAbsolute as isAbsolute2 } from "path";
 import { spawnSync } from "child_process";
 
 // node_modules/balanced-match/dist/esm/index.js
@@ -3123,10 +3123,10 @@ var Minipass = class extends EventEmitter {
    * Return a void Promise that resolves once the stream ends.
    */
   async promise() {
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       this.on(DESTROYED, () => reject(new Error("stream destroyed")));
       this.on("error", (er) => reject(er));
-      this.on("end", () => resolve2());
+      this.on("end", () => resolve3());
     });
   }
   /**
@@ -3150,7 +3150,7 @@ var Minipass = class extends EventEmitter {
         return Promise.resolve({ done: false, value: res });
       if (this[EOF])
         return stop();
-      let resolve2;
+      let resolve3;
       let reject;
       const onerr = (er) => {
         this.off("data", ondata);
@@ -3164,19 +3164,19 @@ var Minipass = class extends EventEmitter {
         this.off("end", onend);
         this.off(DESTROYED, ondestroy);
         this.pause();
-        resolve2({ value, done: !!this[EOF] });
+        resolve3({ value, done: !!this[EOF] });
       };
       const onend = () => {
         this.off("error", onerr);
         this.off("data", ondata);
         this.off(DESTROYED, ondestroy);
         stop();
-        resolve2({ done: true, value: void 0 });
+        resolve3({ done: true, value: void 0 });
       };
       const ondestroy = () => onerr(new Error("stream destroyed"));
       return new Promise((res2, rej) => {
         reject = rej;
-        resolve2 = res2;
+        resolve3 = res2;
         this.once(DESTROYED, ondestroy);
         this.once("error", onerr);
         this.once("end", onend);
@@ -4152,9 +4152,9 @@ var PathBase = class {
     if (this.#asyncReaddirInFlight) {
       await this.#asyncReaddirInFlight;
     } else {
-      let resolve2 = () => {
+      let resolve3 = () => {
       };
-      this.#asyncReaddirInFlight = new Promise((res) => resolve2 = res);
+      this.#asyncReaddirInFlight = new Promise((res) => resolve3 = res);
       try {
         for (const e of await this.#fs.promises.readdir(fullpath, {
           withFileTypes: true
@@ -4167,7 +4167,7 @@ var PathBase = class {
         children.provisional = 0;
       }
       this.#asyncReaddirInFlight = void 0;
-      resolve2();
+      resolve3();
     }
     return children.slice(0, children.provisional);
   }
@@ -4397,7 +4397,7 @@ var PathScurryBase = class {
    *
    * @internal
    */
-  constructor(cwd = process.cwd(), pathImpl, sep3, { nocase, childrenCacheSize = 16 * 1024, fs: fs2 = defaultFS } = {}) {
+  constructor(cwd = process.cwd(), pathImpl, sep4, { nocase, childrenCacheSize = 16 * 1024, fs: fs2 = defaultFS } = {}) {
     this.#fs = fsFromOption(fs2);
     if (cwd instanceof URL || cwd.startsWith("file://")) {
       cwd = fileURLToPath(cwd);
@@ -4408,7 +4408,7 @@ var PathScurryBase = class {
     this.#resolveCache = new ResolveCache();
     this.#resolvePosixCache = new ResolveCache();
     this.#children = new ChildrenCache(childrenCacheSize);
-    const split = cwdPath.substring(this.rootPath.length).split(sep3);
+    const split = cwdPath.substring(this.rootPath.length).split(sep4);
     if (split.length === 1 && !split[0]) {
       split.pop();
     }
@@ -6081,14 +6081,14 @@ function hashContent(content) {
 }
 
 // src/tools/doc-registry.ts
-import { join } from "path";
+import { join, resolve, sep as sep2, isAbsolute, parse, win32 as win322 } from "path";
 function registryPath(brainDir, slug) {
   return join(brainDir, "projects", slug, "doc-sources.json");
 }
 
 // ../kb-schema.json
 var kb_schema_default = {
-  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
+  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by the scripts that read it, not by lib.sh; reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
   structured_types: ["learnings", "decisions", "entities", "issues", "concepts", "security"],
   unstructured_types: ["state", "sources"],
   frontmatter_required: ["title", "description", "type", "created", "updated", "tags", "related"],
@@ -6138,16 +6138,9 @@ var kb_schema_default = {
   },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions", "conventions"],
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
-  },
-  raw: {
-    dir: "raw",
-    tier: "project",
-    statuses: ["unprocessed", "processed", "discarded"],
-    searchable: false
   }
 };
 
@@ -6220,10 +6213,10 @@ async function scanLocations(projectRoot, locations) {
   projectRoot = cleanEnvPath(projectRoot);
   const seen = /* @__PURE__ */ new Set();
   const absPaths = [];
-  const rootResolved = resolve(projectRoot);
+  const rootResolved = resolve2(projectRoot);
   const within = (p) => {
-    const r = resolve(p);
-    return r === rootResolved || r.startsWith(rootResolved + sep2);
+    const r = resolve2(p);
+    return r === rootResolved || r.startsWith(rootResolved + sep3);
   };
   for (const loc of locations) {
     const pattern = /[*?[\]{}]/.test(loc) ? loc : `${loc.replace(/\/+$/, "")}/**/*.md`;
@@ -6270,7 +6263,7 @@ async function buildRegistry(projectRoot, brainDir, slug) {
 }
 
 // src/brain-paths.ts
-import { join as join3, isAbsolute as isAbsolute2 } from "path";
+import { join as join3, isAbsolute as isAbsolute3 } from "path";
 import { homedir } from "os";
 function normForCompare(p) {
   let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
