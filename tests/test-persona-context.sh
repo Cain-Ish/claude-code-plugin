@@ -173,7 +173,7 @@ process.exit(1);
 STUBJS
   out=$(payload "/? should I split this module" \
     | CLAUDE_PLUGIN_ROOT="$REFUSE_ROOT" BRAIN_DIR="$REFUSE_BRAIN" bash "$SCRIPT" 2>"$TMP/refuse.err")
-  printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | test("did not run.*ANTHROPIC_API_KEY")' >/dev/null \
+  [ -n "$out" ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | test("did not run.*ANTHROPIC_API_KEY")' >/dev/null \
     || fail "S7-1: refused /? did not name the refusal in additionalContext (got: $out)"
   grep -q 'persona-think-failed' "$REFUSE_BRAIN/error-log.jsonl" 2>/dev/null \
     || fail "S7-1: refused /? left no error-log row"
