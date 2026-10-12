@@ -1512,6 +1512,10 @@ s22 rw-s22 Bash $'echo foo \\\nbar' "$S22/rw"
 # SEC-3: ...and so does one beside a match sed did rewrite on its own line (the grep that let it through
 # found the rewritten one), where the allow ran `echo foo bar` unrewritten.
 s22 rw-s22 Bash $'echo foo bar; echo foo \\\nbar' "$S22/rw"
+# Q3-1: a match only in another letter case (grep -i matched, the case-sensitive sed changed nothing)
+# asks instead of allowing the command unrewritten, on one line and across a continuation.
+s22 rw-s22 Bash 'echo FOO BAR' "$S22/rw"
+s22 rw-s22 Bash $'echo FOO \\\nBAR' "$S22/rw"
 # ...while one its sed can apply on a line still rewrites, the continuation kept, and so does a
 # replacement that keeps its match.
 s22rw() {  # s22rw <command> <rewritten command>
