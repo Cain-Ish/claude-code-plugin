@@ -110,6 +110,15 @@ describe('doc-sources filterIgnored', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  // esbuild erases `import type`; every other relative import (side-effect too) / export-from / import() is bundled,
+  // with or without the .js extension (moduleResolution "bundler"), in any quote style.
+  const RELATIVE_IMPORT = /(?:^[ \t]*(?:import|export)[ \t]+(?!type[ \t])(?:[^;'"]*?\sfrom[ \t]+)?|\bimport\([ \t]*)['"`](\.\.?\/[^'"`]+?)(?:\.js)?['"`]/gm;
+
+  it('the import walk follows side-effect, extensionless and template-literal imports, not import type (re-audit TS-4)', () => {
+    const src = "import './side.js';\nimport { a } from './bare';\nconst m = await import(`./tpl.js`);\nimport type { T } from './t.js';\nexport * from '../up.js';\n";
+    expect([...src.matchAll(RELATIVE_IMPORT)].map(m => m[1])).toEqual(['./side', './bare', './tpl', '../up']);
+  });
+
   // Audit N3 / re-audit A2: glob (~188 KB with minimatch + path-scurry) stays out of the per-prompt CLI
   // bundles. Walks every module they bundle, not one file: knowledge-search.ts reached glob through
   // doc-sources.ts while the old check only read doc-registry.ts.
@@ -119,15 +128,20 @@ describe('doc-sources filterIgnored', () => {
     const walk = (file: string): void => {
       if (seen.has(file)) return;
       seen.add(file);
-      // esbuild erases `import type`; every other relative import / export-from / import() is bundled.
-      const re = /(?:^[ \t]*(?:import|export)[ \t]+(?!type[ \t])[^;'"]*?\sfrom[ \t]+|\bimport\([ \t]*)['"](\.\.?\/[^'"]+)\.js['"]/gm;
-      for (const m of readFileSync(file, 'utf-8').matchAll(re)) walk(resolvePath(dirname(file), `${m[1]}.ts`));
+      for (const m of readFileSync(file, 'utf-8').matchAll(RELATIVE_IMPORT)) {
+        // shortcut: resolves only `<spec>.ts` (inlined JSON imports nothing); a directory import (./dir -> index.ts) would ENOENT, resolve index.ts when one appears.
+        if (!m[1].endsWith('.json')) walk(resolvePath(dirname(file), `${m[1]}.ts`));
+      }
     };
     walk(join(here, 'context-serve-cli.ts'));
     walk(join(here, 'knowledge-search-cli.ts'));
     expect(seen.size).toBeGreaterThan(5);   // the walk followed the graph
     const withGlob = [...seen].filter(f => /from ['"]glob['"]|import\(['"]glob['"]\)/.test(readFileSync(f, 'utf-8')));
     expect(withGlob.map(f => relative(here, f))).toEqual([]);
+    // The built bundles are the ground truth for any import form the walk misses (bundle-current keeps dist in step).
+    for (const b of ['knowledge-search-cli', 'context-serve-cli']) {
+      expect(readFileSync(join(here, '..', '..', 'dist', 'tools', `${b}.bundle.js`), 'utf-8'), b).not.toMatch(/node_modules\/glob\/|PathScurry/);
+    }
   });
 
   it('splits path segments on both separators (the junk regex is cross-OS)', () => {

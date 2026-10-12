@@ -72,8 +72,9 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** The codemap's git runner: jit-index's (64 MiB buffer) with 60 s, not 5 s. It runs out of band, and at
- *  5 s a slow `git status` on a large repo read as dirty, so every drainer tick regenerated the map. */
+/** The code-map CLI's git runner: jit-index's (64 MiB buffer) with 60 s, not 5 s. The CLI runs out of band, and at
+ *  5 s a slow `git status` on a large repo read as dirty, so every drainer tick regenerated the map. The interactive
+ *  code_map / code_neighbors tools pass jit-index's 5 s runner instead (a hung git must not stall a tool call). */
 export const defaultRunGit: GitRunner = (args, cwd) => defaultGitRunner(args, cwd, 60_000);
 
 /** Locale-independent codepoint order — localeCompare varies by platform ICU. */

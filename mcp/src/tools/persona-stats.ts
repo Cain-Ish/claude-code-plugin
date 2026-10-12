@@ -39,7 +39,7 @@ export async function personaStats(args: PersonaStatsArgs = {}): Promise<Persona
       try {
         const j = JSON.parse(line);
         if (j.graduated === true) graduated++;
-        else if ((j.count ?? 0) >= 2) ungraduated++;
+        else if (j.graduated === false && (j.count ?? 0) >= 2) ungraduated++;   // "refused" is a verdict, not a pending signal
       } catch {}
     }
   } catch {}

@@ -87,6 +87,9 @@ export async function writeFileAtomic(file: string, data: string, io: AtomicIo =
       }
     }
     await io.writeFile(file, data);
-    await io.rm(tmp);
+    // The data landed: a temp Windows will not let go of is debris for the *.tmp.* sweep, not a failed write (re-audit TS-1).
+    await io.rm(tmp).catch(e => console.error(
+      `writeFileAtomic: ${file} written in place; leftover ${tmp} not removed: ${e instanceof Error ? e.message : String(e)}`,
+    ));
   } catch (e) { await io.rm(tmp).catch(() => {}); throw e; }
 }

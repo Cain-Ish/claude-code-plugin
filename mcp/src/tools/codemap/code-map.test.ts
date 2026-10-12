@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -6,6 +6,14 @@ import { codeMap } from './code-map.js';
 import { codemapDir, writeGraph } from './store.js';
 import type { GitRunner } from './scan-sources.js';
 import type { CodeGraph, FileNode } from './types.js';
+
+// Re-audit TS-2: records what the interactive tool hands jit-index's shared runner (no git spawned).
+const sharedRunnerCalls = vi.hoisted(() => [] as unknown[][]);
+vi.mock('../jit-index.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../jit-index.js')>()),
+  defaultGitRunner: async (...a: unknown[]) => { sharedRunnerCalls.push(a); return `${'a'.repeat(40)}
+`; },
+}));
 
 const REV_A = 'a'.repeat(40);
 const REV_B = 'b'.repeat(40);
@@ -202,6 +210,17 @@ describe('codeMap', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'graph.json'), 'not json {{{');
     await expect(codeMap({ brainDir: brain, slug: 'proj', runGit: sameRev })).rejects.toThrow();
+  });
+
+  // Re-audit TS-2: the code-map CLI's 60 s runner made a hung git stall this interactive call 60-120 s.
+  it("with no runGit, the stale probe uses jit-index's 5 s runner, not the CLI's 60 s (re-audit TS-2)", async () => {
+    const brain = await storeGraph(graphFixture());
+    sharedRunnerCalls.length = 0;
+    const res = await codeMap({ brainDir: brain, slug: 'proj' });
+    if (res.kind !== 'ok') throw new Error('expected ok');
+    expect(res.stale).toBe(false);
+    expect(sharedRunnerCalls).toHaveLength(1);
+    expect(sharedRunnerCalls[0][2]).toBeUndefined();   // undefined = defaultGitRunner's own 5 s default
   });
 
   it('honors SB_CODEMAP_TOKEN_BUDGET when no explicit budget is passed', async () => {
