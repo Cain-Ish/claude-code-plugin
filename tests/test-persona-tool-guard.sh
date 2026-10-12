@@ -1485,13 +1485,22 @@ s22 warn-rm-rf Bash $'d=`pwd`\nrm \\\n  -rf "$d"'
 s22 warn-remove-item-recurse-force PowerShell $'cd C:\\w\\\nRemove-Item x `\n  -Recurse -Force'
 s22 - Bash $'echo a \\\n  b'
 s22 - PowerShell $'Get-ChildItem `\n  -Force'
-jq '.rules += [{name:"rw-s22",tool:"Bash",action:"rewrite",match_command:"foo bar",replace:"baz",reason:"rw"}]' \
+jq '.rules += [{name:"rw-s22",tool:"Bash",action:"rewrite",match_command:"foo bar",replace:"baz",reason:"rw"},
+               {name:"rw-s22k",tool:"Bash",action:"rewrite",match_command:"npm ci",replace:"npm ci --no-audit",reason:"rw"}]' \
   "$(dirname "$SCRIPT")/persona-rules.default.json" > "$S22/rw/persona-rules.json"
 s22 rw-s22 Bash $'echo foo \\\nbar' "$S22/rw"
-# ...while one its sed can apply on a line still rewrites, the continuation kept.
-out=$(jq -nc --arg c $'echo foo bar \\\nx' '{tool_name:"Bash",tool_input:{command:$c},session_id:"s22"}' | BRAIN_DIR="$S22/rw" bash "$SCRIPT")
-printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "allow" and .hookSpecificOutput.updatedInput.command == "echo baz \\\nx"' >/dev/null \
-  || fail "S2-2: a rewrite matched on one line of a continued command must still rewrite it (got: $out)"
+# SEC-3: ...and so does one beside a match sed did rewrite on its own line (the grep that let it through
+# found the rewritten one), where the allow ran `echo foo bar` unrewritten.
+s22 rw-s22 Bash $'echo foo bar; echo foo \\\nbar' "$S22/rw"
+# ...while one its sed can apply on a line still rewrites, the continuation kept, and so does a
+# replacement that keeps its match.
+s22rw() {  # s22rw <command> <rewritten command>
+  out=$(jq -nc --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c},session_id:"s22"}' | BRAIN_DIR="$S22/rw" bash "$SCRIPT")
+  printf '%s' "$out" | jq -e --arg w "$2" '.hookSpecificOutput.permissionDecision == "allow" and .hookSpecificOutput.updatedInput.command == $w' >/dev/null \
+    || fail "S2-2: a rewrite its sed applies on a line of a continued command must still rewrite it to '$2' (got: $out)"
+}
+s22rw $'echo foo bar \\\nx' $'echo baz \\\nx'
+s22rw $'npm ci \\\n  --quiet' $'npm ci --no-audit \\\n  --quiet'
 pass "S2-2: rm / force-push / Remove-Item split by a line continuation ask (a line that matches alone from the fast path); a rewrite matched across one asks"
 
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the

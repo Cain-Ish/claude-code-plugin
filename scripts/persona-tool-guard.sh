@@ -1890,9 +1890,15 @@ case "$V_ACTION" in
         if [ "$SED_RC" -ne 0 ] || { [ -z "$NEW_CMD" ] && [ -n "$CMD" ]; }; then REWRITE_OK=0; fi
         ;;
     esac
-    # S2-2: a match only the folded command holds (across a line continuation) is one this sed, which
-    # reads CMD line by line, cannot apply — its "allow" would pass the command unrewritten.
-    if [ "$_PTG_FOLD" = 1 ] && ! _fp_feed "$CMD" grep -qiE -- "$V_MATCH"; then REWRITE_OK=0; fi
+    # S2-2/SEC-3: this sed reads CMD line by line, bash runs the folded lines — a match across a line
+    # continuation (alone, or beside one sed did rewrite) went out unrewritten under the "allow". The
+    # rewrite stands only when folding it gives the folded command's own rewrite (so a replacement
+    # that keeps its match still rewrites).
+    if [ "$_PTG_FOLD" = 1 ] && [ "$REWRITE_OK" = 1 ]; then
+      _ptg_fold _ptg_nf "$NEW_CMD" \
+        && _ptg_sf=$(printf '%s' "$_PTG_FOLDED" | sed -E "s${SOH}${V_MATCH}${SOH}${V_REPLACE}${SOH}g") \
+        && [ "$_ptg_nf" = "$_ptg_sf" ] || REWRITE_OK=0
+    fi
     if [ "$REWRITE_OK" = "0" ]; then
       FAIL_REASON="Rewrite rule '$V_RULE' produced an invalid replacement (sed could not safely apply match_command/replace) — refusing to auto-allow an unverifiable rewrite. Original reason: $V_REASON"
       _ptg_verdict ask "$V_RULE" "$V_TARGET" "$FAIL_REASON"
