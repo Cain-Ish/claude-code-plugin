@@ -1411,10 +1411,12 @@ s21() {  # s21 <rule|-> <tool> <file_path> [VAR=val…]
   fi
 }
 # Every host: a ~N component on disk that cygpath cannot expand (a failing cygpath) asks; with no
-# failing cygpath it is a literal name (Windows: its own long name; elsewhere no alias exists) and stays silent.
+# failing cygpath it is a literal name (Windows: its own long name; elsewhere no alias exists) and stays
+# silent, as does a ~N component that does not exist (no alias yet). No failing cygpath for that one:
+# on the Windows runner the sandbox itself sits under C:\Users\RUNNER~1, an existing short name.
 s21 windows-alias:8.3 Write "$S21/home/.second-brain/notes~1/a.md" PATH="$S21/cyg:$PATH"
 s21 - Write "$S21/home/.second-brain/notes~1/a.md"
-s21 - Write "$S21/home/.second-brain/notes~2/a.md" PATH="$S21/cyg:$PATH"
+s21 - Write "$S21/home/.second-brain/notes~2/a.md"
 if command -v cygpath >/dev/null 2>&1; then
   S21_R=$(cygpath -s -w "$S21/home/.second-brain/persona-rules.json" | tr -d '\r')
   S21_C=$(cygpath -s -w "$S21/home/.second-brain/persona-card.md" | tr -d '\r')
