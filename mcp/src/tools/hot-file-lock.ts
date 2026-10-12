@@ -60,7 +60,7 @@ export async function withFileLock<T>(
   const lf = lockPathFor(file);
   const token = `${process.pid}.${randomInt(1e9)}`;
   const end = Date.now() + waitMs;
-  let lastCode = 'EEXIST';
+  let lastCode = 'EEXIST', noLock = 0;
   for (;;) {
     try { await fs.writeFile(lf, `${token}\n`, { flag: 'wx' }); break; }
     catch (e) {
@@ -68,6 +68,10 @@ export async function withFileLock<T>(
       // EPERM/EACCES too: Windows refuses a create for a moment while the old lock is being deleted.
       if (lastCode !== 'EEXIST' && lastCode !== 'EPERM' && lastCode !== 'EACCES') throw e;
     }
+    // Refused 3 times in a row with no lock there: an unwritable directory, not contention (lib.sh gives up the same way).
+    noLock = lastCode === 'EEXIST' ? 0
+      : await fs.stat(lf).then(() => 0, (s: NodeJS.ErrnoException) => (s.code === 'ENOENT' ? noLock + 1 : 0));
+    if (noLock >= 3) throw new Error(`cannot create ${lf} (${lastCode}, no lock present; directory unwritable?); ${basename(file)} not written`);
     await stealIfStale(lf);
     if (Date.now() >= end) {
       const holder = await firstLine(lf).catch(() => 'none');
