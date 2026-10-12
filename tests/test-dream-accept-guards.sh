@@ -409,6 +409,9 @@ printf '\nDREAM B EDIT\n' >> "$BRAIN_DIR/dreams/drm_s41b/staging/wiki/entities/p
 s41_done drm_s41b ""
 s41_snap drm_s41c   # a dream like B, for the rsync check below
 s41_done drm_s41c ""
+s41_snap drm_s41d   # a dream like B whose not-restored/ cannot be created (R2-1, below)
+printf 'blocker\n' > "$BRAIN_DIR/dreams/drm_s41d/not-restored"
+s41_done drm_s41d ""
 CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_SKIP_BACKUP=1 SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_s41a >/dev/null 2>&1 \
   || fail "S4-1: precondition — accepting dream A failed"
 { [ -f "$L/n.md" ] && [ ! -f "$L/x.md" ] && [ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ]; } \
@@ -443,6 +446,15 @@ jq -c 'select(.script == "dream-accept" and ((.message // "") | test("verdict=no
 [ -f "$BRAIN_DIR/dreams/drm_s41b/not-restored/entities/x.md" ] \
   || fail "Q-SF3: the dropped staging copy of entities/x.md was not kept under the dream's not-restored/"
 pass "Q-SF3: the not-restored drop is audited and its staging copy kept in the dream dir"
+# R2-1: when the copy cannot be kept (not-restored is a file here), the page is still dropped from
+# staging, never copied back into live, and the lost copy is logged.
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 SB_DREAM_ACCEPT_SKIP_BACKUP=1 bash "$ACCEPT" drm_s41d 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "R2-1: accepting dream D failed (rc=$rc): $OUT"
+[ ! -f "$L/x.md" ] || fail "R2-1: a failed not-restored move copied entities/x.md back into the live wiki: $OUT"
+jq -c 'select(.script == "dream-accept" and ((.message // "") | test("could not keep a copy of .entities/x.md")))' \
+  "$BRAIN_DIR/error-log.jsonl" 2>/dev/null | tr -d '\r' | grep -q . \
+  || fail "R2-1: the dropped copy without a kept copy left no error row: $(tail -3 "$BRAIN_DIR/error-log.jsonl" 2>&1)"
+pass "R2-1: a failed not-restored move still keeps the page out of live and logs the lost copy"
 rm -rf "$SB"
 
 # === D084: a partial apply failure must ABORT loud, not silently "succeed" ===

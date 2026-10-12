@@ -262,7 +262,9 @@ if [ -f "$SNAP_LIST" ] && _live=$(_pages "$LIVE_WIKI") && [ -n "$_live" ] && _sn
     [ -n "$_rel" ] || continue
     [ "$STAGING_WIKI/$_rel" -nt "$DREAM_DIR/.snap-ref.$$" ] && continue   # the dream edited it: its edit applies
     if mkdir -p "$DREAM_DIR/not-restored/$(dirname "$_rel")" && mv -f "$STAGING_WIKI/$_rel" "$DREAM_DIR/not-restored/$_rel"; then _gone="$_gone $_rel"
-    else sb_log_error "dream-accept" "could not drop '$_rel' from $DREAM_ID's staging; the apply copies it back into the live wiki" 0
+    elif rm -f "$STAGING_WIKI/$_rel"; then _gone="$_gone $_rel"   # no copy kept, but never restore it (R2-1)
+      sb_log_error "dream-accept" "could not keep a copy of '$_rel' under $DREAM_ID's not-restored/; dropped it from staging without a copy" 1
+    else sb_log_error "dream-accept" "could not drop '$_rel' from $DREAM_ID's staging; the apply copies it back into the live wiki" 1
     fi
   done < <(LC_ALL=C comm -12 <(LC_ALL=C sort "$SNAP_LIST") <(LC_ALL=C comm -23 <(_pages "$STAGING_WIKI") <(printf '%s\n' "$_live")))
   rm -f "$DREAM_DIR/.snap-ref.$$"
