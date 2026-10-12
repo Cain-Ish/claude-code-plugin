@@ -49,6 +49,14 @@ describe('pin_to_project', () => {
     expect(res.ok).toBe(false);
   });
 
+  it('rejects a traversal or dotted slug before touching any file (re-audit R5-10)', async () => {
+    for (const slug of ['../x', 'a/b', '.x']) {
+      const res = await pinToProject({ text: 'escaped pin', slug, section: 'blockers', brainDir: dir });
+      expect(res.ok, slug).toBe(false);
+      expect(res.reason, slug).toMatch(/invalid slug/);
+    }
+  });
+
   // --- Decision-capture ritual (0.48.0): dated entries, reasoning, explicit supersession ---
 
   it('decision entries are date-first so mark_stale can age them', async () => {

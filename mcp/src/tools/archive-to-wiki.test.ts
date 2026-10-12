@@ -107,6 +107,15 @@ describe('archive_to_wiki', () => {
     expect(proj).toContain(b.archived_path.split(/[\\/]/).pop());
   });
 
+  it('rejects a traversal or dotted slug before touching any file (re-audit R5-10)', async () => {
+    for (const slug of ['../x', 'a/b', '.x']) {
+      const res = await archiveToWiki({ slug, sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+      expect(res.ok, slug).toBe(false);
+      expect(res.reason, slug).toMatch(/invalid slug/);
+    }
+    expect(readdirSync(knowledgeDir)).toEqual([]);
+  });
+
   it('rejects an empty or blank entryText (it matched the first [resolved] entry)', async () => {
     for (const entryText of ['', '   ']) {
       const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText, targetCategory: 'issues', brainDir, knowledgeDir });
