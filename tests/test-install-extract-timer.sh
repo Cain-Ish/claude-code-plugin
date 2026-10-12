@@ -8,6 +8,7 @@ INSTALL="$SCRIPT_DIR/install-extract-timer.sh"
 SANDBOX=$(mktemp -d)
 trap 'rm -rf "$SANDBOX"' EXIT
 export XDG_CONFIG_HOME="$SANDBOX/config"   # redirect systemd user dir into sandbox
+unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR KNOWLEDGE_DIR   # the "default render" cases need no inherited custom KD
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "  PASS: $1"; }
@@ -91,8 +92,9 @@ KD=/data/mykb
 SDC=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null)
 printf '%s' "$SDC" | grep -q "Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$KD\"" && ok "systemd: custom KD forwarded via Environment=" || no "systemd: custom KD not forwarded"
 printf '%s' "$SDC" | grep -qE "^ReadWritePaths=.*$KD" && ok "systemd: custom KD granted in ReadWritePaths" || no "systemd: custom KD not granted (sandbox would block writes)"
-# default render must NOT inject a CLAUDE env line (back-compat)
-printf '%s' "$SD" | grep -q 'Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
+# default render must NOT inject a CLAUDE env line (back-compat). No `Environment=` prefix in the grep:
+# the line is rendered quoted, `Environment="CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=..."` (re-audit T1).
+printf '%s' "$SD" | grep -q 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
 LAK=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>/dev/null)
 printf '%s' "$LAK" | grep -q "$KD" && ok "launchd: custom KD snapshotted into the plist env" || no "launchd: custom KD not forwarded"
 
