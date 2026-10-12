@@ -54,7 +54,6 @@ export async function atomicWriteJsonStrict(filePath: string, value: unknown): P
 }
 
 // The text writer for the hot files (PROJECT.md, USER.md) under their hot-file-lock.ts lock.
-let seq = 0;
 const RENAME_RETRY = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const RENAME_BACKOFF_MS = [10, 20, 40, 80, 160, 200, 200, 200, 200, 200, 200];   // ~1.5 s
 export interface AtomicIo {
@@ -76,7 +75,7 @@ const realIo: AtomicIo = {
  * write in place (callers hold the file lock, so only plain readers can see the non-atomic window).
  */
 export async function writeFileAtomic(file: string, data: string, io: AtomicIo = realIo): Promise<void> {
-  const tmp = `${file}.${process.pid}.${Date.now()}.${seq++}.tmp`;
+  const tmp = uniqueTmp(file);   // *.tmp.*: the name ensure-dirs.sh's debris sweep matches
   try {
     await io.writeFile(tmp, data);
     for (let i = 0; ; i++) {

@@ -157,7 +157,7 @@ registerJsonTool(
 
 registerJsonTool(
   "pin_to_user",
-  "Pin a preference to USER.md. Use only when the user explicitly says 'pin to my second-brain' or runs /second-brain:pin. Plain 'remember this' should write to Claude Code's built-in auto-memory, not here.",
+  "Pin a preference to USER.md. Use only when the user explicitly says 'pin to my second-brain' (the shell twin is `sb pin user`). Plain 'remember this' should write to Claude Code's built-in auto-memory, not here.",
   { text: z.string() },
   ({ text }) => pinToUser({ text }),
   (h) => guardDestructive("pin_to_user", h)

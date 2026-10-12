@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs, readFileSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsSync } from 'fs';
-import { join, sep, parse } from 'path';
+import { join, sep, parse, dirname, relative, resolve as resolvePath } from 'path';
+import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
 import {
@@ -109,10 +110,24 @@ describe('doc-sources filterIgnored', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  // Audit N3: the registry reader stays glob-free.
-  it('doc-registry.ts does not import glob', () => {
-    const src = readFileSync(new URL('./doc-registry.ts', import.meta.url), 'utf-8');
-    expect(src).not.toMatch(/from 'glob'/);
+  // Audit N3 / re-audit A2: glob (~188 KB with minimatch + path-scurry) stays out of the per-prompt CLI
+  // bundles. Walks every module they bundle, not one file: knowledge-search.ts reached glob through
+  // doc-sources.ts while the old check only read doc-registry.ts.
+  it('the per-prompt CLIs import nothing that imports glob', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const seen = new Set<string>();
+    const walk = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      // esbuild erases `import type`; every other relative import / export-from / import() is bundled.
+      const re = /(?:^[ \t]*(?:import|export)[ \t]+(?!type[ \t])[^;'"]*?\sfrom[ \t]+|\bimport\([ \t]*)['"](\.\.?\/[^'"]+)\.js['"]/gm;
+      for (const m of readFileSync(file, 'utf-8').matchAll(re)) walk(resolvePath(dirname(file), `${m[1]}.ts`));
+    };
+    walk(join(here, 'context-serve-cli.ts'));
+    walk(join(here, 'knowledge-search-cli.ts'));
+    expect(seen.size).toBeGreaterThan(5);   // the walk followed the graph
+    const withGlob = [...seen].filter(f => /from ['"]glob['"]|import\(['"]glob['"]\)/.test(readFileSync(f, 'utf-8')));
+    expect(withGlob.map(f => relative(here, f))).toEqual([]);
   });
 
   it('splits path segments on both separators (the junk regex is cross-OS)', () => {

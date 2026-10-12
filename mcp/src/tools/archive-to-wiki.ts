@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
-import { withFileLock } from './hot-file-lock.js';
+import { withFileLock, LOCK_STOLEN } from './hot-file-lock.js';
 import { writeFileAtomic } from './atomic-write.js';
 
 export type SourceSection = 'blockers' | 'decisions';
@@ -50,14 +50,19 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
     }
     throw e;
   }
+  // Checked before the wiki dir and the lock: a missing project otherwise failed as ENOENT on .PROJECT.md.lock.
+  const noFile = await fs.access(projectFile).then(() => '', (e: NodeJS.ErrnoException) => e.code ?? String(e));
+  if (noFile) return { ok: false, archived_path: '', reason: `no PROJECT.md for ${args.slug} (${noFile})` };
   await fs.mkdir(wikiDir, { recursive: true });
   // E3: the PROJECT.md read-modify-write holds the shared .PROJECT.md.lock (the merge holds it too)
   // and replaces the file by temp + rename.
   return withFileLock(projectFile, reason => ({ ok: false, archived_path: '', reason }),
-    () => archiveLocked(args, projectFile, wikiDir));
+    owned => archiveLocked(args, projectFile, wikiDir, owned));
 }
 
-async function archiveLocked(args: ArchiveToWikiArgs, projectFile: string, wikiDir: string): Promise<ArchiveToWikiResult> {
+async function archiveLocked(
+  args: ArchiveToWikiArgs, projectFile: string, wikiDir: string, owned: () => Promise<boolean>,
+): Promise<ArchiveToWikiResult> {
   const content = await fs.readFile(projectFile, 'utf-8');
   const lines = content.split('\n');
 
@@ -116,8 +121,10 @@ async function archiveLocked(args: ArchiveToWikiArgs, projectFile: string, wikiD
   }
   const archivePath = join(wikiDir, archiveName);
   lines[matchIdx] = `  → wiki/${args.targetCategory}/${args.slug}/${archiveName}`;
-  // The page is already on disk: a failed PROJECT.md replace must not leave an orphan that a retry duplicates as -2.md.
+  // The page is already on disk: a stolen lock or a failed PROJECT.md replace must not leave an orphan that a retry duplicates as -2.md.
+  const dropPage = () => fs.rm(archivePath, { force: true }).catch(() => {});
+  if (!(await owned())) { await dropPage(); return { ok: false, archived_path: '', reason: LOCK_STOLEN }; }
   try { await writeFileAtomic(projectFile, lines.join('\n')); }
-  catch (e) { await fs.rm(archivePath, { force: true }).catch(() => {}); throw e; }
+  catch (e) { await dropPage(); throw e; }
   return { ok: true, archived_path: archivePath };
 }

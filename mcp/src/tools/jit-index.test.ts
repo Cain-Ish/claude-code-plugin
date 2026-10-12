@@ -4,7 +4,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  buildJitIndex, rebuildJitIndex, shouldRebuildAfterPin, scheduleSerializedRebuild,
+  buildJitIndex, rebuildJitIndex, shouldRebuildAfterPin, scheduleSerializedRebuild, defaultGitRunner,
   type JitSourcePage, type GitRunner,
 } from './jit-index.js';
 
@@ -187,6 +187,14 @@ describe('buildJitIndex — pure builder (repo-brain Slice 2, docs/plans/2026-09
     expect(idx.items.find(i => i.id === 'p6')).toBeUndefined();
     expect(idx.items.find(i => i.id === 'p7')).toBeUndefined();
   });
+});
+
+// Re-audit S7-5: the codemap passes a longer timeout than jit-index's own 5 s.
+it('defaultGitRunner kills git at the timeout it is given', async () => {
+  const t0 = Date.now();
+  // hash-object --stdin blocks on execFile's open stdin pipe until killed.
+  await expect(defaultGitRunner(['hash-object', '--stdin'], tmpdir(), 300)).rejects.toMatchObject({ killed: true });
+  expect(Date.now() - t0).toBeLessThan(3000);
 });
 
 describe('rebuildJitIndex git boundary (repo-brain S2 review fix — HIGH)', () => {

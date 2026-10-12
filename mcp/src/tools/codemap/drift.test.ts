@@ -6,6 +6,13 @@ import { currentRev, isDirty, isStale } from './drift.js';
 import type { GitRunner } from './scan-sources.js';
 import type { CodeGraph } from './types.js';
 
+// Re-audit S7-5: records what the codemap's DEFAULT runner hands the shared jit-index runner (no git spawned).
+const sharedRunnerCalls = vi.hoisted(() => [] as unknown[][]);
+vi.mock('../jit-index.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../jit-index.js')>()),
+  defaultGitRunner: async (...a: unknown[]) => { sharedRunnerCalls.push(a); return `${'c'.repeat(40)}\n`; },
+}));
+
 const REV_A = 'a'.repeat(40);
 const REV_B = 'b'.repeat(40);
 
@@ -78,6 +85,15 @@ describe('drift', () => {
 
     it("returns 'nogit' on empty rev-parse output", async () => {
       expect(await currentRev('/repo', async () => '\n')).toBe('nogit');
+    });
+
+    // The out-of-band codemap inherited jit-index's 5 s: a slow `git status` on a large repo marked
+    // every graph dirty, so each drainer tick regenerated it and code_map always read stale.
+    it('the default runner gives git far more than jit-index\'s 5 s', async () => {
+      sharedRunnerCalls.length = 0;
+      expect(await currentRev('/repo')).toBe('c'.repeat(40));
+      expect(sharedRunnerCalls).toHaveLength(1);
+      expect(sharedRunnerCalls[0][2]).toBeGreaterThanOrEqual(30_000);
     });
   });
 
