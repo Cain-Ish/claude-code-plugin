@@ -1139,6 +1139,12 @@ for f in /x/projects/x/PROJECT.md /x/USER.md /x/persona-rules.json /b/projects/d
 for f in /x/projects/x/PROJECT.md /x/persona-rules.default.json /b/projects/demo/.rules-effective.json /x/.claude-plugin/plugin.json; do par MultiEdit file_path "$f"; done
 # SEC-M1: the .injected caches, all three tools.
 for t in Write Edit MultiEdit; do par "$t" file_path /h/.second-brain/.injected/s1.rolecard; done
+# SEC-4: a continued command whose first line matches alone — the fast path asks as the full logic does.
+par Bash command $'rm -rf build && docker build \\\n  -t img .'
+# SEC-1: a target in NTFS stream syntax on a Windows host (a failing cygpath stand-in makes every lane
+# one): both paths ask windows-alias:stream, the rule name with no -edit/-multiedit suffix.
+mkdir -p "$PAR/cyg"; printf '#!/bin/sh\nexit 1\n' > "$PAR/cyg/cygpath"; chmod +x "$PAR/cyg/cygpath"
+for t in Write Edit MultiEdit; do PATH="$PAR/cyg:$PATH" par "$t" file_path '/x/persona-rules.json::$DATA'; done
 # L3: resource_scope on (a cwd given) — out-of-scope targets get the scope ask on both paths,
 # in-scope ones the rule; '..' folds before the prefix test; a relative path resolves against cwd.
 par Write file_path /x/persona-rules.json /home/u/proj
@@ -1417,6 +1423,34 @@ s21() {  # s21 <rule|-> <tool> <file_path> [VAR=val…]
 s21 windows-alias:8.3 Write "$S21/home/.second-brain/notes~1/a.md" PATH="$S21/cyg:$PATH"
 s21 - Write "$S21/home/.second-brain/notes~1/a.md"
 s21 - Write "$S21/home/.second-brain/notes~2/a.md"
+# SEC-1 (re-audit 0.57.1): Windows writes persona-rules.json::$DATA to persona-rules.json itself (NTFS
+# stream syntax: a ':' past the drive), and no '$'-anchored match_path rule read that spelling. On a
+# Windows host (the failing stand-in makes every lane one) a Write/Edit target holding one asks below
+# the rules; a rule's own ask stands (the unanchored .injected rule), and a drive path is unaffected.
+s21 windows-alias:stream Write "$S21/home/.second-brain/persona-rules.json::\$DATA" PATH="$S21/cyg:$PATH"
+s21 windows-alias:stream Edit "$S21/home/.second-brain/persona-rules.json::\$DATA" PATH="$S21/cyg:$PATH"
+s21 windows-alias:stream Write "$S21/home/knowledge/wiki/state/p.md::\$DATA" PATH="$S21/cyg:$PATH"
+s21 warn-direct-write-hot-tier Write "$S21/home/.second-brain/persona-rules.json" PATH="$S21/cyg:$PATH"
+s21 warn-self-edit-injected Write "$S21/home/.second-brain/.injected/s21.slug::\$DATA" PATH="$S21/cyg:$PATH"
+s21 - Write 'C:\w\proj\notes.txt' PATH="$S21/cyg:$PATH"
+# Off Windows a ':' is a file-name character.
+if ! command -v cygpath >/dev/null 2>&1 && [[ ${OSTYPE:-} != msys* && ${OSTYPE:-} != cygwin* ]]; then
+  s21 - Write "$S21/home/.second-brain/persona-rules.json::\$DATA"
+fi
+# SEC-5: a short name under a //… target (a \\?\Volume{…} device path) is never walked, so never
+# expanded — _ptg_abs folded the leading // and the walk ended silent. It asks.
+s21 windows-alias:8.3 Write "$(w '||?|Volume{2a024647-cc9f-415d-963e-f119fc16be42}|Users|u|SECOND~1|PERSON~1.JSO')" PATH="$S21/cyg:$PATH"
+# T5: the expansion itself, on every lane — a cygpath stand-in spells the literal SECOND~1/PERSON~1.JSO
+# (on disk, so the walk finds it) long, and the hot-tier rule reads persona-rules.json.
+mkdir -p "$S21/t5/SECOND~1" "$S21/cyl"; : > "$S21/t5/SECOND~1/PERSON~1.JSO"
+cat > "$S21/cyl/cygpath" <<'EOF'
+#!/bin/sh
+# cygpath -l -m -- PATH: PATH with the T5 short names spelled long.
+for a in "$@"; do p="$a"; done
+printf '%s\n' "$p" | sed -e 's/SECOND~1/.second-brain/g' -e 's/PERSON~1[.]JSO/persona-rules.json/g'
+EOF
+chmod +x "$S21/cyl/cygpath"
+s21 warn-direct-write-hot-tier Write "$S21/t5/SECOND~1/PERSON~1.JSO" PATH="$S21/cyl:$PATH"
 if command -v cygpath >/dev/null 2>&1; then
   S21_R=$(cygpath -s -w "$S21/home/.second-brain/persona-rules.json" | tr -d '\r')
   S21_C=$(cygpath -s -w "$S21/home/.second-brain/persona-card.md" | tr -d '\r')
@@ -1438,9 +1472,9 @@ pass "S2-1: 8.3 short names of persona-rules.json, persona-card.md and .injected
 # bash joins `\`+newline and PowerShell backtick+newline into one command line; the guard matched line
 # by line, so `rm \⏎ -rf x`, `git push origin main \⏎ --force` and `Remove-Item … `⏎ -Recurse -Force`
 # got no verdict while their one-line twins asked. The full logic matches the folded command too; the
-# fast path stands down for any continuation (its per-line table does not fold), so no row of these
-# is a fastpath one. A rewrite rule matched only across the continuation, which its line-by-line sed
-# cannot apply, asks instead of allowing the command unrewritten.
+# fast path matches line by line, so a match only the fold makes is the full logic's, and a line
+# that matches on its own asks from the fast path (SEC-4). A rewrite rule matched only across the
+# continuation, which its line-by-line sed cannot apply, asks instead of allowing the command unrewritten.
 S22=$(mktemp -d); mkdir -p "$S22/rw"
 s22() {  # s22 <rule|-> <tool> <command> [brain]
   local b="${4:-$S22}"
@@ -1451,24 +1485,43 @@ s22() {  # s22 <rule|-> <tool> <command> [brain]
   else
     printf '%s' "$out" | grep -q '"permissionDecision":"ask"' && grep -q "\"rule\":\"$1\"" "$b/audit-log.jsonl" \
       || fail "S2-2: $2 '$3' must ask via $1 (got: '$out'; audit: $(cat "$b/audit-log.jsonl"))"
-    grep -q '"fastpath":true' "$b/audit-log.jsonl" && fail "S2-2: $2 '$3' — a continuation must be left to the full logic"
   fi
   return 0
 }
 s22 warn-rm-rf Bash $'rm \\\n  -rf /tmp/s22-dir'
+grep -q '"fastpath":true' "$S22/audit-log.jsonl" && fail "S2-2: a split rm matches no single line — the full logic, which folds, must decide"
 s22 warn-force-push-main Bash $'git push origin main \\\n  --force'
 s22 warn-remove-item-recurse-force PowerShell $'Remove-Item -Path C:\\s22 `\n  -Recurse -Force'
 s22 warn-rm-rf Bash $'rm -rf /tmp/s22-dir \\\n  /tmp/s22-other'
+# SEC-4: a line that matches on its own asks from the fast path, continuation or not — the full logic
+# takes 2.5-7 s under load, and past the 5 s hook timeout the guard fails open.
+s22 warn-rm-rf Bash $'rm -rf build && docker build \\\n  -t img .'
+grep -q '"fastpath":true' "$S22/audit-log.jsonl" \
+  || fail "SEC-4: a continued command whose first line matches alone must ask from the fast path (audit: $(cat "$S22/audit-log.jsonl"))"
+# SEC-2: each shell folds its own continuation only. Folding both glued a Bash line ending in a
+# backtick onto the split rm after it (d=`pwdrm  -rf …: a letter before rm, no word boundary), and a
+# PowerShell line ending in `\` onto the Remove-Item after it.
+s22 warn-rm-rf Bash $'d=`pwd`\nrm \\\n  -rf "$d"'
+s22 warn-remove-item-recurse-force PowerShell $'cd C:\\w\\\nRemove-Item x `\n  -Recurse -Force'
 s22 - Bash $'echo a \\\n  b'
 s22 - PowerShell $'Get-ChildItem `\n  -Force'
-jq '.rules += [{name:"rw-s22",tool:"Bash",action:"rewrite",match_command:"foo bar",replace:"baz",reason:"rw"}]' \
+jq '.rules += [{name:"rw-s22",tool:"Bash",action:"rewrite",match_command:"foo bar",replace:"baz",reason:"rw"},
+               {name:"rw-s22k",tool:"Bash",action:"rewrite",match_command:"npm ci",replace:"npm ci --no-audit",reason:"rw"}]' \
   "$(dirname "$SCRIPT")/persona-rules.default.json" > "$S22/rw/persona-rules.json"
 s22 rw-s22 Bash $'echo foo \\\nbar' "$S22/rw"
-# ...while one its sed can apply on a line still rewrites, the continuation kept.
-out=$(jq -nc --arg c $'echo foo bar \\\nx' '{tool_name:"Bash",tool_input:{command:$c},session_id:"s22"}' | BRAIN_DIR="$S22/rw" bash "$SCRIPT")
-printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "allow" and .hookSpecificOutput.updatedInput.command == "echo baz \\\nx"' >/dev/null \
-  || fail "S2-2: a rewrite matched on one line of a continued command must still rewrite it (got: $out)"
-pass "S2-2: rm / force-push / Remove-Item split by a line continuation ask from the full logic; a rewrite matched across one asks"
+# SEC-3: ...and so does one beside a match sed did rewrite on its own line (the grep that let it through
+# found the rewritten one), where the allow ran `echo foo bar` unrewritten.
+s22 rw-s22 Bash $'echo foo bar; echo foo \\\nbar' "$S22/rw"
+# ...while one its sed can apply on a line still rewrites, the continuation kept, and so does a
+# replacement that keeps its match.
+s22rw() {  # s22rw <command> <rewritten command>
+  out=$(jq -nc --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c},session_id:"s22"}' | BRAIN_DIR="$S22/rw" bash "$SCRIPT")
+  printf '%s' "$out" | jq -e --arg w "$2" '.hookSpecificOutput.permissionDecision == "allow" and .hookSpecificOutput.updatedInput.command == $w' >/dev/null \
+    || fail "S2-2: a rewrite its sed applies on a line of a continued command must still rewrite it to '$2' (got: $out)"
+}
+s22rw $'echo foo bar \\\nx' $'echo baz \\\nx'
+s22rw $'npm ci \\\n  --quiet' $'npm ci --no-audit \\\n  --quiet'
+pass "S2-2: rm / force-push / Remove-Item split by a line continuation ask (a line that matches alone from the fast path); a rewrite matched across one asks"
 
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
 # r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
