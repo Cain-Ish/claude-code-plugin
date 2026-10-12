@@ -436,7 +436,10 @@ archive_dropped_decision() {
 
 # Insert a bullet under "## <section>", dedupe case-insensitively, cap N.
 # Drops the oldest (top-most) bullet when cap is reached. For decisions,
-# dropped bullets are archived to wiki instead of discarded.
+# dropped bullets are archived to wiki instead of discarded. The section ends only at the next
+# "## " heading or the footer comments, like pin-to-project.ts: a non-bullet line inside it (the
+# "  → wiki/..." pointer archive_to_wiki leaves) used to end it, so each merge inserted above the
+# pointer and the next one dropped that newest bullet instead of the oldest (re-audit S3-2).
 insert_bullet() {
   local section="$1" bullet_text="$2" cap="$3"
   [ -z "$bullet_text" ] && return 0
@@ -509,7 +512,7 @@ insert_bullet() {
         if (!appended) { print new; appended=1 }
         flag=0; print; next
       }
-      flag && !appended && !/^- / && !/^$/ {
+      flag && !appended && /^<!-- (last_updated|last_queried_wiki):/ {
         print new; appended=1; flag=0; print; next
       }
       flag && /^- / && !/\[pinned\]/ && !dropped { dropped=1; next }
@@ -527,7 +530,7 @@ insert_bullet() {
         if (!appended) { print new; appended=1 }
         flag=0; print; next
       }
-      flag && !appended && !/^- / && !/^$/ {
+      flag && !appended && /^<!-- (last_updated|last_queried_wiki):/ {
         print new; appended=1; flag=0; print; next
       }
       { print }

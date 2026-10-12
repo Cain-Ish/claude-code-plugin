@@ -12,6 +12,7 @@
 # pins: SB_DRAIN_MIN_BYTES — 0 for the tiny legacy fixtures; D7 and D16 set 1024 to test the too-small gate itself
 # pins: SB_SCRUB_MIGRATE_MAX_FILES — D11c/D17a/D18 size the per-run scrub cap that is under test (1 = one scrub per tick)
 # pins: SB_SCRUB_MIGRATE_MAX_S — D18 sets 0 to test the per-run time bound itself (one scrub, then stop)
+# pins: SB_ARCHIVE_LOCK_WAIT_S — F1 holds the PROJECT.md lock; 1 s makes the floor's merge give up fast (the deferral is under test, not the wait)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)/scripts"
@@ -282,6 +283,37 @@ eq "floor: a floored transcript is not an error" "$(grep -c '"outcome":"error"' 
 grep -q '\[auto-captured\]' "$FLOOR_PROJ" 2>/dev/null && ok "floor: wrote an [auto-captured] decision to PROJECT.md" || no "floor: PROJECT.md got no auto-captured decision"
 { grep -q '/work/src/a.ts' "$FLOOR_PROJ" && grep -q '/work/src/b.ts' "$FLOOR_PROJ"; } 2>/dev/null && ok "floor: decision cites the Edit + Write files" || no "floor: decision missing the changed files"
 grep -q 'ignore-me.ts' "$FLOOR_PROJ" 2>/dev/null && no "floor: leaked a Read-only file into the decision" || ok "floor: excluded the Read-only file"
+
+# F1 (re-audit): when PROJECT.md is only busy (its lock held past the wait) the floor's merge exits 3.
+# The window is deferred like the LLM path's exit 3, never dead-lettered; the next free tick floors it.
+echo "Test: floor defers on a busy PROJECT.md lock instead of dead-lettering"
+reset
+mk_proj "$FLOOR_PROJ"
+cat > "$BRAIN_DIR/transcripts/flb_poison_2026-05-24.txt" <<'TXEOF'
+--- session-meta ---
+session_id: flb
+project_slug: poison
+date: 2026-05-24
+tool_count: 1
+line_count: 7
+---
+
+USER: change it while another merge holds PROJECT.md
+ASSISTANT:
+  [Edit] /work/src/busy-lock.ts
+TXEOF
+FLOOR_LOCK="$(dirname "$FLOOR_PROJ")/.PROJECT.md.lock"
+printf '%s\n' "$$.stopmerge" > "$FLOOR_LOCK"
+SB_ARCHIVE_LOCK_WAIT_S=1 SB_DRAIN_MAX_FAILS=1 bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q '"outcome":"error"' "$STATE" 2>/dev/null && no "floor-busy: a busy PROJECT.md lock dead-lettered the window (got: $(cat "$STATE"))" || ok "floor-busy: a busy PROJECT.md lock writes no error row"
+grep -q 'flb_poison_2026-05-24.txt deferred.*deterministic floor' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  && ok "floor-busy: the deferral is logged" || no "floor-busy: no deferral row in the error log"
+rm -f "$FLOOR_LOCK"
+SB_ARCHIVE_LOCK_WAIT_S=1 SB_DRAIN_MAX_FAILS=1 bash "$DRAIN" >/dev/null 2>&1 || true
+grep -q '"basename":"flb_poison_2026-05-24.txt".*"reason":"deterministic-floor"' "$STATE" 2>/dev/null \
+  && ok "floor-busy: the next free tick floors the window" || no "floor-busy: no deterministic-floor row after the lock was released (got: $(cat "$STATE" 2>/dev/null))"
+grep -q 'auto-captured.*busy-lock.ts' "$FLOOR_PROJ" 2>/dev/null \
+  && ok "floor-busy: the auto-captured note reached PROJECT.md" || no "floor-busy: PROJECT.md has no auto-captured note"
 
 # WINDOWS-PATH boundary (the real cross-platform case the POSIX fixtures above miss): on Windows the
 # archived tool lines carry backslash paths ("C:\Work\...\tests\test.ts"). Two ways this corrupts:
