@@ -1035,9 +1035,8 @@ _ptg_fast() {
     _fp_nocr cmd "$_FP"
     _fp_trimnl cmd "$cmd"
     [ -n "$cmd" ] || return 1
-    # S2-2: a line ending in `\` (bash) or a backtick (PowerShell) continues on the next one; this
-    # table matches line by line, so the full logic, which folds them, decides.
-    case "$cmd" in *"$_fp_bs$_fp_nl"*|*'`'"$_fp_nl"*) return 1 ;; esac
+    # A line continuation (S2-2, SEC-4): a line that matches on its own asks here; a match only the
+    # folded command makes is no line's, so the full logic, which folds, decides it.
     # Over 64 lines (_fp_lines 2): the full logic's one grep decides.
     _fp_lines "$_PTG_RE_PUSH" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
     [ "$rc" = 0 ] && _ptg_set warn-force-push-main "Force-push to main/master is destructive. Confirm intent."

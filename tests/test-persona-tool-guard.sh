@@ -1452,9 +1452,9 @@ pass "S2-1: 8.3 short names of persona-rules.json, persona-card.md and .injected
 # bash joins `\`+newline and PowerShell backtick+newline into one command line; the guard matched line
 # by line, so `rm \⏎ -rf x`, `git push origin main \⏎ --force` and `Remove-Item … `⏎ -Recurse -Force`
 # got no verdict while their one-line twins asked. The full logic matches the folded command too; the
-# fast path stands down for any continuation (its per-line table does not fold), so no row of these
-# is a fastpath one. A rewrite rule matched only across the continuation, which its line-by-line sed
-# cannot apply, asks instead of allowing the command unrewritten.
+# fast path matches line by line, so a match only the fold makes is the full logic's, and a line
+# that matches on its own asks from the fast path (SEC-4). A rewrite rule matched only across the
+# continuation, which its line-by-line sed cannot apply, asks instead of allowing the command unrewritten.
 S22=$(mktemp -d); mkdir -p "$S22/rw"
 s22() {  # s22 <rule|-> <tool> <command> [brain]
   local b="${4:-$S22}"
@@ -1465,14 +1465,19 @@ s22() {  # s22 <rule|-> <tool> <command> [brain]
   else
     printf '%s' "$out" | grep -q '"permissionDecision":"ask"' && grep -q "\"rule\":\"$1\"" "$b/audit-log.jsonl" \
       || fail "S2-2: $2 '$3' must ask via $1 (got: '$out'; audit: $(cat "$b/audit-log.jsonl"))"
-    grep -q '"fastpath":true' "$b/audit-log.jsonl" && fail "S2-2: $2 '$3' — a continuation must be left to the full logic"
   fi
   return 0
 }
 s22 warn-rm-rf Bash $'rm \\\n  -rf /tmp/s22-dir'
+grep -q '"fastpath":true' "$S22/audit-log.jsonl" && fail "S2-2: a split rm matches no single line — the full logic, which folds, must decide"
 s22 warn-force-push-main Bash $'git push origin main \\\n  --force'
 s22 warn-remove-item-recurse-force PowerShell $'Remove-Item -Path C:\\s22 `\n  -Recurse -Force'
 s22 warn-rm-rf Bash $'rm -rf /tmp/s22-dir \\\n  /tmp/s22-other'
+# SEC-4: a line that matches on its own asks from the fast path, continuation or not — the full logic
+# takes 2.5-7 s under load, and past the 5 s hook timeout the guard fails open.
+s22 warn-rm-rf Bash $'rm -rf build && docker build \\\n  -t img .'
+grep -q '"fastpath":true' "$S22/audit-log.jsonl" \
+  || fail "SEC-4: a continued command whose first line matches alone must ask from the fast path (audit: $(cat "$S22/audit-log.jsonl"))"
 s22 - Bash $'echo a \\\n  b'
 s22 - PowerShell $'Get-ChildItem `\n  -Force'
 jq '.rules += [{name:"rw-s22",tool:"Bash",action:"rewrite",match_command:"foo bar",replace:"baz",reason:"rw"}]' \
@@ -1482,7 +1487,7 @@ s22 rw-s22 Bash $'echo foo \\\nbar' "$S22/rw"
 out=$(jq -nc --arg c $'echo foo bar \\\nx' '{tool_name:"Bash",tool_input:{command:$c},session_id:"s22"}' | BRAIN_DIR="$S22/rw" bash "$SCRIPT")
 printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "allow" and .hookSpecificOutput.updatedInput.command == "echo baz \\\nx"' >/dev/null \
   || fail "S2-2: a rewrite matched on one line of a continued command must still rewrite it (got: $out)"
-pass "S2-2: rm / force-push / Remove-Item split by a line continuation ask from the full logic; a rewrite matched across one asks"
+pass "S2-2: rm / force-push / Remove-Item split by a line continuation ask (a line that matches alone from the fast path); a rewrite matched across one asks"
 
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
 # r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
