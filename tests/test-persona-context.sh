@@ -148,7 +148,7 @@ STUBJS
   # model, not the human. A one-line stderr notice must fire synchronously.
   ERR=$(payload "/? what is the best caching strategy" \
     | CLAUDE_PLUGIN_ROOT="$THINK_ROOT" BRAIN_DIR="$THINK_BRAIN" bash "$SCRIPT" 2>&1 >/dev/null)
-  printf '%s' "$ERR" | grep -qi 'spawning Opus advisor' \
+  printf '%s' "$ERR" | grep -qi 'paid API call' \
     || fail "D145: no stderr notice when /? spawned the paid advisor (got stderr: $ERR)"
   pass "D145: /? spawning the paid Opus advisor prints a one-line stderr notice"
 
@@ -163,6 +163,24 @@ STUBJS
   printf '%s' "$ERR2" | grep -qi 'SB_PERSONA_THINK=off' \
     || fail "D145: SB_PERSONA_THINK=off did not explain why /? was refused (got stderr: $ERR2)"
   pass "D145: SB_PERSONA_THINK=off refuses the /? paid advisor without disabling the rest of persona-context"
+  # Test 5a-iv (re-audit S7-1): a CLI that refuses (subscription login, no key) must not leave /?
+  # silent: additionalContext names the refusal, an error-log row exists, no "paid API call" claim.
+  REFUSE_ROOT=$(mktemp -d); REFUSE_BRAIN=$(mktemp -d)
+  mkdir -p "$REFUSE_ROOT/mcp/dist/cli"
+  cat > "$REFUSE_ROOT/mcp/dist/cli/persona-think-cli.bundle.js" <<'STUBJS'
+process.stderr.write('persona think error: in-session OAuth only: set ANTHROPIC_API_KEY to enable persona_think\n');
+process.exit(1);
+STUBJS
+  out=$(payload "/? should I split this module" \
+    | CLAUDE_PLUGIN_ROOT="$REFUSE_ROOT" BRAIN_DIR="$REFUSE_BRAIN" bash "$SCRIPT" 2>"$TMP/refuse.err")
+  printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | test("did not run.*ANTHROPIC_API_KEY")' >/dev/null \
+    || fail "S7-1: refused /? did not name the refusal in additionalContext (got: $out)"
+  grep -q 'persona-think-failed' "$REFUSE_BRAIN/error-log.jsonl" 2>/dev/null \
+    || fail "S7-1: refused /? left no error-log row"
+  ! grep -q 'paid API call' "$TMP/refuse.err" \
+    || fail "S7-1: refused /? still claimed a paid API call ($(cat "$TMP/refuse.err"))"
+  pass "S7-1: refused /? is surfaced (additionalContext + error-log), no false paid-call claim"
+  rm -rf "$REFUSE_ROOT" "$REFUSE_BRAIN"
   rm -rf "$THINK_ROOT" "$THINK_BRAIN" "$THINK_BRAIN2"
 else
   echo "SKIP: /? (Test 5 + present-bundle 5a): node not on PATH"

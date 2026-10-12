@@ -229,7 +229,7 @@ jobs:
           rc=0
           for t in normalize-path symlink-guard persona-tool-guard wiki-write-guard flow-guard guard-wiring \
                    protocol-guard jq-crlf-windows exec-bits session-load-compact merge-project-update \
-                   project-plan-block stop-extract extraction-helpers; do
+                   project-plan-block stop-extract extraction-helpers hook-latency dream-accept-guards; do
             echo "::group::test-$t"
             if bash "tests/test-$t.sh"; then echo "ok test-$t"; else echo "::error::test-$t FAILED"; rc=1; fi
             echo "::endgroup::"

@@ -293,7 +293,9 @@ grep for `process.env.SB_` alone MISSES the helper-mediated ones (grep for the b
 | `SB_PERSONA_WIKI_MIN_SCORE` | `0.045` | Min search score for wiki snippets in ambient context. | TUNE | persona-context.sh:182 | none |
 | `SB_PERSONA_MODEL` | unset | DEEP-tier pin for the persona_think brief. | TUNE | model-ladder.json | bash+vitest |
 | `SB_PERSONA_COST_PER_CALL` | — | REMOVED — spend is not tracked anywhere; the persona ledger and all cost logging were deleted. | removed | none | none |
-| `SB_PERSONA_TIMEOUT_MS` | `30000` | persona_think spawn timeout. | TUNE | persona-think.ts:112 | none |
+| `SB_PERSONA_TIMEOUT_MS` | `20000` | persona_think spawn timeout. | TUNE | persona-think.ts:30 | none |
+| `SB_ARCHIVE_LOCK_WAIT_S` | `5` (non-numeric/0-prefixed falls back to 5) | Seconds a writer polls a contended archive lock before logging and giving up. PostCompact (pre-compact.sh:227-232) raises it to up to 20 s unless you set it. | TUNE | lib.sh:1835 | bash |
+| `SB_AI_RENDER_TIMEOUT_S` | `20` (non-numeric/0 falls back to 20) | Per-call timeout for the node CLIs (ai-block render, sanitize) run under the PROJECT.md lock in the project merge. | TUNE | merge-project-update.sh:122 | none |
 | `SB_PERSONA_DAILY_BUDGET` | — | DEPRECATED: "no longer gate anything" — `skills/upgrade/migrations/0.24.45.md:11,22`. Zero live consumers in scripts/ or mcp/src (verified by grep 2026-07-05). | DEPRECATED | migrations/0.24.45.md:11 | — |
 
 ## 8. Eval / project-merge / misc

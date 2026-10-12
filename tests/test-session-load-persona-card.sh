@@ -164,5 +164,18 @@ printf '%s\n' "$OUT" | grep -q 'human-pin-marker prefers tabs' \
 printf '%s\n' "$FRAME" | grep -q 'human-pin-marker' && fail "SEC-R5: the human pin was moved into the untrusted frame"
 pass "SEC-R5: a graduated signal is served only inside the untrusted frame; a human pin stays trusted"
 
+# --- Test 6b (re-audit H6-2): a full persona-learned.md (15 lines, oldest first) is packed into a
+# 1000 B frame; the NEWEST lines must be the ones served, not the six oldest.
+init_sandbox "learned-newest-first"
+printf '# User Profile\n\n## Pinned\n' > "$BRAIN_DIR/USER.md"
+: > "$BRAIN_DIR/persona-learned.md"
+for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
+  printf -- '- [2026-09-%s] learned line %s padding padding padding padding padding padding padding padding padding padding padding\n' "$i" "$i" >> "$BRAIN_DIR/persona-learned.md"
+done
+OUT=$(run_session_load)
+printf '%s\n' "$OUT" | grep -q 'learned line 15' || fail "H6-2: the newest learned line (15) was not served (got: $(printf '%s' "$OUT" | grep -c 'learned line') learned lines)"
+printf '%s\n' "$OUT" | grep -q 'learned line 01 ' && fail "H6-2: the oldest learned line was served ahead of newer ones"
+pass "H6-2: learned preferences are served newest first"
+
 echo
 echo "ALL PASS"

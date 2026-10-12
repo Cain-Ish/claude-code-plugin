@@ -180,4 +180,17 @@ wd_run 90 "$TMP/sweep5" "$TMP" /dev/null slg_sweep; RC5=$?
 [ "$(tr -d '\r' < "$TMP/sweep5")" = done ] || fail "5: sl_graph_fmt formatted the wrong 12 entries: $(cat "$TMP/sweep5")"
 pass "sl_graph_fmt returns and formats exactly the first 12 edges across the 65,530..70,000-byte window; one 70,000-byte line stays byte-capped"
 
+# --- Test 6 (re-audit H6-1): an anchor with 12 edges of long slugs renders > 600 B; sb_append keeps
+# whole lines only, so the seed line was dropped and the block shipped as a bare header (while the
+# manifest still recorded the seed as injected). The seed line is now capped while it is built.
+awk 'BEGIN { for (i = 1; i <= 12; i++)
+  printf "{\"op\":\"assert\",\"from\":\"demo-anchor\",\"to\":\"long-neighbour-slug-number-%02d-padding\",\"type\":\"relates\",\"valid_from\":\"2026-05-29\",\"recorded_at\":\"2026-05-29T00:00:00Z\"}\n", i }' \
+  > "$KDIR/graph/edges.jsonl"
+wd_run 90 "$TMP/out6" "$WORKDIR" "$TMP/start.json" bash "$ROOT/scripts/session-load.sh"; RC6=$?
+[ "$RC6" -eq 0 ] || fail "6: session-load exited $RC6"
+GLINE6=$(tr -d '\r' < "$TMP/out6" | grep -- '^- demo: ')
+[ -n "$GLINE6" ] || fail "6: a 12-edge anchor shipped a bare graph header, no '- demo:' line ($(grep -A2 'Dependency graph' "$TMP/out6" || echo 'no graph block'))"
+printf '%s\n' "$GLINE6" | grep -q 'long-neighbour-slug-number-01' || fail "6: the first edge is missing from the capped line: $GLINE6"
+pass "a 12-edge long-slug anchor still ships a (capped) neighbourhood line, never a bare header"
+
 echo; echo "ALL PASS"

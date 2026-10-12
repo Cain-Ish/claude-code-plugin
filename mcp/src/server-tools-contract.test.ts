@@ -82,8 +82,7 @@ describe('server.ts tool-registration contract', () => {
   });
 
   // contract acceptance[6] (repo-brain S2, previously missing): the pin_to_project z.enum must
-  // carry "conventions" — a schema/enum lock (kb-schema.test.ts only mirrors kb-schema.json's
-  // OWN project_sections array; nothing previously locked server.ts's registration to it).
+  // carry "conventions" — a lock on server.ts's registration (kb-schema.json no longer lists project sections).
   it('pin_to_project registration z.enum includes "conventions"', () => {
     const m = src.match(/registerJsonTool\(\s*"pin_to_project"[\s\S]*?z\.enum\(\[([^\]]*)\]/);
     expect(m, 'pin_to_project section z.enum not found').not.toBeNull();

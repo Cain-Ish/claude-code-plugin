@@ -108,10 +108,9 @@ cat > "$B3/projects/demo/rules.json" <<'EOF'
 EOF
 payload3() { printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"make deploy"}}' "$B3"; }
 
-# Baseline: sourcing lib.sh alone spawns its own jq (kb-schema.sh, unrelated to rules layering)
-# — the delta against THIS baseline is what isolates sb_rules_effective's own spawn count,
-# rather than pinning a magic total that would break the moment some unrelated top-of-file
-# jq call is added or removed.
+# Baseline: sourcing lib.sh alone spawns no jq of its own (kb-schema.sh is no longer sourced, N2); the
+# delta against THIS baseline isolates sb_rules_effective's own spawn count, rather than pinning a magic
+# total that would break the moment some unrelated top-of-file jq call is added or removed.
 n_base=$(jq_count "$TMP/jcbase" bash -c "source '$ROOT/scripts/lib.sh'")
 n_cold=$(jq_count "$TMP/jc0" bash -c "source '$ROOT/scripts/lib.sh'; BRAIN_DIR='$B3' sb_rules_effective demo")
 [ "$n_cold" -gt "$n_base" ] || fail "cache: a cold rebuild should spawn at least one jq beyond baseline sourcing (base=$n_base, cold=$n_cold)"

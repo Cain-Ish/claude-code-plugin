@@ -76,6 +76,7 @@ touch -d '2001-01-01' "$USER_FILE"; echo '{"rules":[]}' > "$GB/persona-rules.jso
 [ -z "$(run_rg)" ] || fail "H5: rules file newer than USER.md must stay quiet"
 touch -d '2002-01-01' "$USER_FILE"; touch -d '2001-01-01' "$GB/persona-rules.json"
 run_rg | grep -q "persona-rules.json" || fail "H5: rules file older than USER.md must fire"
+run_rg | grep -q "shipped defaults" || fail "H6-7: the banner must say the plugin's shipped default rules also block"
 pass "H5: rules-gap compares against the brain dir's persona-rules.json"
 # IMP-R3: USER.md with no Never/Always bullets has nothing to enforce -> no banner even with rules file missing.
 printf '# notes\nno rules here\n' > "$USER_FILE"; rm -f "$GB/persona-rules.json"
