@@ -221,7 +221,7 @@ pass "kill switch: SB_RULES_LAYERS=off restores today's U/P precedence, no cache
 # --------------------------------------------------------------------------
 B6="$TMP/b6"; mkdir -p "$B6"
 PAYLOAD6='{"persona_signals":[],"rule_candidates":[{"event":"bash","pattern":"npm run migrate","message":"always confirm before migrating"}]}'
-for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6" bash "$MERGESIG" --slug demo >/dev/null 2>&1; done
+for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6" bash "$MERGESIG" --slug demo --session "rl6-$i" >/dev/null 2>&1; done
 [ "$(jq -r '.learned[0].pattern' "$B6/projects/demo/rules.json" 2>/dev/null)" = "npm run migrate" ] \
   || fail "candidates per repo: repo rules.json .learned[0].pattern should be the armed candidate"
 [ "$(jq -r '.learned[0].action' "$B6/projects/demo/rules.json" 2>/dev/null)" = "warn" ] \
@@ -242,7 +242,7 @@ out2=$(printf '{"tool_name":"Bash","session_id":"s2","cwd":"%s","tool_input":{"c
   || fail "candidates per repo: a session pinned to a DIFFERENT repo must not see demo's learned rule (got: $out2)"
 
 B6u="$TMP/b6u"; mkdir -p "$B6u"
-for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6u" bash "$MERGESIG" >/dev/null 2>&1; done
+for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6u" bash "$MERGESIG" --session "rl6u-$i" >/dev/null 2>&1; done
 [ "$(jq -r '.learned[0].pattern' "$B6u/persona-rules.json" 2>/dev/null)" = "npm run migrate" ] \
   || fail "candidates per repo: WITHOUT --slug, the user file should still receive the armed candidate"
 pass "candidates per repo: --slug arms the repo layer only, is session-scoped, and the no-slug path is unchanged"

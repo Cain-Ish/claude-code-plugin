@@ -358,7 +358,7 @@ for bad in 'kb\nx' 'kb\1x' 'kb\\x' 'kb%nx'; do
   [ "$RC25B" -ne 0 ] && ok "B5: print mode exits non-zero on the refused '$bad' render" || no "B5: print mode exited 0 after refusing the '$bad' render"
 done
 # R2-2: the same characters in $HOME reach ExecStart through the default-BRAIN_DIR shim path.
-H25P="$T/home%n"; mkdir -p "$H25P"
+H25P="$SANDBOX/home%n"; mkdir -p "$H25P"
 if E25P=$(HOME="$H25P" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 >/dev/null); then RC25P=0; else RC25P=$?; fi
 printf '%s' "$E25P" | grep -q 'refusing to render ExecStart' && [ "$RC25P" -ne 0 ] \
   && ok "R2-2: a % in the shim path (from HOME) is refused" || no "R2-2: a % in the shim path was rendered (rc=$RC25P): $E25P"
