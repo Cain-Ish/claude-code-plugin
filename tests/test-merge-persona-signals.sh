@@ -27,9 +27,10 @@ cat > "$TMP/stub-scripts/lib.sh" <<'EOF'
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
 sb_safe_json_array() { echo "${1:-[]}"; }
 sb_log_error() { printf 'ERR %s %s\n' "$1" "$2" >> "$BRAIN_DIR/err-log"; }
-sb_log_audit() { printf 'AUDIT %s %s %s %s\n' "$1" "$2" "$3" "$4" >> "$BRAIN_DIR/audit-stub-log"; }
-sb_archive_lock() { _SB_ARCHIVE_LOCK_TOKEN=stub; return 0; }
-sb_archive_unlock() { return 0; }
+# The lock stubs leave a marker while "held", so an audit row can record whether it ran under the lock.
+sb_log_audit() { printf 'AUDIT %s %s %s %s held=%s\n' "$1" "$2" "$3" "$4" "$([ -e "$BRAIN_DIR/.stub-lock-held" ] && echo 1 || echo 0)" >> "$BRAIN_DIR/audit-stub-log"; }
+sb_archive_lock() { _SB_ARCHIVE_LOCK_TOKEN=stub; : > "$BRAIN_DIR/.stub-lock-held"; return 0; }
+sb_archive_unlock() { rm -f "$BRAIN_DIR/.stub-lock-held"; return 0; }
 sb_pin_to_learned() { echo "PIN: $1" >> "$BRAIN_DIR/pin-log"; return 0; }
 sb_count_torn_lines() {
   local f="${1:-}"
@@ -227,6 +228,11 @@ jq -e 'has("rules")' "$BRAIN_DIR/persona-rules.json" >/dev/null \
 grep -q 'learned-warn-rule' "$BRAIN_DIR/audit-stub-log" 2>/dev/null \
   || fail "arming must be audit-logged"
 pass "candidates accumulate and auto-arm at 3 sightings"
+# S3-5 (re-audit): the candidate read-modify-write (pending + rules file) runs under the signals lock.
+grep -q 'learned-warn-rule.*held=1' "$BRAIN_DIR/audit-stub-log" \
+  || fail "S3-5: the rule was armed after the signals lock was released: $(cat "$BRAIN_DIR/audit-stub-log")"
+[ ! -e "$BRAIN_DIR/.stub-lock-held" ] || fail "S3-5: the merge exited without releasing the signals lock"
+pass "S3-5: rule candidates are accumulated and armed under the signals lock, released at exit"
 
 # --- Test 10: arming is idempotent — a 4th sighting never duplicates the rule ---
 CLAUDE_SESSION_ID=rc4 run_merge "$CAND_PAYLOAD"
@@ -580,6 +586,9 @@ printf '%s' '[{"category":"workflow","signal":"yyqheld one yyqheld two yyqheld t
   | HOME="$CC_HOME" BRAIN_DIR="$CC_BRAIN" SB_ARCHIVE_LOCK_WAIT_S=1 bash "$SCRIPT" --session cc-held >/dev/null 2>&1 \
   && fail "R1: merge reported success while the signals lock was held"
 grep -q 'yyqheld' "$CC_BRAIN/persona-signals.jsonl" && fail "R1: merge wrote the signals file while its lock was held"
+# S3-5: nothing retries this batch (callers advance their marker), so the row says it is dropped.
+grep -q 'persona batch dropped (lock busy): session=cc-held signals=1' "$CC_BRAIN/error-log.jsonl" 2>/dev/null \
+  || fail "S3-5: the busy lock did not log the dropped batch: $(cat "$CC_BRAIN/error-log.jsonl" 2>/dev/null)"
 rm -f "$CC_BRAIN/.persona-signals.jsonl.lock"
 pass "R1: persona-signals read-modify-write is locked (6 concurrent merges keep all signals; held lock fails loud)"
 

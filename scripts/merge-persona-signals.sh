@@ -60,12 +60,16 @@ if echo "$NEW_SIGNALS" | jq -e 'length == 0' >/dev/null 2>&1 \
   exit 0
 fi
 
-# Residual 1: the read-modify-write of persona-signals.jsonl (read here, mv below) holds the same
-# .persona-signals.jsonl.lock primitive as PROJECT.md; two merges (Stop+Stop, Stop+drainer) otherwise
-# lose a signal update. Busy past SB_ARCHIVE_LOCK_WAIT_S: sb_archive_lock logs, exit 1 (retried later).
+# Residual 1: the read-modify-write of persona-signals.jsonl (read here, mv below) and of the rule
+# candidate files (S3-5) holds the same .persona-signals.jsonl.lock primitive as PROJECT.md; two
+# merges (Stop+Stop, Stop+drainer) otherwise lose an update. Busy past SB_ARCHIVE_LOCK_WAIT_S: the
+# batch is DROPPED (callers advance their marker, nothing retries it), logged as such, exit 1.
 _MPS_LOCK_TOKEN=""; _MPS_TMP_E=""; _MPS_TMP_N=""
 trap 'rm -f ${_MPS_TMP_E:+"$_MPS_TMP_E"} ${_MPS_TMP_N:+"$_MPS_TMP_N"}; [ -z "$_MPS_LOCK_TOKEN" ] || sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"' EXIT
-sb_archive_lock "$SIGNALS_FILE" merge-persona-signals.sh || exit 1
+if ! sb_archive_lock "$SIGNALS_FILE" merge-persona-signals.sh; then
+  sb_log_error "merge-persona-signals.sh" "persona batch dropped (lock busy): session=$SESSION_ID signals=$(echo "$NEW_SIGNALS" | jq length | tr -d '\r') rule_candidates=$(echo "$NEW_CANDIDATES" | jq length | tr -d '\r') lost" 1
+  exit 1
+fi
 _MPS_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
 
 # Load existing signals as JSON array. D139: `jq -s '.'` aborts the WHOLE slurp on
@@ -270,7 +274,6 @@ if [ -n "$MERGED" ] && echo "$MERGED" | jq -e 'type == "array"' >/dev/null 2>&1;
     rm -f "$TMP_SIG" 2>/dev/null
   fi
 fi
-sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN" && _MPS_LOCK_TOKEN=""
 
 # --- Rule-candidate accumulation → auto-arm as learned WARN rules ---
 # Candidates come from the extractor only when the transcript showed an
@@ -422,4 +425,5 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
   done < <(printf '%s\n' "$CAND_LIST")  # no here-string here: MSYS blocks one of ~65,537..65,651 B past the hook timeout
 fi
 
+sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN" && _MPS_LOCK_TOKEN=""
 exit 0
