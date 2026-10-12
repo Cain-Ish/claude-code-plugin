@@ -693,6 +693,15 @@ fi
 # bash-3.2/BSD portable; a builtin loop, not a `tr` spawn, since B7.)
 _fp_lower FP_LC "$FILE_PATH"
 
+# SEC-1 (re-audit 0.57.1): on a Windows host p.md::$DATA is p.md (NTFS stream syntax: a ':' past the
+# drive), and no arm below reads that spelling — a target no arm reads that holds one asks.
+_wwg_stream() {
+  local _ws_t="$FILE_PATH"
+  case "$_ws_t" in [A-Za-z]:*) _ws_t="${_ws_t:2}" ;; esac
+  case "$_ws_t" in *:*) ;; *) return 1 ;; esac
+  [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1
+}
+
 # Match any wiki page under a knowledge/wiki/<category>/ tree. We don't anchor on
 # $HOME because tests use tmp dirs; matching on the literal "/knowledge/wiki/" segment
 # is precise enough — no real project nests its own wiki under that path.
@@ -702,14 +711,6 @@ _fp_lower FP_LC "$FILE_PATH"
 # agents/raw-drainer.md can drift; this deny cannot. The adjacent-segment match cannot
 # hit dream staging (".second-brain/dreams/<id>/staging/…"). Flagged here, denied below
 # (deny() is not defined yet at this point in the file).
-# SEC-1 (re-audit 0.57.1): on a Windows host p.md::$DATA is p.md (NTFS stream syntax: a ':' past the
-# drive), and no arm reads that spelling — a target no arm reads that holds one asks.
-_wwg_stream() {
-  local _ws_t="$FILE_PATH"
-  case "$_ws_t" in [A-Za-z]:*) _ws_t="${_ws_t:2}" ;; esac
-  case "$_ws_t" in *:*) ;; *) return 1 ;; esac
-  [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || command -v cygpath >/dev/null 2>&1
-}
 LEGACY_WIKI=0
 case "$FP_LC" in
   */.second-brain/wiki/*.md) LEGACY_WIKI=1 ;;

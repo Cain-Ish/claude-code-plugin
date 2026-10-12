@@ -1139,6 +1139,12 @@ for f in /x/projects/x/PROJECT.md /x/USER.md /x/persona-rules.json /b/projects/d
 for f in /x/projects/x/PROJECT.md /x/persona-rules.default.json /b/projects/demo/.rules-effective.json /x/.claude-plugin/plugin.json; do par MultiEdit file_path "$f"; done
 # SEC-M1: the .injected caches, all three tools.
 for t in Write Edit MultiEdit; do par "$t" file_path /h/.second-brain/.injected/s1.rolecard; done
+# SEC-4: a continued command whose first line matches alone — the fast path asks as the full logic does.
+par Bash command $'rm -rf build && docker build \\\n  -t img .'
+# SEC-1: a target in NTFS stream syntax on a Windows host (a failing cygpath stand-in makes every lane
+# one): both paths ask windows-alias:stream, the rule name with no -edit/-multiedit suffix.
+mkdir -p "$PAR/cyg"; printf '#!/bin/sh\nexit 1\n' > "$PAR/cyg/cygpath"; chmod +x "$PAR/cyg/cygpath"
+for t in Write Edit MultiEdit; do PATH="$PAR/cyg:$PATH" par "$t" file_path '/x/persona-rules.json::$DATA'; done
 # L3: resource_scope on (a cwd given) — out-of-scope targets get the scope ask on both paths,
 # in-scope ones the rule; '..' folds before the prefix test; a relative path resolves against cwd.
 par Write file_path /x/persona-rules.json /home/u/proj

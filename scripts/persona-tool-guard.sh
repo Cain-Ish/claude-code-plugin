@@ -1037,6 +1037,9 @@ _ptg_fast() {
     [ -n "$cmd" ] || return 1
     # A line continuation (S2-2, SEC-4): a line that matches on its own asks here; a match only the
     # folded command makes is no line's, so the full logic, which folds, decides it.
+    # shortcut: where only the fold matches an EARLIER rule (rm -rf x && git push origin main \⏎ --force),
+    # this path names the line's rule (warn-rm-rf), the full logic the earlier one; both ask. Fold here
+    # too if a locked rule's action ever differs from ask.
     # Over 64 lines (_fp_lines 2): the full logic's one grep decides.
     _fp_lines "$_PTG_RE_PUSH" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
     [ "$rc" = 0 ] && _ptg_set warn-force-push-main "Force-push to main/master is destructive. Confirm intent."
