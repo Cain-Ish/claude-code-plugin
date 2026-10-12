@@ -369,7 +369,7 @@ jq emits CRLF") at write time.
 **This repo's asset.** The two-tier store already draws the line physically: USER.md
 (global hot tier, 2200-byte cap) vs `BRAIN_DIR/projects/<slug>/PROJECT.md` (per-project).
 Signal machinery is global by construction — `BRAIN_DIR/persona-signals.jsonl` with graduation
-to USER.md via `sb_pin_to_user` (`scripts/merge-persona-signals.sh:99`) — so transfer already
+to persona-learned.md via `sb_pin_to_learned` (`scripts/merge-persona-signals.sh`) — so transfer already
 *happens*; what is missing is scoping. Supporting substrate: the single-source slug resolver
 (`mcp/src/tools/project-dir.ts` / `sb_resolve_slug`), the extract prompt's existing
 project-affinity rule and REUSABLE discriminator for wiki learnings

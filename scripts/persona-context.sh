@@ -262,12 +262,20 @@ case "$PROMPT" in
     PLUGIN_ROOT_NOW="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
     THINK_CLI="$PLUGIN_ROOT_NOW/mcp/dist/cli/persona-think-cli.bundle.js"
     if [ -f "$THINK_CLI" ]; then
-      # D145: this is a paid Opus API call (skills/think/SKILL.md: ~$0.11/call, no
-      # budget gate) — the injected additionalContext is documentation-after-the-fact
-      # for the model, but the USER gets no synchronous signal that a prompt starting
-      # with "/?" (e.g. a pasted shell redirection) just spent money. One line, now.
-      printf 'persona: /? spawning Opus advisor (paid API call — see skills/think/SKILL.md)\n' >&2
-      BRIEF=$(printf '%s' "$QUERY" | node "$THINK_CLI" 2>/dev/null || true)
+      # D145: a paid Opus call (skills/think/SKILL.md: ~$0.11/call, no budget gate): the USER gets
+      # one stderr line once a brief actually came back (the CLI refuses without ANTHROPIC_API_KEY).
+      _TERR=$(mktemp 2>/dev/null) || _TERR=/dev/null
+      BRIEF=$(printf '%s' "$QUERY" | node "$THINK_CLI" 2>"$_TERR" || true)
+      if [ -z "$BRIEF" ]; then
+        # Re-audit S7-1: say why nothing was injected (sanitized, capped: the text is untrusted data).
+        _TMSG=$(head -c 300 "$_TERR" | tr -c 'A-Za-z0-9 _.,:=/-' ' ' | tr -s ' ')
+        _mt_log "persona-think-failed: ${_TMSG:-no output}" 1
+        CTX="[Persona /? requested but persona_think did not run: ${_TMSG:-no output}. Proceeding without the Opus brief.]"
+        jq -nc --arg ctx "$CTX" '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $ctx}}' 2>/dev/null || true
+      else
+        printf 'persona: /? Opus advisor answered (paid API call — see skills/think/SKILL.md)\n' >&2
+      fi
+      [ "$_TERR" = /dev/null ] || rm -f "$_TERR"
       if [ -n "$BRIEF" ]; then
         CTX="[Persona deep brief — Opus advisor, treat as structured second opinion]
 $BRIEF

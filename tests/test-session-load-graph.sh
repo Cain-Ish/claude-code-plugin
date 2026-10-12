@@ -1,5 +1,6 @@
 #!/bin/bash
 # run-all-timeout: 240   (green ~15 s; Tests 4/5 each carry a 90 s hang watchdog, so a regression must fail on its own assertion, not the runner's kill)
+# pins: SB_SESSION_LOAD_SOFT_S — Tests 7/8 lift the soft time budget: on a loaded box a new project's first start passes 9 s before the graph spawn and skips the very block they measure
 # Tests that session-load.sh injects the active project's current typed
 # dependency neighbourhood from the relational graph (edges.jsonl) into the
 # hot tier. No-op when the graph CLI or edges.jsonl is absent (back-compat).
@@ -179,5 +180,60 @@ wd_run 90 "$TMP/sweep5" "$TMP" /dev/null slg_sweep; RC5=$?
 [ "$RC5" -ne 124 ] || fail "5: sl_graph_fmt did not return within 90 s for a 65,530..70,000-byte edge list (MSYS here-string hang)"
 [ "$(tr -d '\r' < "$TMP/sweep5")" = done ] || fail "5: sl_graph_fmt formatted the wrong 12 entries: $(cat "$TMP/sweep5")"
 pass "sl_graph_fmt returns and formats exactly the first 12 edges across the 65,530..70,000-byte window; one 70,000-byte line stays byte-capped"
+
+# --- Test 6 (re-audit H6-1): an anchor with 12 edges of long slugs renders > 600 B; sb_append keeps
+# whole lines only, so the seed line was dropped and the block shipped as a bare header (while the
+# manifest still recorded the seed as injected). The seed line is now capped while it is built.
+awk 'BEGIN { for (i = 1; i <= 12; i++)
+  printf "{\"op\":\"assert\",\"from\":\"demo-anchor\",\"to\":\"long-neighbour-slug-number-%02d-padding\",\"type\":\"relates\",\"valid_from\":\"2026-05-29\",\"recorded_at\":\"2026-05-29T00:00:00Z\"}\n", i }' \
+  > "$KDIR/graph/edges.jsonl"
+wd_run 90 "$TMP/out6" "$WORKDIR" "$TMP/start.json" bash "$ROOT/scripts/session-load.sh"; RC6=$?
+[ "$RC6" -eq 0 ] || fail "6: session-load exited $RC6"
+GLINE6=$(tr -d '\r' < "$TMP/out6" | grep -- '^- demo: ')
+[ -n "$GLINE6" ] || fail "6: a 12-edge anchor shipped a bare graph header, no '- demo:' line ($(grep -A2 'Dependency graph' "$TMP/out6" || echo 'no graph block'))"
+printf '%s\n' "$GLINE6" | grep -q 'long-neighbour-slug-number-01' || fail "6: the first edge is missing from the capped line: $GLINE6"
+pass "a 12-edge long-slug anchor still ships a (capped) neighbourhood line, never a bare header"
+
+# 12 edges from demo-anchor whose rendered entries are 66 B each ("demo-anchor relates <44 B>; ").
+awk 'BEGIN { for (i = 1; i <= 12; i++) { t = sprintf("nbr-%02d-", i); while (length(t) < 44) t = t "q"
+  printf "{\"op\":\"assert\",\"from\":\"demo-anchor\",\"to\":\"%s\",\"type\":\"relates\",\"valid_from\":\"2026-05-29\",\"recorded_at\":\"2026-05-29T00:00:00Z\"}\n", t } }' \
+  > "$KDIR/graph/edges.jsonl"
+
+# --- Test 7 (re-audit T3/B3): the seed line's cap counts the seed and the header. A 100-byte project
+# slug plus the old 400 B entry cap made a 607 B block: sb_append dropped the line, a bare header
+# shipped, and the anchor was still recorded as injected.
+SLUG7="long-project-slug-$(printf '%082d' 7 | tr 0 x)"
+[ "${#SLUG7}" -eq 100 ] || fail "7: fixture slug is ${#SLUG7} bytes, not 100"
+mkdir -p "$TMP/$SLUG7" "$BRAIN_DIR/projects/$SLUG7"
+sed "s/^# PROJECT: demo$/# PROJECT: $SLUG7/" "$BRAIN_DIR/projects/demo/PROJECT.md" > "$BRAIN_DIR/projects/$SLUG7/PROJECT.md"
+printf '{"anchor":"demo-anchor","project":"%s"}\n' "$SLUG7" > "$KDIR/graph/project-registry.jsonl"
+echo '{"hook_event_name":"SessionStart","source":"startup","session_id":"graph-t7"}' > "$TMP/start7.json"
+wd_run 90 "$TMP/out7" "$TMP/$SLUG7" "$TMP/start7.json" env SB_SESSION_LOAD_SOFT_S=60 bash "$ROOT/scripts/session-load.sh"; RC7=$?
+[ "$RC7" -eq 0 ] || fail "7: session-load exited $RC7"
+GLINE7=$(tr -d '\r' < "$TMP/out7" | grep -F -- "- $SLUG7: ")
+grep -qF "{\"kind\":\"anchor\",\"id\":\"$SLUG7\"}" "$BRAIN_DIR/.injected-manifest-graph-t7.jsonl" 2>/dev/null && [ -z "$GLINE7" ] \
+  && fail "7/B3: the anchor was recorded as injected although its line was dropped"
+[ -n "$GLINE7" ] || fail "7/T3: a 100-byte project slug shipped a bare graph header ($(grep -A2 'Dependency graph' "$TMP/out7" || echo 'no graph block'))"
+grep -qF "{\"kind\":\"anchor\",\"id\":\"$SLUG7\"}" "$BRAIN_DIR/.injected-manifest-graph-t7.jsonl" \
+  || fail "7: the shipped anchor line was not recorded in the manifest"
+pass "a 100-byte project slug still ships its capped seed line, and only a shipped anchor is recorded"
+
+# --- Test 8 (re-audit B3): two seed lines over the 600 B cap: sb_append keeps whole lines, and the
+# dropped seed must not be recorded as injected (the manifest reads what sb_append kept).
+printf '%s\n' '{"anchor":"demo-anchor","project":"demo"}' > "$KDIR/graph/project-registry.jsonl"
+awk 'BEGIN { for (i = 1; i <= 3; i++) { t = sprintf("wg-dep-%02d-", i); while (length(t) < 44) t = t "q"
+  printf "{\"op\":\"assert\",\"from\":\"wg-tunnel\",\"to\":\"%s\",\"type\":\"requires\",\"valid_from\":\"2026-05-29\",\"recorded_at\":\"2026-05-29T00:00:00Z\"}\n", t } }' \
+  >> "$KDIR/graph/edges.jsonl"
+printf '# PROJECT: demo\n\n## Goal\ntwo seeds\n\n## Cross-references\n- [[wg-tunnel]]\n' > "$BRAIN_DIR/projects/demo/PROJECT.md"
+echo '{"hook_event_name":"SessionStart","source":"startup","session_id":"graph-t8"}' > "$TMP/start8.json"
+wd_run 90 "$TMP/out8" "$WORKDIR" "$TMP/start8.json" env SB_SESSION_LOAD_SOFT_S=60 bash "$ROOT/scripts/session-load.sh"; RC8=$?
+[ "$RC8" -eq 0 ] || fail "8: session-load exited $RC8"
+tr -d '\r' < "$TMP/out8" | grep -q -- '^- demo: ' || fail "8: precondition — the anchor line did not ship"
+tr -d '\r' < "$TMP/out8" | grep -q -- '^- wg-tunnel: ' && fail "8: precondition — the second seed line fit; the fixture no longer exceeds 600 B"
+grep -qF '{"kind":"graph","id":"wg-tunnel"}' "$BRAIN_DIR/.injected-manifest-graph-t8.jsonl" 2>/dev/null \
+  && fail "8: the dropped wg-tunnel seed was recorded as injected"
+grep -qF '{"kind":"anchor","id":"demo"}' "$BRAIN_DIR/.injected-manifest-graph-t8.jsonl" 2>/dev/null \
+  || fail "8: the shipped anchor line was not recorded"
+pass "a seed line dropped by the 600 B cap is not recorded in the injection manifest"
 
 echo; echo "ALL PASS"

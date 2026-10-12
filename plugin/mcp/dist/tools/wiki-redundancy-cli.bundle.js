@@ -11,7 +11,7 @@ function djb2(s) {
 
 // ../kb-schema.json
 var kb_schema_default = {
-  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
+  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by the scripts that read it, not by lib.sh; reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
   structured_types: ["learnings", "decisions", "entities", "issues", "concepts", "security"],
   unstructured_types: ["state", "sources"],
   frontmatter_required: ["title", "description", "type", "created", "updated", "tags", "related"],
@@ -61,16 +61,9 @@ var kb_schema_default = {
   },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions", "conventions"],
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
-  },
-  raw: {
-    dir: "raw",
-    tier: "project",
-    statuses: ["unprocessed", "processed", "discarded"],
-    searchable: false
   }
 };
 

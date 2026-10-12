@@ -6285,7 +6285,7 @@ import { promisify } from "util";
 
 // ../kb-schema.json
 var kb_schema_default = {
-  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
+  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by the scripts that read it, not by lib.sh; reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
   structured_types: ["learnings", "decisions", "entities", "issues", "concepts", "security"],
   unstructured_types: ["state", "sources"],
   frontmatter_required: ["title", "description", "type", "created", "updated", "tags", "related"],
@@ -6335,16 +6335,9 @@ var kb_schema_default = {
   },
   generated_dirs: ["projects", "themes"],
   edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
-  project_sections: ["blockers", "decisions", "conventions"],
   forget_protection: {
     protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
     discounted: ["entities", "sources", "issues"]
-  },
-  raw: {
-    dir: "raw",
-    tier: "project",
-    statuses: ["unprocessed", "processed", "discarded"],
-    searchable: false
   }
 };
 
@@ -6364,12 +6357,12 @@ var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
 
 // src/tools/jit-index.ts
 var execFileAsync = promisify(execFile);
-async function defaultGitRunner(args, cwd) {
+async function defaultGitRunner(args, cwd, timeoutMs = 5e3) {
   const { stdout } = await execFileAsync("git", args, {
     cwd,
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
-    timeout: 5e3
+    timeout: timeoutMs
   });
   return stdout;
 }
@@ -6395,7 +6388,7 @@ function envInt(name, fallback) {
   const n = Number.parseInt(raw.trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
-var defaultRunGit = defaultGitRunner;
+var defaultRunGit = (args, cwd) => defaultGitRunner(args, cwd, 6e4);
 function byId(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -6414,7 +6407,9 @@ async function scanSources(repoRoot, opts = {}) {
   try {
     const stdout = await runGit(["ls-files", "-z"], repoRoot);
     candidates = [...new Set(stdout.split("\0"))].filter((rel) => rel.length > 0).map((rel) => ({ id: rel, abs: path2.resolve(repoRoot, rel) }));
-  } catch {
+  } catch (e) {
+    const err = e;
+    if (err.killed || err.signal) throw e;
     const absList = await glob("**/*", {
       cwd: repoRoot,
       nodir: true,

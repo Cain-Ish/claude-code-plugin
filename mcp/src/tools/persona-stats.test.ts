@@ -35,6 +35,17 @@ describe('persona_stats', () => {
     expect(r.ungraduated_signals).toBe(1); // count 1 is below threshold of 2
   });
 
+  // Q-SF4: merge-persona-signals.sh marks a classifier-refused record graduated:"refused" (count >= 2 forever);
+  // session-load and the skills read only graduated == false as an ungraduated signal.
+  it('does not count a classifier-refused record as an ungraduated signal (Q-SF4)', async () => {
+    writeFileSync(join(brainDir, 'persona-signals.jsonl'),
+      JSON.stringify({ category: 'b', count: 2, graduated: false }) + '\n' +
+      JSON.stringify({ category: 'r', count: 5, graduated: 'refused' }) + '\n', 'utf-8');
+    const r = await personaStats({ brainDir });
+    expect(r.ungraduated_signals).toBe(1);
+    expect(r.graduated_signals).toBe(0);
+  });
+
   it('reads installed catalog counts', async () => {
     writeFileSync(join(brainDir, '.installed-catalog.json'),
       JSON.stringify({ plugins: [{ name: 'a' }, { name: 'b' }], agents: [{ name: 'x' }], skills: [] }), 'utf-8');

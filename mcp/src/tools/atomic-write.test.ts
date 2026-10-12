@@ -89,6 +89,28 @@ describe('writeFileAtomic', () => {
     expect(log[log.length - 1]).toBe('rm');
   });
 
+  // Re-audit TS-1: on Windows the in-place write lands, then rm(tmp) is refused (AV/indexer). Throwing there made
+  // archive_to_wiki delete the page PROJECT.md already points to; the leftover temp is debris, not a failure.
+  it('resolves once the in-place write landed even when the temp cannot be removed (re-audit TS-1)', async () => {
+    const { io, log } = mkIo(Array.from({ length: 50 }, () => () => { throw eperm(); }));
+    io.rm = async () => { log.push('rm'); throw Object.assign(new Error('EBUSY rm'), { code: 'EBUSY' }); };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(writeFileAtomic(file, 'x', io)).resolves.toBeUndefined();
+      expect(log).toContain('write target:x');
+      expect(err).toHaveBeenCalledTimes(1);
+      expect(String(err.mock.calls[0][0])).toContain('EBUSY rm');
+    } finally { err.mockRestore(); }
+  });
+
+  it('names its temp file so the ensure-dirs debris sweep (*.tmp.*) can reap a killed write (re-audit R5-9)', async () => {
+    const tmps: string[] = [];
+    const io = { writeFile: async (f: string) => { tmps.push(f); }, rename: async () => {}, rm: async () => {}, sleep: async () => {} };
+    await writeFileAtomic(file, 'x', io);
+    expect(tmps).toHaveLength(1);
+    expect(tmps[0].startsWith(`${file}.tmp.`)).toBe(true);
+  });
+
   it('does not retry a non-transient rename error (TS-R1)', async () => {
     const { io, log } = mkIo([() => { throw Object.assign(new Error('x'), { code: 'ENOSPC' }); }]);
     await expect(writeFileAtomic(file, 'x', io)).rejects.toThrow('x');

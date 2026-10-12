@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
-import { withFileLock } from './hot-file-lock.js';
+import { withFileLock, LOCK_STOLEN } from './hot-file-lock.js';
 import { writeFileAtomic } from './atomic-write.js';
 
 export type PinSection = 'blockers' | 'decisions' | 'conventions';
@@ -85,14 +85,18 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
     }
     throw e;
   }
+  // Checked before the lock: a missing project otherwise failed as ENOENT on .PROJECT.md.lock.
+  const noFile = await fs.access(file).then(() => '', (e: NodeJS.ErrnoException) => e.code ?? String(e));
+  if (noFile) return { ok: false, line_added: '', project_slug: args.slug, reason: `no PROJECT.md for ${args.slug} (${noFile})` };
   // E3: read-modify-write under the shared .PROJECT.md.lock (merge-project-update.sh holds it too)
   // and replace by temp + rename: an in-place write landing inside a merge's window was erased by it.
-  return withFileLock(file,
+  return withFileLock<PinToProjectResult>(file,
     reason => ({ ok: false, line_added: '', project_slug: args.slug, reason }),
-    () => pinLocked(args, file));
+    owned => pinLocked(args, file, owned));
 }
 
-async function pinLocked(args: PinToProjectArgs, file: string): Promise<PinToProjectResult> {
+async function pinLocked(args: PinToProjectArgs, file: string, owned: () => Promise<boolean>): Promise<PinToProjectResult> {
+  const stolen: PinToProjectResult = { ok: false, line_added: '', project_slug: args.slug, reason: LOCK_STOLEN };
   const content = await fs.readFile(file, 'utf-8');
   const sectionHeader = SECTION_HEADER[args.section];
   const trimmed = flattenField(args.text, 400);
@@ -171,7 +175,10 @@ async function pinLocked(args: PinToProjectArgs, file: string): Promise<PinToPro
     if (!lines[i].startsWith('- ')) continue;
     if (lines[i].startsWith('- [superseded] ') || lines[i].startsWith('- [stale] ')) continue;
     if (bulletCore(lines[i]) === newCore) {
-      if (marked) await writeFileAtomic(file, lines.join('\n'));
+      if (marked) {
+        if (!(await owned())) return stolen;
+        await writeFileAtomic(file, lines.join('\n'));
+      }
       const dup: PinToProjectResult = { ok: true, line_added: lines[i], project_slug: args.slug, reason: 'already present' };
       if (supersedesRequested) dup.superseded = marked;
       return dup;
@@ -179,6 +186,7 @@ async function pinLocked(args: PinToProjectArgs, file: string): Promise<PinToPro
   }
 
   lines.splice(endIdx, 0, newEntry);
+  if (!(await owned())) return stolen;
   await writeFileAtomic(file, lines.join('\n'));
   const res: PinToProjectResult = { ok: true, line_added: newEntry, project_slug: args.slug };
   if (reason) res.reason = reason;

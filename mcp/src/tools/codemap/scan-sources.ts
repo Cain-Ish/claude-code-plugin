@@ -11,13 +11,13 @@ import { readFile, stat } from 'fs/promises';
 import { homedir, tmpdir } from 'os';
 import * as path from 'path';
 import { glob } from 'glob';
-import { defaultGitRunner } from '../jit-index.js';
+import { defaultGitRunner, type GitRunner } from '../jit-index.js';
 import type { Lang, ScannedFile } from './types.js';
 import type { TsPathConfig } from './extract.js';
 
 
-/** Injectable so unit tests exercise the git path without a real repo. */
-export type GitRunner = (args: string[], cwd: string) => Promise<string>;
+/** Injectable so unit tests exercise the git path without a real repo (one type, owned by jit-index). */
+export type { GitRunner };
 
 export interface ScanOptions {
   runGit?: GitRunner;
@@ -72,8 +72,10 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** One git runner for the whole codemap layer (shared with jit-index: 64 MiB buffer, 5 s timeout). */
-export const defaultRunGit = defaultGitRunner;
+/** The code-map CLI's git runner: jit-index's (64 MiB buffer) with 60 s, not 5 s. The CLI runs out of band, and at
+ *  5 s a slow `git status` on a large repo read as dirty, so every drainer tick regenerated the map. The interactive
+ *  code_map / code_neighbors tools pass jit-index's 5 s runner instead (a hung git must not stall a tool call). */
+export const defaultRunGit: GitRunner = (args, cwd) => defaultGitRunner(args, cwd, 60_000);
 
 /** Locale-independent codepoint order — localeCompare varies by platform ICU. */
 function byId(a: string, b: string): number {
@@ -98,8 +100,10 @@ export async function scanSources(
 
   // git ls-files -z: tracked files only, so .gitignore is respected for free.
   // -z (NUL separators) because core.quotepath C-escapes non-ASCII paths in
-  // newline mode. Any git failure (not a repo, git absent) falls to the glob
+  // newline mode. A git failure (not a repo, git absent) falls to the glob
   // path — the plan's documented fail-soft boundary, NOT a silent error swallow.
+  // A killed (timed-out) git throws instead: the glob walk ignores .gitignore,
+  // and the map would carry ignored files under the real HEAD's stamp.
   let candidates: Array<{ id: string; abs: string }>;
   try {
     const stdout = await runGit(['ls-files', '-z'], repoRoot);
@@ -107,7 +111,9 @@ export async function scanSources(
     candidates = [...new Set(stdout.split('\0'))]
       .filter((rel) => rel.length > 0)
       .map((rel) => ({ id: rel, abs: path.resolve(repoRoot, rel) }));
-  } catch {
+  } catch (e) {
+    const err = e as { killed?: boolean; signal?: string };
+    if (err.killed || err.signal) throw e;
     const absList = await glob('**/*', {
       cwd: repoRoot,
       nodir: true,
