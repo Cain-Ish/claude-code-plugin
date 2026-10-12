@@ -181,4 +181,24 @@ describe('archive_to_wiki', () => {
     expect(res.ok).toBe(true);
     expect(res.archived_path).not.toMatch(/-2\.md$/);
   });
+
+  // Re-audit TS-1: rename refused for the whole retry, in-place write lands, rm(tmp) refused (Windows AV).
+  it('TS-1: a temp that cannot be removed after the in-place write keeps the page PROJECT.md points to', async () => {
+    const fsp = (await import('fs')).promises;
+    const realRename = fsp.rename, realRm = fsp.rm;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(fsp, 'rename').mockImplementation(async (a: any, b: any) => {
+      if (String(a).includes('.tmp.')) throw Object.assign(new Error('EPERM rename'), { code: 'EPERM' });
+      return realRename(a, b);
+    });
+    vi.spyOn(fsp, 'rm').mockImplementation(async (p: any, o: any) => {
+      if (String(p).includes('.tmp.')) throw Object.assign(new Error('EBUSY rm'), { code: 'EBUSY' });
+      return realRm(p, o);
+    });
+    const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(res.ok).toBe(true);
+    expect(existsSync(res.archived_path)).toBe(true);
+    const proj = readFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8');
+    expect(proj).toContain(`→ wiki/issues/test-slug/${res.archived_path.split(/[\\/]/).pop()}`);
+  });
 });
