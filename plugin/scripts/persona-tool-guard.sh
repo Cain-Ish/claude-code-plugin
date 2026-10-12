@@ -1894,6 +1894,9 @@ case "$V_ACTION" in
         if [ "$SED_RC" -ne 0 ] || { [ -z "$NEW_CMD" ] && [ -n "$CMD" ]; }; then REWRITE_OK=0; fi
         ;;
     esac
+    # Q3-1: the rule matched with grep -i but sed is case-sensitive (and the SOH branch above copies
+    # CMD): a "rewrite" that changed nothing must not auto-allow the command unrewritten.
+    [ "$NEW_CMD" = "$CMD" ] && REWRITE_OK=0
     # S2-2/SEC-3: this sed reads CMD line by line, bash runs the folded lines — a match across a line
     # continuation (alone, or beside one sed did rewrite) went out unrewritten under the "allow". The
     # rewrite stands only when folding it gives the folded command's own rewrite (so a replacement
