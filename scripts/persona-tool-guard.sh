@@ -1024,6 +1024,9 @@ _ptg_fast() {
     _fp_nocr cmd "$_FP"
     _fp_trimnl cmd "$cmd"
     [ -n "$cmd" ] || return 1
+    # S2-2: a line ending in `\` (bash) or a backtick (PowerShell) continues on the next one; this
+    # table matches line by line, so the full logic, which folds them, decides.
+    case "$cmd" in *"$_fp_bs$_fp_nl"*|*'`'"$_fp_nl"*) return 1 ;; esac
     # Over 64 lines (_fp_lines 2): the full logic's one grep decides.
     _fp_lines "$_PTG_RE_PUSH" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
     [ "$rc" = 0 ] && _ptg_set warn-force-push-main "Force-push to main/master is destructive. Confirm intent."
@@ -1720,16 +1723,29 @@ _PTG_83=0
 if [ -n "$PATH_INPUT" ] && [ ${#_ptg_path_pats[@]} -gt 0 ] && [ "$_PTG_LONG" = 0 ]; then
   _ptg_long83 PATH_INPUT || _PTG_83=1
 fi
+# S2-2 (re-audit 0.57.1): bash joins a line ending in `\` with the next one, PowerShell one ending in
+# a backtick — `rm \⏎ -rf x` is one command, and no per-line grep saw it. CMD_FOLD = the command,
+# then its lines joined at every continuation (one awk pass, only for a command that holds one), so
+# each line matched before still is. Matching reads CMD_FOLD; the target, the spine and a rewrite's
+# sed keep CMD (_PTG_FOLD: see the rewrite arm).
+CMD_FOLD="$CMD" _PTG_FOLD=0
+case "$CMD" in
+  *"$_fp_bs$_fp_nl"*|*'`'"$_fp_nl"*)
+    _PTG_FOLD=1
+    _ptg_fold=$(_fp_feed "$CMD" awk '{ c = substr($0, length($0)); if (c == "\\" || c == "`") printf "%s", substr($0, 1, length($0) - 1); else print }') \
+      || _fp_err "persona-tool-guard.sh" "awk failed folding the line continuations of a ${#CMD}-char command; its lines were matched one by one only"
+    CMD_FOLD="$CMD$_fp_nl$_ptg_fold" _ptg_fold="" ;;
+esac
 # A big command keeps only the lines some pattern matched (grep is line-based: a line one rule
 # matches is among them), so each rule's grep below reads those, not the whole command again.
-CMD_HIT=0 PATH_HIT=0 CMD_SCAN="$CMD"
+CMD_HIT=0 PATH_HIT=0 CMD_SCAN="$CMD_FOLD"
 if [ -n "$CMD" ] && [ ${#_ptg_cmd_pats[@]} -gt 0 ]; then
-  if [ "${#CMD}" -le 8192 ]; then
-    _fp_feed "$CMD" grep -qiE ${_ptg_cmd_pats[@]+"${_ptg_cmd_pats[@]}"}; [ $? -ne 1 ] && CMD_HIT=1
+  if [ "${#CMD_FOLD}" -le 8192 ]; then
+    _fp_feed "$CMD_FOLD" grep -qiE ${_ptg_cmd_pats[@]+"${_ptg_cmd_pats[@]}"}; [ $? -ne 1 ] && CMD_HIT=1
   else
-    CMD_SCAN=$(_fp_feed "$CMD" grep -iE ${_ptg_cmd_pats[@]+"${_ptg_cmd_pats[@]}"}); _ptg_rc=$?
+    CMD_SCAN=$(_fp_feed "$CMD_FOLD" grep -iE ${_ptg_cmd_pats[@]+"${_ptg_cmd_pats[@]}"}); _ptg_rc=$?
     [ "$_ptg_rc" -ne 1 ] && CMD_HIT=1
-    [ "$_ptg_rc" -eq 0 ] || CMD_SCAN="$CMD"
+    [ "$_ptg_rc" -eq 0 ] || CMD_SCAN="$CMD_FOLD"
   fi
 fi
 if [ -n "$PATH_INPUT" ] && [ ${#_ptg_path_pats[@]} -gt 0 ]; then
@@ -1834,6 +1850,9 @@ case "$V_ACTION" in
         if [ "$SED_RC" -ne 0 ] || { [ -z "$NEW_CMD" ] && [ -n "$CMD" ]; }; then REWRITE_OK=0; fi
         ;;
     esac
+    # S2-2: a match only the folded command holds (across a line continuation) is one this sed, which
+    # reads CMD line by line, cannot apply — its "allow" would pass the command unrewritten.
+    if [ "$_PTG_FOLD" = 1 ] && ! _fp_feed "$CMD" grep -qiE -- "$V_MATCH"; then REWRITE_OK=0; fi
     if [ "$REWRITE_OK" = "0" ]; then
       FAIL_REASON="Rewrite rule '$V_RULE' produced an invalid replacement (sed could not safely apply match_command/replace) — refusing to auto-allow an unverifiable rewrite. Original reason: $V_REASON"
       _ptg_verdict ask "$V_RULE" "$V_TARGET" "$FAIL_REASON"

@@ -1420,6 +1420,42 @@ else
 fi
 pass "S2-1: 8.3 short names of persona-rules.json, persona-card.md and .injected reach their rules; an unexpandable one asks, a literal ~N name stays silent"
 
+# --- S2-2 (re-audit 0.57.1): a line continuation does not split a command ---------------------
+# bash joins `\`+newline and PowerShell backtick+newline into one command line; the guard matched line
+# by line, so `rm \⏎ -rf x`, `git push origin main \⏎ --force` and `Remove-Item … `⏎ -Recurse -Force`
+# got no verdict while their one-line twins asked. The full logic matches the folded command too; the
+# fast path stands down for any continuation (its per-line table does not fold), so no row of these
+# is a fastpath one. A rewrite rule matched only across the continuation, which its line-by-line sed
+# cannot apply, asks instead of allowing the command unrewritten.
+S22=$(mktemp -d); mkdir -p "$S22/rw"
+s22() {  # s22 <rule|-> <tool> <command> [brain]
+  local b="${4:-$S22}"
+  : > "$b/audit-log.jsonl"
+  out=$(jq -nc --arg t "$2" --arg c "$3" '{tool_name:$t,tool_input:{command:$c},session_id:"s22"}' | BRAIN_DIR="$b" bash "$SCRIPT")
+  if [ "$1" = - ]; then
+    [ -z "$out" ] || fail "S2-2: $2 '$3' must stay silent (got: $out)"
+  else
+    printf '%s' "$out" | grep -q '"permissionDecision":"ask"' && grep -q "\"rule\":\"$1\"" "$b/audit-log.jsonl" \
+      || fail "S2-2: $2 '$3' must ask via $1 (got: '$out'; audit: $(cat "$b/audit-log.jsonl"))"
+    grep -q '"fastpath":true' "$b/audit-log.jsonl" && fail "S2-2: $2 '$3' — a continuation must be left to the full logic"
+  fi
+  return 0
+}
+s22 warn-rm-rf Bash $'rm \\\n  -rf /tmp/s22-dir'
+s22 warn-force-push-main Bash $'git push origin main \\\n  --force'
+s22 warn-remove-item-recurse-force PowerShell $'Remove-Item -Path C:\\s22 `\n  -Recurse -Force'
+s22 warn-rm-rf Bash $'rm -rf /tmp/s22-dir \\\n  /tmp/s22-other'
+s22 - Bash $'echo a \\\n  b'
+s22 - PowerShell $'Get-ChildItem `\n  -Force'
+jq '.rules += [{name:"rw-s22",tool:"Bash",action:"rewrite",match_command:"foo bar",replace:"baz",reason:"rw"}]' \
+  "$(dirname "$SCRIPT")/persona-rules.default.json" > "$S22/rw/persona-rules.json"
+s22 rw-s22 Bash $'echo foo \\\nbar' "$S22/rw"
+# ...while one its sed can apply on a line still rewrites, the continuation kept.
+out=$(jq -nc --arg c $'echo foo bar \\\nx' '{tool_name:"Bash",tool_input:{command:$c},session_id:"s22"}' | BRAIN_DIR="$S22/rw" bash "$SCRIPT")
+printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "allow" and .hookSpecificOutput.updatedInput.command == "echo baz \\\nx"' >/dev/null \
+  || fail "S2-2: a rewrite matched on one line of a continued command must still rewrite it (got: $out)"
+pass "S2-2: rm / force-push / Remove-Item split by a line continuation ask from the full logic; a rewrite matched across one asks"
+
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
 # r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
 # <repo>/.claude/worktrees/r3-ro/… got the out-of-scope ask. $PROJECT (CLAUDE_PROJECT_DIR, the
