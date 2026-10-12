@@ -1805,7 +1805,7 @@ sb_archive_lock() {  # $1 = archive path, $2 = caller (for the log)
       return 1
     fi
     if [ "$SECONDS" -ge "$end" ]; then
-      sb_log_error "lib.sh" "$who: archive lock on ${f##*/} still held after ${_SB_ARCHIVE_LOCK_WAIT_S} s (holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')); not written, retried later" 1
+      sb_log_error "lib.sh" "$who: archive lock on ${f##*/} still held after ${_SB_ARCHIVE_LOCK_WAIT_S} s (holder $(head -c 32 "$lf" 2>/dev/null | tr -d '\r\n')); not written" 1
       return 1
     fi
     [ -e "$lf" ] && sleep 0.1

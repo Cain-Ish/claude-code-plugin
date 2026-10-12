@@ -543,6 +543,8 @@ grep -q 'yyqheld' "$CC_BRAIN/persona-signals.jsonl" && fail "R1: merge wrote the
 # S3-5: nothing retries this batch (callers advance their marker), so the row says it is dropped.
 grep -q 'persona batch dropped (lock busy): session=cc-held signals=1' "$CC_BRAIN/error-log.jsonl" 2>/dev/null \
   || fail "S3-5: the busy lock did not log the dropped batch: $(cat "$CC_BRAIN/error-log.jsonl" 2>/dev/null)"
+# Q-SF5: lib.sh's own busy-lock row must not promise a retry that no caller makes.
+grep -q 'retried later' "$CC_BRAIN/error-log.jsonl" && fail "Q-SF5: the busy-lock row still says the dropped batch is retried later"
 rm -f "$CC_BRAIN/.persona-signals.jsonl.lock"
 pass "R1: persona-signals read-modify-write is locked (6 concurrent merges keep all signals; held lock fails loud)"
 
