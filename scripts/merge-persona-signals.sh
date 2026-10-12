@@ -274,7 +274,7 @@ sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN" && _MPS_LOCK_TOKEN=""
 # Candidates come from the extractor only when the transcript showed an
 # explicit user correction, a revert of an assistant edit, or the same
 # mistake twice. Each is accumulated in persona-rules.pending.json keyed by
-# a stable cksum of event+pattern; at 3 sightings it auto-arms into the USER
+# a stable cksum of event+pattern; seen in 3 distinct sessions it auto-arms into the USER
 # persona-rules.json under .learned[] with action "warn" — advisory-only, so
 # unattended arming can never block or prompt. deny/rewrite arming stays a
 # human decision, and the shipped default rules file is never written.
@@ -341,17 +341,27 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
     ev=$(printf '%s' "$cand" | jq -r '.event' | tr -d '\r')
     pat=$(printf '%s' "$cand" | jq -r '.pattern' | tr -d '\r')
     msg=$(printf '%s' "$cand" | jq -r '.message' | tr -d '\r')
+    # S3-1: the message becomes advisory context on every matching tool call, so it passes the same
+    # injection classifier as graduation. A classifier failure is no verdict: refuse (fail closed).
+    if ! cls=$(sb_text_injection_class "$msg") || [ -n "$cls" ]; then
+      sb_log_error "merge-persona-signals.sh" "rule candidate REFUSED class=${cls:-classifier-failed}, not accumulated: event=$ev message=${msg:0:160}" 1
+      continue
+    fi
     # cksum (POSIX, present on MSYS/BSD/Linux) gives a stable content key that
     # is safe as a JSON object key regardless of what regex chars pattern holds.
     key="$ev-$(printf '%s\n%s\n' "$ev" "$pat" | cksum | tr -s ' \t' '-')"
 
+    # S3-1: arming counts DISTINCT sessions (as E1 does for graduation), not extraction runs: Stop and
+    # the drainer extract the same window, so one session counted twice. "unknown" never counts; the
+    # list stops at 3 ids, all the arm check reads.
     TMP_PEND="$PENDING_FILE.tmp.$$"
-    if jq -c --arg k "$key" --arg ev "$ev" --arg pat "$pat" --arg msg "$msg" --arg today "$TODAY" '
+    if jq -c --arg k "$key" --arg ev "$ev" --arg pat "$pat" --arg msg "$msg" --arg today "$TODAY" --arg sid "$SESSION_ID" '
+      def add_session: .sessions = ([(.sessions // [])[], ($sid | select(. != "unknown"))] | unique | .[0:3]);
       .[$k] = (if .[$k] then
-          .[$k] | .count += 1 | .last_seen = $today | .message = $msg
+          .[$k] | .count += 1 | .last_seen = $today | .message = $msg | add_session
         else
           {event: $ev, pattern: $pat, action: "warn", message: $msg,
-           count: 1, first_seen: $today, last_seen: $today}
+           count: 1, first_seen: $today, last_seen: $today} | add_session
         end)
     ' "$PENDING_FILE" > "$TMP_PEND" 2>/dev/null; then
       mv "$TMP_PEND" "$PENDING_FILE"
@@ -361,9 +371,9 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
       continue
     fi
 
-    CNT=$(jq -r --arg k "$key" '.[$k].count // 0' "$PENDING_FILE" | tr -d '\r')
-    case "$CNT" in ''|*[!0-9]*) CNT=0 ;; esac
-    if [ "$CNT" -ge 3 ]; then
+    NSESS=$(jq -r --arg k "$key" '.[$k].sessions // [] | length' "$PENDING_FILE" | tr -d '\r')
+    case "$NSESS" in ''|*[!0-9]*) NSESS=0 ;; esac
+    if [ "$NSESS" -ge 3 ]; then
       # Seed the USER rules file from the shipped defaults if absent FIRST:
       # the guard prefers the user file whenever it exists, so writing a
       # learned-only file would silently shadow every default rule. Seed via
