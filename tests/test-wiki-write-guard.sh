@@ -347,7 +347,17 @@ if command -v cygpath >/dev/null 2>&1; then
   case "$S21K" in
     *KNOWLE~[0-9]*)
       s21w "$S21K/wiki/state/s21-page.md"
-      printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "S2-1: a bare page written through '$S21K' must be denied (got: '$out')" ;;
+      printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "S2-1: a bare page written through '$S21K' must be denied (got: '$out')"
+      # A custom KNOWLEDGE_DIR (no "knowledge" segment), the page spelled short, the variable spelled
+      # long or short: the full logic ('-' first: the fast path stands down) matches either spelling.
+      S21V="$S21W/Notes Vault S21"; mkdir -p "$S21V/wiki/concepts"
+      S21VS=$(cygpath -s -m "$S21V" | tr -d '\r'); S21VL=$(cygpath -l -m "$S21V" | tr -d '\r')
+      for s21_kd in "$S21VL" "$S21VS"; do
+        out=$(jq -nc --arg p "$S21VS/wiki/concepts/s21.md" '{tool_name:"Write", tool_input:{file_path:$p, content:"-not a fence"}}' \
+          | env CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR= KNOWLEDGE_DIR="$s21_kd" bash "$SCRIPT")
+        printf '%s' "$out" | grep -q '"permissionDecision":"deny"' \
+          || fail "S2-1: a bare page '$S21VS/wiki/concepts/s21.md' under KNOWLEDGE_DIR='$s21_kd' must be denied (got: '$out')"
+      done ;;
     *) echo "SKIP: S2-1 real short names — this volume makes none (cygpath -s gave '$S21K')" ;;
   esac
 else
