@@ -133,7 +133,7 @@ describe('archive_to_wiki', () => {
     const fsp = (await import('fs')).promises;
     const realRename = fsp.rename;
     const spy = vi.spyOn(fsp, 'rename').mockImplementation(async (a: any, b: any) => {
-      if (String(a).endsWith('.tmp')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+      if (String(a).includes('.tmp.')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
       return realRename(a, b);
     });
     const args = { slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir } as const;

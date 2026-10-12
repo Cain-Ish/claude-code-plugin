@@ -89,6 +89,14 @@ describe('writeFileAtomic', () => {
     expect(log[log.length - 1]).toBe('rm');
   });
 
+  it('names its temp file so the ensure-dirs debris sweep (*.tmp.*) can reap a killed write (re-audit R5-9)', async () => {
+    const tmps: string[] = [];
+    const io = { writeFile: async (f: string) => { tmps.push(f); }, rename: async () => {}, rm: async () => {}, sleep: async () => {} };
+    await writeFileAtomic(file, 'x', io);
+    expect(tmps).toHaveLength(1);
+    expect(tmps[0].startsWith(`${file}.tmp.`)).toBe(true);
+  });
+
   it('does not retry a non-transient rename error (TS-R1)', async () => {
     const { io, log } = mkIo([() => { throw Object.assign(new Error('x'), { code: 'ENOSPC' }); }]);
     await expect(writeFileAtomic(file, 'x', io)).rejects.toThrow('x');
