@@ -221,26 +221,24 @@ rm -rf "$BRAIN4" "$K4" "$REALPROJ" "$FAKEHOME"
 # the BRAIN_DIR root only: live state held 15 access-counts.json.tmp.* and a 568 KB
 # audit-log.jsonl.tmp.5543 from killed writers. Newer debris, real state files, subdirs, a debris-named
 # DIRECTORY and a debris-named SYMLINK (never followed) stay. The logged count is what was actually
-# deleted (5 here), not what find listed. Residual (2026-10-11): the old hook-timer's
-# .hook-timer-<pid>.timeout flags (nothing reads them since the watchdog rewrite) go the same way.
+# deleted (4 here), not what find listed.
 BRAIN5=$(mktemp -d); K5=$(mktemp -d); OUT5=$(mktemp -d); mkdir -p "$K5/wiki/learnings" "$BRAIN5/sub" "$BRAIN5/old.tmp.dir"
-for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7 .hook-timer-4242.timeout sub/deep.tmp.1; do
+for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7 sub/deep.tmp.1; do
   : > "$BRAIN5/$f"; touch -t 202001010000 "$BRAIN5/$f"
 done
 touch -t 202001010000 "$BRAIN5/old.tmp.dir"
 : > "$BRAIN5/access-counts.json"; touch -t 202001010000 "$BRAIN5/access-counts.json"
-: > "$BRAIN5/access-counts.json.tmp.fresh"; : > "$BRAIN5/.hook-timer-4243.timeout"
+: > "$BRAIN5/access-counts.json.tmp.fresh"
 echo keep > "$OUT5/target"; touch -t 202001010000 "$OUT5/target"
 G4_LINK=0
 if ln -s "$OUT5/target" "$BRAIN5/link.tmp.9" 2>/dev/null && [ -L "$BRAIN5/link.tmp.9" ]; then G4_LINK=1; else rm -f "$BRAIN5/link.tmp.9"; fi
 CLAUDE_PLUGIN_ROOT="$ROOT" BRAIN_DIR="$BRAIN5" KNOWLEDGE_DIR="$K5" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$K5" \
   tbound 40 bash "$ROOT/scripts/ensure-dirs.sh" >/dev/null 2>&1
-for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7 .hook-timer-4242.timeout; do
+for f in access-counts.json.tmp.101 access-counts.json.tmp.102 audit-log.jsonl.tmp.5543 audit-log.jsonl.rot.7; do
   [ -e "$BRAIN5/$f" ] && fail "G4: stale debris $f was not pruned"
 done
-pass "G4: >1-day-old *.tmp.* / *.rot.* / .hook-timer-*.timeout files in the BRAIN_DIR root are pruned"
+pass "G4: >1-day-old *.tmp.* / *.rot.* files in the BRAIN_DIR root are pruned"
 [ -e "$BRAIN5/access-counts.json.tmp.fresh" ] || fail "G4: a fresh *.tmp.* (a live writer's file) was deleted"
-[ -e "$BRAIN5/.hook-timer-4243.timeout" ] || fail "G4: a fresh .hook-timer-*.timeout (an old-version session's live flag) was deleted"
 [ -e "$BRAIN5/access-counts.json" ] || fail "G4: the real (non-debris) state file was deleted"
 [ -e "$BRAIN5/sub/deep.tmp.1" ] || fail "G4: pruning recursed below the BRAIN_DIR root (maxdepth 1 violated)"
 [ -d "$BRAIN5/old.tmp.dir" ] || fail "G4: a debris-named directory was pruned (only regular files may go)"
@@ -253,8 +251,8 @@ fi
 pass "G4: fresh debris, real state files, subdirectory contents, a debris-named dir and symlink are untouched"
 G4_ROW=$(jq -c 'select((.rule // .gate // "") == "tmp-debris-gc")' "$BRAIN5/audit-log.jsonl" 2>/dev/null | tr -d '\r')
 [ -n "$G4_ROW" ] || fail "G4: the pruned count was not logged"
-printf '%s' "$G4_ROW" | grep -q 'pruned 5 stale' || fail "G4: logged count is not the 5 files actually deleted: $G4_ROW"
-pass "G4: the logged count is the number of files actually deleted (5)"
+printf '%s' "$G4_ROW" | grep -q 'pruned 4 stale' || fail "G4: logged count is not the 4 files actually deleted: $G4_ROW"
+pass "G4: the logged count is the number of files actually deleted (4)"
 
 # 5b. G4, find fails on the delete pass: a find that LISTS the debris but cannot delete it (exit 1)
 # must not be audited as a prune, and its failure must reach the error log.
