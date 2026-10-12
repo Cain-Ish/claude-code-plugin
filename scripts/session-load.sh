@@ -2520,7 +2520,7 @@ fi
 
 # --- Stale wiki/index.md auto-reindex (background, no output) ---
 # Decoupled from extraction success: when LLM extraction is broken for days,
-# manual /pin or /archive writes still happen but reindex never fires. This
+# pin_to_project / archive_to_wiki writes still happen but reindex never fires. This
 # closes that gap by triggering reindex if the index is >24h old.
 WIKI_INDEX="$(sb_knowledge_dir)/wiki/index.md"
 if [ -f "$WIKI_INDEX" ]; then

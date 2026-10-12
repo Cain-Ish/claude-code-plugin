@@ -2901,7 +2901,7 @@ sb_get_maintainer_fails() {  # $1 = slug
 sb_reset_maintainer_fails() { rm -f "$BRAIN_DIR/projects/$1/.maintainer-fail-count"; }
 
 # Pin candidate queue — populated from extracted persona_signals;
-# session-load.sh banners the count so user can /pin with one prompt.
+# session-load.sh banners the count so the user can pin one with the pin_to_user tool.
 sb_append_pin_candidate() {
   local slug="$1" text="$2"
   local f="$BRAIN_DIR/projects/$slug/.pin-candidates.jsonl"
