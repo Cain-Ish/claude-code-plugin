@@ -1434,6 +1434,17 @@ fi
 # SEC-5: a short name under a //… target (a \\?\Volume{…} device path) is never walked, so never
 # expanded — _ptg_abs folded the leading // and the walk ended silent. It asks.
 s21 windows-alias:8.3 Write "$(w '||?|Volume{2a024647-cc9f-415d-963e-f119fc16be42}|Users|u|SECOND~1|PERSON~1.JSO')" PATH="$S21/cyg:$PATH"
+# T5: the expansion itself, on every lane — a cygpath stand-in spells the literal SECOND~1/PERSON~1.JSO
+# (on disk, so the walk finds it) long, and the hot-tier rule reads persona-rules.json.
+mkdir -p "$S21/t5/SECOND~1" "$S21/cyl"; : > "$S21/t5/SECOND~1/PERSON~1.JSO"
+cat > "$S21/cyl/cygpath" <<'EOF'
+#!/bin/sh
+# cygpath -l -m -- PATH: PATH with the T5 short names spelled long.
+for a in "$@"; do p="$a"; done
+printf '%s\n' "$p" | sed -e 's/SECOND~1/.second-brain/g' -e 's/PERSON~1[.]JSO/persona-rules.json/g'
+EOF
+chmod +x "$S21/cyl/cygpath"
+s21 warn-direct-write-hot-tier Write "$S21/t5/SECOND~1/PERSON~1.JSO" PATH="$S21/cyl:$PATH"
 if command -v cygpath >/dev/null 2>&1; then
   S21_R=$(cygpath -s -w "$S21/home/.second-brain/persona-rules.json" | tr -d '\r')
   S21_C=$(cygpath -s -w "$S21/home/.second-brain/persona-card.md" | tr -d '\r')

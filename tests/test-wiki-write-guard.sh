@@ -356,6 +356,18 @@ out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p 'C:\Users\me\notes\x.md' '{tool_nam
 out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p '\\?\Volume{2a024647-cc9f-415d-963e-f119fc16be42}\Users\u\KNOWLE~1\wiki\state\p4.md' '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
   | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
 printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "SEC-5: a ~N name under a \\\\?\\Volume path must ask (got: '$out')"
+# T5: the expansion itself, on every lane — a cygpath stand-in spells the literal KNOWLE~1 (on disk,
+# so the walk finds it) long, and the bare page is denied as a knowledge/wiki one.
+mkdir -p "$TMP/t5/KNOWLE~1/wiki/state" "$TMP/t5/cyl"
+cat > "$TMP/t5/cyl/cygpath" <<'EOF'
+#!/bin/sh
+# cygpath -l -m -- PATH: PATH with the T5 short name spelled long.
+for a in "$@"; do p="$a"; done
+printf '%s\n' "$p" | sed -e 's/KNOWLE~1/knowledge/g'
+EOF
+chmod +x "$TMP/t5/cyl/cygpath"
+s21w "$TMP/t5/KNOWLE~1/wiki/state/t5.md" PATH="$TMP/t5/cyl:$PATH"
+printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "T5: a bare page written through an expanded KNOWLE~1 must be denied (got: '$out')"
 if command -v cygpath >/dev/null 2>&1; then
   S21K=$(cygpath -s -m "$S21W/knowledge" | tr -d '\r')
   case "$S21K" in
