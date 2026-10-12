@@ -342,6 +342,15 @@ s21w "$S21W/notes~1/a.md" PATH="$S21W/cyg:$PATH"
 printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "S2-1: a ~N name cygpath cannot expand must ask (got: '$out')"
 s21w "$S21W/notes~1/a.md"
 [ -z "$out" ] || fail "S2-1: a literal ~N directory outside the wiki must stay silent (got: $out)"
+# SEC-1 (re-audit 0.57.1): p.md::$DATA is p.md on Windows (NTFS stream syntax), and no arm read that
+# spelling: on a Windows host (the failing stand-in makes every lane one) a target no arm reads that
+# holds a ':' past its drive asks; a drive path does not.
+out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p "$S21W/knowledge/wiki/state/p.md::\$DATA" '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
+  | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "SEC-1: a wiki page written as p.md::\$DATA must ask (got: '$out')"
+out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p 'C:\Users\me\notes\x.md' '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
+  | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
+[ -z "$out" ] || fail "SEC-1: a drive path with no stream must stay silent (got: $out)"
 if command -v cygpath >/dev/null 2>&1; then
   S21K=$(cygpath -s -m "$S21W/knowledge" | tr -d '\r')
   case "$S21K" in

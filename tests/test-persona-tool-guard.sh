@@ -1417,6 +1417,20 @@ s21() {  # s21 <rule|-> <tool> <file_path> [VAR=val…]
 s21 windows-alias:8.3 Write "$S21/home/.second-brain/notes~1/a.md" PATH="$S21/cyg:$PATH"
 s21 - Write "$S21/home/.second-brain/notes~1/a.md"
 s21 - Write "$S21/home/.second-brain/notes~2/a.md"
+# SEC-1 (re-audit 0.57.1): Windows writes persona-rules.json::$DATA to persona-rules.json itself (NTFS
+# stream syntax: a ':' past the drive), and no '$'-anchored match_path rule read that spelling. On a
+# Windows host (the failing stand-in makes every lane one) a Write/Edit target holding one asks below
+# the rules; a rule's own ask stands (the unanchored .injected rule), and a drive path is unaffected.
+s21 windows-alias:stream Write "$S21/home/.second-brain/persona-rules.json::\$DATA" PATH="$S21/cyg:$PATH"
+s21 windows-alias:stream Edit "$S21/home/.second-brain/persona-rules.json::\$DATA" PATH="$S21/cyg:$PATH"
+s21 windows-alias:stream Write "$S21/home/knowledge/wiki/state/p.md::\$DATA" PATH="$S21/cyg:$PATH"
+s21 warn-direct-write-hot-tier Write "$S21/home/.second-brain/persona-rules.json" PATH="$S21/cyg:$PATH"
+s21 warn-self-edit-injected Write "$S21/home/.second-brain/.injected/s21.slug::\$DATA" PATH="$S21/cyg:$PATH"
+s21 - Write 'C:\w\proj\notes.txt' PATH="$S21/cyg:$PATH"
+# Off Windows a ':' is a file-name character.
+if ! command -v cygpath >/dev/null 2>&1 && [[ ${OSTYPE:-} != msys* && ${OSTYPE:-} != cygwin* ]]; then
+  s21 - Write "$S21/home/.second-brain/persona-rules.json::\$DATA"
+fi
 if command -v cygpath >/dev/null 2>&1; then
   S21_R=$(cygpath -s -w "$S21/home/.second-brain/persona-rules.json" | tr -d '\r')
   S21_C=$(cygpath -s -w "$S21/home/.second-brain/persona-card.md" | tr -d '\r')

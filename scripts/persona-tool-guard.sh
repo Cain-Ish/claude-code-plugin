@@ -776,19 +776,30 @@ _ptg_w32() {
 # .ssh::$INDEX_ALLOCATION the directory) cannot be compared with any store and asks
 # (windows-alias:unc, windows-alias:stream); every component is matched as Win32 opens it (_ptg_w32).
 # Elsewhere ':' is a file-name character, // is /, and there are no 8.3 names.
+# _ptg_stream PATH: true on a Windows host when PATH holds a ':' past its drive — NTFS stream syntax,
+# which Win32 opens as the file itself (x::$DATA is x) and no '$'-anchored match_path rule reads.
+_ptg_stream() {
+  local _pq_t="$1"
+  _ptg_win || return 1
+  case "$_pq_t" in [A-Za-z]:*) _pq_t="${_pq_t:2}" ;; esac
+  case "$_pq_t" in *:*) return 0 ;; esac
+  return 1
+}
+_ptg_stream_reason() {  # _ptg_stream_reason TOOL PATH -> _PTG_SR: a file tool's windows-alias:stream ask (SEC-1)
+  _PTG_SR="$1 target '${2:0:256}' uses NTFS stream syntax (a ':' past the drive: persona-rules.json::\$DATA is persona-rules.json itself), which persona-tool-guard's path rules cannot match. Confirm the target."
+}
 _PTG_CRR="" _PTG_CRT=""
 _ptg_credread() {
-  local _pr_t _pr_a="$2" _pr_w=0
+  local _pr_a="$2" _pr_w=0
   _PTG_CRR="" _PTG_CRT=""
   if _ptg_win; then
     _pr_w=1
     case "$1" in
       //*) _PTG_CRR=windows-alias:unc _PTG_CRT="$1"; _ptg_alias_reason "$1" "a UNC or device path"; return 0 ;;
     esac
-    case "$1" in [A-Za-z]:*) _pr_t="${1:2}" ;; *) _pr_t="$1" ;; esac
-    case "$_pr_t" in
-      *:*) _PTG_CRR=windows-alias:stream _PTG_CRT="$1"; _ptg_alias_reason "$1" "NTFS stream syntax (a ':' past the drive)"; return 0 ;;
-    esac
+    if _ptg_stream "$1"; then
+      _PTG_CRR=windows-alias:stream _PTG_CRT="$1"; _ptg_alias_reason "$1" "NTFS stream syntax (a ':' past the drive)"; return 0
+    fi
     _ptg_w32 _pr_a "$2"
   fi
   if _ptg_cred "$_pr_a"; then
@@ -1061,6 +1072,8 @@ _ptg_fast() {
       [[ $lc =~ $_PTG_RE_RRULES ]] && _ptg_set warn-self-edit-repo-rules "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote"
       [[ $lc =~ $_PTG_RE_CACHE ]] && _ptg_set warn-self-edit-rules-cache "The effective-rules cache is derived from the rule layers — edit the layer (persona-rules.json or projects/<key>/rules.json), never the cache."
       [[ $lc =~ $_PTG_RE_INJ ]] && _ptg_set warn-self-edit-injected "~/.second-brain/.injected/ holds the per-session caches the hooks inject into every session and subagent (role cards, slug memos). A direct write there is hook-authority injection — confirm intent."
+      # SEC-1: the full logic's stream floor (below the rules). Not _ptg_set: its -edit suffix is no part of this rule's name.
+      if [ -z "$_PTG_RULE" ] && _ptg_stream "$path"; then _ptg_stream_reason "$tool" "$path"; _PTG_RULE=windows-alias:stream _PTG_REASON="$_PTG_SR"; fi
     fi
   fi
   tgt="${path:-${cmd:0:200}}"
@@ -1303,6 +1316,10 @@ _ptg_proj _PTG_PROJ
 if [ -n "$PATH_INPUT" ]; then
   if [ -n "$_PTG_PROJ" ]; then _ptg_norm PATH_INPUT CWD _PTG_PROJ; else _ptg_norm PATH_INPUT CWD; fi
 fi
+# SEC-1 (re-audit 0.57.1): a file tool's target in NTFS stream syntax (cygpath -u keeps the ::$DATA) —
+# the floor below the rules, after the credential one.
+_PTG_ST=0
+case "$TOOL" in Write|Edit|MultiEdit) [ -n "$PATH_INPUT" ] && _ptg_stream "$PATH_INPUT" && _PTG_ST=1 ;; esac
 
 # --- Credential-store Read (G1, R3) -----------------------------------------
 # A Read of ~/.ssh, ~/.aws, ~/.claude/.credentials.json, … asks, whatever the resource scope says
@@ -1673,7 +1690,7 @@ if [ "${SB_RESOURCE_SCOPE:-on}" != "off" ] && [ -n "$PATH_INPUT" ] && [ "$_PTG_L
   fi
 fi
 
-[ -z "$RULE_STREAM" ] && [ "$_PTG_LONG" = 0 ] && [ -z "$_PTG_CR_RULE" ] && exit 0
+[ -z "$RULE_STREAM" ] && [ "$_PTG_LONG" = 0 ] && [ -z "$_PTG_CR_RULE" ] && [ "$_PTG_ST" = 0 ] && exit 0
 
 # Pre-filter: ONE grep per field says whether ANY rule pattern can match (grep -E with every
 # pattern as a -e argument is true exactly when one of them matches a line); the per-rule greps
@@ -1808,6 +1825,13 @@ _fp_feed "$RULE_STREAM" _ptg_match
 # GX3: the credential Read floor (decided above the scope check): a rule's ask or deny stands.
 if [ -n "$_PTG_CR_RULE" ] && [ "$V_RANK" -lt 3 ]; then
   V_RANK=3 V_ACTION=ask V_RULE="$_PTG_CR_RULE" V_TARGET="$_PTG_CR_TGT" V_REASON="$_PTG_CR_REASON"
+fi
+
+# SEC-1: a target in NTFS stream syntax was matched in that spelling only — a rule's ask or deny
+# stands, anything less asks (ahead of the 8.3 and length floors, as the fast path decides it).
+if [ "$_PTG_ST" = 1 ] && [ "$V_RANK" -lt 3 ]; then
+  _ptg_stream_reason "$TOOL" "$PATH_INPUT"
+  V_RANK=3 V_ACTION=ask V_RULE=windows-alias:stream V_TARGET="$PATH_INPUT" V_REASON="$_PTG_SR"
 fi
 
 # S2-1: a short name cygpath did not expand was matched in its short spelling only — a rule's ask or
