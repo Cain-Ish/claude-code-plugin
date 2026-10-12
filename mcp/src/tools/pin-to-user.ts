@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
-import { withFileLock } from './hot-file-lock.js';
+import { withFileLock, LOCK_STOLEN } from './hot-file-lock.js';
 import { writeFileAtomic } from './atomic-write.js';
 
 // Cap on PIN LINES ONLY ("- [YYYY-MM-DD] …"), never on the whole file. The previous cap
@@ -44,10 +44,10 @@ export async function pinToUser(args: PinToUserArgs): Promise<PinToUserResult> {
   // this tool, holds it too) and replace by temp + rename.
   await fs.mkdir(dir, { recursive: true });
   return withFileLock(file, reason => ({ ok: false, line_added: '', reason }),
-    () => pinUserLocked(file, trimmed, newLine));
+    owned => pinUserLocked(file, trimmed, newLine, owned));
 }
 
-async function pinUserLocked(file: string, trimmed: string, newLine: string): Promise<PinToUserResult> {
+async function pinUserLocked(file: string, trimmed: string, newLine: string, owned: () => Promise<boolean>): Promise<PinToUserResult> {
   let content = '';
   try { content = await fs.readFile(file, 'utf-8'); }
   catch (e) {
@@ -87,6 +87,7 @@ async function pinUserLocked(file: string, trimmed: string, newLine: string): Pr
   out.splice(insertAt, 0, newLine);
   const projected = out.join('\n').replace(/\n*$/, '\n');
 
+  if (!(await owned())) return { ok: false, line_added: '', reason: LOCK_STOLEN };
   await writeFileAtomic(file, projected);
   return { ok: true, line_added: newLine };
 }

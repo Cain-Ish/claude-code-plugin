@@ -71,6 +71,18 @@ describe('hot-file-lock (E3, audit 2026-10)', () => {
     expect(readFileSync(lockPathFor(file), 'utf-8')).toBe('other.1\n');
   });
 
+  it('hands fn an owned() probe that turns false once the lock is stolen (re-audit R5-1)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const seen: boolean[] = [];
+    await withFileLock(file, () => 'busy', async owned => {
+      seen.push(await owned());
+      writeFileSync(lockPathFor(file), 'other.1\n');
+      seen.push(await owned());
+      return 'ran';
+    });
+    expect(seen).toEqual([true, false]);
+  });
+
   it('steals a lock past the 600 s hard bound even when its holder pid answers', async () => {
     const orig = Object.getOwnPropertyDescriptor(process, 'platform')!;
     vi.spyOn(console, 'error').mockImplementation(() => {});

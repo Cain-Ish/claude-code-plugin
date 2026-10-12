@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, promises as fsp } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
@@ -28,7 +28,7 @@ describe('pin_to_project', () => {
     mkdirSync(join(dir, 'projects', 'test-slug'), { recursive: true });
     writeFileSync(join(dir, 'projects', 'test-slug', 'PROJECT.md'), tpl, 'utf-8');
   });
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+  afterEach(() => { vi.restoreAllMocks(); rmSync(dir, { recursive: true, force: true }); });
 
   it('appends [active] blocker', async () => {
     const res = await pinToProject({ text: 'API rate limit', slug: 'test-slug', section: 'blockers', brainDir: dir });
@@ -246,6 +246,41 @@ describe('pin_to_project', () => {
     expect((await p).ok).toBe(true);
     expect(readFileSync(projectMd, 'utf-8')).toContain('- [active] pin that waits for the lock');
     expect(existsSync(lf)).toBe(false);
+  });
+
+  // Re-audit R5-1: a pin that stalls past the stale bound loses its lock to a merge; it must not
+  // then rename its pre-steal buffer over the merge's write.
+  const stealOnRead = () => {
+    const projectMd = join(dir, 'projects', 'test-slug', 'PROJECT.md');
+    const lf = join(dir, 'projects', 'test-slug', '.PROJECT.md.lock');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const realReadFile = fsp.readFile.bind(fsp);
+    vi.spyOn(fsp, 'readFile').mockImplementation((async (p: any, o: any) => {
+      if (String(p) === projectMd) writeFileSync(lf, 'other.1\n');   // the merge steals during the stall
+      return realReadFile(p, o);
+    }) as any);
+    return { projectMd, lf, before: readFileSync(projectMd, 'utf-8') };
+  };
+
+  it('a lock stolen while the pin holds it: ok:false, PROJECT.md untouched', async () => {
+    const { projectMd, lf, before } = stealOnRead();
+    const res = await pinToProject({ text: 'pin whose lock was stolen', slug: 'test-slug', section: 'blockers', brainDir: dir });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/stolen/);
+    expect(readFileSync(projectMd, 'utf-8')).toBe(before);
+    expect(readFileSync(lf, 'utf-8')).toBe('other.1\n');
+  });
+
+  it('a lock stolen before a duplicate re-pin marks its supersedes target: ok:false, nothing marked', async () => {
+    await pinToProject({ text: 'old timeout thirty seconds', slug: 'test-slug', section: 'decisions', brainDir: dir });
+    await pinToProject({ text: 'new timeout now 120 seconds', slug: 'test-slug', section: 'decisions', brainDir: dir });
+    const { projectMd, before } = stealOnRead();
+    const res = await pinToProject({
+      text: 'new timeout now 120 seconds', slug: 'test-slug', section: 'decisions', brainDir: dir, supersedes: 'thirty seconds',
+    });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/stolen/);
+    expect(readFileSync(projectMd, 'utf-8')).toBe(before);
   });
 
   // The lost update itself: a real merge-project-update.sh run is held inside its read-modify-write

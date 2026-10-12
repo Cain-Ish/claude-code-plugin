@@ -135,4 +135,24 @@ describe('pin_to_user', () => {
     expect(readFileSync(join(dir, 'USER.md'), 'utf-8')).toContain('pin that waits for the lock');
     expect(existsSync(lf)).toBe(false);
   });
+
+  // Re-audit R5-1: a pin whose lock was stolen during a stall must not rename its stale buffer over USER.md.
+  it('a lock stolen while the pin holds it: ok:false, USER.md untouched', async () => {
+    const original = ['# USER', '', '## Pinned', '- [2026-01-01] kept pin', ''].join('\n');
+    writeFileSync(join(dir, 'USER.md'), original, 'utf-8');
+    const lf = join(dir, '.USER.md.lock');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = vi.spyOn(fsPromises, 'readFile');
+    spy.mockImplementation(async (p, ...rest) => {
+      if (String(p) === join(dir, 'USER.md')) writeFileSync(lf, 'other.1\n');   // stolen during the stall
+      return realReadFile(p as string, ...(rest as [BufferEncoding]));
+    });
+    try {
+      const res = await pinToUser({ text: 'pin whose lock was stolen', brainDir: dir });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toMatch(/stolen/);
+    } finally { spy.mockRestore(); err.mockRestore(); }
+    expect(readFileSync(join(dir, 'USER.md'), 'utf-8')).toBe(original);
+    expect(readFileSync(lf, 'utf-8')).toBe('other.1\n');
+  });
 });

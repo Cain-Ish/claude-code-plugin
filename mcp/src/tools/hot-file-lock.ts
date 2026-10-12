@@ -48,9 +48,14 @@ async function stealIfStale(lf: string): Promise<void> {
   await fs.rm(grab, { force: true });
 }
 
-/** Run fn holding file's shared lock. Still busy after waitMs: return busy(reason), nothing run. */
+export const LOCK_STOLEN = 'lock stolen while held; nothing written, retry';
+
+/** Run fn holding file's shared lock. Still busy after waitMs: return busy(reason), nothing run.
+ *  fn calls owned() right before each write and returns LOCK_STOLEN when it is false: a writer that
+ *  stalled past the stale bound lost the lock, and its buffer predates the thief's write
+ *  (merge-project-update.sh checks its token before its mv the same way). */
 export async function withFileLock<T>(
-  file: string, busy: (reason: string) => T, fn: () => Promise<T>, waitMs = LOCK_WAIT_MS,
+  file: string, busy: (reason: string) => T, fn: (owned: () => Promise<boolean>) => Promise<T>, waitMs = LOCK_WAIT_MS,
 ): Promise<T> {
   const lf = lockPathFor(file);
   const token = `${process.pid}.${randomInt(1e9)}`;
@@ -70,7 +75,7 @@ export async function withFileLock<T>(
     }
     await sleep(100);
   }
-  try { return await fn(); }
+  try { return await fn(async () => (await firstLine(lf).catch(() => '')) === token); }
   finally {
     const held = await firstLine(lf).catch(() => '');
     if (held === token) {

@@ -19,6 +19,7 @@ describe('archive_to_wiki', () => {
     writeFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), tpl, 'utf-8');
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(brainDir, { recursive: true, force: true });
     rmSync(knowledgeDir, { recursive: true, force: true });
   });
@@ -127,6 +128,25 @@ describe('archive_to_wiki', () => {
     expect((await p).ok).toBe(true);
     expect(readFileSync(projectMd, 'utf-8')).toMatch(/→ wiki\/issues\/test-slug\//);
     expect(existsSync(lf)).toBe(false);
+  });
+
+  // Re-audit R5-1: a lock stolen during a stall: no PROJECT.md replace, and no orphan page a retry would duplicate.
+  it('a lock stolen while the archive holds it: ok:false, PROJECT.md untouched, no page left', async () => {
+    const projectMd = join(brainDir, 'projects', 'test-slug', 'PROJECT.md');
+    const lf = join(brainDir, 'projects', 'test-slug', '.PROJECT.md.lock');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fsp = (await import('fs')).promises;
+    const realReadFile = fsp.readFile.bind(fsp);
+    vi.spyOn(fsp, 'readFile').mockImplementation((async (p: any, o: any) => {
+      if (String(p) === projectMd) writeFileSync(lf, 'other.1\n');   // the merge steals during the stall
+      return realReadFile(p, o);
+    }) as any);
+    const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/stolen/);
+    expect(readFileSync(projectMd, 'utf-8')).toBe(tpl);
+    const wikiDir = join(knowledgeDir, 'wiki', 'issues', 'test-slug');
+    expect(existsSync(wikiDir) ? readdirSync(wikiDir) : []).toEqual([]);
   });
 
   it('TS-R2: a failed PROJECT.md replace removes the page it wrote, so a retry does not duplicate', async () => {
