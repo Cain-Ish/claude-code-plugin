@@ -328,6 +328,33 @@ grep -q 'wiki-write-guard.sh' "$TMP/brain/error-log.jsonl" \
   || fail "G18: the failed content read must be logged (error-log: $(cat "$TMP/brain/error-log.jsonl"))"
 pass "G18: a failed jq content read asks and logs (fail closed, like Edit/MultiEdit)"
 
+# --- S2-1 (re-audit 0.57.1): an NTFS 8.3 short name reaches the wiki arms ---------------------
+# KNOWLE~1 (knowledge) matched no wiki arm, so a bare page written through it skipped the
+# frontmatter deny. The full logic expands the deepest existing ancestor with cygpath -l; a ~N name
+# cygpath cannot expand asks (every host, a failing cygpath stand-in), a literal one stays silent.
+S21W="$TMP/s21"; mkdir -p "$S21W/knowledge/wiki/state" "$S21W/notes~1" "$S21W/cyg"
+printf '#!/bin/sh\nexit 1\n' > "$S21W/cyg/cygpath"; chmod +x "$S21W/cyg/cygpath"
+s21w() {  # s21w <file_path> [VAR=val…] -> out (a bare Write: no frontmatter)
+  local f="$1"; shift
+  out=$(jq -nc --arg p "$f" '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' | env "$@" bash "$SCRIPT")
+}
+s21w "$S21W/notes~1/a.md" PATH="$S21W/cyg:$PATH"
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "S2-1: a ~N name cygpath cannot expand must ask (got: '$out')"
+s21w "$S21W/notes~1/a.md"
+[ -z "$out" ] || fail "S2-1: a literal ~N directory outside the wiki must stay silent (got: $out)"
+if command -v cygpath >/dev/null 2>&1; then
+  S21K=$(cygpath -s -m "$S21W/knowledge" | tr -d '\r')
+  case "$S21K" in
+    *KNOWLE~[0-9]*)
+      s21w "$S21K/wiki/state/s21-page.md"
+      printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "S2-1: a bare page written through '$S21K' must be denied (got: '$out')" ;;
+    *) echo "SKIP: S2-1 real short names — this volume makes none (cygpath -s gave '$S21K')" ;;
+  esac
+else
+  echo "SKIP: S2-1 real short names — not a Windows host (no cygpath)"
+fi
+pass "S2-1: a wiki page written through an 8.3 short name is checked; an unexpandable one asks"
+
 # --- B7: decided before any dependency (a late PreToolUse answer is cancelled and the Write runs) ---
 # Fixture: a plugin root whose lib.sh sleeps, plus PATH stand-ins that sleep for each external the
 # full logic uses. The deny must still arrive within B7_BOUND seconds (whole-second SECONDS; no

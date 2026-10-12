@@ -1378,6 +1378,48 @@ if ! command -v cygpath >/dev/null 2>&1 && [[ ${OSTYPE:-} != msys* && ${OSTYPE:-
 fi
 pass "GS2/GS3/GT9: Windows spellings of a credential store ask on both paths; a literal ~ is HOME; cygpath failure and a trailing-separator project root are handled"
 
+# --- S2-1 (re-audit 0.57.1): NTFS 8.3 short names reach the match_path rules ------------------
+# A Write or Edit of SECOND~1\PERSON~1.JSO (.second-brain\persona-rules.json), PERSON~1.MD
+# (persona-card.md) or INJECT~1\<new file> (.injected) got no verdict from any guard, where the long
+# names ask. The full logic expands the deepest existing ancestor (cygpath -l); one it cannot expand
+# asks as windows-alias:8.3. The scope is off, so only a rule can ask; the audit row names it.
+S21=$(mktemp -d); mkdir -p "$S21/b" "$S21/home/.second-brain/.injected" "$S21/home/.second-brain/notes~1" "$S21/cyg"
+: > "$S21/home/.second-brain/persona-rules.json"; : > "$S21/home/.second-brain/persona-card.md"
+printf '#!/bin/sh\nexit 1\n' > "$S21/cyg/cygpath"; chmod +x "$S21/cyg/cygpath"
+s21() {  # s21 <rule|-> <tool> <file_path> [VAR=val…]
+  local r="$1" t="$2" f="$3"; shift 3
+  : > "$S21/b/audit-log.jsonl"
+  out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg t "$t" --arg f "$f" '{tool_name:$t,tool_input:{file_path:$f,content:"x",old_string:"a",new_string:"b"},session_id:"s21"}' \
+    | env SB_RESOURCE_SCOPE=off HOME="$S21/home" BRAIN_DIR="$S21/b" "$@" bash "$SCRIPT")
+  if [ "$r" = - ]; then
+    [ -z "$out" ] || fail "S2-1: $t of '$f' must stay silent (got: $out)"
+  else
+    printf '%s' "$out" | grep -q '"permissionDecision":"ask"' && grep -q "\"rule\":\"$r\"" "$S21/b/audit-log.jsonl" \
+      || fail "S2-1: $t of '$f' must ask via $r (got: '$out'; audit: $(cat "$S21/b/audit-log.jsonl"))"
+  fi
+}
+# Every host: a ~N component on disk that cygpath cannot expand (a failing cygpath) asks; with no
+# failing cygpath it is a literal name (Windows: its own long name; elsewhere no alias exists) and stays silent.
+s21 windows-alias:8.3 Write "$S21/home/.second-brain/notes~1/a.md" PATH="$S21/cyg:$PATH"
+s21 - Write "$S21/home/.second-brain/notes~1/a.md"
+s21 - Write "$S21/home/.second-brain/notes~2/a.md" PATH="$S21/cyg:$PATH"
+if command -v cygpath >/dev/null 2>&1; then
+  S21_R=$(cygpath -s -w "$S21/home/.second-brain/persona-rules.json" | tr -d '\r')
+  S21_C=$(cygpath -s -w "$S21/home/.second-brain/persona-card.md" | tr -d '\r')
+  S21_I=$(cygpath -s -w "$S21/home/.second-brain/.injected" | tr -d '\r')
+  case "$S21_R|$S21_C|$S21_I" in
+    *PERSON~[0-9]*PERSON~[0-9]*INJECT~[0-9]*)
+      s21 warn-direct-write-hot-tier Write "$S21_R"
+      s21 warn-direct-write-hot-tier-edit Edit "$S21_R"
+      s21 warn-direct-write-hot-tier-edit Edit "$S21_C"
+      s21 warn-self-edit-injected Write "$S21_I\\s21.slug" ;;
+    *) echo "SKIP: S2-1 real short names — this volume makes none (cygpath -s gave '$S21_R')" ;;
+  esac
+else
+  echo "SKIP: S2-1 real short names — not a Windows host (no cygpath)"
+fi
+pass "S2-1: 8.3 short names of persona-rules.json, persona-card.md and .injected reach their rules; an unexpandable one asks, a literal ~N name stays silent"
+
 # GW (R3, 2026-10-07): a session's payload cwd follows its shell's `cd` — live, the cwd was the
 # r3-mt worktree while the session's project was the repo root, and Reads of the sibling worktree
 # <repo>/.claude/worktrees/r3-ro/… got the out-of-scope ask. $PROJECT (CLAUDE_PROJECT_DIR, the

@@ -1690,6 +1690,36 @@ while IFS= read -r rule_name && IFS= read -r action && IFS= read -r match_cmd \
 done
 }
 _fp_feed "$RULE_STREAM" _ptg_collect
+# S2-1 (re-audit 0.57.1): an NTFS 8.3 short name spells a file no match_path rule reads — a Write to
+# SECOND~1\PERSON~1.JSO is one to .second-brain\persona-rules.json, and no guard said a word.
+# _ptg_long83 VAR: on a Windows host, VAR's deepest existing ancestor (the target itself for an Edit)
+# is respelled by `cygpath -l -m`, the rest re-attached, and the result normalized as the target was
+# (symlink-guard's expansion). A component that does not exist is no alias: Win32 creates it under
+# that literal name. 1 = an existing ancestor holds a ~N name cygpath did not expand, or the walk ran
+# past 128 components: the target is matched short and asked about (_PTG_83, below the rules). Only
+# with a path rule to match; never past 4096 characters (_PTG_LONG asks) or for a //… target (a stat
+# on a UNC share can block for seconds).
+_ptg_long83() {
+  local _pl_a _pl_p _pl_r="" _pl_x _pl_n=0
+  _ptg_win || return 0
+  case "${!1}" in *~[0-9]*) ;; *) return 0 ;; esac
+  _ptg_abs "${!1}" "$CWD"; _pl_a="$_PTG_ABS"
+  case "$_pl_a" in //*) return 0 ;; esac
+  while [ ! -e "$_pl_a" ]; do
+    [ "$_pl_n" -lt 128 ] || return 1
+    case "$_pl_a" in /*/*) ;; *) return 0 ;; esac
+    _pl_p="${_pl_a%/*}"; _pl_r="${_pl_a:${#_pl_p}}$_pl_r"; _pl_a="$_pl_p"
+    _pl_n=$((_pl_n + 1))
+  done
+  case "$_pl_a" in *~[0-9]*) ;; *) return 0 ;; esac
+  _pl_x=$(cygpath -l -m -- "$_pl_a" 2>/dev/null) && [ -n "$_pl_x" ] || return 1
+  printf -v "$1" '%s' "${_pl_x%"$_fp_cr"}$_pl_r"
+  _ptg_norm "$1"
+}
+_PTG_83=0
+if [ -n "$PATH_INPUT" ] && [ ${#_ptg_path_pats[@]} -gt 0 ] && [ "$_PTG_LONG" = 0 ]; then
+  _ptg_long83 PATH_INPUT || _PTG_83=1
+fi
 # A big command keeps only the lines some pattern matched (grep is line-based: a line one rule
 # matches is among them), so each rule's grep below reads those, not the whole command again.
 CMD_HIT=0 PATH_HIT=0 CMD_SCAN="$CMD"
@@ -1762,6 +1792,14 @@ _fp_feed "$RULE_STREAM" _ptg_match
 # GX3: the credential Read floor (decided above the scope check): a rule's ask or deny stands.
 if [ -n "$_PTG_CR_RULE" ] && [ "$V_RANK" -lt 3 ]; then
   V_RANK=3 V_ACTION=ask V_RULE="$_PTG_CR_RULE" V_TARGET="$_PTG_CR_TGT" V_REASON="$_PTG_CR_REASON"
+fi
+
+# S2-1: a short name cygpath did not expand was matched in its short spelling only — a rule's ask or
+# deny stands, anything less asks.
+if [ "$_PTG_83" = 1 ] && [ "$V_RANK" -lt 3 ]; then
+  _fp_err "persona-tool-guard.sh" "cygpath -l could not expand the 8.3 short name in the $TOOL target ${PATH_INPUT:0:200}; asked"
+  V_RANK=3 V_ACTION=ask V_RULE=windows-alias:8.3 V_TARGET="$PATH_INPUT"
+  V_REASON="$TOOL target '${PATH_INPUT:0:256}' holds an NTFS 8.3 short name (NAME~1) that cygpath could not expand to its long form, so persona-tool-guard cannot match it against its path rules (PERSON~1.JSO may be persona-rules.json). Confirm the target."
 fi
 
 # G3: a target past 4096 characters was matched in its lexical spelling only (_ptg_norm) — every rule

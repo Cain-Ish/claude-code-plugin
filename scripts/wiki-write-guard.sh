@@ -650,6 +650,34 @@ esac
 # no cygpath needed, and every downstream test/mkdir/mv accepts the mixed form).
 FILE_PATH="${FILE_PATH//\\//}"
 
+# S2-1 (re-audit 0.57.1): an NTFS 8.3 short name (KNOWLE~1 is knowledge, SECOND~1 is .second-brain)
+# matched none of the wiki arms below, so a page written through one skipped every check. On a
+# Windows host FILE_PATH's deepest existing ancestor is respelled by `cygpath -l -m` and the rest
+# re-attached (persona-tool-guard's _ptg_long83); a component that does not exist is no alias (Win32
+# creates it under that literal name). 1 = an existing ancestor holds a ~N name cygpath did not
+# expand, or the walk ran past 128 components: asked. Not past 4096 characters, nor for a //… path
+# (a stat on a UNC share can block). The fast path decides only the paths its arms read.
+_wwg_long83() {
+  local _w8_a="$FILE_PATH" _w8_p _w8_r="" _w8_x _w8_n=0
+  case "$_w8_a" in //*) return 0 ;; *~[0-9]*) ;; *) return 0 ;; esac
+  [ "${#_w8_a}" -le 4096 ] || return 0
+  command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || return 0
+  while [ ! -e "$_w8_a" ]; do
+    [ "$_w8_n" -lt 128 ] || return 1
+    case "$_w8_a" in ?*/*) ;; *) return 0 ;; esac
+    _w8_p="${_w8_a%/*}"; _w8_r="${_w8_a:${#_w8_p}}$_w8_r"; _w8_a="$_w8_p"
+    _w8_n=$((_w8_n + 1))
+  done
+  case "$_w8_a" in *~[0-9]*) ;; *) return 0 ;; esac
+  _w8_x=$(cygpath -l -m -- "$_w8_a" 2>/dev/null) && [ -n "$_w8_x" ] || return 1
+  FILE_PATH="${_w8_x%"$_fp_cr"}$_w8_r"
+}
+if ! _wwg_long83; then
+  _fp_err "wiki-write-guard.sh" "cygpath -l could not expand the 8.3 short name in the $TOOL target ${FILE_PATH:0:200}; asked"
+  _fp_emit ask "second-brain wiki-write-guard.sh cannot tell whether '${FILE_PATH:0:256}' is a wiki page: it holds an NTFS 8.3 short name (NAME~1) that cygpath could not expand to its long form. Confirm the call."
+  exit 0
+fi
+
 # Case-INSENSITIVE scope match (0.45.4): NTFS and default APFS are case-insensitive,
 # so …/knowledge/Wiki/Page.md IS …/knowledge/wiki/page.md there — and before this a
 # one-letter case change hit the `*) exit 0` arm below, silently bypassing frontmatter
