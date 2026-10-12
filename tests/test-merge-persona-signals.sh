@@ -1,7 +1,7 @@
 #!/bin/bash
-# run-all-timeout: 360   (~50 merge runs; the E1/F2/S3-1 cases run the REAL lib.sh 15 more times plus a
-#   1 s lock wait; measured 121 s alone on a loaded MSYS box, 2026-10-11; 212 s alone with the 0.57.1
-#   cases on a box shared with other fix rounds, 2026-10-12)
+# run-all-timeout: 600   (~55 merge runs; the E1/F2/S3-1/Q-SF1/Q-SF2 cases run the REAL lib.sh 19 more times
+#   plus two 1 s lock waits; measured 121 s alone on a loaded MSYS box, 2026-10-11; 212 s alone with the
+#   0.57.1 cases on a box shared with other fix rounds, 2026-10-12; 283 s alone with the round-2 cases)
 # pins: SB_ARCHIVE_LOCK_WAIT_S — R1 (held signals lock) sets it to 1: the bounded wait failing loud is under test, not its length; R1's 6 concurrent merges raise it to 30 s so a loaded box does not drop the 6th (the lost update is under test)
 # Tests for scripts/merge-persona-signals.sh — signal dedup + auto-graduation.
 # Goal: prove that the loosened dedup (set-min, 50%) catches paraphrased
