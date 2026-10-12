@@ -351,12 +351,21 @@ printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "SEC-1: a wiki
 out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p 'C:\Users\me\notes\x.md' '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
   | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
 [ -z "$out" ] || fail "SEC-1: a drive path with no stream must stay silent (got: $out)"
+# SEC-5: a ~N name under a //… path (here a \\?\Volume{…} device path) is never walked, so never
+# expanded: it asks, where it passed silent.
+out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p '\\?\Volume{2a024647-cc9f-415d-963e-f119fc16be42}\Users\u\KNOWLE~1\wiki\state\p4.md' '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
+  | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "SEC-5: a ~N name under a \\\\?\\Volume path must ask (got: '$out')"
 if command -v cygpath >/dev/null 2>&1; then
   S21K=$(cygpath -s -m "$S21W/knowledge" | tr -d '\r')
   case "$S21K" in
     *KNOWLE~[0-9]*)
       s21w "$S21K/wiki/state/s21-page.md"
       printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "S2-1: a bare page written through '$S21K' must be denied (got: '$out')"
+      # SEC-5: ...and through '\\?\' + that short spelling, a prefix the full logic now cuts before a drive.
+      s21_dev=$(printf '\\\\?\\%s\\wiki\\state\\s21-dev.md' "$S21K" | tr '/' '\134')
+      out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p "$s21_dev" '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' | bash "$SCRIPT")
+      printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "SEC-5: a bare page written through '$s21_dev' must be denied (got: '$out')"
       # A custom KNOWLEDGE_DIR (no "knowledge" segment), the page spelled short, the variable spelled
       # long or short: the full logic ('-' first: the fast path stands down) matches either spelling.
       S21V="$S21W/Notes Vault S21"; mkdir -p "$S21V/wiki/concepts"

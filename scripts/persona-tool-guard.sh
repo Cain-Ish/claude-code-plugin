@@ -1716,14 +1716,15 @@ _fp_feed "$RULE_STREAM" _ptg_collect
 # (symlink-guard's expansion). A component that does not exist is no alias: Win32 creates it under
 # that literal name. 1 = an existing ancestor holds a ~N name cygpath did not expand, or the walk ran
 # past 128 components: the target is matched short and asked about (_PTG_83, below the rules). Only
-# with a path rule to match; never past 4096 characters (_PTG_LONG asks) or for a //… target (a stat
-# on a UNC share can block for seconds).
+# with a path rule to match; never past 4096 characters (_PTG_LONG asks). A //… target (a UNC share,
+# a \\?\Volume{…} device path) holding a ~N name is never walked — a stat on a share can block for
+# seconds — and asks (SEC-5: tested before _ptg_abs, which folds the leading //).
 _ptg_long83() {
   local _pl_a _pl_p _pl_r="" _pl_x _pl_n=0
   _ptg_win || return 0
   case "${!1}" in *~[0-9]*) ;; *) return 0 ;; esac
+  case "${!1}" in //*) return 1 ;; esac
   _ptg_abs "${!1}" "$CWD"; _pl_a="$_PTG_ABS"
-  case "$_pl_a" in //*) return 0 ;; esac
   while [ ! -e "$_pl_a" ]; do
     [ "$_pl_n" -lt 128 ] || return 1
     case "$_pl_a" in /*/*) ;; *) return 0 ;; esac

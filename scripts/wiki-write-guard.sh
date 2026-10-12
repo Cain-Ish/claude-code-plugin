@@ -647,21 +647,24 @@ esac
 # matches the '/'-separated glob below, so frontmatter enforcement + tombstone
 # auto-restore were both inert on Windows. Convert to forward slashes (the
 # match is a '/knowledge/wiki/' substring, so the C:/ drive form matches fine —
-# no cygpath needed, and every downstream test/mkdir/mv accepts the mixed form).
-FILE_PATH="${FILE_PATH//\\//}"
+# no cygpath needed, and every downstream test/mkdir/mv accepts the mixed form). _fp_path also cuts a
+# \\?\ or \\.\ prefix before a drive (SEC-5: \\?\C:\…\KNOWLE~1\… was a //… path, never expanded).
+_fp_path FILE_PATH "$FILE_PATH"
 
 # S2-1 (re-audit 0.57.1): an NTFS 8.3 short name (KNOWLE~1 is knowledge, SECOND~1 is .second-brain)
 # matched none of the wiki arms below, so a page written through one skipped every check. On a
 # Windows host FILE_PATH's deepest existing ancestor is respelled by `cygpath -l -m` and the rest
 # re-attached (persona-tool-guard's _ptg_long83); a component that does not exist is no alias (Win32
 # creates it under that literal name). 1 = an existing ancestor holds a ~N name cygpath did not
-# expand, or the walk ran past 128 components: asked. Not past 4096 characters, nor for a //… path
-# (a stat on a UNC share can block). The fast path decides only the paths its arms read.
+# expand, or the walk ran past 128 components: asked. Not past 4096 characters. A //… path (a UNC
+# share, a \\?\Volume{…} device path) holding a ~N name is never walked — a stat on a share can block —
+# and asks (SEC-5). The fast path decides only the paths its arms read.
 _wwg_long83() {
   local _w8_a="$FILE_PATH" _w8_p _w8_r="" _w8_x _w8_n=0
-  case "$_w8_a" in //*) return 0 ;; *~[0-9]*) ;; *) return 0 ;; esac
+  case "$_w8_a" in *~[0-9]*) ;; *) return 0 ;; esac
   [ "${#_w8_a}" -le 4096 ] || return 0
   command -v cygpath >/dev/null 2>&1 || [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]] || return 0
+  case "$_w8_a" in //*) return 1 ;; esac
   while [ ! -e "$_w8_a" ]; do
     [ "$_w8_n" -lt 128 ] || return 1
     case "$_w8_a" in ?*/*) ;; *) return 0 ;; esac
