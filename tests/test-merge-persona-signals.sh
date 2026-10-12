@@ -434,6 +434,17 @@ e1_merge "$SIG_F2" --session f2-c
 [ "$(grep -c 'REFUSED class=phrase.*module system' "$E1_BRAIN/error-log.jsonl" || true)" = "$F2_N" ] \
   || fail "F2: the refused signal was re-attempted on the next merge"
 pass "F2: a classifier-flagged signal is kept as graduated \"refused\", never pinned or re-attempted"
+# Q-SF1: a clean paraphrase of that refused record is its own signal: it graduates, and the refused
+# record stays refused (it used to absorb the paraphrase, which then never graduated).
+SIG_Q1='[{"category":"tooling","signal":"Prefers ESM over CommonJS in every new package","evidence":"e","confidence":"high"}]'
+for s in q1-c q1-d q1-e; do e1_merge "$SIG_Q1" --session "$s"; done
+grep -qE '^- \[[0-9-]{10}\] Prefers ESM over CommonJS in every new package$' "$E1_LEARNED" 2>/dev/null \
+  || fail "Q-SF1: a clean paraphrase of a refused signal never graduated: $(cat "$E1_BRAIN/persona-signals.jsonl")"
+jq -e -s '[.[] | select(.signal | test("module system: ESM"))] | length == 1 and .[0].graduated == "refused"' "$E1_BRAIN/persona-signals.jsonl" >/dev/null \
+  || fail "Q-SF1: the paraphrase graduation flipped the refused record: $(cat "$E1_BRAIN/persona-signals.jsonl")"
+[ "$(grep -c 'REFUSED class=phrase.*ESM over CommonJS' "$E1_BRAIN/error-log.jsonl" || true)" = 1 ] \
+  || fail "Q-SF1: expected exactly one REFUSED row for the ESM preference"
+pass "Q-SF1: a clean paraphrase of a refused signal graduates; the refused record stays refused"
 
 # --- S3-1 (re-audit): a rule candidate message passes the injection classifier before it is
 # accumulated; an injection-shaped one never arms, even from 3 distinct sessions, and is logged.

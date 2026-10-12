@@ -121,9 +121,10 @@ MERGED=$(jq -nc \
       ([$a[] | select(. as $w | $b | index($w))] | length) * 100 / $denom
     end;
 
+  # A refused record absorbs only its exact re-sighting: a clean paraphrase gets its own record.
   reduce ($new_sigs[0][]) as $sig ($existing[0];
     ($sig.signal | content_words) as $new_words |
-    (to_entries | map(
+    (to_entries | map(select(.value.graduated != "refused" or .value.signal == $sig.signal) |
       (.value.signal | content_words) as $old_words |
       {key: .key, pct: word_overlap($new_words; $old_words)}
     ) | map(select(.pct >= 50)) | sort_by(-.pct) | .[0].key) as $idx |
@@ -239,6 +240,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
         # Mirror the merge-step dedup: set-min denominator, 50% threshold,
         # 3-word floor on both sides. Without this mirror, a graduated signal
         # could leave its near-duplicates ungraduated and they would re-fire.
+        # A refused near-duplicate stays refused.
         def content_words: ascii_downcase | [scan("[a-z]{3,}")] | unique;
         ($sig | content_words) as $target |
         [.[] | (.signal | content_words) as $w |
@@ -246,7 +248,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
           else
             ([($target | length), ($w | length)] | min) as $denom |
             if (([$target[] | select(. as $t | $w | index($t))] | length) * 100 / $denom) >= 50
-            then .graduated = true else . end
+            then (if .graduated == "refused" then . else .graduated = true end) else . end
           end
         ]
       ')
