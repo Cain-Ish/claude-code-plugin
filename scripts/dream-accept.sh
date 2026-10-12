@@ -224,6 +224,49 @@ if [ -n "$OOT_LINKS" ]; then
   exit 1
 fi
 
+# The snapshot: its time (status.json .created_at) and the page list dream-snapshot.sh staged.
+# The runner can rewrite or delete snapshot-pages.txt (it sits in its dream dir); that only falls
+# back to the mtime-only protection below, and its unconfined Bash reaches live anyway (P-C4).
+CREATED_AT=$(jq -r '.created_at // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
+SNAP_LIST="$DREAM_DIR/snapshot-pages.txt"
+if [ ! -f "$SNAP_LIST" ]; then
+  sb_log_error "dream-accept" "gate=snapshot-list verdict=absent dream=$DREAM_ID: no snapshot-pages.txt (staged before 0.57.1); live pages are protected by mtime only, so pages an earlier accept wrote or archived since this snapshot can be deleted or copied back" 0
+fi
+# _snap_ref <file>: give <file> the created_at mtime, so `find -newer` / `-nt` compare against the
+# snapshot with no ISO date parsing (GNU/BSD differ). Non-zero when created_at is unusable.
+_snap_ref() {
+  local _tt
+  { [ -n "$CREATED_AT" ] && [ "$CREATED_AT" != "null" ]; } || return 1
+  touch -d "$CREATED_AT" "$1" 2>/dev/null && return 0                          # GNU
+  _tt=$(printf '%s' "$CREATED_AT" | sed -E 's/[^0-9]//g')                      # 2026-07-01T12:00:00Z -> 20260701120000
+  # TZ=UTC: created_at is UTC ('Z'), but POSIX `touch -t` reads LOCAL time —
+  # without the override the protect boundary shifts by the UTC offset
+  # (west-of-UTC leaves up to ~12h of post-snapshot writes unprotected).
+  if   [ "${#_tt}" -ge 14 ]; then TZ=UTC touch -t "${_tt:0:12}.${_tt:12:2}" "$1" 2>/dev/null   # POSIX/BSD, with seconds
+  elif [ "${#_tt}" -ge 12 ]; then TZ=UTC touch -t "${_tt:0:12}" "$1" 2>/dev/null              # seconds-less timestamp
+  else return 1
+  fi
+}
+_pages() { (cd "$1" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sed 's#^\./##' | LC_ALL=C sort) || true; }
+
+# S4-1: a page the snapshot staged that live has lost since (an earlier dream's accept archived or
+# merged it away, or it was deleted) and that this dream left untouched is not copied back: it is
+# dropped from staging, so both apply paths skip it. Untouched = the staging copy is not newer than
+# created_at (cp -rp kept its live mtime). Checked BEFORE the normalization below rewrites staging.
+# An empty live listing (wiki gone, KNOWLEDGE_DIR moved) drops nothing.
+if [ -f "$SNAP_LIST" ] && _live=$(_pages "$LIVE_WIKI") && [ -n "$_live" ] && _snap_ref "$DREAM_DIR/.snap-ref.$$"; then
+  _gone=""
+  while IFS= read -r _rel; do
+    [ -n "$_rel" ] || continue
+    [ "$STAGING_WIKI/$_rel" -nt "$DREAM_DIR/.snap-ref.$$" ] && continue   # the dream edited it: its edit applies
+    if rm -f "$STAGING_WIKI/$_rel"; then _gone="$_gone $_rel"
+    else sb_log_error "dream-accept" "could not drop '$_rel' from $DREAM_ID's staging; the apply copies it back into the live wiki" 0
+    fi
+  done < <(LC_ALL=C comm -12 <(LC_ALL=C sort "$SNAP_LIST") <(LC_ALL=C comm -23 <(_pages "$STAGING_WIKI") <(printf '%s\n' "$_live")))
+  rm -f "$DREAM_DIR/.snap-ref.$$"
+  [ -n "$_gone" ] && echo "Not restoring page(s) removed from the live wiki since the snapshot and unchanged by this dream:$_gone"
+fi
+
 # Node-shape convergence: run the SAME node-shaper the maintainer uses on the
 # STAGING wiki BEFORE it touches live, so dream-authored pages arrive in
 # canonical shape (valid β related:/tags:, patched required fields) rather than
@@ -270,31 +313,23 @@ fi
 # PROTECT_OK (0 = snapshot time unusable → the apply must be merge-only, never --delete).
 # Called twice: by the NO_DELETE check below, and again right before the apply so a page
 # written during the backup is still protected.
-CREATED_AT=$(jq -r '.created_at // ""' "$DREAM_DIR/status.json" 2>/dev/null | tr -d '\r')
 _compute_protect() {
   PROTECT=""; PROTECT_OK=1
   [ -d "$LIVE_WIKI" ] || return 0
-  local _snap_ref="$DREAM_DIR/.snap-ref.$$" _ref_ok=0 _tt
-  if [ -n "$CREATED_AT" ] && [ "$CREATED_AT" != "null" ]; then
-    if touch -d "$CREATED_AT" "$_snap_ref" 2>/dev/null; then _ref_ok=1        # GNU
-    else
-      _tt=$(printf '%s' "$CREATED_AT" | sed -E 's/[^0-9]//g')                  # 2026-07-01T12:00:00Z -> 20260701120000
-      # TZ=UTC: created_at is UTC ('Z'), but POSIX `touch -t` reads LOCAL time —
-      # without the override the protect boundary shifts by the UTC offset
-      # (west-of-UTC leaves up to ~12h of post-snapshot writes unprotected).
-      if   [ "${#_tt}" -ge 14 ]; then TZ=UTC touch -t "${_tt:0:12}.${_tt:12:2}" "$_snap_ref" 2>/dev/null && _ref_ok=1   # POSIX/BSD, with seconds
-      elif [ "${#_tt}" -ge 12 ]; then TZ=UTC touch -t "${_tt:0:12}" "$_snap_ref" 2>/dev/null && _ref_ok=1              # seconds-less timestamp
-      fi
+  local _ref="$DREAM_DIR/.snap-ref.$$"
+  if _snap_ref "$_ref"; then
+    PROTECT=$(cd "$LIVE_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f -newer "$_ref" 2>/dev/null | sed 's#^\./##')
+    # S4-1: a live page the snapshot did not stage is post-snapshot whatever its mtime: an earlier
+    # dream's accept writes its pages with that dream's own, older, mtimes.
+    if [ -f "$SNAP_LIST" ]; then
+      PROTECT=$( { printf '%s\n' "$PROTECT"; LC_ALL=C comm -23 <(_pages "$LIVE_WIKI") <(LC_ALL=C sort "$SNAP_LIST"); } | grep . | LC_ALL=C sort -u)
     fi
-  fi
-  if [ "$_ref_ok" = "1" ]; then
-    PROTECT=$(cd "$LIVE_WIKI" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f -newer "$_snap_ref" 2>/dev/null | sed 's#^\./##')
   else
     # Fail-SAFE: with no trustworthy snapshot time we cannot tell which live
     # pages postdate the dream, so --delete must not run at all this accept.
     PROTECT_OK=0
   fi
-  rm -f "$_snap_ref" 2>/dev/null
+  rm -f "$_ref" 2>/dev/null
 }
 
 # F3 (premise review): SB_DREAM_ACCEPT_NO_DELETE=1 (set by auto_accept=safe) makes
@@ -314,7 +349,6 @@ if [ "${SB_DREAM_ACCEPT_NO_DELETE:-0}" = "1" ]; then
     # Routine on every host without rsync (R3-B S12): a gate= trace, routed to the audit-log.
     sb_log_error "dream-accept" "gate=no-delete-check verdict=skipped dream=$DREAM_ID: NO_DELETE check skipped — the apply is merge-only ($_why) and deletes no live page" 0
   else
-    _pages() { (cd "$1" 2>/dev/null && find . -name '*.md' ! -name 'index.md' -type f | sed 's#^\./##' | LC_ALL=C sort) || true; }
     DELETED=$(LC_ALL=C comm -23 <(_pages "$LIVE_WIKI") <(_pages "$STAGING_WIKI") 2>/dev/null)
     if [ -n "$DELETED" ] && [ -n "$PROTECT" ]; then
       DELETED=$(LC_ALL=C comm -23 <(printf '%s\n' "$DELETED") <(printf '%s\n' "$PROTECT" | LC_ALL=C sort) 2>/dev/null)
@@ -546,6 +580,15 @@ if [ -f "$MANIFEST" ]; then
         || { echo "FORGET: keeping '$_slug' — no longer low-value after consolidation"; continue; }
       _srcp="$LIVE_WIKI/$_cat/$_slug.md"
       [ -f "$_srcp" ] || continue
+      # S4-3: the apply kept a live page written after the snapshot; FORGET must not move it out either.
+      printf '%s\n' "$PROTECT" | grep -qxF -- "$_cat/$_slug.md" \
+        && { echo "FORGET: keeping '$_slug' — edited after the snapshot"; continue; }
+      # S4-2: mv would replace an earlier archived page at this slot, the only copy wiki-restore.sh reaches.
+      if [ -e "$ARC_DIR/$_cat/$_slug.md" ] || [ -L "$ARC_DIR/$_cat/$_slug.md" ]; then
+        echo "FORGET: keeping '$_slug' — wiki-archive/$_cat/$_slug.md already holds an archived page"
+        sb_log_error "dream-accept" "FORGET kept $_cat/$_slug live for $DREAM_ID: the archive slot $ARC_DIR/$_cat/$_slug.md holds an earlier archived page" 0
+        continue
+      fi
       mkdir -p "$ARC_DIR/$_cat" && mv "$_srcp" "$ARC_DIR/$_cat/$_slug.md" || continue
       printf '{"event":"archived","slug":"%s","category":"%s","dream":"%s","date":"%s"}\n' \
         "$_slug" "$_cat" "$DREAM_ID" "$(date -u +%FT%TZ)" >> "$ARC_LOG"

@@ -2,10 +2,11 @@
 # pins: SB_DREAM_ACCEPT_MIN_RATIO — opens the unrelated deletion-ratio gate to 0 to isolate the NO_DELETE/SKIP_BACKUP guards this file actually tests
 # pins: SB_DREAM_ACCEPT_NO_DELETE — the flag itself is the subject of this subtest (dry-run no-delete mode)
 # pins: SB_DREAM_ACCEPT_SKIP_BACKUP — the flag itself is the subject of subtest B3 (skip-backup auto path)
-# run-all-timeout: 240   (~31 dream-accept.sh runs; measured alone on MSYS 2026-10-07 after R3-B's
+# run-all-timeout: 240   (~37 dream-accept.sh + 3 dream-snapshot.sh runs; measured alone on MSYS 2026-10-07 after R3-B's
 #   C1/F3c cases and the first real run of the D084 follow-up: 79 s jq 1.8.1 / 83 s jq 1.7.1,
 #   15.1 GB free, 377 processes; the 120 s default was under 2x that. 2026-10-08 after R3-C's P-C4
-#   case, alone: 75 s jq 1.8.1 / 88 s jq 1.7.1)
+#   case, alone: 75 s jq 1.8.1 / 88 s jq 1.7.1. The 0.57.1 S4-1/S4-2/S4-3 cases (+5 accepts, +3
+#   snapshots) were timed only on a loaded box (431 s before them); not re-measured alone)
 # Premise-review fixes (0.25.0 autonomy): dream-accept must never let a broken/
 # truncated dream destroy the LIVE wiki, and auto_accept=safe must truly forbid
 # deletions. ORACLE: the real live-wiki page count on disk BEFORE vs AFTER a
@@ -273,34 +274,6 @@ else
 fi
 rm -rf "$SB"
 
-# === P1b (SIL-R8): no-rsync copy-back keeps a live page that changed DURING the apply ===
-# The cp -ru apply overwrites a protected page whose staging copy is newer; the restore then copies
-# the stash back ONLY while live still equals the staging copy the apply just wrote. A cp shim
-# appends a sentinel to live p2 right after the apply cp (a drainer write landing in that window):
-# the differing live page must be kept, not clobbered by the older stash. Only the no-rsync path
-# has this restore, so a host with rsync skips.
-if command -v rsync >/dev/null 2>&1; then
-  echo "SKIP: P1b copy-back cmp path — rsync on PATH; the restore exists only on the no-rsync apply"
-else
-  setup 3 "p1 p2"
-  jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' \
-    > "$BRAIN_DIR/dreams/drm_test/status.json"
-  touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md" "$KNOWLEDGE_DIR/wiki/entities/p3.md"
-  printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"   # protected: newer than created_at
-  touch -t 203001010000 "$BRAIN_DIR/dreams/drm_test/staging/wiki/entities/p2.md"  # staging newer: cp -u will overwrite live
-  mkdir -p "$SB/cpshim"
-  printf '#!%s\ncp_real=%q\n"$cp_real" "$@"; rc=$?\ncase " $* " in *"/staging/wiki/."*) printf "WRITTEN DURING APPLY\\n" >> %q ;; esac\nexit $rc\n' \
-    "$BASH" "$(command -v cp)" "$KNOWLEDGE_DIR/wiki/entities/p2.md" > "$SB/cpshim/cp"
-  chmod +x "$SB/cpshim/cp"
-  OUT=$(PATH="$SB/cpshim:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
-  [ "$rc" -eq 0 ] || fail "P1b: accept failed (rc=$rc): $OUT"
-  grep -q 'WRITTEN DURING APPLY' "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
-    || fail "P1b: a live page written during the apply was clobbered by the stash restore"
-  printf '%s' "$OUT" | grep -q 'Preserved 1 live page' || fail "P1b: the kept page was not counted as preserved: $OUT"
-  pass "P1b: a live page that differs from the staging copy after the apply is kept (cmp -s path)"
-fi
-rm -rf "$SB"
-
 # === P2: missing/unusable created_at → FAIL-SAFE (no deletions this accept) ===
 # With no trustworthy snapshot time the accept cannot tell which live pages
 # postdate the dream, so `rsync --delete` must not run at all: dream-dropped
@@ -369,6 +342,99 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 SB_FORGET_MIN_AGE_DA
 [ -f "$KNOWLEDGE_DIR/wiki/entities/p3.md" ] || fail "F5c: post-consolidation-linked page was archived (re-score guard broken)"
 [ ! -f "$D/forget-manifest.tsv" ] || fail "F5c: manifest not consumed"
 pass "F5c: re-score guard keeps a page the dream just linked (enrichment race)"
+rm -rf "$SB"
+
+# --- S4-3 (re-audit): FORGET keeps a manifest page edited in live after the snapshot -------------
+# The apply keeps that page (the newer live version wins); FORGET then moved it to wiki-archive anyway.
+setup 4 SAME; old_snapshot
+D="$BRAIN_DIR/dreams/drm_test"
+printf 'p1\tentities\n' > "$D/forget-manifest.tsv"
+printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p1.md"   # mtime now, after created_at
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "S4-3: accept failed (rc=$rc): $OUT"
+grep -q 'LIVE EDIT after snapshot' "$KNOWLEDGE_DIR/wiki/entities/p1.md" 2>/dev/null \
+  || fail "S4-3: FORGET moved p1 out of live although it was edited after the snapshot: $OUT"
+[ ! -e "$BRAIN_DIR/wiki-archive/entities/p1.md" ] || fail "S4-3: p1's post-snapshot edit was archived: $OUT"
+pass "S4-3: FORGET keeps a manifest page edited in live after the snapshot"
+rm -rf "$SB"
+
+# --- S4-2 (re-audit): FORGET never replaces an earlier archived page at the same slot ------------
+# Slug p1 was archived once, then recreated live; FORGET's mv replaced wiki-archive/entities/p1.md,
+# the only copy wiki-restore.sh reaches.
+setup 4 SAME
+D="$BRAIN_DIR/dreams/drm_test"
+printf 'p1\tentities\n' > "$D/forget-manifest.tsv"
+mkdir -p "$BRAIN_DIR/wiki-archive/entities"
+printf 'ORIGINAL archived p1 (sole copy)\n' > "$BRAIN_DIR/wiki-archive/entities/p1.md"
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "S4-2: accept failed (rc=$rc): $OUT"
+grep -q 'ORIGINAL archived p1' "$BRAIN_DIR/wiki-archive/entities/p1.md" \
+  || fail "S4-2: FORGET replaced the earlier archived p1 in wiki-archive: $OUT"
+[ -f "$KNOWLEDGE_DIR/wiki/entities/p1.md" ] || fail "S4-2: p1 left the live wiki although its archive slot is taken: $OUT"
+jq -c 'select(.script == "dream-accept" and ((.message // "") | test("archive slot")))' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null \
+  | tr -d '\r' | grep -q . || fail "S4-2: the kept page left no error-log row: $OUT"
+pass "S4-2: FORGET keeps the live page and the earlier archived copy when the archive slot is taken"
+rm -rf "$SB"
+
+# === S4-1 (re-audit): two dreams accepted in a row. Dream B is snapshotted after dream A completed
+# and before A is accepted (only a 4th unreviewed dream is refused). A adds entities/n.md and FORGETs
+# entities/x.md; B edits p2. An accept keeps a page's mtime (rsync -a), so A's n.md is older than B's
+# created_at: B's rsync --delete removed it, or auto_accept=safe refused B for good, and every host
+# copied x back from B's staging (live AND archived). Both snapshots come from dream-snapshot.sh;
+# the pages are in canonical shape, so the accept's node-shaper leaves them and their mtimes alone.
+s41_page() { printf -- '---\ntitle: %s\ndescription: page %s\ntype: entities\ncreated: 2025-12-01\nupdated: 2025-12-01\ntags: [test]\nrelated: []\n---\n\n# %s\n\nbody\n' "$1" "$1" "$1"; }
+s41_snap() {  # $1 = dream name: snapshot the live wiki (dream ids are per second, so rename it)
+  local id; id=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>/dev/null) || fail "S4-1: dream-snapshot.sh failed for $1: $id"
+  mv "$BRAIN_DIR/dreams/$id" "$BRAIN_DIR/dreams/$1" || fail "S4-1: could not rename dream '$id'"
+}
+s41_done() {  # $1 = dream name, $2 = created_at override or empty: mark it completed
+  local f="$BRAIN_DIR/dreams/$1/status.json"
+  jq --arg c "$2" '.status = "completed" | if $c != "" then .created_at = $c else . end' "$f" > "$f.t" && mv "$f.t" "$f"
+}
+setup 3 EMPTY; rm -rf "$BRAIN_DIR/dreams/drm_test"
+L="$KNOWLEDGE_DIR/wiki/entities"
+for s in p1 p2 p3 x; do s41_page "$s" > "$L/$s.md"; done
+touch -t 202512010000 "$L"/*.md
+s41_snap drm_s41a
+S41_LIST=$(tr '\n' ' ' 2>&1 < "$BRAIN_DIR/dreams/drm_s41a/snapshot-pages.txt")
+[ "$S41_LIST" = "entities/p1.md entities/p2.md entities/p3.md entities/x.md " ] \
+  || fail "S4-1: dream-snapshot.sh did not record the staged pages in snapshot-pages.txt (got: $S41_LIST)"
+s41_page n > "$BRAIN_DIR/dreams/drm_s41a/staging/wiki/entities/n.md"   # A's runner adds n
+touch -t 202601020000 "$BRAIN_DIR/dreams/drm_s41a/staging/wiki/entities/n.md"
+printf 'x\tentities\n' > "$BRAIN_DIR/dreams/drm_s41a/forget-manifest.tsv"   # and forgets x
+s41_done drm_s41a 2026-01-01T00:00:00Z   # A was created (and wrote n) well before B
+s41_snap drm_s41b
+printf '\nDREAM B EDIT\n' >> "$BRAIN_DIR/dreams/drm_s41b/staging/wiki/entities/p2.md"
+s41_done drm_s41b ""
+s41_snap drm_s41c   # a dream like B, for the rsync check below
+s41_done drm_s41c ""
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_SKIP_BACKUP=1 SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_s41a >/dev/null 2>&1 \
+  || fail "S4-1: precondition — accepting dream A failed"
+{ [ -f "$L/n.md" ] && [ ! -f "$L/x.md" ] && [ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ]; } \
+  || fail "S4-1: precondition — A's accept did not add n.md and archive x.md"
+touch -t 202601020000 "$L/n.md"   # what rsync -a leaves in live: A's own write time (cp -r stamps now)
+# rsync arm, every host: a stub records the exclude list and fails the apply, so dream C stays as it was.
+mkdir -p "$SB/rstub"
+cat > "$SB/rstub/rsync" <<'EOF'
+#!/bin/bash
+: >> "$S41_LOG"
+for a in "$@"; do case "$a" in --exclude-from=*) cat "${a#--exclude-from=}" >> "$S41_LOG" ;; esac; done
+exit 1
+EOF
+chmod +x "$SB/rstub/rsync"
+OUT=$(PATH="$SB/rstub:$PATH" S41_LOG="$SB/excl" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 SB_DREAM_ACCEPT_SKIP_BACKUP=1 bash "$ACCEPT" drm_s41c 2>&1)
+printf '%s' "$OUT" | grep -q 'removes live page' && fail "S4-1: auto_accept=safe refuses a later dream over the page an earlier accept added: $OUT"
+grep -qx '/entities/n.md' "$SB/excl" 2>/dev/null \
+  || fail "S4-1: the rsync apply does not exclude entities/n.md from --delete (excludes: $(tr '\n' ' ' < "$SB/excl" 2>&1)): $OUT"
+pass "S4-1: with rsync, safe mode accepts the later dream and --delete spares the page an earlier accept added"
+# This host's apply path (real rsync, or the cp merge).
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 SB_DREAM_ACCEPT_SKIP_BACKUP=1 bash "$ACCEPT" drm_s41b 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "S4-1: accepting dream B failed (rc=$rc): $OUT"
+[ -f "$L/n.md" ] || fail "S4-1: dream B's accept deleted entities/n.md, which dream A's accept added: $OUT"
+[ ! -f "$L/x.md" ] || fail "S4-1: dream B's accept copied back entities/x.md, which dream A archived: $OUT"
+[ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ] || fail "S4-1: the archived x.md is gone: $OUT"
+grep -q 'DREAM B EDIT' "$L/p2.md" || fail "S4-1: dream B's own edit to p2 was not applied: $OUT"
+pass "S4-1: this host's apply keeps the earlier accept's n.md, does not copy back the x.md it archived, applies B's own edit"
 rm -rf "$SB"
 
 # === D084: a partial apply failure must ABORT loud, not silently "succeed" ===
@@ -500,9 +566,33 @@ if [ -n "$NORSYNC_PATH" ]; then
     || fail "D1: a failed stash restore still archived the dream (archived_at='$A')"
   pass "D1: a failed stash restore fails the accept and keeps the stash ($STASH_PATH)"
   rm -rf "$STASH_PATH" "$SB"
+
+  # P1b (SIL-R8): no-rsync copy-back keeps a live page that changed DURING the apply. The cp -ru
+  # apply overwrites a protected page whose staging copy is newer; the restore then copies the stash
+  # back ONLY while live still equals the staging copy the apply just wrote. A cp shim appends a
+  # sentinel to live p2 right after the apply cp (a drainer write landing in that window): the
+  # differing live page must be kept, not clobbered by the older stash. Only the no-rsync apply has
+  # this restore, so rsync is hidden (S8-2: it used to skip on every host with rsync, i.e. every CI lane).
+  setup 3 "p1 p2"
+  jq -nc '{id:"drm_test",status:"completed",archived_at:null,created_at:"2026-01-01T00:00:00Z"}' \
+    > "$BRAIN_DIR/dreams/drm_test/status.json"
+  touch -t 202512010000 "$KNOWLEDGE_DIR/wiki/entities/p1.md" "$KNOWLEDGE_DIR/wiki/entities/p3.md"
+  printf 'LIVE EDIT after snapshot\n' >> "$KNOWLEDGE_DIR/wiki/entities/p2.md"   # protected: newer than created_at
+  touch -t 203001010000 "$BRAIN_DIR/dreams/drm_test/staging/wiki/entities/p2.md"  # staging newer: cp -u will overwrite live
+  mkdir -p "$SB/cpshim"
+  printf '#!%s\ncp_real=%q\n"$cp_real" "$@"; rc=$?\ncase " $* " in *"/staging/wiki/."*) printf "WRITTEN DURING APPLY\\n" >> %q ;; esac\nexit $rc\n' \
+    "$BASH" "$(command -v cp)" "$KNOWLEDGE_DIR/wiki/entities/p2.md" > "$SB/cpshim/cp"
+  chmod +x "$SB/cpshim/cp"
+  OUT=$(PATH="$SB/cpshim:$NORSYNC_PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 bash "$ACCEPT" drm_test 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "P1b: accept failed (rc=$rc): $OUT"
+  grep -q 'WRITTEN DURING APPLY' "$KNOWLEDGE_DIR/wiki/entities/p2.md" \
+    || fail "P1b: a live page written during the apply was clobbered by the stash restore"
+  printf '%s' "$OUT" | grep -q 'Preserved 1 live page' || fail "P1b: the kept page was not counted as preserved: $OUT"
+  pass "P1b: a live page that differs from the staging copy after the apply is kept (cmp -s path, rsync hidden)"
+  rm -rf "$SB"
 else
-  echo "SKIP: D084 follow-up / D1 — rsync could not be hidden from PATH on this host"
-  pass "D084 follow-up / D1: stash guards (skipped — no rsync-free PATH)"
+  echo "SKIP: D084 follow-up / D1 / P1b — rsync could not be hidden from PATH on this host"
+  pass "D084 follow-up / D1 / P1b: stash guards (skipped — no rsync-free PATH)"
 fi
 
 # === D212: the shipped 30-day FORGET age floor is a REAL gate, not just
