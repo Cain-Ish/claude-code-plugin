@@ -371,6 +371,67 @@ CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_MIN_RATIO=0 SB_FORGET_MIN_AGE_DA
 pass "F5c: re-score guard keeps a page the dream just linked (enrichment race)"
 rm -rf "$SB"
 
+# === S4-1 (re-audit): two dreams accepted in a row. Dream B is snapshotted after dream A completed
+# and before A is accepted (only a 4th unreviewed dream is refused). A adds entities/n.md and FORGETs
+# entities/x.md; B edits p2. An accept keeps a page's mtime (rsync -a), so A's n.md is older than B's
+# created_at: B's rsync --delete removed it, or auto_accept=safe refused B for good, and every host
+# copied x back from B's staging (live AND archived). Both snapshots come from dream-snapshot.sh;
+# the pages are in canonical shape, so the accept's node-shaper leaves them and their mtimes alone.
+s41_page() { printf -- '---\ntitle: %s\ndescription: page %s\ntype: entities\ncreated: 2025-12-01\nupdated: 2025-12-01\ntags: [test]\nrelated: []\n---\n\n# %s\n\nbody\n' "$1" "$1" "$1"; }
+s41_snap() {  # $1 = dream name: snapshot the live wiki (dream ids are per second, so rename it)
+  local id; id=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>/dev/null) || fail "S4-1: dream-snapshot.sh failed for $1: $id"
+  mv "$BRAIN_DIR/dreams/$id" "$BRAIN_DIR/dreams/$1" || fail "S4-1: could not rename dream '$id'"
+}
+s41_done() {  # $1 = dream name, $2 = created_at override or empty: mark it completed
+  local f="$BRAIN_DIR/dreams/$1/status.json"
+  jq --arg c "$2" '.status = "completed" | if $c != "" then .created_at = $c else . end' "$f" > "$f.t" && mv "$f.t" "$f"
+}
+setup 3 EMPTY; rm -rf "$BRAIN_DIR/dreams/drm_test"
+L="$KNOWLEDGE_DIR/wiki/entities"
+for s in p1 p2 p3 x; do s41_page "$s" > "$L/$s.md"; done
+touch -t 202512010000 "$L"/*.md
+s41_snap drm_s41a
+S41_LIST=$(tr '\n' ' ' 2>&1 < "$BRAIN_DIR/dreams/drm_s41a/snapshot-pages.txt")
+[ "$S41_LIST" = "entities/p1.md entities/p2.md entities/p3.md entities/x.md " ] \
+  || fail "S4-1: dream-snapshot.sh did not record the staged pages in snapshot-pages.txt (got: $S41_LIST)"
+s41_page n > "$BRAIN_DIR/dreams/drm_s41a/staging/wiki/entities/n.md"   # A's runner adds n
+touch -t 202601020000 "$BRAIN_DIR/dreams/drm_s41a/staging/wiki/entities/n.md"
+printf 'x\tentities\n' > "$BRAIN_DIR/dreams/drm_s41a/forget-manifest.tsv"   # and forgets x
+s41_done drm_s41a 2026-01-01T00:00:00Z   # A was created (and wrote n) well before B
+s41_snap drm_s41b
+printf '\nDREAM B EDIT\n' >> "$BRAIN_DIR/dreams/drm_s41b/staging/wiki/entities/p2.md"
+s41_done drm_s41b ""
+s41_snap drm_s41c   # a dream like B, for the rsync check below
+s41_done drm_s41c ""
+CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_SKIP_BACKUP=1 SB_FORGET_MIN_AGE_DAYS=0 bash "$ACCEPT" drm_s41a >/dev/null 2>&1 \
+  || fail "S4-1: precondition — accepting dream A failed"
+{ [ -f "$L/n.md" ] && [ ! -f "$L/x.md" ] && [ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ]; } \
+  || fail "S4-1: precondition — A's accept did not add n.md and archive x.md"
+touch -t 202601020000 "$L/n.md"   # what rsync -a leaves in live: A's own write time (cp -r stamps now)
+# rsync arm, every host: a stub records the exclude list and fails the apply, so dream C stays as it was.
+mkdir -p "$SB/rstub"
+cat > "$SB/rstub/rsync" <<'EOF'
+#!/bin/bash
+: >> "$S41_LOG"
+for a in "$@"; do case "$a" in --exclude-from=*) cat "${a#--exclude-from=}" >> "$S41_LOG" ;; esac; done
+exit 1
+EOF
+chmod +x "$SB/rstub/rsync"
+OUT=$(PATH="$SB/rstub:$PATH" S41_LOG="$SB/excl" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 SB_DREAM_ACCEPT_SKIP_BACKUP=1 bash "$ACCEPT" drm_s41c 2>&1)
+printf '%s' "$OUT" | grep -q 'removes live page' && fail "S4-1: auto_accept=safe refuses a later dream over the page an earlier accept added: $OUT"
+grep -qx '/entities/n.md' "$SB/excl" 2>/dev/null \
+  || fail "S4-1: the rsync apply does not exclude entities/n.md from --delete (excludes: $(tr '\n' ' ' < "$SB/excl" 2>&1)): $OUT"
+pass "S4-1: with rsync, safe mode accepts the later dream and --delete spares the page an earlier accept added"
+# This host's apply path (real rsync, or the cp merge).
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_NO_DELETE=1 SB_DREAM_ACCEPT_SKIP_BACKUP=1 bash "$ACCEPT" drm_s41b 2>&1); rc=$?
+[ "$rc" -eq 0 ] || fail "S4-1: accepting dream B failed (rc=$rc): $OUT"
+[ -f "$L/n.md" ] || fail "S4-1: dream B's accept deleted entities/n.md, which dream A's accept added: $OUT"
+[ ! -f "$L/x.md" ] || fail "S4-1: dream B's accept copied back entities/x.md, which dream A archived: $OUT"
+[ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ] || fail "S4-1: the archived x.md is gone: $OUT"
+grep -q 'DREAM B EDIT' "$L/p2.md" || fail "S4-1: dream B's own edit to p2 was not applied: $OUT"
+pass "S4-1: this host's apply keeps the earlier accept's n.md, does not copy back the x.md it archived, applies B's own edit"
+rm -rf "$SB"
+
 # === D084: a partial apply failure must ABORT loud, not silently "succeed" ===
 # None of the rsync/cp apply commands had their exit status checked; a partial
 # failure (EACCES on one live file) fell through to archived_at + rm -rf
