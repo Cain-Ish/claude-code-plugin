@@ -2331,8 +2331,9 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
   # e2b943b dropped the old `| head -12`). A byte cap, not a line cap: `head -12` still lets one
   # oversized edge line (loadEdges never length-checks a slug) into the window, and it or a
   # process substitution costs a spawn per seed. 12 real lines are ~0.7 KiB.
+  # $2 = the seed: its "- seed: " line must fit sb_append's 600 B cap beside the block header (H6-1).
   sl_graph_fmt() {
-    local line r e f1 f2 f3 n=0 LC_ALL=C
+    local line r e f1 f2 f3 n=0 seed="${2:-}" LC_ALL=C
     SL_NBR=""
     [ -n "$1" ] || return 0
     while IFS= read -r line; do
@@ -2343,7 +2344,7 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
         if [[ "$r" == *$'\t'* ]]; then r="${r#*$'\t'}"; f3="${r%%$'\t'*}"; fi
       fi
       e="$f2 $f1 $f3; "
-      [ $(( ${#SL_NBR} + ${#e} )) -gt 400 ] && break   # a seed line must fit sb_append's 600 B cap (re-audit H6-1)
+      [ $(( ${#seed} + ${#SL_NBR} + ${#e} )) -gt 485 ] && break   # 600 - 107 B header - "- " - ": " = 489 (T3)
       SL_NBR="$SL_NBR$e"
     done <<< "${1:0:8192}"   # <<<-bounded: ${1:0:8192} under LC_ALL=C is at most 8,192 bytes
   }
@@ -2363,7 +2364,7 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
       IS_ANCHOR_SEED=1
       GRAPH_ERR_F=$(mktemp)
       nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>"$GRAPH_ERR_F")
-      sl_graph_fmt "$nbr"; nbr="$SL_NBR"
+      sl_graph_fmt "$nbr" "$s"; nbr="$SL_NBR"
       if [ -s "$GRAPH_ERR_F" ]; then
         sb_log_error "session-load.sh" "graph-neighbors-cli failed for project seed=$s: $(head -c 200 "$GRAPH_ERR_F" | tr '\n' ' ')" 0
       fi
@@ -2371,7 +2372,7 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
       GRAPH_FIRST=0
     else
       nbr=$(KNOWLEDGE_DIR="$KNOWLEDGE_DIR" node "$GRAPH_CLI" "$s" 1 both 2>/dev/null)
-      sl_graph_fmt "$nbr"; nbr="$SL_NBR"
+      sl_graph_fmt "$nbr" "$s"; nbr="$SL_NBR"
     fi
     if [ -n "$nbr" ]; then
       GRAPH_OUT="${GRAPH_OUT}- ${s}: ${nbr}\n"
@@ -2385,6 +2386,8 @@ if [ -f "$project_file" ] && [ -f "$GRAPH_CLI" ] && [ -f "$KNOWLEDGE_DIR/graph/e
       # Claude to call knowledge_neighbors on it every session) — kind:anchor, excluded
       # from injected/read, tracked separately (D-bug 3). Any OTHER seed (an explicit
       # Cross-references slug the model chose to surface) stays kind:graph.
+      # Only an anchor line sb_append really kept is recorded (B3).
+      case $'\n'"$GRAPH_LINE_IDS"$'\n' in *$'\n'"$GRAPH_ANCHOR_ID"$'\n'*) ;; *) GRAPH_ANCHOR_ID="" ;; esac
       if [ -n "$GRAPH_ANCHOR_ID" ]; then
         sb_manifest_add anchor "$GRAPH_ANCHOR_ID"
         GRAPH_LINE_IDS=$(printf '%s\n' "$GRAPH_LINE_IDS" | grep -vxF "$GRAPH_ANCHOR_ID")

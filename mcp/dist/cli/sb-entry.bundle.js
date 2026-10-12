@@ -130,7 +130,9 @@ async function writeFileAtomic(file, data, io = realIo) {
       }
     }
     await io.writeFile(file, data);
-    await io.rm(tmp);
+    await io.rm(tmp).catch((e) => console.error(
+      `writeFileAtomic: ${file} written in place; leftover ${tmp} not removed: ${e instanceof Error ? e.message : String(e)}`
+    ));
   } catch (e) {
     await io.rm(tmp).catch(() => {
     });

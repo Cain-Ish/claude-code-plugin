@@ -21601,7 +21601,9 @@ async function writeFileAtomic(file, data, io = realIo) {
       }
     }
     await io.writeFile(file, data);
-    await io.rm(tmp);
+    await io.rm(tmp).catch((e) => console.error(
+      `writeFileAtomic: ${file} written in place; leftover ${tmp} not removed: ${e instanceof Error ? e.message : String(e)}`
+    ));
   } catch (e) {
     await io.rm(tmp).catch(() => {
     });
@@ -33466,7 +33468,7 @@ async function personaStats(args = {}) {
       try {
         const j2 = JSON.parse(line);
         if (j2.graduated === true) graduated++;
-        else if ((j2.count ?? 0) >= 2) ungraduated++;
+        else if (j2.graduated === false && (j2.count ?? 0) >= 2) ungraduated++;
       } catch {
       }
     }
@@ -34101,7 +34103,8 @@ async function codeMap(opts) {
     generated_at: graph.generated_at,
     git_rev: graph.git_rev,
     generator: graph.generator,
-    stale: await isStale(graph, graph.repo_root, opts.runGit),
+    stale: await isStale(graph, graph.repo_root, opts.runGit ?? defaultGitRunner),
+    // 5 s: interactive, not the CLI's 60 s
     truncated: graph.truncated
   };
 }
@@ -34193,7 +34196,8 @@ async function codeNeighbors(opts) {
     depth,
     neighbors: rows.slice(0, cap),
     truncated: rows.length > cap,
-    stale: await isStale(graph, graph.repo_root, opts.runGit)
+    stale: await isStale(graph, graph.repo_root, opts.runGit ?? defaultGitRunner)
+    // 5 s: interactive, not the CLI's 60 s
   };
 }
 

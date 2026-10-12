@@ -60,12 +60,13 @@ if echo "$NEW_SIGNALS" | jq -e 'length == 0' >/dev/null 2>&1 \
   exit 0
 fi
 
-# Residual 1: the read-modify-write of persona-signals.jsonl (read here, mv below) and of the rule
-# candidate files (S3-5) holds the same .persona-signals.jsonl.lock primitive as PROJECT.md; two
-# merges (Stop+Stop, Stop+drainer) otherwise lose an update. Busy past SB_ARCHIVE_LOCK_WAIT_S: the
-# batch is DROPPED (callers advance their marker, nothing retries it), logged as such, exit 1.
-_MPS_LOCK_TOKEN=""; _MPS_TMP_E=""; _MPS_TMP_N=""
-trap 'rm -f ${_MPS_TMP_E:+"$_MPS_TMP_E"} ${_MPS_TMP_N:+"$_MPS_TMP_N"}; [ -z "$_MPS_LOCK_TOKEN" ] || sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"' EXIT
+# Residual 1: the read-modify-write of persona-signals.jsonl (read here, mv below) holds the same
+# .persona-signals.jsonl.lock primitive as PROJECT.md; two merges (Stop+Stop, Stop+drainer) otherwise
+# lose an update. The rule candidate files (S3-5) take their own lock on the pending file below, so the
+# slow candidate loop never holds the signals lock (Q-SF2). Busy past SB_ARCHIVE_LOCK_WAIT_S: what that
+# lock guards is DROPPED (callers advance their marker, nothing retries it), logged as such, exit 1.
+_MPS_LOCK_TOKEN=""; _MPS_PEND_TOKEN=""; PENDING_FILE=""; _MPS_TMP_E=""; _MPS_TMP_N=""
+trap 'rm -f ${_MPS_TMP_E:+"$_MPS_TMP_E"} ${_MPS_TMP_N:+"$_MPS_TMP_N"}; [ -z "$_MPS_LOCK_TOKEN" ] || sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"; [ -z "$_MPS_PEND_TOKEN" ] || sb_archive_unlock "$PENDING_FILE" "$_MPS_PEND_TOKEN"' EXIT
 if ! sb_archive_lock "$SIGNALS_FILE" merge-persona-signals.sh; then
   sb_log_error "merge-persona-signals.sh" "persona batch dropped (lock busy): session=$SESSION_ID signals=$(echo "$NEW_SIGNALS" | jq length | tr -d '\r') rule_candidates=$(echo "$NEW_CANDIDATES" | jq length | tr -d '\r') lost" 1
   exit 1
@@ -121,9 +122,10 @@ MERGED=$(jq -nc \
       ([$a[] | select(. as $w | $b | index($w))] | length) * 100 / $denom
     end;
 
+  # A refused record absorbs only its exact re-sighting: a clean paraphrase gets its own record.
   reduce ($new_sigs[0][]) as $sig ($existing[0];
     ($sig.signal | content_words) as $new_words |
-    (to_entries | map(
+    (to_entries | map(select(.value.graduated != "refused" or .value.signal == $sig.signal) |
       (.value.signal | content_words) as $old_words |
       {key: .key, pct: word_overlap($new_words; $old_words)}
     ) | map(select(.pct >= 50)) | sort_by(-.pct) | .[0].key) as $idx |
@@ -239,6 +241,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
         # Mirror the merge-step dedup: set-min denominator, 50% threshold,
         # 3-word floor on both sides. Without this mirror, a graduated signal
         # could leave its near-duplicates ungraduated and they would re-fire.
+        # A refused near-duplicate stays refused.
         def content_words: ascii_downcase | [scan("[a-z]{3,}")] | unique;
         ($sig | content_words) as $target |
         [.[] | (.signal | content_words) as $w |
@@ -246,7 +249,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
           else
             ([($target | length), ($w | length)] | min) as $denom |
             if (([$target[] | select(. as $t | $w | index($t))] | length) * 100 / $denom) >= 50
-            then .graduated = true else . end
+            then (if .graduated == "refused" then . else .graduated = true end) else . end
           end
         ]
       ')
@@ -274,6 +277,7 @@ if [ -n "$MERGED" ] && echo "$MERGED" | jq -e 'type == "array"' >/dev/null 2>&1;
     rm -f "$TMP_SIG" 2>/dev/null
   fi
 fi
+sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"; _MPS_LOCK_TOKEN=""
 
 # --- Rule-candidate accumulation → auto-arm as learned WARN rules ---
 # Candidates come from the extractor only when the transcript showed an
@@ -292,6 +296,13 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
     PENDING_FILE="$BRAIN_DIR/persona-rules.pending.json"
     ARM_TARGET="$BRAIN_DIR/persona-rules.json"
   fi
+  # S3-5: this script is the only writer of the pending file and its arm target, so the pending
+  # file's lock covers both read-modify-writes.
+  if ! sb_archive_lock "$PENDING_FILE" merge-persona-signals.sh; then
+    sb_log_error "merge-persona-signals.sh" "rule candidates dropped (lock busy): session=$SESSION_ID rule_candidates=$(echo "$NEW_CANDIDATES" | jq length | tr -d '\r') lost, signals kept" 1
+    exit 1
+  fi
+  _MPS_PEND_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
   [ -s "$PENDING_FILE" ] || echo '{}' > "$PENDING_FILE"
   USER_RULES="$ARM_TARGET"
   DEFAULT_RULES="$(dirname "$0")/persona-rules.default.json"
@@ -423,7 +434,7 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
       fi
     fi
   done < <(printf '%s\n' "$CAND_LIST")  # no here-string here: MSYS blocks one of ~65,537..65,651 B past the hook timeout
+  sb_archive_unlock "$PENDING_FILE" "$_MPS_PEND_TOKEN"; _MPS_PEND_TOKEN=""
 fi
 
-sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN" && _MPS_LOCK_TOKEN=""
 exit 0
