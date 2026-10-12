@@ -206,7 +206,9 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
   for i in $(seq 0 $((GRAD_COUNT - 1))); do
     SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal" | tr -d '\r')
     # E1: this text is transcript-derived, so it passes the injection classifier first. A hit is
-    # refused, logged, and the record dropped, so it does not re-fire on every later merge.
+    # refused, logged, and marked graduated "refused" so it never re-fires (candidates need false).
+    # F2: the record is kept, not deleted: a real preference such as "module system: ESM" trips the
+    # system: marker, and deleting it bought no safety (graduated text is served framed since SEC-R5).
     # SIL-R5: a classifier FAILURE (jq/fork error) is no verdict: the record stays ungraduated and
     # the next merge classifies it again; dropping it lost the signal for good.
     if ! SIG_CLASS=$(sb_text_injection_class "$SIG_TEXT"); then
@@ -214,8 +216,8 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
       continue
     fi
     if [ -n "$SIG_CLASS" ]; then
-      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=$SIG_CLASS, signal dropped: ${SIG_TEXT:0:160}" 1
-      MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT" 'map(select(.signal != $sig))')
+      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=$SIG_CLASS, signal kept as graduated=refused (never retried): ${SIG_TEXT:0:160}" 1
+      MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT" 'map(if .signal == $sig then .graduated = "refused" else . end)')
       continue
     fi
     # SEC-R5: a phrase classifier cannot hold paraphrases and homoglyphs, so a graduated signal goes

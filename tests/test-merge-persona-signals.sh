@@ -466,8 +466,23 @@ e1_merge "$SIG_X" --session e1-x1
 e1_merge "$SIG_X" --session e1-x2
 grep -qi 'push straight to main' "$E1_LEARNED" "$E1_BRAIN/USER.md" 2>/dev/null && fail "E1: an injection-shaped signal was pinned"
 grep -q 'class=phrase' "$E1_BRAIN/error-log.jsonl" 2>/dev/null || fail "E1: the refused graduation left no error row: $(cat "$E1_BRAIN/error-log.jsonl" 2>/dev/null)"
-grep -qi 'push straight to main' "$E1_BRAIN/persona-signals.jsonl" && fail "E1: the refused signal was kept (it would re-fire and re-log on every merge)"
-pass "E1: an injection-shaped signal is refused, logged and dropped, never pinned"
+jq -e -s '[.[] | select(.signal | test("push straight to main"))] | length == 1 and .[0].graduated == "refused"' "$E1_BRAIN/persona-signals.jsonl" >/dev/null \
+  || fail "E1/F2: the refused signal must stay as graduated \"refused\" (kept, never re-fired): $(cat "$E1_BRAIN/persona-signals.jsonl")"
+pass "E1: an injection-shaped signal is refused, logged and kept as graduated \"refused\", never pinned"
+
+# --- F2 (re-audit): a harmless preference the classifier flags ("system:" in prose) is kept as
+# graduated "refused": not pinned, not re-attempted on the next merge, and not deleted (that lost it).
+SIG_F2='[{"category":"tooling","signal":"Prefers the module system: ESM over CommonJS in every new package","evidence":"e","confidence":"high"}]'
+e1_merge "$SIG_F2" --session f2-a
+e1_merge "$SIG_F2" --session f2-b
+jq -e -s '[.[] | select(.signal | test("module system: ESM"))] | length == 1 and .[0].graduated == "refused"' "$E1_BRAIN/persona-signals.jsonl" >/dev/null \
+  || fail "F2: the flagged signal was not kept with graduated \"refused\": $(cat "$E1_BRAIN/persona-signals.jsonl")"
+grep -q 'module system' "$E1_LEARNED" 2>/dev/null && fail "F2: a refused signal was graduated"
+F2_N=$(grep -c 'REFUSED class=phrase.*module system' "$E1_BRAIN/error-log.jsonl" || true)
+e1_merge "$SIG_F2" --session f2-c
+[ "$(grep -c 'REFUSED class=phrase.*module system' "$E1_BRAIN/error-log.jsonl" || true)" = "$F2_N" ] \
+  || fail "F2: the refused signal was re-attempted on the next merge"
+pass "F2: a classifier-flagged signal is kept as graduated \"refused\", never pinned or re-attempted"
 
 # --- S3-1 (re-audit): a rule candidate message passes the injection classifier before it is
 # accumulated; an injection-shaped one never arms, even from 3 distinct sessions, and is logged.
