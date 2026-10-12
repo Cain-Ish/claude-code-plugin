@@ -258,6 +258,16 @@ CLAUDE_SESSION_ID=s31-third run_merge "$CAND_PAYLOAD"
 jq -e '.learned | length == 1' "$BRAIN_DIR/persona-rules.json" >/dev/null 2>&1 || fail "S3-1: three distinct sessions did not arm the rule"
 pass "S3-1: repeats from one session never arm a rule; three distinct sessions do"
 
+# --- T4 (re-audit): a classifier FAILURE on a rule candidate's message is no verdict: the candidate
+# is refused (fail closed), never accumulated, and the row names the failure.
+rm -f "$BRAIN_DIR/persona-rules.pending.json" "$BRAIN_DIR/persona-rules.json" "$BRAIN_DIR/err-log"
+CLAUDE_SESSION_ID=t4-a STUB_CLASSIFIER_FAIL=1 run_merge "$CAND_PAYLOAD"
+grep -q 'npm install -g' "$BRAIN_DIR/persona-rules.pending.json" 2>/dev/null \
+  && fail "T4: a candidate was accumulated although the classifier gave no verdict"
+grep -q 'rule candidate REFUSED class=classifier-failed' "$BRAIN_DIR/err-log" 2>/dev/null \
+  || fail "T4: the classifier failure left no classifier-failed row: $(cat "$BRAIN_DIR/err-log" 2>/dev/null)"
+pass "T4: a classifier failure refuses the rule candidate (not accumulated, logged classifier-failed)"
+
 # --- Test 11: legacy bare-array stdin still exits 0 (three caller sites) ---
 echo '[]' | bash "$STUB_SCRIPT" || fail "empty legacy array input must exit 0"
 echo 'not json' | bash "$STUB_SCRIPT" || fail "garbage input must exit 0"
