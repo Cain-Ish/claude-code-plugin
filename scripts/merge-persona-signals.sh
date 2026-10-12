@@ -226,7 +226,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
     fi
     # SEC-R5: a phrase classifier cannot hold paraphrases and homoglyphs, so a graduated signal goes
     # to the machine-learned store that session-load.sh serves inside the untrusted-data frame, never
-    # to the trusted USER.md (human pins only: pin_to_user, /pin).
+    # to the trusted USER.md (human pins only: the MCP pin_to_user tool, `sb pin user`).
     if sb_pin_to_learned "$SIG_TEXT"; then
       GRADUATED_INDICES="$GRADUATED_INDICES $i"
     fi

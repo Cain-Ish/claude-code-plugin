@@ -135,7 +135,7 @@ pass "headless child: no SessionStart output, no state writes but one gate=headl
 
 # --- Test 6 (SEC-R5): an injection-style signal that slips past the phrase classifier (a
 # paraphrase, no trigger phrase) and graduates after 2 real sessions reaches SessionStart ONLY
-# inside the untrusted-data frame; a human pin (sb_pin_to_user, the /pin path) stays in the
+# inside the untrusted-data frame; a human pin (the pin_to_user tool's line) stays in the
 # trusted USER.md section, outside any frame. Real merge script, real lib.sh, real session-load.
 init_sandbox "learned-untrusted"
 printf '# User Profile\n\n## Pinned\n' > "$BRAIN_DIR/USER.md"
@@ -146,8 +146,7 @@ for s in learned-s1 learned-s2; do
 done
 grep -q 'Developer mode enabled' "$BRAIN_DIR/persona-learned.md" 2>/dev/null \
   || fail "SEC-R5 harness: the paraphrased signal did not graduate (nothing to serve): $(cat "$BRAIN_DIR/persona-signals.jsonl" 2>&1)"
-( source "$PLUGIN_ROOT/scripts/lib.sh" >/dev/null 2>&1 && sb_pin_to_user "human-pin-marker prefers tabs" ) \
-  || fail "SEC-R5: the human pin failed"
+printf -- '- [%s] human-pin-marker prefers tabs\n' "$(date -u +%F)" >> "$BRAIN_DIR/USER.md"
 OUT=$(run_session_load)
 OPEN='[Untrusted reference — learned preferences'
 CLOSE='[End untrusted reference]'
