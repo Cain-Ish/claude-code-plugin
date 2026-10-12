@@ -80,8 +80,9 @@ render_service() {
   # A custom knowledge dir must be BOTH forwarded (Environment=) and granted in the
   # sandbox (the default unit only grants %h/knowledge) — else the out-of-band extraction
   # AND consolidation operate on the wrong tree / are blocked by ProtectHome.
-  # ExecStart splits on whitespace: quote the shim so a space in $HOME survives (refuse a `"`).
-  case "$SHIM" in *'"'*) echo "error: refusing to render ExecStart - a double quote in the shim path ($SHIM)" >&2; return 1 ;; esac
+  # ExecStart splits on whitespace: quote the shim so a space in $HOME survives. Refuse `"`, and `\`
+  # and `%` too: systemd escape/specifier characters that sed or systemd would rewrite (re-audit R2-2).
+  case "$SHIM" in *'"'*|*'\'*|*%*) echo "error: refusing to render ExecStart - a double quote, backslash or % in the shim path ($SHIM)" >&2; return 1 ;; esac
   # Every forwarded dir that is not the unit's default must be granted too (ProtectHome=read-only):
   # BRAIN_DIR (lock + state), CLAUDE_CONFIG_DIR on --oauth, the knowledge dir (re-audit S7-3/S7-4).
   # Each entry is double-quoted (a space survives). Refused: `"` (ends the quote), `\` (a systemd
