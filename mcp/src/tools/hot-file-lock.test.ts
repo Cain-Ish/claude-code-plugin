@@ -47,6 +47,42 @@ describe('hot-file-lock (E3, audit 2026-10)', () => {
     expect(existsSync(lockPathFor(file))).toBe(false);
   });
 
+  // Re-audit S8-4: the lib.sh twin tests these three (test-transcript-archive.sh); the TS side did not.
+  it('puts back a fresh lock that replaced the stale one between its read and the steal', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    writeFileSync(lockPathFor(file), '999999999.dead\n');
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(lockPathFor(file), old, old);
+    const fsp = (await import('fs')).promises;
+    const realRename = fsp.rename;
+    vi.spyOn(fsp, 'rename').mockImplementationOnce(async (a: any, b: any) => {
+      writeFileSync(lockPathFor(file), 'fresh.9\n');   // another writer won the race
+      return realRename(a, b);
+    });
+    let ran = false;
+    expect(await withFileLock(file, () => 'busy', async () => { ran = true; return 'ran'; }, 300)).toBe('busy');
+    expect(ran).toBe(false);
+    expect(readFileSync(lockPathFor(file), 'utf-8')).toBe('fresh.9\n');
+  });
+
+  it('leaves a lock that is no longer its own (stolen while held) in place', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await withFileLock(file, () => 'busy', async () => { writeFileSync(lockPathFor(file), 'other.1\n'); return 'ran'; })).toBe('ran');
+    expect(readFileSync(lockPathFor(file), 'utf-8')).toBe('other.1\n');
+  });
+
+  it('steals a lock past the 600 s hard bound even when its holder pid answers', async () => {
+    const orig = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' });   // win32 counts every pid as gone
+      writeFileSync(lockPathFor(file), `${process.pid}.hung\n`);
+      const old = new Date(Date.now() - 700_000);
+      utimesSync(lockPathFor(file), old, old);
+      expect(await withFileLock(file, () => 'busy', async () => 'ran', 2000)).toBe('ran');
+    } finally { Object.defineProperty(process, 'platform', orig); }
+  });
+
   it('does not steal a young lock even when its holder pid is gone', async () => {
     writeFileSync(lockPathFor(file), '999999999.dead\n');
     expect(await withFileLock(file, () => 'busy', async () => 'ran', 300)).toBe('busy');
