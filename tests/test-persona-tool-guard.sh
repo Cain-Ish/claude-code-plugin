@@ -1496,7 +1496,8 @@ s22 warn-rm-rf Bash $'rm -rf /tmp/s22-dir \\\n  /tmp/s22-other'
 # SEC-4: a line that matches on its own asks from the fast path, continuation or not — the full logic
 # takes 2.5-7 s under load, and past the 5 s hook timeout the guard fails open.
 s22 warn-rm-rf Bash $'rm -rf build && docker build \\\n  -t img .'
-grep -q '"fastpath":true' "$S22/audit-log.jsonl" \
+# (the fast path is off on bash < 4.3 — macOS /bin/bash 3.2 — so the full logic asks there)
+[ "$FP_OFF" = 1 ] || grep -q '"fastpath":true' "$S22/audit-log.jsonl" \
   || fail "SEC-4: a continued command whose first line matches alone must ask from the fast path (audit: $(cat "$S22/audit-log.jsonl"))"
 # SEC-2: each shell folds its own continuation only. Folding both glued a Bash line ending in a
 # backtick onto the split rm after it (d=`pwdrm  -rf …: a letter before rm, no word boundary), and a
