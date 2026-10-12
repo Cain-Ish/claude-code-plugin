@@ -9,8 +9,8 @@ import { writeFileAtomic } from './atomic-write.js';
 // hand-written About/Intent sections — the live USER.md was 23 non-blank lines with ZERO pins,
 // so every pin_to_user call (and, then, every auto-graduated persona signal) was refused, silently,
 // for months (ledger LC-07, 2026-08-23). Graduation no longer goes through here: it writes
-// $BRAIN_DIR/persona-learned.md via sb_pin_to_learned; USER.md is human pins only. scripts/lib.sh sb_pin_to_user applies the SAME rule
-// (same regex, same MAX_PINS, same section) — keep them in lockstep.
+// $BRAIN_DIR/persona-learned.md via sb_pin_to_learned; USER.md is human pins only, added here (the MCP
+// pin_to_user tool and `sb pin user` both call this function).
 export const MAX_PINS = 15;
 export const PIN_RE = /^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/;
 const PIN_SECTION = '## Pinned';
@@ -21,7 +21,7 @@ const PIN_SECTION = '## Pinned';
 // never wrapped as untrusted (test-injection-wrap.sh). Ported verbatim from pin-to-project.ts's
 // flattenField (added there in 0.48.0 for exactly this memory-poisoning primitive): strip
 // CR/LF/backticks, collapse whitespace, NFC-normalize so equivalent Unicode forms dedupe
-// consistently, cap length. scripts/lib.sh sb_pin_to_user mirrors this in bash — lockstep.
+// consistently, cap length.
 const PIN_TEXT_CAP = 400;
 function flattenField(s: string, cap: number): string {
   return s.normalize('NFC').replace(/[\r\n`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, cap);
@@ -40,8 +40,8 @@ export async function pinToUser(args: PinToUserArgs): Promise<PinToUserResult> {
   }
   const newLine = `- [${date}] ${trimmed}`;
 
-  // E3: read-modify-write under the shared .USER.md.lock (lib.sh sb_pin_to_user, the bash twin of
-  // this tool, holds it too) and replace by temp + rename.
+  // E3: read-modify-write under the shared .USER.md.lock (lib.sh sb_migrate_learned_pins holds it
+  // too) and replace by temp + rename.
   await fs.mkdir(dir, { recursive: true });
   return withFileLock(file, reason => ({ ok: false, line_added: '', reason }),
     owned => pinUserLocked(file, trimmed, newLine, owned));

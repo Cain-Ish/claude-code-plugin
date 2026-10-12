@@ -122,7 +122,7 @@ describe('pin_to_user', () => {
   });
 
   // E3 (audit 2026-10): the read-modify-write holds the shared .USER.md.lock that lib.sh
-  // sb_pin_to_user (persona graduation) takes too, and replaces USER.md by temp + rename.
+  // sb_migrate_learned_pins takes too, and replaces USER.md by temp + rename.
   it('E3: waits for the shared .USER.md.lock before its read-modify-write', async () => {
     writeFileSync(join(dir, 'USER.md'), '# USER\n\n## Pinned\n', 'utf-8');
     const lf = join(dir, '.USER.md.lock');

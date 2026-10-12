@@ -2,8 +2,8 @@ import { promises as fs } from 'fs';
 import { randomInt } from 'crypto';
 import { basename, dirname, join } from 'path';
 
-// E3 (audit 2026-10): PROJECT.md and USER.md are read-modify-written by the bash merge
-// (merge-project-update.sh, lib.sh sb_pin_to_user) AND by pin_to_project / pin_to_user /
+// E3 (audit 2026-10): PROJECT.md and USER.md are read-modify-written by bash (merge-project-update.sh;
+// lib.sh sb_migrate_learned_pins for USER.md) AND by pin_to_project / pin_to_user /
 // archive_to_wiki. Unlocked, a pin landing inside a merge's window returned ok:true and was then
 // overwritten by the merge's final mv. Every writer holds ONE on-disk lock per file: lib.sh
 // sb_archive_lock's noclobber file ".<name>.lock" next to it, holding "<pid>.<nonce>". Same stale
