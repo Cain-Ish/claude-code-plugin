@@ -316,16 +316,6 @@ else
   pass "symlink-dependent accept guards not exercised here (no symlink support)"
 fi
 
-# --- Subtest 6: dream_set_status helper
-setup "set-status"
-seed_wiki
-seed_transcripts
-DID=$(bash "$REPO_ROOT/scripts/dream-snapshot.sh" 2>&1)
-sb_dream_set_status "$DID" "status" "running"
-NEW_STATUS=$(jq -r '.status' "$BRAIN_DIR/dreams/$DID/status.json")
-[ "$NEW_STATUS" = "running" ] || fail "set_status should update status (got: $NEW_STATUS)"
-pass "set_status helper: updates status.json"
-
 # --- Subtest 7: prune keeps max 5 dreams
 setup "prune-dreams"
 seed_wiki

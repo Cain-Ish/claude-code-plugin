@@ -60,7 +60,8 @@ All commands are `bash ${CLAUDE_PLUGIN_ROOT}/scripts/<script>`; nine are wrapped
 `scripts/hook-timer.sh <budget_s> <script>` (marked ⏲) — R7 latency TELEMETRY only: `<budget_s>`
 mirrors the hooks.json timeout purely as the warn threshold for the
 `{kind:"latency",…,budget_warn}` audit-log record. The wrapper is TRANSPARENT (hook-timer.sh:14-17
-header) — it never times out, kills, or gates the child; the only timeout is the harness hard one.
+header) — a guard (budget < 10 s) is reaped after its budget; a heavy hook (>= 10 s) is never
+timed out, killed, or gated by it, and the only timeout there is the harness hard one.
 Re-verify the whole table:
 `jq -r '.hooks | to_entries[] | .key as $ev | .value[] | .matcher as $m | .hooks[] | "\($ev)|\($m)|\(.command)|\(.timeout)"' hooks/hooks.json`
 

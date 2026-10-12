@@ -3,8 +3,10 @@
 [ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0
 source "$(dirname "$0")/lib.sh"
 KNOWLEDGE_DIR="$(sb_knowledge_dir)"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
 
-# Wiki content-category dirs from the KB source of truth (kb-schema.json, via lib.sh -> kb-schema.sh).
+# Wiki content-category dirs from the KB source of truth (kb-schema.json, via kb-schema.sh).
 # Creates ALL content categories. ONE mkdir for every dir (was 12 spawns, one per dir, on every
 # SessionStart under a 5s timeout; S0 B7: cancelled in 7 of 25 sessions). mkdir -p still creates
 # each operand independently and reports each failure.
@@ -82,7 +84,8 @@ fi
 # file is never touched. The audited count is what was actually DELETED: a count, the -delete pass,
 # a recount (the old `-print -delete | wc -l` counted what find listed, deleted or not). A find
 # that exits non-zero is logged through sb_log_error. The common case (no debris) costs one find.
-_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' \) -mtime +0 "$@"; }
+# .hook-timer-<pid>.timeout: the pre-watchdog hook-timer's flag files, which nothing reads any more.
+_ed_debris() { find "$BRAIN_DIR" -maxdepth 1 -type f \( -name '*.tmp.*' -o -name '*.rot.*' -o -name '.hook-timer-*.timeout' \) -mtime +0 "$@"; }
 _ed_debris_count() {
   local l rc
   l=$(_ed_debris -print 2>/dev/null); rc=$?
@@ -98,7 +101,7 @@ if [ "${_ED_BEFORE:-0}" -gt 0 ]; then
     sb_log_error "ensure-dirs.sh" "tmp-debris-gc: find -delete exited $_ed_rc in $BRAIN_DIR (${_ED_AFTER:-?} of $_ED_BEFORE stale file(s) left): ${_ed_err:0:300}" "$_ed_rc"
   fi
   if [ "$_ED_PRUNED" -gt 0 ]; then
-    sb_log_audit "ensure-dirs.sh" "allow" "tmp-debris-gc" "$BRAIN_DIR" "pruned $_ED_PRUNED stale *.tmp.*/*.rot.* file(s)"
+    sb_log_audit "ensure-dirs.sh" "allow" "tmp-debris-gc" "$BRAIN_DIR" "pruned $_ED_PRUNED stale *.tmp.*/*.rot.*/.hook-timer-*.timeout file(s)"
   fi
 fi
 
@@ -147,7 +150,7 @@ if [ ! -f "$_D118_MARK" ] && [ -s "$BRAIN_DIR/projects.jsonl" ] && command -v jq
     _D118_DEST="$BRAIN_DIR/projects.jsonl.purged-$(date -u +%Y%m%d)"
     cat "$_D118_PURGED" >> "$_D118_DEST"
     mv "$_D118_KEPT" "$BRAIN_DIR/projects.jsonl"
-    _D118_N=$(grep -c . "$_D118_PURGED" 2>/dev/null || echo 0)
+    _D118_N=$(grep -c . "$_D118_PURGED" 2>/dev/null); _D118_N=${_D118_N:-0}
     sb_log_error "ensure-dirs.sh" "gate=registration-purge removed $_D118_N HOME/temp-root registry row(s) -> $_D118_DEST" 0
   else
     rm -f "$_D118_KEPT"
@@ -155,6 +158,10 @@ if [ ! -f "$_D118_MARK" ] && [ -s "$BRAIN_DIR/projects.jsonl" ] && command -v jq
   rm -f "$_D118_PURGED"
   : > "$_D118_MARK"
 fi
+
+# SEC-R5 one-time move: persona signals auto-graduated into USER.md before 0.57.0 go to the untrusted
+# persona-learned.md (marker-gated in lib.sh: one stat once done; a busy lock retries next session).
+sb_migrate_learned_pins
 
 WIKI_INDEX="$KNOWLEDGE_DIR/wiki/index.md"
 # Build the index on a fresh wiki, else validate+autofix an existing one. Delegated to the

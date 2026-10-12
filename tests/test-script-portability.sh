@@ -569,4 +569,15 @@ h=$(c20_scan $ALL_SH 2> "$C17T/err"); rc=$?
 [ -z "$h" ] && pass "no backgrounded subshell or brace group keeps the caller's stdout (a hook's reader would wait for the job)" \
   || fail "a backgrounded ( … ) & / { … } & keeps the caller's stdout open — redirect it on the closing line: ) </dev/null >/dev/null 2>&1 &" "$h"
 
+# 21. No `grep -c … || echo 0` (D10/D165 class). grep -c prints its count even when it exits 1 on
+#     zero matches, so the fallback appends a second 0: "0\n0" breaks `[ "$n" -gt 0 ]` and prints
+#     "from 0\n0 dream(s)". House form: `n=$(grep -c . f); n=${n:-0}` (the :-0 covers a missing
+#     file). Also scans the skills' runnable bash snippets.
+c21_re='grep[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]][^|]*\|\|[[:space:]]*echo[[:space:]]+"?0'
+printf '%s\n' 'n=$(find d | grep -c . || echo 0)' 'n=$(grep -c . "$f" 2>/dev/null); n=${n:-0}' > "$C17T/c21.sh"
+[ "$(grep -cE "$c21_re" "$C17T/c21.sh")" = 1 ] || fail "check 21 self-test: the scan must flag exactly the canary's first line" "$(cat "$C17T/c21.sh")"
+h=$(grep -nE "$c21_re" $ALL_SH $(find "$REPO/skills" -name '*.md' -type f) 2>/dev/null | nocomment || true)
+[ -z "$h" ] && pass "no grep -c … || echo 0 (prints \"0\\n0\" on zero matches)" \
+  || fail "grep -c … || echo 0 doubles the count on zero matches — use n=\$(grep -c …); n=\${n:-0}" "$h"
+
 echo; echo "ALL PASS"

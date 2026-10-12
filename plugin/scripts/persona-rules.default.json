@@ -1,10 +1,10 @@
 {
   "schema": 2,
   "tool_scope": {
-    "_comment": "HarnessAudit sar_tool channel. Asks when a tool not in 'allowlist' is invoked. Opt-in (disabled by default) — flipping to true with a small allowlist is the cheapest way to detect tool-misuse before it touches files. Per-session extension via SB_TOOL_SCOPE_EXTRA='Tool1:Tool2' (colon-separated). Kill switch: SB_TOOL_SCOPE=off.",
+    "_comment": "HarnessAudit sar_tool channel. Asks when a tool not in 'allowlist' is invoked. Opt-in (disabled by default) — flipping to true with a small allowlist is the cheapest way to detect tool-misuse before it touches files. Per-session extension via SB_TOOL_SCOPE_EXTRA='Tool1:Tool2' (colon-separated). Kill switch: SB_TOOL_SCOPE=off. PowerShell is in the allowlist beside Bash (Claude Code's Windows shell tool); its command meets the Bash-SYNTAX ask/deny rules only, so a PowerShell-native Remove-Item rule is deferred.",
     "enabled": false,
     "allowlist": [
-      "Read", "Bash", "BashOutput", "KillShell",
+      "Read", "Bash", "PowerShell", "BashOutput", "KillShell",
       "Edit", "Write", "MultiEdit", "NotebookEdit",
       "Glob", "Grep",
       "TodoWrite", "Task",
@@ -35,7 +35,7 @@
     {
       "name": "warn-force-push-main",
       "tool": "Bash",
-      "match_command": "git push.*(--force|-f)\\b.*\\b(main|master)\\b",
+      "match_command": "git [^;&|]*push(.*[^[:alnum:]_-](--force[^[:space:]]*|-[a-zA-Z]*f[a-zA-Z]*)[^[:alnum:]_-].*|.*[^[:alnum:]_][+][^[:space:]]*)\\b(main|master)\\b|git [^;&|]*push.*\\b(main|master)\\b[^;&|]*[^[:alnum:]_-](--force[^[:space:]]*|-[a-zA-Z]*f[a-zA-Z]*)([^[:alnum:]_-]|$)",
       "action": "ask",
       "reason": "Force-push to main/master is destructive. Confirm intent.",
       "lock": true
@@ -43,7 +43,23 @@
     {
       "name": "warn-direct-write-hot-tier",
       "tool": "Write",
-      "match_path": "(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "match_path": "(^|/)(USER\\.md|PROJECT\\.md|persona-card\\.md|persona-rules\\.json|plugin\\.json)$",
+      "action": "ask",
+      "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
+      "lock": true
+    },
+    {
+      "name": "warn-direct-write-hot-tier-edit",
+      "tool": "Edit",
+      "match_path": "(^|/)(USER\\.md|persona-card\\.md|persona-rules\\.json)$",
+      "action": "ask",
+      "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
+      "lock": true
+    },
+    {
+      "name": "warn-direct-write-hot-tier-multiedit",
+      "tool": "MultiEdit",
+      "match_path": "(^|/)(USER\\.md|persona-card\\.md|persona-rules\\.json)$",
       "action": "ask",
       "reason": "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools.",
       "lock": true
@@ -51,9 +67,17 @@
     {
       "name": "warn-rm-rf",
       "tool": "Bash",
-      "match_command": "\\brm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\b",
+      "match_command": "(^|[^[:alnum:]_])rm[[:space:]]+([^;&|]*[[:space:]])?(-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR])[a-zA-Z]*|(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)[[:space:]]([^;&|]*[[:space:]])?(-[a-zA-Z]*f[a-zA-Z]*|--force)|(-[a-zA-Z]*f[a-zA-Z]*|--force)[[:space:]]([^;&|]*[[:space:]])?(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive))",
       "action": "ask",
       "reason": "rm -rf is destructive and irreversible. Confirm target before proceeding.",
+      "lock": true
+    },
+    {
+      "name": "warn-remove-item-recurse-force",
+      "tool": "PowerShell",
+      "match_command": "(^|[^[:alnum:]_-])(remove-item|ri|rd|rmdir|del|erase)[[:space:]]([^;&|]*[[:space:]])?-(r(e(c(u(r(s(e)?)?)?)?)?)?([^[:alnum:]_;&|][^;&|]*)?[[:space:]]-fo(r(c(e)?)?)?|fo(r(c(e)?)?)?([^[:alnum:]_;&|][^;&|]*)?[[:space:]]-r(e(c(u(r(s(e)?)?)?)?)?)?)([^[:alnum:]_]|$)",
+      "action": "ask",
+      "reason": "Remove-Item -Recurse -Force is the PowerShell rm -rf: destructive and irreversible. Confirm target before proceeding.",
       "lock": true
     },
     {

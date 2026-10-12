@@ -74,3 +74,33 @@ describe('persona_think', () => {
     expect(r.error).toMatch(/refusing to spawn a real claude under VITEST/);
   });
 });
+
+describe('personaSpawnArgs (audit B3)', () => {
+  it('adds --bare only when an API key is set', async () => {
+    const { personaSpawnArgs } = await import('./persona-think.js');
+    expect(personaSpawnArgs('m', 's', 'sk-x')).toContain('--bare');
+    expect(personaSpawnArgs('m', 's', undefined)).not.toContain('--bare');
+    expect(personaSpawnArgs('m', 's', '')).not.toContain('--bare');
+  });
+
+  it('is tool-less, settings-free, MCP-free and non-persisting (SEC-R7; the house headless form)', async () => {
+    const { personaSpawnArgs } = await import('./persona-think.js');
+    for (const key of ['sk-x', undefined]) {
+      const a = personaSpawnArgs('m', 's', key);
+      expect(a).toContain('--strict-mcp-config');
+      expect(a).toContain('--no-session-persistence');
+      expect(a[a.indexOf('--tools') + 1]).toBe('');
+      expect(a[a.indexOf('--setting-sources') + 1]).toBe('');
+    }
+  });
+});
+
+describe('inSessionRefusal (TS-R4)', () => {
+  it('refuses in-session without an API key, allows otherwise', async () => {
+    const { inSessionRefusal } = await import('./persona-think.js');
+    expect(inSessionRefusal({ CLAUDECODE: '1' })).toMatch(/ANTHROPIC_API_KEY/);
+    expect(inSessionRefusal({ CLAUDECODE: '1', ANTHROPIC_API_KEY: 'k' })).toBeNull();
+    expect(inSessionRefusal({ CLAUDECODE: '1', SB_FORCE_CLI: '1' })).toBeNull();
+    expect(inSessionRefusal({})).toBeNull();
+  });
+});

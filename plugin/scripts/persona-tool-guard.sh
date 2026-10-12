@@ -928,9 +928,21 @@ _ptg_long_reason() {
 # persona-rules.default.json as the full logic applies them: case-insensitively (grep -i: the path
 # lowercased, [Xx] classes on the command), \b as a [^[:alnum:]_] boundary, command rules line by
 # line (grep's unit), in the default file's order (the full logic keeps the first ask it meets).
-_PTG_RE_PUSH='[Gg][Ii][Tt] [Pp][Uu][Ss][Hh].*(--[Ff][Oo][Rr][Cc][Ee]|-[Ff])[^[:alnum:]_](.*[^[:alnum:]_])?([Mm][Aa][Ii][Nn]|[Mm][Aa][Ss][Tt][Ee][Rr])([^[:alnum:]_]|$)'
-_PTG_RE_RMRF='(^|[^[:alnum:]_])[Rr][Mm][[:space:]]+(-[a-zA-Z]*[Rr][a-zA-Z]*[Ff][a-zA-Z]*|-[a-zA-Z]*[Ff][a-zA-Z]*[Rr][a-zA-Z]*)([^[:alnum:]_]|$)'
-_PTG_RE_HOT='(user\.md|project\.md|persona-card\.md|persona-rules\.json|plugin\.json)$'
+# G9: a force flag before the branch, a '+' refspec (+main, +HEAD:main), or a force flag after the
+# branch within the same command (no ; & | between).
+_PTG_RE_PUSH='[Gg][Ii][Tt] [^;&|]*[Pp][Uu][Ss][Hh](.*[^[:alnum:]_-](--[Ff][Oo][Rr][Cc][Ee][^[:space:]]*|-[A-Za-z]*[Ff][A-Za-z]*)[^[:alnum:]_-](.*[^[:alnum:]_])?|.*[^[:alnum:]_][+]([^[:space:]]*[^[:alnum:]_])?)([Mm][Aa][Ii][Nn]|[Mm][Aa][Ss][Tt][Ee][Rr])([^[:alnum:]_]|$)|[Gg][Ii][Tt] [^;&|]*[Pp][Uu][Ss][Hh].*[^[:alnum:]_]([Mm][Aa][Ii][Nn]|[Mm][Aa][Ss][Tt][Ee][Rr])([^[:alnum:]_;&|][^;&|]*)?[^[:alnum:]_-](--[Ff][Oo][Rr][Cc][Ee][^[:space:]]*|-[A-Za-z]*[Ff][A-Za-z]*)([^[:alnum:]_-]|$)'
+# T8/G9: rm as a word of its own (not inside grep/echo text after a quote), glued, split or long flags.
+# shortcut: glibc retries the run after each `rm ` / `git push` from every start, O(n^2) on one line
+# (~1 s for a dense 16 KB line, the fast path's read cap; MSYS is linear) — upgrade to a per-segment
+# test if that cap grows. tests/test-persona-tool-guard.sh bounds the dense shapes.
+_PTG_RE_RMRF='(^|[^[:alnum:]_])[Rr][Mm][[:space:]]+([^;&|]*[[:space:]])?(-[a-zA-Z]*([Rr][a-zA-Z]*[Ff]|[Ff][a-zA-Z]*[Rr])[a-zA-Z]*|(-[a-zA-Z]*[Rr][a-zA-Z]*|--[Rr][Ee][Cc][Uu][Rr][Ss][Ii][Vv][Ee])[[:space:]]([^;&|]*[[:space:]])?(-[a-zA-Z]*[Ff][a-zA-Z]*|--[Ff][Oo][Rr][Cc][Ee])|(-[a-zA-Z]*[Ff][a-zA-Z]*|--[Ff][Oo][Rr][Cc][Ee])[[:space:]]([^;&|]*[[:space:]])?(-[a-zA-Z]*[Rr][a-zA-Z]*|--[Rr][Ee][Cc][Uu][Rr][Ss][Ii][Vv][Ee]))'
+# PowerShell only: Remove-Item (or its ri/rd/rmdir/del/erase aliases) with both -Recurse and -Force, either
+# order, abbreviations allowed (-r..recurse, -fo..force), within one statement; quoted spellings ask too.
+# shortcut: cmd-style `rmdir /s /q` is not matched; add it if PowerShell commands ever show it in the audit log.
+_PTG_RE_RMITEM='(^|[^[:alnum:]_-])([rR][eE][mM][oO][vV][eE]-[iI][tT][eE][mM]|[rR][iI]|[rR][dD]|[rR][mM][dD][iI][rR]|[dD][eE][lL]|[eE][rR][aA][sS][eE])[[:space:]]([^;&|]*[[:space:]])?-([rR]([eE]([cC]([uU]([rR]([sS]([eE])?)?)?)?)?)?([^[:alnum:]_;&|][^;&|]*)?[[:space:]]-[fF][oO]([rR]([cC]([eE])?)?)?|[fF][oO]([rR]([cC]([eE])?)?)?([^[:alnum:]_;&|][^;&|]*)?[[:space:]]-[rR]([eE]([cC]([uU]([rR]([sS]([eE])?)?)?)?)?)?)([^[:alnum:]_]|$)'
+_PTG_RE_HOT='(^|/)(user\.md|project\.md|persona-card\.md|persona-rules\.json)$'
+# Edit/MultiEdit twins omit project.md: the background maintainer edits PROJECT.md autonomously.
+_PTG_RE_HOT_E='(^|/)(user\.md|persona-card\.md|persona-rules\.json)$'
 _PTG_RE_SCRIPTS='/(claude-code-plugin|second-brain)/([^/]+/)?(scripts|hooks)/[^/]+\.(sh|json)$'
 _PTG_RE_PRULES='persona-rules(\.default)?\.json$'
 _PTG_RE_RRULES='/projects/[^/]+/rules(\.pending)?\.json$'
@@ -973,7 +985,8 @@ _ptg_fast() {
   tool="$_FP"
   # Read (G1): no rule in the default names it, but resource_scope covers it and a credential store
   # asks — both decided below, without the locked-rule table.
-  case "$tool" in Bash|Write|Edit|MultiEdit|Read) ;; *) return 1 ;; esac
+  # PowerShell (G1): its command meets the Bash rules, as in the full logic's RULE_FRAMES.
+  case "$tool" in Bash|PowerShell|Write|Edit|MultiEdit|Read) ;; *) return 1 ;; esac
   # P must be the default this table mirrors — the one beside this script: CLAUDE_PLUGIN_ROOT's copy
   # is that same file, or byte-identical to it. A different P (another plugin version, an edited
   # default) goes to the full logic, which reads whatever P actually says.
@@ -1006,7 +1019,7 @@ _ptg_fast() {
     for f in "$bd"/projects/*/.rules-effective.json "$bd/.rules-effective.json"; do _ptg_cache_ok "$f" || return 1; done
   fi
   _PTG_RULE="" _PTG_REASON="" _PTG_SFX=""
-  if [ "$tool" = Bash ]; then
+  if [ "$tool" = Bash ] || [ "$tool" = PowerShell ]; then
     _fp_str command || return 1
     _fp_nocr cmd "$_FP"
     _fp_trimnl cmd "$cmd"
@@ -1016,6 +1029,10 @@ _ptg_fast() {
     [ "$rc" = 0 ] && _ptg_set warn-force-push-main "Force-push to main/master is destructive. Confirm intent."
     _fp_lines "$_PTG_RE_RMRF" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
     [ "$rc" = 0 ] && _ptg_set warn-rm-rf "rm -rf is destructive and irreversible. Confirm target before proceeding."
+    if [ "$tool" = PowerShell ]; then
+      _fp_lines "$_PTG_RE_RMITEM" "$cmd"; rc=$?; [ "$rc" = 2 ] && return 1
+      [ "$rc" = 0 ] && _ptg_set warn-remove-item-recurse-force "Remove-Item -Recurse -Force is the PowerShell rm -rf: destructive and irreversible. Confirm target before proceeding."
+    fi
   else
     _fp_str file_path || return 1
     _fp_nocr path "$_FP"
@@ -1032,9 +1049,10 @@ _ptg_fast() {
     if [ "$tool" != Read ]; then
       _fp_lower lc "$path"
       case "$tool" in Edit) _PTG_SFX=-edit ;; MultiEdit) _PTG_SFX=-multiedit ;; esac
-      if [ "$tool" = Write ] && [[ $lc =~ $_PTG_RE_HOT ]]; then
-        _ptg_set warn-direct-write-hot-tier "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools."
-      fi
+      _hre=$_PTG_RE_HOT; [ "$tool" = Write ] || _hre=$_PTG_RE_HOT_E
+      [[ $lc =~ $_hre ]] && _ptg_set warn-direct-write-hot-tier "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools."
+      # plugin.json: a Write asks, but Edit/MultiEdit do not (version bumps edit it every release - IMP-R4).
+      [ "$tool" = Write ] && [[ $lc =~ (^|/)plugin\.json$ ]] && _ptg_set warn-direct-write-hot-tier "Direct Write to hot-tier files bypasses pin tools' dedupe and size caps. Prefer pin_to_user / pin_to_project MCP tools."
       [[ $lc =~ $_PTG_RE_SCRIPTS ]] && _ptg_set warn-self-edit-plugin-scripts "Editing a plugin hook script or hooks.json modifies the safety layer itself. Confirm intent — this is the kind of change an injection attack would try to make."
       [[ $lc =~ $_PTG_RE_PRULES ]] && _ptg_set warn-self-edit-persona-rules "persona-rules.json controls every PreToolUse guard decision. Confirm intent — disabling rules silently is the classic prompt-injection escalation path."
       [[ $lc =~ $_PTG_RE_RRULES ]] && _ptg_set warn-self-edit-repo-rules "projects/<key>/rules.json is the repo layer of the PreToolUse guard — confirm intent; use /second-brain:rules promote|demote"
@@ -1056,7 +1074,7 @@ _ptg_fast() {
   #   respell under an MSYS mount (amb, _ptg_mnt): with a rule hit the call asks all the same (the
   #   reason may name the scope where the full logic names the rule); without one this path stands
   #   down rather than risk a false ask.
-  if [ "$tool" != Bash ]; then
+  if [ "$tool" != Bash ] && [ "$tool" != PowerShell ]; then
     # The full logic's _PTG_LONG: the length before the lexical steps (a \\?\ prefix counts).
     if [ "$plen" -gt 4096 ]; then
       if [ -z "$_PTG_RULE" ]; then
@@ -1391,8 +1409,10 @@ EFF_UF="$USER_RULES"; [ -f "$EFF_UF" ] || EFF_UF=/dev/null
 # Bash, file -> match_path against the file-touching tools. Only action=warn
 # is honored from .learned — a poisoned learned entry can therefore never
 # escalate itself into a deny/rewrite.
+# G1: the PowerShell tool's command meets the Bash rules too — except a rewrite, whose sed targets bash
+# syntax and whose "allow" would auto-approve the PowerShell call past the user's prompt.
 RULE_FRAMES='
-  (.rules[] | select(.tool == $t) |
+  (.rules[] | select(.tool == $t or ($t == "PowerShell" and .tool == "Bash" and (.action // "") != "rewrite")) |
     (.name // "anonymous"),
     (.action // ""),
     (.match_command // ""),

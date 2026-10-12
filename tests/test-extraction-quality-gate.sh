@@ -91,6 +91,17 @@ out=$(echo '{"recent_decisions":["files this session: noise.ts"],"wiki_updates":
   || fail "preserve-payload: the 'files this session' noise should still be filtered (got: $out)"
 pass "gate preserves wiki_updates + relations while filtering decision noise"
 
+# E8 (audit 2026-10): a non-string entry must be DROPPED, never stringified. `jq -r` printed an
+# object entry as multi-line JSON text that passed is_noise and came back as a string bullet, so
+# the merge's D142 non-string guard never saw it. Only strings survive; the drop is audited.
+out=$(echo '{"recent_decisions":[{"why":"object entry","n":1},"decided to use BM25+ONNX hybrid for wiki search",["a","b","c","d"]],"open_blockers":[42],"cross_refs":[{"slug":"x"}]}' | bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.recent_decisions == ["decided to use BM25+ONNX hybrid for wiki search"]' >/dev/null \
+  || fail "E8: non-string decisions must be dropped, the string kept (got: $out)"
+[ -n "$out" ] && echo "$out" | jq -e '.open_blockers == [] and .cross_refs == []' >/dev/null \
+  || fail "E8: non-string blockers/cross_refs must be dropped (got: $out)"
+grep -q '"rule":"rules:non-string"' "$BD/audit-log.jsonl" || fail "E8: the dropped non-string entries left no audit row"
+pass "E8: non-string entries are dropped (and audited), never stringified into bullets"
+
 # G2: inside the suite (SB_SUITE_REAL_HOME_PATH set) LLM mode must refuse before any
 # real claude spawn: non-zero exit, a stderr message, an error-log row, claude never run.
 FAKE_BIN="$BD/fakebin"; mkdir -p "$FAKE_BIN"

@@ -216,11 +216,26 @@ if [ "${1:-}" = "post" ]; then
   P_KNOWLEDGE_DIR="$(sb_knowledge_dir)"
   P_MERGE_ERR=$(mktemp)
   P_MERGE_STATUS="ok"
-  if ! jq -nc --argjson b "$P_BULLETS" '{compact_pending: $b}' \
-      | bash "$(dirname "$0")/merge-project-update.sh" --project-md "$P_PROJECT_MD" \
-          --knowledge-dir "$P_KNOWLEDGE_DIR" --session "$P_SID" >/dev/null 2>"$P_MERGE_ERR"; then
+  # Exit 3 = PROJECT.md busy (its lock still held after ~5 s) or a refused read: "retry later".
+  # Stop retries on its next run; PostCompact has none, so it retries once here, and only while a
+  # second attempt still fits the 30 s hook budget (hooks.json PostCompact timeout): the time left
+  # since the hook started must exceed what the first attempt took (its lock wait plus the merge)
+  # plus a 2 s margin for the CLI's head start and this hook's tail. TST-R6: a fixed "$SECONDS < 15"
+  # skipped the retry whenever a loaded box had merely started slowly.
+  # Three contending writers (Stop, the drainer, a pin) kept the lock past 5 s + one retry, so the
+  # merge waits for the lock as long as the budget allows: 30 s less elapsed less a 10 s reserve for
+  # the merge itself (at most 20 s, never below the 5 s default). An explicit SB_ARCHIVE_LOCK_WAIT_S wins.
+  for P_MERGE_TRY in 1 2; do
+    P_MERGE_RC=0; P_TRY_T0=$SECONDS
+    P_LOCK_WAIT=$(( 20 - SECONDS )); [ "$P_LOCK_WAIT" -ge 5 ] || P_LOCK_WAIT=5
+    jq -nc --argjson b "$P_BULLETS" '{compact_pending: $b}' \
+      | SB_ARCHIVE_LOCK_WAIT_S="${SB_ARCHIVE_LOCK_WAIT_S:-$P_LOCK_WAIT}" bash "$(dirname "$0")/merge-project-update.sh" --project-md "$P_PROJECT_MD" \
+          --knowledge-dir "$P_KNOWLEDGE_DIR" --session "$P_SID" >/dev/null 2>"$P_MERGE_ERR" || P_MERGE_RC=$?
+    [ "$P_MERGE_RC" -eq 3 ] && [ $(( 30 - SECONDS - 2 )) -gt $(( SECONDS - P_TRY_T0 )) ] || break
+  done
+  if [ "$P_MERGE_RC" -ne 0 ]; then
     P_ERR_TAIL=$(tr '\n' ' ' < "$P_MERGE_ERR" | head -c 300)
-    sb_log_error "pre-compact.sh" "postcompact-capture merge-failed err=$P_ERR_TAIL" 1
+    sb_log_error "pre-compact.sh" "postcompact-capture merge-failed rc=$P_MERGE_RC tries=$P_MERGE_TRY: this compaction's Pending Tasks are NOT in PROJECT.md and no later hook retries them err=$P_ERR_TAIL" 1
     P_MERGE_STATUS="failed"
   fi
   rm -f "$P_MERGE_ERR"
@@ -229,7 +244,7 @@ if [ "${1:-}" = "post" ]; then
   # looked identical whether those N bullets landed in PROJECT.md or the merge call itself
   # failed outright.
   P_COUNT=$(printf '%s' "$P_BULLETS" | jq 'length' 2>/dev/null); case "$P_COUNT" in ''|*[!0-9]*) P_COUNT=0 ;; esac
-  SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC source=$P_SRC pending=$P_COUNT merge=$P_MERGE_STATUS"
+  SB_GATE="postcompact-capture slug=$P_SLUG sid=$P_SID8 slugsrc=$P_SLUG_SRC source=$P_SRC pending=$P_COUNT merge=$P_MERGE_STATUS tries=$P_MERGE_TRY"
   exit 0
 fi
 
@@ -413,10 +428,12 @@ sb_merge_extraction_edges "$DELTA_JSON" "$KNOWLEDGE_DIR"
 # --- Persona signal + rule-candidate extraction ---
 PERSONA_PAYLOAD=$(echo "$DELTA_JSON" | jq -c \
   '{persona_signals: (.persona_signals // []), rule_candidates: (.rule_candidates // [])}')
-if echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
+# E1 (as stop-extract.sh): a failed merge is retried with this same window, so its persona signals
+# wait for the retry instead of being counted twice toward graduation.
+if [ "$MERGE_FAILED" != 1 ] && echo "$PERSONA_PAYLOAD" | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
   PERSONA_ERR=$(mktemp)
   if ! echo "$PERSONA_PAYLOAD" \
-    | bash "$(dirname "$0")/merge-persona-signals.sh" --slug "$SLUG" 2>"$PERSONA_ERR"; then
+    | bash "$(dirname "$0")/merge-persona-signals.sh" --slug "$SLUG" --session "$SESSION_ID" 2>"$PERSONA_ERR"; then
     ERR_TAIL=$(tr '\n' ' ' < "$PERSONA_ERR" | head -c 200)
     sb_log_error "pre-compact.sh" "persona-merge-failed err=$ERR_TAIL" 0
   fi

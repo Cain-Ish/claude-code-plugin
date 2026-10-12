@@ -477,7 +477,8 @@ EFF15="$B15/projects/demo/.rules-effective.json"
 [ -s "$EFF15" ] || fail "lock bypass: no .rules-effective.json cache was written"
 jq -e '(.rules[]|select(.name=="warn-rm-rf")) as $r | ($r.action=="ask") and ($r.lock==true)' "$EFF15" >/dev/null \
   || fail "lock bypass: warn-rm-rf should stay action=ask, lock=true — got: $(jq -c '.rules[]|select(.name=="warn-rm-rf")' "$EFF15" 2>/dev/null)"
-jq -e '(.rules[]|select(.name=="warn-force-push-main")|.match_command) == "git push.*(--force|-f)\\b.*\\b(main|master)\\b"' "$EFF15" >/dev/null \
+P_PUSH=$(jq -r '.rules[]|select(.name=="warn-force-push-main")|.match_command' "$ROOT/scripts/persona-rules.default.json" | tr -d '\r')
+jq -e --arg p "$P_PUSH" '(.rules[]|select(.name=="warn-force-push-main")|.match_command) == $p' "$EFF15" >/dev/null \
   || fail "lock bypass: warn-force-push-main match_command should stay P's, not retargeted"
 jq -e '(.violations|length) == 3' "$EFF15" >/dev/null \
   || fail "lock bypass: expected exactly 3 violations, got: $(jq -c '.violations' "$EFF15" 2>/dev/null)"

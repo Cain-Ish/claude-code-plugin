@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { fileURLToPath } from 'url';
+import { spawn, spawnSync, execFileSync } from 'child_process';
 import { pinToProject } from './pin-to-project.js';
 
 const tpl = `# PROJECT: test
@@ -230,4 +232,53 @@ describe('pin_to_project', () => {
     const occurrences = content.split('\n').filter(l => l === '- [active] API rate limit');
     expect(occurrences.length).toBe(1);
   });
+
+  // E3 (audit 2026-10): the read-modify-write holds the shared .PROJECT.md.lock (lib.sh
+  // sb_archive_lock's file) and replaces the file by temp + rename instead of writing in place.
+  it('E3: waits for the shared .PROJECT.md.lock before its read-modify-write', async () => {
+    const projectMd = join(dir, 'projects', 'test-slug', 'PROJECT.md');
+    const lf = join(dir, 'projects', 'test-slug', '.PROJECT.md.lock');
+    writeFileSync(lf, `${process.pid}.held\n`);
+    const p = pinToProject({ text: 'pin that waits for the lock', slug: 'test-slug', section: 'blockers', brainDir: dir });
+    await new Promise(r => setTimeout(r, 400));
+    expect(readFileSync(projectMd, 'utf-8')).not.toContain('pin that waits for the lock');
+    rmSync(lf);
+    expect((await p).ok).toBe(true);
+    expect(readFileSync(projectMd, 'utf-8')).toContain('- [active] pin that waits for the lock');
+    expect(existsSync(lf)).toBe(false);
+  });
+
+  // The lost update itself: a real merge-project-update.sh run is held inside its read-modify-write
+  // window (a mv shim marks, then sleeps before the final PROJECT.md replace) while the pin lands.
+  // Unlocked, the merge's mv erased the pin that had already returned ok:true.
+  const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
+  const posix = (p: string) => p.replace(/\\/g, '/');
+  it.skipIf(spawnSync('bash', ['-c', 'exit 0']).status !== 0)('E3: a pin landing while a merge is mid-write survives the merge', async () => {
+    const projectMd = join(dir, 'projects', 'test-slug', 'PROJECT.md');
+    const bin = join(dir, 'bin'); mkdirSync(bin);
+    const hold = join(dir, 'merge-holds');
+    writeFileSync(join(bin, 'mv'), [
+      '#!/bin/bash',
+      'for a in "$@"; do last="$a"; done',
+      'case "$last" in */PROJECT.md) : > "$E3_HOLD"; sleep 3 ;; esac',
+      'exec "$E3_REALMV" "$@"', ''].join('\n'));
+    chmodSync(join(bin, 'mv'), 0o755);
+    const realMv = execFileSync('bash', ['-c', 'command -v mv']).toString().trim();
+    const child = spawn('bash', ['-c',
+      'b=$(cygpath -u "$1" 2>/dev/null || printf %s "$1"); PATH="$b:$PATH" exec bash "$2" --project-md "$3" --knowledge-dir "$4"',
+      'bash', posix(bin), posix(join(repoRoot, 'scripts', 'merge-project-update.sh')), posix(projectMd), posix(join(dir, 'knowledge'))],
+      { env: { ...process.env, HOME: posix(dir), BRAIN_DIR: posix(dir), E3_HOLD: posix(hold), E3_REALMV: realMv }, stdio: ['pipe', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', d => { stderr += d; });
+    const exited = new Promise<number | null>(r => child.on('close', r));
+    child.stdin.end('{"recent_decisions":["decision written by the racing merge"]}');
+    for (let i = 0; i < 600 && !existsSync(hold); i++) await new Promise(r => setTimeout(r, 100));
+    expect(existsSync(hold), `the merge never reached its final write: ${stderr}`).toBe(true);
+    const pin = await pinToProject({ text: 'pin landing inside the merge window', slug: 'test-slug', section: 'decisions', brainDir: dir });
+    expect(await exited, stderr).toBe(0);
+    expect(pin.ok).toBe(true);
+    const out = readFileSync(projectMd, 'utf-8');
+    expect(out).toContain('decision written by the racing merge');
+    expect(out).toContain('pin landing inside the merge window');
+  }, 120_000);
 });

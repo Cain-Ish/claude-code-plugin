@@ -51,6 +51,9 @@ sha256() { sha256sum 2>/dev/null || shasum -a 256; }
 
 # deps-key: a stable hash of the dependencies block, so the shared tree is rebuilt
 # only when the actual dependency set changes — not on every version bump.
+# shortcut: a lockfile-only change (same ranges, new pins) does not rebuild an existing tree;
+# hashing the lockfile in would invalidate every install at once (manual 70 MB reinstall, bm25-only
+# until then). Upgrade when a security pin must reach existing installs: bump a range in package.json.
 WANT_KEY="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(JSON.stringify(p.dependencies||{}))' "$PKG" | sha256 | awk '{print $1}')"
 [ -n "$WANT_KEY" ] || { echo "install-vector-deps: could not compute deps-key (no sha256sum/shasum on PATH?)." >&2; exit 1; }
 HAVE_KEY="$(cat "$KEY_FILE" 2>/dev/null || echo none)"
@@ -162,7 +165,14 @@ if [ ! -f "$STAGE_NM/@huggingface/transformers/package.json" ] || ! deps_ok "$ST
   echo "install-vector-deps: this needs network access and downloads ~70MB of native"
   echo "                     deps (onnxruntime-node, sharp). One-time; shared across versions."
   cp "$PKG" "$STAGE/package.json"
-  ( cd "$STAGE" && npm install --omit=dev --no-audit --no-fund )
+  # Lockfile-exact when the plugin ships one (npm ci also fails loud on a lock/package.json drift);
+  # a bare npm install re-resolves ranges and can pull versions nobody tested.
+  if [ -f "$MCP_DIR/package-lock.json" ]; then
+    cp "$MCP_DIR/package-lock.json" "$STAGE/package-lock.json"
+    ( cd "$STAGE" && npm ci --omit=dev --no-audit --no-fund )
+  else
+    ( cd "$STAGE" && npm install --omit=dev --no-audit --no-fund )
+  fi
 fi
 
 # 4. Validate staging BEFORE swapping: complete deps AND a working import. If it fails,

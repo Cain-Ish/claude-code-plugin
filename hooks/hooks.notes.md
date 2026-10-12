@@ -11,6 +11,21 @@ resolve to a live command under that event, and every hook group in `hooks.json`
 must be named by at least one heading. A note for a deleted hook, or a hook added
 without a note, fails the suite.
 
+**`hook-timer.sh` wrapper** (A7/R7, audit H7): `bash hook-timer.sh <budget> <script>`,
+`<budget>` mirroring the entry's `timeout`, appends one `kind:"latency"` row per
+run and is transparent — stdin, stdout, stderr and the hook's own exit code pass
+through. Its watchdog sleeps the WHOLE budget, never less: the CLI's clock starts
+before the wrapper's, so it has given up by then, and a verdict printed in budget
+is never touched. If the hook still runs, the watchdog writes the row itself
+(`timeout:true`, `exit_code` 124) — the CLI kills the wrapper at the budget, so
+the wrapper cannot. Budgets under 10 s (the 5 s PreToolUse guards) also reap the
+hook's process group, grandchildren included, and a still-living wrapper exits
+124. Budgets of 10 s and up (session-load, `--compact` at 10 included,
+dream-autostage, persona-context, stop-extract, pre-compact) are never killed:
+the hook finishes its side effects as an orphan, as before the watchdog. No state
+is kept between runs (no flag file: a PID-keyed one once turned a later healthy
+guard into 124, i.e. fail-open).
+
 ---
 
 ## SessionStart
@@ -40,7 +55,7 @@ No writes: no pin refresh, memo, registration, baseline copy, session count or
 projects.jsonl change — SessionStart(compact) fires in the same second as
 PostCompact and before it, so it can only ever render what PROJECT.md already
 holds. Wrapped in `hook-timer.sh 10` (A7: heavy hooks are timed) — the
-budget/timeout stay at 10s. Kill switch `SB_COMPACT_REINJECT=off`. A pairing alarm (run once per
+budget/timeout stay at 10s; a run past it gets a timeout row, never a kill. Kill switch `SB_COMPACT_REINJECT=off`. A pairing alarm (run once per
 startup, in the `startup|resume|clear|fork` group above) logs an error-log row
 when a `gate=postcompact-capture` row has no matching `gate=compact-reinject`
 row for the same session — signal that SessionStart(compact) output regressed
@@ -144,17 +159,26 @@ missing sanitizer), and merges it add-only into `## Plan` as
 whose in-session extraction always queues. Never blocks; nothing waits on
 Stop (Stop does not fire on user interrupts). Wrapped in `hook-timer.sh 30`
 (A7: heavy hooks are timed) — timeout raised 15s -> 30s in 0.54.0 (measured
-31-54s on a loaded box: the gate spawns node plus the injection scanner).
+31-54s on a loaded box: the gate spawns node plus the injection scanner). A run
+past 30s gets a timeout row and is never killed: its merge still lands.
+A merge that finds PROJECT.md locked (exit 3 after its ~5 s wait) is retried
+once, while the run is under 15 s: no later hook retries a PostCompact. Still
+locked: one error row (ec 1) says the Pending Tasks were dropped.
 Kill switch `SB_COMPACT_CAPTURE=off`.
 
 ## PreToolUse
 
 ### PreToolUse — persona-tool-guard.sh
 
-matcher covers the file (Read/Write/Edit/MultiEdit), shell (Bash), network
+matcher covers the file (Read/Write/Edit/MultiEdit), shell (Bash, PowerShell), network
 (WebFetch/WebSearch), and subagent-spawn surface where tool_scope and sar_tool
 apply. Both Task and Agent match — both agent-spawn tool names exist across CLI
-versions and both must be guarded. MCP tools and read-only
+versions and both must be guarded. PowerShell (Claude Code's Windows shell tool,
+same `tool_input.command` field) meets the Bash-SYNTAX ask/deny/warn rules only — a command
+spelled in bash syntax (`rm -rf`, `rm -Recurse -Force`, `git push --force`) is caught, but a
+PowerShell-NATIVE `Remove-Item -Recurse -Force` is matched by its own PowerShell-only rule
+(`warn-remove-item-recurse-force`); its ri, rd, rmdir, del, erase aliases are matched too; cmd-style `rmdir /s /q` is NOT. A Bash
+rewrite rule is not applied to PowerShell (its "allow" would auto-approve the call). MCP tools and read-only
 Glob/Grep/TodoWrite/BashOutput omitted to keep hook cost low. That exclusion is a
 recorded decision, pinned by the out-of-scope contract in
 tests/test-guard-wiring.sh.
@@ -179,7 +203,8 @@ writes whose resolved path lands inside ~/.ssh, ~/.gnupg, ~/.aws,
 ### PreToolUse — flow-guard.sh
 
 outbound info-flow guard (sar_flow channel) — asks when an egress tool call (Bash
-with network tool, or WebFetch/WebSearch) carries credential-shaped content.
+or PowerShell with a network tool — Invoke-WebRequest/iwr/Invoke-RestMethod/irm
+count, in any case — or WebFetch/WebSearch) carries credential-shaped content.
 Defense-in-depth against the agent helpfully pasting session secrets into a curl
 request. Kill switch SB_FLOW_GUARD=off.
 
@@ -190,7 +215,8 @@ auto-pass retry) and B (drift re-ground, warn once then deny once) on multi-file
 substantive code work (>=SB_PLAN_FIRST_FILES files, default 2; drift at
 >=SB_DRIFT_FILES zero-goal-overlap files, default 4), plus the plan->implement
 phase flip. Fail-open; every verdict audit-logged. With SB_INTENT_SPINE=off it
-degrades to the original soft once-per-session advisory (allow — never blocks).
+degrades to the original soft once-per-session advisory (additionalContext only, no
+permissionDecision — never blocks, never auto-approves).
 Silent on single-file work and one-line diffs. Kill switches
 SB_PLAN_FIRST_NUDGE=off, SB_INTENT_SPINE=off.
 
@@ -257,8 +283,9 @@ SB_QUALITY_GATE=off (D077).
 
 ### PostToolUse — tool-return-scanner.sh
 
-HarnessAudit Layer 3 — scans Read/WebFetch/Bash/Grep/Glob output for
-indirect-prompt-injection patterns. Flags via additionalContext; never blocks.
+HarnessAudit Layer 3 — scans Read/WebFetch/Bash/PowerShell/Grep/Glob output for
+indirect-prompt-injection patterns (PowerShell: Claude Code's Windows shell tool, its
+output read like Bash's). Flags via additionalContext; never blocks.
 Kill switch SB_INJECTION_SCAN=off.
 
 ### PostToolUse — observe-tool-use.sh
@@ -268,7 +295,8 @@ JSONL line {ts, tool, target, ok, err} per tool use to
 ~/.second-brain/observations/<session>.jsonl. Survives Stop/PreCompact extraction
 loss (the single-LLM-call SPOF) and records the ok|error dimension the
 preprocessed transcript lacks; mined by the out-of-band drainer as extraction
-input, swept by its 7-day GC. Grep/Glob deliberately excluded (high volume, low
+input, swept by its 7-day GC. PowerShell is matched like Bash (here and on
+PostToolUseFailure). Grep/Glob deliberately excluded (high volume, low
 mining value). Pure jq/bash, no output, never blocks. Kill switch
 SB_OBSERVATION_LEDGER=off; per-session cap SB_OBSERVATION_MAX_BYTES (default
 1 MiB).

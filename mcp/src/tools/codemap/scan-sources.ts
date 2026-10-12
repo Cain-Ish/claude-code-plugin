@@ -6,17 +6,15 @@
  * id-sorted so identical trees yield byte-identical downstream graphs (the
  * determinism contract build-graph.ts and store.ts build on).
  */
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { existsSync, statSync } from 'fs';
 import { readFile, stat } from 'fs/promises';
 import { homedir, tmpdir } from 'os';
 import * as path from 'path';
 import { glob } from 'glob';
+import { defaultGitRunner } from '../jit-index.js';
 import type { Lang, ScannedFile } from './types.js';
 import type { TsPathConfig } from './extract.js';
 
-const execFileAsync = promisify(execFile);
 
 /** Injectable so unit tests exercise the git path without a real repo. */
 export type GitRunner = (args: string[], cwd: string) => Promise<string>;
@@ -74,17 +72,8 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** Exported for drift.ts — one git-spawner shape for the whole codemap layer. */
-export async function defaultRunGit(args: string[], cwd: string): Promise<string> {
-  // execFile's default maxBuffer (1 MiB) truncates ls-files mid-record on
-  // large monorepos; 64 MiB is headroom, not a target.
-  const { stdout } = await execFileAsync('git', args, {
-    cwd,
-    maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true,
-  });
-  return stdout;
-}
+/** One git runner for the whole codemap layer (shared with jit-index: 64 MiB buffer, 5 s timeout). */
+export const defaultRunGit = defaultGitRunner;
 
 /** Locale-independent codepoint order — localeCompare varies by platform ICU. */
 function byId(a: string, b: string): number {
@@ -114,8 +103,8 @@ export async function scanSources(
   let candidates: Array<{ id: string; abs: string }>;
   try {
     const stdout = await runGit(['ls-files', '-z'], repoRoot);
-    candidates = stdout
-      .split('\0')
+    // Set: ls-files repeats a path once per unmerged stage during a merge conflict
+    candidates = [...new Set(stdout.split('\0'))]
       .filter((rel) => rel.length > 0)
       .map((rel) => ({ id: rel, abs: path.resolve(repoRoot, rel) }));
   } catch {

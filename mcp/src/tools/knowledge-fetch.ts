@@ -5,6 +5,7 @@ import { parseDoc } from './frontmatter.js';
 import { aiBlockSnippet } from './ai-block.js';
 import { capText, egressBudgetTokens, estimateTokens } from './egress-budget.js';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
+import { untrustedFrame, untrustedFrameTokens } from './episodic-search.js';
 import { resolveKnowledgeDir } from '../brain-paths.js';
 
 export type Tier = 'gist' | 'skeleton' | 'summary' | 'full' | 'block';
@@ -91,6 +92,8 @@ export async function knowledgeFetch(args: KnowledgeFetchArgs): Promise<Knowledg
   const fullPointer = `Read ${filePath} for the full page`;
   const gist = doc.description || doc.title || args.slug;
 
+  const FRAME_LABEL = 'wiki page, retrieved from the knowledge base';
+  const bodyBudget = Math.max(0, egressBudgetTokens() - untrustedFrameTokens(FRAME_LABEL));
   let text: string;
   let truncated = false;
 
@@ -102,7 +105,7 @@ export async function knowledgeFetch(args: KnowledgeFetchArgs): Promise<Knowledg
   } else if (tier === 'summary') {
     const summary = summarySection(doc.body);
     if (summary) {
-      const capped = capText(summary, egressBudgetTokens(), fullPointer);
+      const capped = capText(summary, bodyBudget, fullPointer);
       text = capped.text;
       truncated = capped.truncated;
     } else {
@@ -118,10 +121,13 @@ export async function knowledgeFetch(args: KnowledgeFetchArgs): Promise<Knowledg
       text = summary || [gist, '', ...headings(doc.body), '', '(no ai-block — use tier=summary/full)'].join('\n').trim();
     }
   } else {
-    const capped = capText(doc.body.trim(), egressBudgetTokens(), fullPointer);
+    const capped = capText(doc.body.trim(), bodyBudget, fullPointer);
     text = capped.text;
     truncated = capped.truncated;
   }
+
+  // Page text is store content (the gist is its description): every tier rides in the untrusted frame (audit M4, review SEC-R7).
+  text = untrustedFrame(FRAME_LABEL, text);
 
   return {
     slug: args.slug,

@@ -66,9 +66,15 @@ pass "U1: untrusted-only new page held; trusted new page applied"
   || fail "U1c: hold stored inside the dream dir — retention pruning would delete it"
 
 # --- U2: re-accept WITH confirm → held page released into live ---------------
+# D2 (audit): the release used `cp -p`, so the page kept the hold's old mtime and a later dream's
+# rsync --delete (snapshot taken before the release) did not protect it. It must land fresh.
+touch -t 202501010000 "$BRAIN_DIR/held-untrusted/drm_test/learnings/conjured.md"
+U2REF="$SB/u2ref"; touch "$U2REF"
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" SB_DREAM_ACCEPT_CONFIRM_UNTRUSTED=1 bash "$ACCEPT" drm_test 2>&1); rc=$?
 [ "$rc" -eq 0 ] || fail "U2: release accept failed (rc=$rc): $OUT"
 [ -f "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" ] || fail "U2: held page not released into live"
+[ "$U2REF" -nt "$KNOWLEDGE_DIR/wiki/learnings/conjured.md" ] \
+  && fail "D2: the released page kept the hold's old mtime (a later dream's --delete would remove it)"
 [ ! -d "$BRAIN_DIR/held-untrusted/drm_test" ] || fail "U2: held-untrusted/ not cleared after release"
 printf '%s' "$OUT" | grep -q 'RELEASED 1' || fail "U2: no RELEASED line: $OUT"
 pass "U2: confirm re-accept releases the held page"

@@ -93,6 +93,13 @@ grep -q '"to":"page-a|the A page"' "$LOG" 2>/dev/null && fail "alias display lea
 grep -qE '"from":"page-g","to":"page-a"' "$LOG" 2>/dev/null || fail "alias [[target|display]] not resolved to target (page-g->page-a missing)"
 pass "[[target|alias]] migrates to target (alias stripped)"
 
+# --- Test 8b: [[cat/slug#heading|alias]] and [[slug#heading]] name the same page as [[slug]] ---
+printf '%s\n' '---' 'title: H' 'type: entities' 'created: 2026-05-08' 'related: []' '---' '# H' '' 'See [[entities/page-b#Usage|B]] and [[page-a#sec]].' > "$KDIR/wiki/entities/page-h.md"
+KNOWLEDGE_DIR="$KDIR" bash "$SCRIPT" --knowledge-dir "$KDIR"
+grep -qE '"from":"page-h","to":"page-b"' "$LOG" 2>/dev/null || fail "[[cat/slug#h|alias]] not resolved to its slug (page-h->page-b missing)"
+grep -qE '"from":"page-h","to":"page-a"' "$LOG" 2>/dev/null || fail "[[slug#h]] not resolved to its slug (page-h->page-a missing)"
+pass "[[cat/slug#h|alias]] and [[slug#h]] migrate to the bare slug"
+
 # --- Test 9 (regression): real-page edges still migrate after hardening ---
 grep -qE '"from":"page-a","to":"page-b"' "$LOG" 2>/dev/null || fail "resolves guard wrongly dropped a real-page edge (page-a->page-b)"
 pass "real-page edges still migrate after hardening"

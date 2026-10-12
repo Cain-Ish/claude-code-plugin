@@ -1,6 +1,6 @@
 // src/tools/doc-sources.ts
 import { promises as fs, realpathSync as realpathSync2, existsSync } from "fs";
-import { join, relative, resolve, sep as sep2, isAbsolute, parse, win32 as win322 } from "path";
+import { join as join2, relative, resolve, sep as sep2, isAbsolute, parse, win32 as win322 } from "path";
 import { spawnSync } from "child_process";
 
 // node_modules/balanced-match/dist/esm/index.js
@@ -6080,6 +6080,12 @@ function hashContent(content) {
   return createHash("sha256").update(content).digest("hex");
 }
 
+// src/tools/doc-registry.ts
+import { join } from "path";
+function registryPath(brainDir, slug) {
+  return join(brainDir, "projects", slug, "doc-sources.json");
+}
+
 // ../kb-schema.json
 var kb_schema_default = {
   _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
@@ -6149,12 +6155,6 @@ var kb_schema_default = {
 var STRUCTURED_TYPES = kb_schema_default.structured_types;
 var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
 var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
-var PROJECT_SECTIONS = kb_schema_default.project_sections;
-var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-var RAW_DIR = kb_schema_default.raw.dir;
-var RAW_STATUSES = kb_schema_default.raw.statuses;
 var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
 var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
 var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;
@@ -6198,7 +6198,7 @@ function extractHeadings(content) {
 var JUNK_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".venv", "venv", ".next", "dist", "build"]);
 async function readConfig(brainDir, slug) {
   try {
-    const j2 = JSON.parse(await fs.readFile(join(brainDir, "projects", slug, "doc-sources.config.json"), "utf-8"));
+    const j2 = JSON.parse(await fs.readFile(join2(brainDir, "projects", slug, "doc-sources.config.json"), "utf-8"));
     return { locations: Array.isArray(j2.locations) ? j2.locations : [] };
   } catch {
     return { locations: [] };
@@ -6209,9 +6209,9 @@ function filterIgnored(projectRoot, absPaths) {
   const nonJunk = absPaths.filter((p) => !relative(projectRoot, p).split(/[\\/]+/).some((seg) => JUNK_DIRS.has(seg)));
   if (nonJunk.length === 0) return [];
   const rels = nonJunk.map((p) => relative(projectRoot, p).split(/[\\/]+/).join("/"));
-  const res = spawnSync("git", ["-C", projectRoot, "check-ignore", "--stdin"], { input: rels.join("\n"), encoding: "utf-8" });
+  const res = spawnSync("git", ["-C", projectRoot, "check-ignore", "-z", "--stdin"], { input: rels.join("\0"), encoding: "utf-8" });
   if (res.status === 0 || res.status === 1) {
-    const ignored = new Set((res.stdout || "").split("\n").filter(Boolean).map((r) => join(projectRoot, r)));
+    const ignored = new Set((res.stdout || "").split("\0").filter(Boolean).map((r) => join2(projectRoot, r)));
     return nonJunk.filter((p) => !ignored.has(p));
   }
   return nonJunk;
@@ -6256,15 +6256,12 @@ async function scanLocations(projectRoot, locations) {
   entries.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   return entries;
 }
-function registryPath(brainDir, slug) {
-  return join(brainDir, "projects", slug, "doc-sources.json");
-}
 async function buildRegistry(projectRoot, brainDir, slug) {
   assertSafeSlug(slug);
   const { locations } = await readConfig(brainDir, slug);
   const entries = await scanLocations(projectRoot, locations);
   const reg = { generated_at: (/* @__PURE__ */ new Date()).toISOString(), project: slug, entries };
-  await fs.mkdir(join(brainDir, "projects", slug), { recursive: true });
+  await fs.mkdir(join2(brainDir, "projects", slug), { recursive: true });
   const out = registryPath(brainDir, slug);
   const tmp = `${out}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(reg, null, 2));
@@ -6273,7 +6270,7 @@ async function buildRegistry(projectRoot, brainDir, slug) {
 }
 
 // src/brain-paths.ts
-import { join as join2, isAbsolute as isAbsolute2 } from "path";
+import { join as join3, isAbsolute as isAbsolute2 } from "path";
 import { homedir } from "os";
 function normForCompare(p) {
   let s = cleanEnvPath(p).trim().split(String.fromCharCode(92)).join("/");
@@ -6297,7 +6294,7 @@ function resolveBrainDir(override) {
   if (override) return suiteGuard("brain", override);
   return suiteGuard(
     "brain",
-    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join2(homedir(), ".second-brain")
+    cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join3(homedir(), ".second-brain")
   );
 }
 

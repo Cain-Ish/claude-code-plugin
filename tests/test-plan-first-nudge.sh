@@ -8,7 +8,7 @@
 #   declared scope; Gate B warns once on a zero-goal-overlap file set, denies once on a
 #   second consecutive set, then dampens; on-scope files never trigger it and reset the
 #   consecutive counter; the phase file flips plan→implement on the first substantive edit.
-#   Spine OFF: the legacy soft advisory (allow + additionalContext, never blocks).
+#   Spine OFF: the legacy soft advisory (additionalContext only, no permissionDecision, never blocks).
 #   Both modes: silent on single-file work, one-line diffs, non-code files, non-edit tools;
 #   kill switches + thresholds honored; malformed input fail-soft.
 set -u
@@ -105,13 +105,16 @@ printf '%s' "$(evt Write a.ts S6 "$big")" | SB_INTENT_SPINE=off bash "$SC" >/dev
 [ -f "$BRAIN_DIR/.injected/S6.phase" ] && fail "spine off must not write a phase file"
 OUT=$(printf '%s' "$(evt Write b.ts S6 "$big")" | SB_INTENT_SPINE=off bash "$SC" 2>/dev/null)
 printf '%s' "$OUT" | grep -q 'Plan-first' || fail "spine off: 2nd code file should soft-nudge"
-[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision=="allow"' >/dev/null 2>&1 || fail "advisory must allow"
-printf '%s' "$OUT" | grep -qiE '"deny"|"ask"' && fail "advisory must never block/ask"
+# G10 (audit 2026-10-10): an advisory carries additionalContext only — a permissionDecision "allow"
+# auto-approved the edit, skipping the user's own permission prompt.
+[ -n "$OUT" ] && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision == null and (.hookSpecificOutput.additionalContext | length) > 0' >/dev/null 2>&1 \
+  || fail "advisory must carry additionalContext and no permissionDecision (got: $OUT)"
+printf '%s' "$OUT" | grep -qiE '"deny"|"ask"|"allow"' && fail "advisory must never block/ask/allow"
 OUT=$(printf '%s' "$(evt Edit c.ts S6 "$big")" | SB_INTENT_SPINE=off bash "$SC" 2>/dev/null)
 [ -z "$OUT" ] || fail "advisory should fire at most once per session"
 [ "$(grep -c . "$BRAIN_DIR/.plan-nudge/S6.seen")" = "2" ] \
   || fail "advisory mode must stop registering after the one-shot (.seen grew)"
-pass "SB_INTENT_SPINE=off: legacy advisory (allow, once, no phase file, .seen frozen after fire)"
+pass "SB_INTENT_SPINE=off: legacy advisory (context only, once, no phase file, .seen frozen after fire)"
 
 # --- Gate B (drift re-grounding) ---
 GB_MEMO='{"goal":"improve the widget auth flow because logins time out","goal_kw":"widget auth flow","plan_ack":"1"}'

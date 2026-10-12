@@ -26,5 +26,11 @@ check "legacy record + detected remote → same (lazy-fill, not false collision)
 check "legacy record + no detected identity → same" "same" \
   "$(sb_project_identity "$REG" "legacy" "" "")"
 
+# L3 (audit): a torn/malformed registry line must not abort the lookup (strict jq stopped at it and
+# the project read as "new", so a colliding slug was silently overwritten).
+printf '%s\n' '{"slug":"torn","na' '{"slug":"torn2","root_path":"/repos/t2"}' >> "$REG"
+check "malformed line before a record -> still found (same)" "same" "$(sb_project_identity "$REG" "torn2" "/repos/t2" "")"
+check "malformed line before a record -> collision still detected" "collision" "$(sb_project_identity "$REG" "torn2" "/other" "")"
+
 rm -rf "$TMP"
 [ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

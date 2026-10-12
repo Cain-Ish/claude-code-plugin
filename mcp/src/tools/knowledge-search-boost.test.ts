@@ -137,3 +137,26 @@ describe('boost cap invariant (<=2x base)', () => {
     }
   });
 });
+
+// Audit M3: a future `updated:` date made daysSince negative, so the recency factor
+// exceeded 1 + RECENCY_BOOST_MAX and a typo'd date outranked every honest page.
+describe('recency boost cap', () => {
+  it('a future updated: date earns no more than a page updated today', async () => {
+    process.env.SECOND_BRAIN_DISABLE_EMBEDDINGS = '1';
+    process.env.BRAIN_DIR = mkdtempSync(join(tmpdir(), 'sb-rec-brain-'));
+    const kd = mkdtempSync(join(tmpdir(), 'sb-rec-'));
+    mkdirSync(join(kd, 'wiki', 'concepts'), { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [slug, upd] of [['page-today', today], ['page-future', '2099-01-01']]) {
+      writeFileSync(join(kd, 'wiki', 'concepts', `${slug}.md`),
+        `---\ntitle: "quartz gearbox calibration"\ndescription: "quartz gearbox calibration"\ntype: concepts\nupdated: ${upd}\n---\n\n# quartz gearbox calibration\n\n${'The quartz gearbox needs calibration. '.repeat(6)}\n`);
+    }
+    try {
+      const r = await knowledgeSearch({ query: 'quartz gearbox calibration', knowledgeDir: kd });
+      const s = (n: string) => r.candidates.find(c => c.path.includes(n))!.score;
+      expect(s('page-future')).toBeLessThanOrEqual(s('page-today') * 1.01)   // today sits <=1 day inside the window; the bug was ~70x;
+    } finally {
+      rmSync(kd, { recursive: true, force: true });
+    }
+  });
+});

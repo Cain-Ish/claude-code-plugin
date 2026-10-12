@@ -2433,12 +2433,6 @@ var kb_schema_default = {
 var STRUCTURED_TYPES = kb_schema_default.structured_types;
 var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
 var GENERATED_DIRS = kb_schema_default.generated_dirs;
-var EDGE_TYPES = kb_schema_default.edge_types;
-var PROJECT_SECTIONS = kb_schema_default.project_sections;
-var FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-var FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-var RAW_DIR = kb_schema_default.raw.dir;
-var RAW_STATUSES = kb_schema_default.raw.statuses;
 var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
 var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
 var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;
@@ -2592,7 +2586,7 @@ function parseDoc(content, filePath) {
 
 // src/tools/graph-store.ts
 import { promises as fs } from "fs";
-var EDGE_TYPES2 = ["requires", "affects", "relates", "part_of", "supersedes"];
+var EDGE_TYPES = ["requires", "affects", "relates", "part_of", "supersedes"];
 function cmpTime(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -2604,7 +2598,7 @@ function isValidRecord(r) {
   if (r.op !== "assert" && r.op !== "invalidate") return false;
   if (typeof r.from !== "string" || r.from.length === 0) return false;
   if (typeof r.to !== "string" || r.to.length === 0) return false;
-  if (!EDGE_TYPES2.includes(r.type)) return false;
+  if (!EDGE_TYPES.includes(r.type)) return false;
   if (typeof r.recorded_at !== "string" || r.recorded_at.length < 10) return false;
   for (const k of ["valid_from", "valid_to"]) {
     const v = r[k];
@@ -2865,6 +2859,14 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
   } catch {
   }
   if (opts.autofix) {
+    const origMtimeDate = /* @__PURE__ */ new Map();
+    for (const issue of issues) {
+      if (issue.autofix !== "patch_frontmatter") continue;
+      try {
+        origMtimeDate.set(issue.path, (await fs3.stat(issue.path)).mtime.toISOString().slice(0, 10));
+      } catch {
+      }
+    }
     for (const issue of issues) {
       if (issue.autofix === "remove" && issue.type === "empty_page") {
         try {
@@ -2889,8 +2891,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
       }
       if (issue.autofix === "add_frontmatter" && issue.type === "missing_frontmatter") {
         try {
-          await addFrontmatter(issue.path, wikiDir);
-          fixed++;
+          if (await addFrontmatter(issue.path, wikiDir)) fixed++;
         } catch {
         }
       }
@@ -2902,7 +2903,7 @@ async function knowledgeValidate(knowledgeDir, opts = {}) {
       }
       if (issue.autofix === "patch_frontmatter" && issue.type === "incomplete_frontmatter") {
         try {
-          if (await patchFrontmatter(issue.path, wikiDir, graphEnabled)) fixed++;
+          if (await patchFrontmatter(issue.path, wikiDir, graphEnabled, origMtimeDate.get(issue.path))) fixed++;
         } catch {
         }
       }
@@ -2915,10 +2916,10 @@ function isIncompleteFrontmatter(content) {
   if (!m) return false;
   return REQUIRED_FM_FIELDS.some((k) => !new RegExp(`^${k}:`, "m").test(m.fm));
 }
-async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
+async function patchFrontmatter(filePath, wikiDir, graphEnabled = false, origMtimeDate) {
   const original = await fs3.readFile(filePath, "utf-8");
   const m = matchFrontmatter(original);
-  if (!m) return false;
+  if (!m || !looksLikeFrontmatter(m.fm)) return false;
   const fmBody = m.fm;
   const missing = REQUIRED_FM_FIELDS.filter((k) => !new RegExp(`^${k}:`, "m").test(fmBody));
   if (missing.length === 0) return false;
@@ -2926,7 +2927,7 @@ async function patchFrontmatter(filePath, wikiDir, graphEnabled = false) {
   const body = m.body;
   let mtimeDate;
   try {
-    mtimeDate = (await fs3.stat(filePath)).mtime.toISOString().slice(0, 10);
+    mtimeDate = origMtimeDate ?? (await fs3.stat(filePath)).mtime.toISOString().slice(0, 10);
   } catch {
     mtimeDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   }
@@ -2972,7 +2973,8 @@ ${missing.map(derive).join("\n")}`;
 var KNOWN_CATEGORIES = new Set(ALL_CATEGORIES);
 async function addFrontmatter(filePath, wikiDir) {
   const original = await fs3.readFile(filePath, "utf-8");
-  if (hasFrontmatterFence(original)) return;
+  if (hasFrontmatterFence(original)) return false;
+  if (!original.trim()) return false;
   const slug = basename(filePath, ".md");
   const headingMatch = original.match(/^#\s+(.+?)\s*$/m);
   const title = headingMatch ? headingMatch[1].trim().replace(/"/g, "'") : slug.replace(/-/g, " ");
@@ -3013,6 +3015,7 @@ related: [${related.join(", ")}]
 
 `;
   await fs3.writeFile(filePath, fm + original, "utf-8");
+  return true;
 }
 function isMalformedFrontmatter(content) {
   const m = matchFrontmatter(content);
@@ -3023,6 +3026,9 @@ function isMalformedFrontmatter(content) {
   } catch {
     return true;
   }
+}
+function looksLikeFrontmatter(fm) {
+  return fm.split(/\r?\n/).every((l) => l.trim() === "" || /^([a-z_][\w.-]*:([ \t]|$)|[ \t]|-[ \t]|#([ \t]|$))/.test(l));
 }
 function dedupeTopLevelKeys(fm) {
   const lines = fm.split("\n");
@@ -3054,7 +3060,7 @@ function dedupeTopLevelKeys(fm) {
 async function normalizeFrontmatter(filePath) {
   const content = await fs3.readFile(filePath, "utf-8");
   const m = matchFrontmatter(content);
-  if (!m) return false;
+  if (!m || !looksLikeFrontmatter(m.fm)) return false;
   let fm = m.fm;
   fm = dedupeTopLevelKeys(fm);
   for (const key of ["related", "tags"]) {

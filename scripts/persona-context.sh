@@ -462,7 +462,7 @@ WIKI_MIN_SCORE="${SB_PERSONA_WIKI_MIN_SCORE:-0}"
 # hint. Delegate to lib.sh sb_resolve_slug (single source: CLAUDE_PROJECT_DIR > cwd-if-known-project
 # > pin > cwd) so per-prompt scoping matches the hook + MCP resolver and a CONCURRENT session's
 # stale .active-session-slug pin can't hijack it. Sourced lazily HERE (not at file top) so early-exit
-# prompts don't pay the lib.sh load (it sources kb-schema.sh, which can spawn jq).
+# prompts don't pay the lib.sh load (it is a heavy source).
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]:-$0}")/lib.sh" 2>/dev/null || true
 SB_ACTIVE_SLUG_VAL=$(sb_resolve_slug)
@@ -483,6 +483,7 @@ COMBINED_CLI="$PLUGIN_ROOT/mcp/dist/tools/context-serve-cli.bundle.js"
 # failed relink is breadcrumbed to the error log rather than swallowed.
 if [ -f "$COMBINED_CLI" ] \
    && [ ! -d "$PLUGIN_ROOT/mcp/node_modules/@huggingface/transformers" ] \
+   && [ -d "${SB_VECTOR_DEPS_DIR:-$HOME/.second-brain/vector-deps}/node_modules" ] \
    && [ -f "$PLUGIN_ROOT/bin/install-vector-deps.sh" ]; then
   if ! bash "$PLUGIN_ROOT/bin/install-vector-deps.sh" --relink-only >/dev/null 2>&1; then
     printf '{"timestamp":"%s","script":"persona-context.sh","message":"vector-deps relink failed after cache refresh — embeddings bm25-only until fixed","exit_code":0}\n' \

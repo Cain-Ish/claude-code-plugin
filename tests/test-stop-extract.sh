@@ -7,6 +7,9 @@
 # pins: SB_EXTRACTOR_LOCAL_URL — AF2 blanks it so only the recording claude stub can answer (not a gate bypass)
 # pins: CLAUDE_CODE_SESSION_ATTENDED / CLAUDE_CODE_ENTRYPOINT — the headless-child cases set the probed
 #   `claude -p` values (0 / sdk-cli) because the headless gate is the subject; unset at the top otherwise
+# pins: SB_ARCHIVE_LOCK_WAIT_S — C2-18/18b shorten the PROJECT.md lock wait 5 -> 2 s (the retry, not the wait, is under test;
+#   2 s, not 1, leaves the background releaser time to drop the lock before the retry gives up); C2-18d passes
+#   =2 to check that an explicit wait beats the hook's budget-derived one
 # Tests for scripts/stop-extract.sh — Stop-hook orchestrator that extracts
 # run-all-timeout: 900   (30+ full Stop/PreCompact-hook invocations by design after the 0.54.0
 #   review batch added the C2-9b..C2-14 cases; the S0 F1 ruler cases (R5b-R13: ~20 more Stops
@@ -33,6 +36,9 @@
 unset CLAUDECODE
 # The headless-child gate (R1#2) keys on these: inherited values must not no-op every case below.
 unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED SB_HEADLESS_CONTEXT
+# TST-R4: the persona merge must get the PAYLOAD's session id (--session); a live session's own id
+# in the environment would otherwise stand in for a dropped flag.
+unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID
 set -u
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 SCRIPT="$REPO_ROOT/scripts/stop-extract.sh"
@@ -597,17 +603,42 @@ pass "PC1: a PreCompact LLM failure merges the deterministic floor (breadcrumb o
 # would stop PreCompact at its project-md-missing gate, before the merge).
 init_sandbox "pc-merge-failed"
 seed_transcript_long_with_edit
-stub_claude_json '{"recent_decisions":["pc2 decision survives a failed merge"],"open_blockers":[],"cross_refs":[],"files_touched":[]}'
+stub_claude_json '{"recent_decisions":["pc2 decision survives a failed merge"],"open_blockers":[],"cross_refs":[],"files_touched":[],"persona_signals":[{"category":"workflow","signal":"pc2 persona signal counted once per window","evidence":"e","confidence":"high"}]}'
 PC2_ROOT="$TMP/pc2-root"; mkdir -p "$PC2_ROOT"; cp -R "$REPO_ROOT/scripts" "$PC2_ROOT/"
 printf '#!/bin/bash\ncat > /dev/null\necho "stub: merge refused" >&2\nexit 1\n' > "$PC2_ROOT/scripts/merge-project-update.sh"
 MARKER="$SANDBOX/.second-brain/.last-extracted-line-test-slug--test-session"
 run_pc "$PC2_ROOT/scripts/pre-compact.sh"
 grep -q 'merge-failed' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "PC2: the stubbed merge failure left no merge-failed row (the case proves nothing)"
 [ ! -f "$MARKER" ] || fail "PC2: PreCompact advanced the marker to $(cat "$MARKER") despite a failed merge: the window is lost"
+grep -q 'pc2 persona signal' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null \
+  && fail "E1: PreCompact merged persona signals although the PROJECT.md merge failed"
 run_pc
 grep -q 'pc2 decision survives a failed merge' "$SANDBOX/.second-brain/projects/test-slug/PROJECT.md" || fail "PC2: the retry did not merge the window's decision"
 [ "$(cat "$MARKER" 2>/dev/null)" = 20 ] || fail "PC2: the successful retry did not advance the marker to 20 (got $(cat "$MARKER" 2>/dev/null))"
+[ "$(jq -rs '[.[] | select(.signal | test("pc2 persona signal")) | .count] | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = 1 ] \
+  || fail "E1: the window's persona signal should be merged exactly once, by the successful retry: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
+# TST-R4: graduation counts DISTINCT sessions, so the payload's session id must reach the evidence.
+[ "$(jq -rs '[.[] | select(.signal | test("pc2 persona signal")) | .evidence[].session] | unique | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = test-session ] \
+  || fail "TST-R4: PreCompact did not pass the payload session id to the persona merge: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
 pass "PC2: a failed PreCompact merge keeps the marker; the next run retries and advances it"
+restore_path
+
+# E1 (audit 2026-10), Stop twin of PC2: the retry re-extracts the same window, so its persona
+# signals wait for the merge that succeeds; merging them on the failed run counted one window twice
+# toward USER.md graduation (live-reproduced above in PC2's shape: count 2, graduated).
+init_sandbox "stop-merge-failed-persona"
+seed_transcript_with_edit
+stub_claude_json '{"recent_decisions":["stop e1 decision"],"open_blockers":[],"cross_refs":[],"files_touched":[],"persona_signals":[{"category":"workflow","signal":"stop persona signal counted once per window","evidence":"e","confidence":"high"}]}'
+stop_payload | ANTHROPIC_API_KEY= SB_EXTRACTOR_LOCAL_URL= bash "$PC2_ROOT/scripts/stop-extract.sh" >/dev/null 2>"$SANDBOX/hook.err"
+grep -q 'merge-failed' "$SANDBOX/.second-brain/audit-log.jsonl" "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null || fail "E1 Stop: the stubbed merge failure left no merge-failed row (the case proves nothing)"
+grep -q 'stop persona signal' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null \
+  && fail "E1 Stop: persona signals were merged although the PROJECT.md merge failed"
+run_stop
+[ "$(jq -rs '[.[] | select(.signal | test("stop persona signal")) | .count] | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = 1 ] \
+  || fail "E1 Stop: the window's persona signal should be merged exactly once, by the successful retry: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
+[ "$(jq -rs '[.[] | select(.signal | test("stop persona signal")) | .evidence[].session] | unique | join(",")' "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" = test-session ] \
+  || fail "TST-R4: Stop did not pass the payload session id to the persona merge: $(cat "$SANDBOX/.second-brain/persona-signals.jsonl" 2>/dev/null)"
+pass "E1: a failed Stop merge skips the persona merge; the successful retry merges it once"
 restore_path
 
 # TC1: a record cut mid-write must not hide the rest of the window. A plain `jq` stops at the first
@@ -1288,6 +1319,97 @@ PC_SRC="$REPO_ROOT/scripts/pre-compact.sh"
 grep -q "date -u -j -f" "$PC_SRC" \
   || fail "C2-17: pre-compact.sh's BSD freshness fallback no longer runs 'date -u -j -f' -- a non-UTC host will reject fresh isCompactSummary records as stale"
 pass "C2-17: static lock -- pre-compact.sh's BSD date fallback carries -u"
+
+# C2-18: a PostCompact merge that meets a busy PROJECT.md lock retries once. merge-project-update.sh
+# waits ~5 s for the lock, then exits 3; Stop retries on its next run, but PostCompact has no next
+# run, so its Pending Tasks were dropped. The holder is this shell ($$: alive, never stolen as stale);
+# a background releaser drops the lock once the first attempt has logged that it gave up.
+c218_hold() {  # c218_hold <release: 1 after the first give-up | 0 never>: lock PROJECT.md, start the releaser
+  C218_LOCK="${PROJ%/*}/.PROJECT.md.lock"; printf '%s\n' "$$.c218" > "$C218_LOCK"
+  ( i=0
+    while [ "$1" = 1 ] && [ "$i" -lt 300 ]; do
+      grep -q 'still held after' "$SANDBOX/.second-brain/error-log.jsonl" 2>/dev/null && break
+      sleep 0.1; i=$((i + 1))
+    done
+    [ "$1" = 1 ] && rm -f "$C218_LOCK" ) </dev/null >/dev/null 2>&1 &
+  C218_REL=$!
+}
+init_sandbox "c2-18-lock-retry"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+c218_hold 1
+compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Retry past a busy lock
+' | SB_ARCHIVE_LOCK_WAIT_S=2 bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+wait "$C218_REL"
+grep -q 'Retry past a busy lock' "$PROJ" \
+  || fail "C2-18: the Pending Task was dropped after one busy-lock attempt (no retry): $(grep -h 'merge-failed\|still held' "$SANDBOX/.second-brain/error-log.jsonl" | head -3)"
+grep -q 'gate=postcompact-capture.*pending=1 merge=ok tries=2' "$SANDBOX/.second-brain/audit-log.jsonl" \
+  || fail "C2-18: expected merge=ok tries=2 on the hook's row: $(grep postcompact "$SANDBOX/.second-brain/audit-log.jsonl")"
+pass "C2-18: a PostCompact merge that meets a busy PROJECT.md lock retries once and lands"
+# Still busy on the retry: the loss is logged loudly (ec 1), the row says merge=failed tries=2.
+init_sandbox "c2-18b-lock-still-busy"
+PROJ="$SANDBOX/.second-brain/projects/test-slug/PROJECT.md"
+c218_hold 0
+compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Lost to a lock that never frees
+' | SB_ARCHIVE_LOCK_WAIT_S=2 bash "$REPO_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+rm -f "$C218_LOCK"
+grep -q 'Lost to a lock' "$PROJ" && fail "C2-18b: the merge wrote PROJECT.md while another writer held its lock"
+grep 'postcompact-capture merge-failed rc=3 tries=2' "$SANDBOX/.second-brain/error-log.jsonl" | grep -q '"exit_code":1' \
+  || fail "C2-18b: a merge still locked out after its retry must log loudly (ec 1, rc=3 tries=2): $(grep -h merge-failed "$SANDBOX/.second-brain/error-log.jsonl")"
+grep -q 'gate=postcompact-capture.*pending=1 merge=failed tries=2' "$SANDBOX/.second-brain/audit-log.jsonl" \
+  || fail "C2-18b: expected merge=failed tries=2 on the hook's row: $(grep postcompact "$SANDBOX/.second-brain/audit-log.jsonl")"
+pass "C2-18b: a lock still held on the retry drops the tasks loudly (error row ec 1, merge=failed tries=2)"
+# C2-18c (TST-R6): the retry is gated on the hook budget LEFT (30 s less elapsed, more than the
+# first attempt took plus 2 s), not on a fixed 15 s from start. The elapsed time is set through
+# SECONDS in the hook's environment (bash imports it as the counter's start, 3.2.57 and 5.x alike;
+# a shell that does not skips the case) and the merge is a stub in PC2's scripts copy that answers
+# "busy" (exit 3) at once.
+if [ "$(SECONDS=50 bash -c 'echo $SECONDS')" -ge 50 ] 2>/dev/null; then
+  printf '#!/bin/bash\ncat > /dev/null\nexit 3\n' > "$PC2_ROOT/scripts/merge-project-update.sh"
+  for c218c in 15:2 28:1; do
+    init_sandbox "c2-18c-budget-${c218c%%:*}"
+    compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Budget-gated retry
+' | SECONDS="${c218c%%:*}" bash "$PC2_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+    grep -q "gate=postcompact-capture.*pending=1 merge=failed tries=${c218c#*:}" "$SANDBOX/.second-brain/audit-log.jsonl" \
+      || fail "C2-18c: started ${c218c%%:*} s into the hook, want tries=${c218c#*:}: $(grep postcompact "$SANDBOX/.second-brain/audit-log.jsonl")"
+  done
+  pass "C2-18c: the PostCompact retry runs while the hook budget left covers it (15 s in: retried) and not past it (28 s in)"
+else
+  echo "SKIP: C2-18c -- this bash does not import SECONDS from the environment"
+fi
+# C2-18d (final review should-fix): three writers contending kept PROJECT.md locked past the 5 s wait
+# plus one retry, and the Pending Tasks were dropped. The PostCompact merge now waits for the lock as
+# long as the hook budget allows: 30 s less elapsed less a 10 s reserve for the merge itself (at most
+# 20 s, at least the 5 s default); an explicit SB_ARCHIVE_LOCK_WAIT_S still wins. A stub merge in PC2's
+# scripts copy records the wait it was handed.
+cat > "$PC2_ROOT/scripts/merge-project-update.sh" <<'EOF'
+#!/bin/bash
+cat > /dev/null
+printf '%s\n' "${SB_ARCHIVE_LOCK_WAIT_S:-unset}" >> "$C218D_LOG"
+EOF
+c218d() {  # c218d <log> [env assignments...]: one PostCompact run with the recording stub
+  local log="$1"; shift
+  init_sandbox "c2-18d-$(basename "$log")"
+  compact_payload "test-session" 'Summary:
+7. Pending Tasks:
+   - Long lock wait
+' | env -u SB_ARCHIVE_LOCK_WAIT_S C218D_LOG="$log" "$@" bash "$PC2_ROOT/scripts/pre-compact.sh" post >/dev/null 2>&1
+}
+c218d "$TMP/c218d-default"; C218D_W=$(cat "$TMP/c218d-default" 2>/dev/null)
+case "$C218D_W" in ''|*[!0-9]*) fail "C2-18d: the PostCompact merge got no numeric lock wait: '$C218D_W'" ;; esac
+[ "$C218D_W" -ge 10 ] && [ "$C218D_W" -le 20 ] || fail "C2-18d: a hook early in its 30 s budget must hand the merge a 10-20 s lock wait, got $C218D_W"
+c218d "$TMP/c218d-explicit" SB_ARCHIVE_LOCK_WAIT_S=2
+[ "$(cat "$TMP/c218d-explicit" 2>/dev/null)" = 2 ] || fail "C2-18d: an explicit SB_ARCHIVE_LOCK_WAIT_S must win, got $(cat "$TMP/c218d-explicit" 2>/dev/null)"
+if [ "$(SECONDS=50 bash -c 'echo $SECONDS')" -ge 50 ] 2>/dev/null; then
+  c218d "$TMP/c218d-late" SECONDS=12; C218D_W=$(cat "$TMP/c218d-late" 2>/dev/null)
+  [ "$C218D_W" -ge 5 ] 2>/dev/null && [ "$C218D_W" -le 8 ] || fail "C2-18d: 12 s into the hook the wait must shrink to the budget left (5-8 s), got $C218D_W"
+fi
+pass "C2-18d: the PostCompact merge waits for the PROJECT.md lock as long as the 30 s budget allows (an explicit wait wins)"
 
 # R1 (S0 B7 ruler, docs/concepts/2026-09-27-repo-brain-concept.md sec 5 S0): a
 # hook_cancelled attachment already sitting in the transcript this Stop reads is

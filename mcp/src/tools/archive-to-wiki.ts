@@ -2,6 +2,8 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
+import { withFileLock } from './hot-file-lock.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export type SourceSection = 'blockers' | 'decisions';
 export type TargetCategory = 'issues' | 'decisions';
@@ -33,6 +35,10 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
   if (!ALLOWED_TARGET_CATEGORIES.has(args.targetCategory)) {
     return { ok: false, archived_path: '', reason: `invalid targetCategory: ${JSON.stringify(args.targetCategory)}` };
   }
+  // M6: "" is a substring of every line, so it archived whatever [resolved] entry came first.
+  if (!args.entryText.trim()) {
+    return { ok: false, archived_path: '', reason: 'empty entryText' };
+  }
   let projectFile: string;
   let wikiDir: string;
   try {
@@ -45,7 +51,13 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
     throw e;
   }
   await fs.mkdir(wikiDir, { recursive: true });
+  // E3: the PROJECT.md read-modify-write holds the shared .PROJECT.md.lock (the merge holds it too)
+  // and replaces the file by temp + rename.
+  return withFileLock(projectFile, reason => ({ ok: false, archived_path: '', reason }),
+    () => archiveLocked(args, projectFile, wikiDir));
+}
 
+async function archiveLocked(args: ArchiveToWikiArgs, projectFile: string, wikiDir: string): Promise<ArchiveToWikiResult> {
   const content = await fs.readFile(projectFile, 'utf-8');
   const lines = content.split('\n');
 
@@ -73,7 +85,6 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
   const ts = new Date().toISOString();
   const date = ts.slice(0, 10);
   const slugSafe = args.entryText.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
-  const archivePath = join(wikiDir, `${date}-${slugSafe}.md`);
   // Full frontmatter incl. the project: facet — without it every graduated entry is
   // tier-4 "global" to project-scoped search and invisible to the project MOC.
   // JSON.stringify = YAML-safe double-quoted scalar (entryText is user prose).
@@ -90,11 +101,23 @@ export async function archiveToWiki(args: ArchiveToWikiArgs): Promise<ArchiveToW
     '---',
     '',
   ].join('\n');
-  await fs.writeFile(archivePath,
-    `${frontmatter}# ${args.entryText}\n\n**Archived:** ${date}\n**From:** projects/${args.slug}/PROJECT.md (section: ${args.sourceSection})\n**Status:** resolved\n`,
-    'utf-8'
-  );
-  lines[matchIdx] = `  → wiki/${args.targetCategory}/${args.slug}/${date}-${slugSafe}.md`;
-  await fs.writeFile(projectFile, lines.join('\n'), 'utf-8');
+  // M6: never overwrite an earlier archive. Non-ASCII text slugs alike ("-"), so a same-day second
+  // archive replaced the first page; create exclusively and take the next free -N suffix instead.
+  const page = `${frontmatter}# ${args.entryText}\n\n**Archived:** ${date}\n**From:** projects/${args.slug}/PROJECT.md (section: ${args.sourceSection})\n**Status:** resolved\n`;
+  let archiveName = '';
+  for (let n = 1; !archiveName; n++) {
+    const name = `${date}-${slugSafe}${n > 1 ? `-${n}` : ''}.md`;
+    try {
+      await fs.writeFile(join(wikiDir, name), page, { encoding: 'utf-8', flag: 'wx' });
+      archiveName = name;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || n >= 100) throw e;
+    }
+  }
+  const archivePath = join(wikiDir, archiveName);
+  lines[matchIdx] = `  → wiki/${args.targetCategory}/${args.slug}/${archiveName}`;
+  // The page is already on disk: a failed PROJECT.md replace must not leave an orphan that a retry duplicates as -2.md.
+  try { await writeFileAtomic(projectFile, lines.join('\n')); }
+  catch (e) { await fs.rm(archivePath, { force: true }).catch(() => {}); throw e; }
   return { ok: true, archived_path: archivePath };
 }

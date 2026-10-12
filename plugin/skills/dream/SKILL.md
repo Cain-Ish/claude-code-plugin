@@ -216,7 +216,7 @@ if [ "${SB_WIKI_FORGET:-on}" != "off" ]; then
       [ -n "$slug" ] || continue
       printf '%s\t%s\n' "$slug" "$(basename "$(dirname "$path")")" >> "$MAN"
     done <<< "$CAND"
-    n=$(grep -c . "$MAN" 2>/dev/null || echo 0)
+    n=$(grep -c . "$MAN" 2>/dev/null); n=${n:-0}
     echo "FORGET: staged $n page(s) for archive."
   fi
 fi

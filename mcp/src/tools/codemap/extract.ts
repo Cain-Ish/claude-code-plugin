@@ -80,9 +80,9 @@ function expandBase(base: string, lang?: Lang): string[] {
     if (alias) out.push(base.slice(0, -ext.length) + alias);
     return out;
   }
-  if (ext) return [base]; // unknown extension (.css, .json, ...): literal or nothing
-
-  const out: string[] = [];
+  // unknown extension (.css, .service, ...): literal first, then the known-extension expansion
+  // ('./user.service' is user.service.ts, not a file with extension .service).
+  const out: string[] = ext ? [base] : [];
   if (base !== '') for (const e of fileExts) out.push(base + e);
   const dirPrefix = base === '' ? '' : base + '/';
   if (wantIndex) for (const e of INDEX_EXTS) out.push(dirPrefix + 'index' + e);

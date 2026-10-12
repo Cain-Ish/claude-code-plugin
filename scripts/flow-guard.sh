@@ -8,7 +8,8 @@
 # into an http request — the paper calls this a "flow boundary" violation.
 #
 # In scope:
-#   - Bash: command must contain a network tool AND a credential pattern.
+#   - Bash / PowerShell (G1: the same tool_input.command): command must contain a network tool
+#     (Invoke-WebRequest/iwr/Invoke-RestMethod/irm too) AND a credential pattern.
 #   - WebFetch / WebSearch: any credential pattern anywhere in tool_input.
 #
 # Out of scope (other guards / non-egress):
@@ -16,10 +17,13 @@
 #   - Task — subagent dispatch is a separate channel (future work).
 #
 # Patterns detected (conservative; false-negative leaning):
-#   JWT, AWS Access Key, GitHub PAT (legacy + fine-grained), Anthropic
-#   key, OpenAI key, Slack token, PEM private key block, Bearer + long
-#   base64 (≥40 chars) bundle. All anchored with surrounding context to
-#   avoid tripping on test fixtures of random base64.
+#   JWT, AWS Access Key, GitHub PAT (legacy + fine-grained) and OAuth/app
+#   tokens (gho_ ghu_ ghs_ ghr_), Anthropic key and Claude OAuth token
+#   (sk-ant-oat/ort), OpenAI key, Slack token, PEM private key block, Bearer +
+#   long base64 (≥40 chars) bundle, and a credential FILE fed to the egress
+#   (curl's @path, a reader piped or substituted in, a < redirect, an upload
+#   flag). All anchored with surrounding context to avoid tripping on test
+#   fixtures of random base64.
 #
 # Verdict: ask. Reason carries which pattern matched (no secret value).
 # Logged to audit-log.jsonl. Kill switch: SB_FLOW_GUARD=off.
@@ -520,18 +524,20 @@ _fp_jqfail() {
 # anything else — no match, or a payload field _fp_str cannot decode — falls through to the full
 # logic. A fast-path ask skips sb_buddy_event (lib.sh's): the verdict and its audit row are what
 # must arrive before the hook timeout.
-FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl)([^A-Za-z_]|$)'
+# PowerShell names its cmdlets and aliases in any case (IWR, invoke-restmethod): spelled as classes,
+# since the same string feeds bash =~, grep -E and jq test(), and none of them shares a case flag.
+FG_NET='(^|[^A-Za-z_])(curl|wget|nc|netcat|ssh|scp|sftp|rsync|httpie|ftp|git|gh|python|node|aws|openssl|[Nn]et\.[Ww]eb[Cc]lient|[Uu]pload[Ff]ile|[Hh]ttp[Cc]lient|[Ii][Nn][Vv][Oo][Kk][Ee]-[Ww][Ee][Bb][Rr][Ee][Qq][Uu][Ee][Ss][Tt]|[Ii][Ww][Rr]|[Ii][Nn][Vv][Oo][Kk][Ee]-[Rr][Ee][Ss][Tt][Mm][Ee][Tt][Hh][Oo][Dd]|[Ii][Rr][Mm]|[Ss][Tt][Aa][Rr][Tt]-[Bb][Ii][Tt][Ss][Tt][Rr][Aa][Nn][Ss][Ff][Ee][Rr]|[Ss][Ee][Nn][Dd]-[Mm][Aa][Ii][Ll][Mm][Ee][Ss][Ss][Aa][Gg][Ee]|[Nn][Ee][Tt]\.[Ww][Ee][Bb][Rr][Ee][Qq][Uu][Ee][Ss][Tt])([^A-Za-z_]|$)'
 FG_LABELS=(jwt aws-access-key github-pat anthropic-key openai-key slack-token pem-private bearer-blob credential-file-upload)
 FG_RES=(
   'ey[A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
   'AKIA[0-9A-Z]{16}'
-  '(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
-  'sk-ant-(api|admin)[0-9]*-[A-Za-z0-9_-]{20,}'
+  '(gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})'
+  'sk-ant-(api|admin|oat|ort)[0-9]*-[A-Za-z0-9_-]{20,}'
   'sk-(proj-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})'
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '@[^[:space:]@]*(\.ssh/(id_rsa|id_ed25519|id_ecdsa|authorized_keys)|\.aws/credentials|\.netrc|\.npmrc|\.git-credentials|\.docker/config\.json|\.kube/config|\.credentials\.json|\.pem|\.p12)([[:space:]]|$)'
+  '((@|<[[:space:]]*|(^|[^A-Za-z0-9_-])([Cc][Aa][Tt]|[Gg][Cc]|[Gg][Ee][Tt]-[Cc][Oo][Nn][Tt][Ee][Nn][Tt]|[Tt][Yy][Pp][Ee]|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+((-[^[:space:]]*|[0-9]+)[[:space:]]+){0,8}|(^|[^A-Za-z0-9_-])(scp|rsync|tar)[[:space:]]+((-[io][[:space:]]+[^[:space:]|;&]+|([^[:space:]|;&-]|-[^io[:space:]|;&]|-[io][^[:space:]|;&])[^[:space:]|;&]*|-)[[:space:]]+){0,8}|(^|[[:space:]])(-T|--upload-file|--post-file|-[Ii][Nn][Ff][Ii][Ll][Ee]|-[Ss][Oo][Uu][Rr][Cc][Ee]|-[Aa][Tt][Tt][Aa][Cc][Hh][Mm][Ee][Nn][Tt][Ss]?)(=|[[:space:]]*)|[Uu][Pp][Ll][Oo][Aa][Dd][Ff][Ii][Ll][Ee][(][^;&|)]*,[[:space:]]*)[^[:space:]@<>|;&]*|[Rr][Ee][Aa][Dd][Aa][Ll][Ll]([Tt][Ee][Xx][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Ll][Ii][Nn][Ee][Ss])[(][[:space:]]*[^[:space:]@<>|;&()]*)(\.[Ss][Ss][Hh][/\\]([Ii][Dd]_[Rr][Ss][Aa]|[Ii][Dd]_[Ee][Dd]25519|[Ii][Dd]_[Ee][Cc][Dd][Ss][Aa]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Ee][Dd]_[Kk][Ee][Yy][Ss])|\.[Aa][Ww][Ss][/\\][Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|[._][Nn][Ee][Tt][Rr][Cc]|\.[Nn][Pp][Mm][Rr][Cc]|\.[Gg][Ii][Tt]-[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|\.[Dd][Oo][Cc][Kk][Ee][Rr][/\\][Cc][Oo][Nn][Ff][Ii][Gg]\.[Jj][Ss][Oo][Nn]|\.[Kk][Uu][Bb][Ee][/\\][Cc][Oo][Nn][Ff][Ii][Gg]|\.[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]\.[Jj][Ss][Oo][Nn]|\.[Pp][Ee][Mm]|\.[Pp]12|\.[Ss][Ss][Hh][/\\]?)([^A-Za-z0-9_./\\-]|$)'
 )
 # The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
 # be followed by something else is retried from every start inside a long run of its own characters,
@@ -539,8 +545,33 @@ FG_RES=(
 # 'ey' 9-11 s, BEGIN + 80K spaces 17 s — past the 5 s timeout, so the call ran). Each copy matches
 # the same lines as its FG_RES twin, in linear time; tests/test-flow-guard.sh holds the two paths to
 # one verdict over a corpus and times the adversarial shapes.
-# - credential-file-upload: its run excludes '@' in FG_RES itself (both paths): a match from an
-#   earlier '@' still matches from the last '@' of its run, so no line changes verdict.
+# - credential-file-upload: its run excludes the characters its starts begin with ('@', '<', space)
+#   in FG_RES itself (both paths): a match from an earlier start still matches from the last one, so
+#   no line changes verdict, and no start rescans another's run. Its starts (G5): curl's @path, a
+#   < redirect, a reader word (cat, base64, …, its -flags/value tokens) — piped or $(…)-substituted —
+#   an upload flag (-T, --upload-file, --post-file, -InFile; glued `-T<path>` too), and a .NET
+#   WebClient .UploadFile(url, "path"). An identity flag (ssh -i ~/.ssh/id_rsa) is no start.
+#   Residual (2026-10-11): scp/rsync/tar start too — a source or member among their next 8 words
+#   (`tar czf - ~/.ssh | curl`, `rsync ~/.ssh/ host:`). A standalone -i or -o takes its value with
+#   it (`scp -i <key>`, `-o IdentityFile=<key>`), so the key that only authenticates the copy is no
+#   start. shortcut: rsync's own -i (itemize) and -o (owner) swallow the next word the same way; a
+#   credential right after them goes unasked — split the flag table per tool if that shows up. The
+#   bare .ssh directory is a credential path, and the end boundary excludes / and \, so
+#   .ssh/known_hosts or .ssh/config never reads as the directory. Each word is followed by its
+#   whitespace INSIDE the repeated group, as the reader flags are: a run at the END of a {0,8}
+#   body is not possessified by Oniguruma, and one long word went O(n^2) (160K word 4.2 s).
+#   SEC-R1 (review 2026-10-11): the reader's flag run was unbounded `(-[^space]*[space]+)*` — a dense
+#   `od -/od -/od …` pad is a reader word (`od`) + a run of `-/od ` flag tokens, and Oniguruma retried it
+#   from every `od` start: 16 KB 1.2 s, 64 KB 17.7 s on jq 1.7 — the whole guard killed with no verdict.
+#   Bounded to {0,8} (64 KB → 35 ms). SEC-R3: readers (gc/Get-Content/type), upload flags (-InFile) and
+#   credential path parts (.ssh/.aws/id_rsa) are spelled as case classes, since none of bash =~, grep -E
+#   or jq test() case-folds here, and PowerShell/NTFS are case-insensitive.
+#   SEC-R3b (final review 2026-10-11): every credential name is a case class (.NETRC, SERVER.PEM, .Npmrc;
+#   curl's Windows _netrc too); -Source (Start-BitsTransfer) and -Attachments (Send-MailMessage) are
+#   upload flags, and those cmdlets and [Net.WebRequest] egress words. A .NET [IO.File]::ReadAllText/
+#   Bytes/Lines( starts a run of its OWN that stops at the next '(': in the shared run a dense
+#   'ReadAllBytes(.ss' pad went O(n^2) on jq 1.7 (86 KB 9.4 s; own run 12 ms). shortcut: a path built
+#   by a nested call (ReadAllText((Join-Path …))) goes unasked; the linear token check is the upgrade.
 # - jwt: the first segment's run must end where its '.' is — the end of its run of token
 #   characters — so whether some 'ey' in a run starts a match is decided by the first 'ey' of that
 #   run with 10 characters after it. The copy starts only at a run's start (lookbehind), takes that
@@ -559,7 +590,7 @@ _fg_fast() {
   _fp_str tool_name || return 1
   tool="$_FP"
   case "$tool" in
-    Bash)      _fp_str command || return 1; _fp_nocr hay "$_FP" ;;
+    Bash|PowerShell) _fp_str command || return 1; _fp_nocr hay "$_FP" ;;
     WebFetch)  _fp_str url; rc=$?; [ "$rc" = 2 ] && return 1; u="$_FP"
                _fp_str prompt; rc=$?; [ "$rc" = 2 ] && return 1; pr="$_FP"
                hay="$u $pr" ;;
@@ -568,7 +599,7 @@ _fg_fast() {
   esac
   _fp_trimnl hay "$hay"
   [ -n "$hay" ] || return 1
-  if [ "$tool" = Bash ]; then _fp_lines "$FG_NET" "$hay" || return 1; fi
+  case "$tool" in Bash|PowerShell) _fp_lines "$FG_NET" "$hay" || return 1 ;; esac
   for ((i = 0; i < ${#FG_RES[@]}; i++)); do
     _fp_lines "${FG_RES[$i]}" "$hay"; rc=$?
     [ "$rc" = 2 ] && return 1
@@ -607,14 +638,14 @@ FG_JQ='
 def str: if type == "string" then . elif . == null then "" else tojson end;
 ($ARGS.positional | map(gsub("\\[\\[:space:\\]\\](?<q>[+*])"; "[^\\S\\n]\(.q)"))) as $res
 | (.tool_name | str) as $t
-| (if $t == "Bash" then (.tool_input.command | str)
+| (if $t == "Bash" or $t == "PowerShell" then (.tool_input.command | str)
    elif $t == "WebFetch" then ([(.tool_input.url | str), (.tool_input.prompt | str)] | join(" "))
    elif $t == "WebSearch" then (.tool_input.query | str)
    else "" end
    | if $t == "WebFetch" then . else (split("\r") | join("")) end) as $h
 | (if ([.tool_name, .session_id, .tool_input.command, .tool_input.url, .tool_input.prompt, .tool_input.query] | map(strings) | any(contains("\u0000"))) then "nul" else "ok" end),
   "\u0000", $t, "\u0000", (.session_id | str), "\u0000",
-  (if $h == "" or ($t == "Bash" and ($h | test($net) | not)) then ""
+  (if $h == "" or (($t == "Bash" or $t == "PowerShell") and ($h | test($net) | not)) then ""
    else [range(0; $res | length) as $i | select($h | test($res[$i])) | $i | tostring] | join(",") end),
   "\u0000", "end", "\u0000"
 '
@@ -655,11 +686,11 @@ _fg_rawscan() {
   # An undecoded tool name (every payload on bash < 4.3, _fp_ob) is read from the payload: one that
   # names none of the three tools this guard checks is not scanned, as a decoded one is not.
   case "$TOOL" in
-    Bash) ;;
+    Bash|PowerShell) ;;
     WebFetch|WebSearch) web=1 ;;
     '') case "$RAW" in
           *'"WebFetch"'*|*'"WebSearch"'*) web=1 ;;
-          *'"Bash"'*) ;;
+          *'"Bash"'*|*'"PowerShell"'*) ;;
           *) return 1 ;;
         esac ;;
     *) return 1 ;;
@@ -684,7 +715,7 @@ _fg_nojq() {
   _fp_str tool_name; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; TOOL="$_FP"
   _fp_str session_id; rc=$?; [ "$rc" = 2 ] && { _fg_nojq_undecided; return; }; SESSION_ID="$_FP"
   case "$TOOL" in
-    Bash)      _fp_str command; rc=$? ;;
+    Bash|PowerShell) _fp_str command; rc=$? ;;
     WebSearch) _fp_str query; rc=$? ;;
     WebFetch)  _fp_str url; rc=$?; u="$_FP"
                if [ "$rc" != 2 ]; then _fp_str prompt; rc=$?; pr="$_FP"; _FP="$u $pr"; fi ;;
@@ -698,7 +729,7 @@ _fg_nojq() {
   _fp_trimnl hay "$hay"
   _FP_A=()
   [ -n "$hay" ] || return 1
-  if [ "$TOOL" = Bash ]; then _fp_feed "$hay" grep -qE "$FG_NET" || return 1; fi
+  case "$TOOL" in Bash|PowerShell) _fp_feed "$hay" grep -qE "$FG_NET" || return 1 ;; esac
   # One grep with every pattern says whether any can match; only then one grep per label, over the
   # lines that one matched (an error, exit 2, counts as a hit: the per-label greps then decide).
   for p in "${FG_RES[@]}"; do args+=(-e "$p"); done
@@ -725,7 +756,7 @@ else
   RAW="" _FP_RAW=""
   _fp_clean TOOL SESSION_ID
   # Only outbound channels concern us; no pattern matched (or the egress gate did not), no verdict.
-  case "$TOOL" in Bash|WebFetch|WebSearch) ;; *) exit 0 ;; esac
+  case "$TOOL" in Bash|PowerShell|WebFetch|WebSearch) ;; *) exit 0 ;; esac
   [ -n "$FG_HITS" ] || exit 0
   MATCHED_LABELS=""
   _fp_split , "$FG_HITS"

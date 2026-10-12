@@ -117,9 +117,12 @@ KNOWLEDGE_WIKI="$KNOWLEDGE_DIR/wiki"
 # The render CLI turns a structured ai_block into the marked region deterministically
 # (reuses the TS schema → no bash/TS drift). Resolved relative to this script (plugin root).
 RENDER_CLI="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")"/.. && pwd)}/mcp/dist/tools/ai-block-render-cli.bundle.js"
+# The node CLIs (render, sanitize) run under the PROJECT.md lock, so each call is bounded: a hung
+# one must not hold the lock for good.
+NODE_CLI_TIMEOUT_S="${SB_AI_RENDER_TIMEOUT_S:-20}"; case "$NODE_CLI_TIMEOUT_S" in ''|0|*[!0-9]*) NODE_CLI_TIMEOUT_S=20 ;; esac
 [ -f "$PROJECT_MD" ] || { echo "merge-project-update: project file not found: $PROJECT_MD" >&2; exit 2; }
 # Originating project slug = the PROJECT.md parent dir. Stamped as the project: facet on
-# pages this run creates, and the key for the wiki-writes counter + session-count reset.
+# pages this run creates, and the key for the wiki-writes counter.
 # Validated, NOT sb_sanitize_slug'd: the facet must equal the registry slug EXACTLY for
 # scoped search (sub-project slugs like mono__api carry underscores sanitize would eat).
 # Charset mirrors validateSlug (path-guard.ts): dots ALLOWED (real project dirs like
@@ -130,7 +133,7 @@ PROJECT_SLUG=$(basename "$(dirname "$PROJECT_MD")")
 case "$PROJECT_SLUG" in
   ''|/|.*|*[!a-zA-Z0-9._-]*)
     if [ -n "$PROJECT_SLUG" ] && [ "$PROJECT_SLUG" != "." ] && [ "$PROJECT_SLUG" != "/" ]; then
-      sb_log_error "merge-project-update.sh" "project slug '$PROJECT_SLUG' fails the facet charset — project: stamp, wiki-writes counter, and session-count reset skipped this run" 0
+      sb_log_error "merge-project-update.sh" "project slug '$PROJECT_SLUG' fails the facet charset — project: stamp and wiki-writes counter skipped this run" 0
     fi
     PROJECT_SLUG=""
     ;;
@@ -255,25 +258,9 @@ function owned_text(line,   t, t2) {
 }
 '
 
-# One gate verdict per untrusted item (plan[] and compact_pending share it). Classes, in this
-# precedence: control = any \p{Cc} (items are single-line by the time they get here, so no
-# character is exempt); format = invisible/format characters (\p{Cf} incl. the Tags block,
-# line/paragraph separators, variation selectors incl. the E0100 supplement, Hangul fillers,
-# U+034F); phrase = every tool-return-scanner.sh pattern, case-INSENSITIVE (that scanner is
-# case-sensitive after the first letter), plus the evasions it misses: "ignore the above
-# instructions", "disregard", a system: marker or a <system>/<system-reminder> tag ANYWHERE in
-# the text (not only at line start -- a leading "[ ] " used to defeat the anchor). jq/Oniguruma,
-# 1.7.1-safe; apostrophe-free (it lives inside single quotes).
-GATE_CLASS_JQ='
-  def bad_class:
-    if test("\\p{Cc}") then "control"
-    elif test("[\\p{Cf}\\p{Zl}\\p{Zp}\\x{FE00}-\\x{FE0F}\\x{E0100}-\\x{E01EF}\\x{115F}\\x{1160}\\x{3164}\\x{FFA0}\\x{034F}]") then "format"
-    elif test("ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above)\\s+(instructions?|context|messages?|directions?|prompts?)|disregard\\s+(all\\s+|any\\s+)?(the\\s+|your\\s+)?(previous|prior|above|earlier|preceding|former)\\b|\\bsystem\\s*:|<\\s*/?\\s*system([\\s>/-]|$)|</?(human|assistant)[\\s>]|(begin|end)\\s+(system\\s+prompt|instructions?)|do\\s+not\\s+(tell|inform|notify|mention)\\s+(the\\s+)?user|execute\\s+the\\s+following\\s+(command|code|instructions?|prompt)|new\\s+(instructions?|system\\s+prompt|directive)\\s*:"; "i") then "phrase"
-    else "" end;
-  def gate_row($v):
-    [ $v[] | select(.c != "") ] as $bad
-    | "GATE \($bad | length) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .i | tostring ] | join(",")) end) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .c ] | join(",")) end)";
-'
+# One gate verdict per untrusted item (plan[] and compact_pending share it): the control/format/
+# phrase classifier lives in lib.sh (SB_GATE_CLASS_JQ) since it also gates persona graduation.
+GATE_CLASS_JQ="$SB_GATE_CLASS_JQ"
 
 # Failure-row helper (R2-SF8): the flattened, bounded head of a captured stderr text. Only ever
 # called on a failure path, so its spawns never touch the happy path.
@@ -324,19 +311,92 @@ SESSION_GOAL="${SESSION_GOAL//$'\r'/}"
 
 CHANGED=0
 
-TMP_OUT=$(mktemp)
-trap 'rm -f "$TMP_OUT"' EXIT
+# E3: ONE lock from this read until just after the final mv. Every merge (Stop, PreCompact, the
+# drainer) and pin_to_project / archive_to_wiki (mcp/src/tools/hot-file-lock.ts, same
+# .PROJECT.md.lock and stale rule) read-modify-write PROJECT.md; unlocked, a write landing inside
+# this window was overwritten by the final mv. Still busy after the wait: exit 3, callers retry.
+# SIL-R6: the EXIT trap is set BEFORE the lock (no window where an exit leaves it held); an empty
+# token means "not ours (yet, or any more)", so the trap never releases a lock it does not hold.
+TMP_OUT=""; MPU_LOCK_TOKEN=""
+trap 'rm -f ${TMP_OUT:+"$TMP_OUT"}; [ -z "$MPU_LOCK_TOKEN" ] || sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"' EXIT
+sb_archive_lock "$PROJECT_MD" merge-project-update.sh || exit 3
+MPU_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
+# Size + mtime of PROJECT.md as read, BEFORE the read (stat opens nothing, so a file another program
+# holds still answers). The final mv re-checks it: a writer that takes no lock (the Edit tool) may
+# have changed the file meanwhile, and the mv would drop that edit.
+mpu_sig() { stat -c '%s %Y' "$PROJECT_MD" 2>/dev/null || stat -f '%z %m' "$PROJECT_MD"; }
+MPU_SIG0=$(mpu_sig)
+# A UTF-16 file (FF FE / FE FF BOM, or a NUL in its first two bytes) is not text this merge can
+# edit: prepending a UTF-8 heading to it mixed two encodings in one file. od fails (and the merge
+# with it) when the file cannot be opened, the case the read check below covers too.
+if ! MPU_HEAD2=$(od -An -tx1 -N2 "$PROJECT_MD"); then
+  sb_log_error "merge-project-update.sh" "PROJECT.md could not be read (od failed: held by another program?) for $PROJECT_MD — merge REFUSED, retried later" 3
+  exit 3
+fi
+MPU_HEAD2="${MPU_HEAD2//[!0-9a-f]/}"
+case "$MPU_HEAD2" in
+  fffe|feff|00*|??00)
+    sb_log_error "merge-project-update.sh" "PROJECT.md is UTF-16 or starts with a NUL byte (first bytes $MPU_HEAD2) for $PROJECT_MD — merge REFUSED until it is converted to UTF-8" 3
+    exit 3 ;;
+esac
+# E5: staged NEXT TO PROJECT.md (not in $TMPDIR), so the final mv is a same-filesystem rename.
+TMP_OUT=$(mktemp "$PROJECT_MD.XXXXXX") || {
+  sb_log_error "merge-project-update.sh" "cannot create a temp file next to $PROJECT_MD — merge NOT applied, retried later" 3
+  exit 3   # the EXIT trap releases the PROJECT.md lock
+}
 # tr -d '\r' (not cp): normalize CRLF at ingest so every downstream awk/grep reader sees LF.
 # A CRLF PROJECT.md (Windows/imported) otherwise silently no-ops the ENTIRE merge — section
 # headers like `## Recent decisions` never match `/^## .../`, so decisions/blockers/plan are
 # never written and dedup never fires. The merge writes TMP_OUT back, so this also LF-normalizes.
 # A UTF-8 BOM (Notepad, PowerShell 5.1 Set-Content) is stripped too: it hides the first heading
-# from every ^# reader. awk is the byte-mode wrapper defined above.
-tr -d '\r' < "$PROJECT_MD" | awk 'NR==1 { sub(/^\357\273\277/, "") } { print }' > "$TMP_OUT"
+# from every ^# reader. awk is the byte-mode wrapper defined above. E6: trailing blanks on a
+# heading are dropped too; "## Recent decisions " never matched a section writer.
+tr -d '\r' < "$PROJECT_MD" | awk 'NR==1 { sub(/^\357\273\277/, "") } /^#+ / { sub(/[ \t]+$/, "") } { print }' > "$TMP_OUT"
+MPU_READ_RC="${PIPESTATUS[*]}"
+# Final review blocker 1: a read that failed (an AV scanner or sync client holding the file: EBUSY on
+# the redirect) left an empty buffer, and the empty-file repair below then replaced the real file.
+if [ "$MPU_READ_RC" != "0 0" ]; then
+  sb_log_error "merge-project-update.sh" "PROJECT.md could not be read (tr/awk exit $MPU_READ_RC: held by another program?) for $PROJECT_MD — merge REFUSED, retried later" 3
+  exit 3
+fi
 # R2-SF7: the final guard below compares the staged buffer against THIS file's own first
 # heading (whatever the human named it), never a hardcoded "# PROJECT" -- a hand-renamed
 # heading used to make every later merge refuse to write, with a misleading message.
 ORIG_HEAD=$(LC_ALL=C grep -m1 -E '^#+ ' "$TMP_OUT")
+# E5: a read with no heading is never merged as-is: the final guard passed on an empty ORIG_HEAD,
+# and the merge replaced the file with a stub. SIL-R2: but refusing it on EVERY run lost every
+# later delta (Stop re-extracted each turn, PostCompact dropped its tasks, the drainer
+# dead-lettered). Only an EMPTY read that is fresh (< 60 s: a truncating writer may be mid-write)
+# is still refused; an older empty file is rebuilt from the scaffold, and text without a heading
+# gets one prepended. Either way the repair is written even when the delta adds nothing.
+# Blocker 1: "empty" means 0 bytes ON DISK. A read that came back empty from a file holding bytes
+# (a short read, or a whitespace-only file) is refused: only a truly empty file may be rebuilt.
+if [ -z "$ORIG_HEAD" ]; then
+  ORIG_HEAD="# PROJECT: ${PROJECT_SLUG:-unknown}"
+  if LC_ALL=C grep -q '[^[:space:]]' "$TMP_OUT"; then
+    { printf '%s\n\n' "$ORIG_HEAD" && cat "$TMP_OUT"; } > "$TMP_OUT.h" && mv "$TMP_OUT.h" "$TMP_OUT" || {
+      rm -f "$TMP_OUT.h"
+      sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading for $PROJECT_MD and the heading could not be prepended — merge REFUSED, retried later" 3
+      exit 3
+    }
+    sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading for $PROJECT_MD — prepended '$ORIG_HEAD', merge continues" 1
+  elif [ -s "$PROJECT_MD" ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md read came back empty but the file holds ${MPU_SIG0%% *} bytes (held by another program, or whitespace only) for $PROJECT_MD — merge REFUSED, retried later" 3
+    exit 3
+  elif [ $(( $(date +%s) - $(sb_mtime "$PROJECT_MD") )) -lt 60 ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md read has no heading (empty, modified < 60 s ago: maybe mid-write) for $PROJECT_MD — merge REFUSED, retried later" 3
+    exit 3
+  else
+    # Same scaffold as stop-extract.sh / session-load.sh write for a missing PROJECT.md.
+    printf '%s\n\n## Goal\n(auto-scaffolded — describe this project'"'"'s goal)\n\n## Direction\n(goal · non-goals · priorities through YYYY-MM-DD — edit or run /second-brain:setup)\n\n## State\n\n## Plan\n\n## Conventions\n\n## Handoff\n\n## Recent decisions\n\n## Open blockers\n\n## Cross-references\n\n<!-- last_updated: %s -->\n<!-- last_queried_wiki: -->\n' \
+      "$ORIG_HEAD" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TMP_OUT" || {
+      sb_log_error "merge-project-update.sh" "PROJECT.md is empty and could not be rebuilt for $PROJECT_MD — merge REFUSED, retried later" 3
+      exit 3
+    }
+    sb_log_error "merge-project-update.sh" "PROJECT.md was empty (unchanged for 60 s+) for $PROJECT_MD — rebuilt from the scaffold, merge continues" 1
+  fi
+  CHANGED=1
+fi
 
 # Archive a dropped decision bullet to the wiki decisions log — PER PROJECT, with a
 # project: facet, so rotated decisions stay reachable by project-scoped search instead
@@ -367,6 +427,9 @@ archive_dropped_decision() {
       printf '# Archived Project Decisions%s\n\n' "${PROJECT_SLUG:+ — $PROJECT_SLUG}"
     } > "$archive_file"
   fi
+  # The append lands before the final PROJECT.md mv: a merge refused there (exit 3) and retried
+  # drops the same bullet again, so an exact line already in the log is not appended twice.
+  LC_ALL=C grep -qxF -- "- $text" "$archive_file" && return 0
   printf '%s\n' "- $text" >> "$archive_file"
   WIKI_WRITES=1
 }
@@ -377,6 +440,17 @@ archive_dropped_decision() {
 insert_bullet() {
   local section="$1" bullet_text="$2" cap="$3"
   [ -z "$bullet_text" ] && return 0
+  # E6: a missing heading (renamed or deleted by hand) dropped the bullet while the merge reported
+  # success. Re-create the section before the footer comments, the way merge_plan does.
+  if ! LC_ALL=C grep -qxF -- "$section" "$TMP_OUT"; then
+    local sc_tmp
+    if ! { sc_tmp=$(mktemp) && scaffold_plan_section "$TMP_OUT" "$sc_tmp" "$section" && mv "$sc_tmp" "$TMP_OUT"; }; then
+      rm -f "$sc_tmp"
+      sb_log_error "merge-project-update.sh" "gate=insert-bullet-failed section=$section reason=section-missing-and-not-created — bullet dropped: ${bullet_text:0:80}" 1
+      return 0
+    fi
+    sb_log_error "merge-project-update.sh" "gate=section-scaffolded section=$section" 0
+  fi
 
   local lower_new ln_ec ib_ec
   # Strip date prefix and common markers for dedup comparison
@@ -509,8 +583,12 @@ gate_untrusted_items() {
   fi
 
   local sani_out sani_ec
-  sani_out=$(printf '%s' "$items" | node "$sani_cli" 2>"$gerr"); sani_ec=$?
+  sani_out=$(printf '%s' "$items" | sb_timeout "$NODE_CLI_TIMEOUT_S" node "$sani_cli" 2>"$gerr"); sani_ec=$?
   sani_out="${sani_out//$'\r'/}"
+  if [ "$sani_ec" -eq 124 ]; then
+    sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=sanitize-timeout after ${NODE_CLI_TIMEOUT_S}s" 1
+    rm -f "$gerr"; return 1
+  fi
   if [ "$sani_ec" -ne 0 ] || [ -z "$sani_out" ]; then
     sb_log_error "merge-project-update.sh" "gate=untrusted-items caller=$caller reason=sanitize-failed ec=$sani_ec err=$(err_head "$(cat "$gerr")")" 1
     rm -f "$gerr"; return 1
@@ -628,18 +706,19 @@ gate_plan_items() {
 # alike) -- a fresh "## Plan" header is spliced in BEFORE the trailing footer comments (the first
 # last_updated/last_queried_wiki line), or at EOF when the file has none. Writes to $2, never to
 # TMP_OUT itself, so a caller whose own pass then fails leaves TMP_OUT exactly as it was.
+# $3 = the heading to splice (default "## Plan"; insert_bullet re-creates its sections the same way).
 scaffold_plan_section() {
   local src="$1" dst="$2" sc_out sc_ec line sc_done=0 sc_bad=0
-  sc_out=$(LC_ALL=C awk '
+  sc_out=$(SEC="${3:-## Plan}" LC_ALL=C awk '
     !done && /^<!-- (last_updated|last_queried_wiki):/ {
       if (NR > 1 && prev != "") print ""
-      print "## Plan"
+      print ENVIRON["SEC"]
       print ""
       done = 1
     }
     { print; prev = $0 }
     END {
-      if (!done) { if (NR > 0 && prev != "") print ""; print "## Plan"; print "" }
+      if (!done) { if (NR > 0 && prev != "") print ""; print ENVIRON["SEC"]; print "" }
       print "DONE" > "/dev/stderr"
     }
   ' "$src" 2>&1 >"$dst"); sc_ec=$?
@@ -838,7 +917,8 @@ merge_plan() {
       }
     }
     !seen && /^## Plan( |$)/ { seen = 1; inplan = 1; print; next }
-    inplan && (/^## / || /^<!--/) { render(); inplan = 0; print; next }
+    # E9: only the footer comments end the Plan; a human <!-- note --> inside it is a kept line.
+    inplan && (/^## / || /^<!-- (last_updated|last_queried_wiki):/) { render(); inplan = 0; print; next }
     inplan { secn++; sec[secn] = $0; next }
     { print }
     END {
@@ -940,7 +1020,7 @@ merge_compact_pending() {
       }
     }
     !seen && /^## Plan( |$)/ { seen = 1; inplan = 1; next }
-    inplan && (/^## / || /^<!--/) { inplan = 0; next }
+    inplan && (/^## / || /^<!-- (last_updated|last_queried_wiki):/) { inplan = 0; next }
     inplan && /^- / {
       ek++; ekey[ek] = plan_key($0); eell[ek] = KELL
       if ($0 ~ /^- \[ \]/ && !is_pinned($0)) open++
@@ -1035,7 +1115,7 @@ merge_compact_pending() {
       for (i = 1; i <= n; i++) if (tmp[i] != "") { an++; add[an] = tmp[i] }
     }
     !seen && /^## Plan( |$)/ { seen = 1; inplan = 1; print; next }
-    inplan && (/^## / || /^<!--/) { flush(); inplan = 0; print; next }
+    inplan && (/^## / || /^<!-- (last_updated|last_queried_wiki):/) { flush(); inplan = 0; print; next }
     inplan { bn++; buf[bn] = $0; next }
     { print }
     END {
@@ -1461,7 +1541,7 @@ mark_stale() {
     # history, never aged).
     isplan && !seen && /^## Plan( |$)/ { seen = 1; flag = 1; print; next }
     !isplan && $0 == s { flag = 1; print; next }
-    flag && isplan && (/^## / || /^<!--/) { plan_flush(); flag = 0; print; next }
+    flag && isplan && (/^## / || /^<!-- (last_updated|last_queried_wiki):/) { plan_flush(); flag = 0; print; next }
     /^## / { flag = 0; print; next }
     # Plan lines carry their age in a [carried D] token (checkbox first). CR-M2: an item that is
     # ONLY [untrusted:compact D] ages by that date when nothing reconciled the Plan this merge
@@ -1563,6 +1643,7 @@ if [ -n "$REFS" ]; then
       if [ -n "$arch" ]; then
         acat=$(basename "$(dirname "$arch")"); mkdir -p "$KNOWLEDGE_WIKI/$acat"
         if mv "$arch" "$KNOWLEDGE_WIKI/$acat/$safe_ref.md" 2>/dev/null; then
+          touch "$KNOWLEDGE_WIKI/$acat/$safe_ref.md"   # D2: fresh mtime, so dream-accept protects it
           printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
             "$safe_ref" "$acat" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BRAIN_DIR/wiki-archive-log.jsonl" 2>/dev/null || true
           WIKI_WRITES=1; CHANGED=1; restored=1
@@ -1598,6 +1679,10 @@ mark_stale "## Open blockers"
 WIKI_UPDATES_COUNT=$(echo "$RAW" | jq '.wiki_updates // [] | length' 2>/dev/null || echo 0)
 if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
   mkdir -p "$KNOWLEDGE_WIKI"
+  # T10: generated_dirs belong to reindex, which deletes pages it did not generate there (the
+  # projects/ MOC prune). Read from the manifest itself (kb-schema.sh's path rule).
+  GEN_DIRS=$(jq -r '.generated_dirs | join(" ")' "${SB_KB_SCHEMA:-$(dirname "$0")/../kb-schema.json}" | tr -d '\r')
+  [ -n "$GEN_DIRS" ] || sb_log_error "merge-project-update.sh" "cannot read generated_dirs from kb-schema.json; wiki_updates into generated dirs are not refused this run" 1
   while IFS= read -r update; do
     raw_category=$(echo "$update" | jq -r '.category // "concepts"' | tr -d '\r')
     raw_slug=$(echo "$update" | jq -r '.slug // empty' | tr -d '\r')
@@ -1609,6 +1694,10 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     category=$(sb_sanitize_slug "$raw_category") || continue
     slug=$(sb_sanitize_slug "$raw_slug") || continue
     [ -z "$content" ] && continue
+    case " $GEN_DIRS " in *" $category "*)
+      sb_log_error "merge-project-update.sh" "gate=wiki-update-generated-dir category=$category slug=$slug: reindex owns that dir and would delete the page; update refused" 1
+      continue ;;
+    esac
 
     # project: facet for a page created this run. Default = the originating project
     # (write-time linkage). The extractor may override per update: an explicit
@@ -1626,7 +1715,14 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
     ai_region=""
     aiblk=$(echo "$update" | jq -c '.ai_block // empty' 2>/dev/null)
     if [ -n "$aiblk" ] && [ "$aiblk" != "null" ] && command -v node >/dev/null 2>&1 && [ -f "$RENDER_CLI" ]; then
-      ai_region=$(jq -nc --arg t "$category" --argjson b "$aiblk" '{type:$t,block:$b}' 2>/dev/null | node "$RENDER_CLI" 2>/dev/null)
+      # Bounded (NODE_CLI_TIMEOUT_S): a timeout (124) skips the ai-block refresh for this page and
+      # logs; the merge continues.
+      _rin=$(jq -nc --arg t "$category" --argjson b "$aiblk" '{type:$t,block:$b}' 2>/dev/null)
+      ai_region=$(printf '%s' "$_rin" | sb_timeout "$NODE_CLI_TIMEOUT_S" node "$RENDER_CLI" 2>/dev/null); _rrc=$?
+      if [ "$_rrc" -eq 124 ]; then
+        ai_region=""
+        sb_log_error "merge-project-update.sh" "ai-block render timed out after ${NODE_CLI_TIMEOUT_S}s for $category/$slug; ai-block refresh skipped, merge continues" 1
+      fi
     fi
 
     # Gate: reject MR/session-style slugs
@@ -1652,6 +1748,7 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       if [ -n "$arch" ]; then
         acat=$(basename "$(dirname "$arch")"); mkdir -p "$KNOWLEDGE_WIKI/$acat"
         if mv "$arch" "$KNOWLEDGE_WIKI/$acat/$slug.md" 2>/dev/null; then
+          touch "$KNOWLEDGE_WIKI/$acat/$slug.md"   # D2: fresh mtime, so dream-accept protects it
           printf '{"event":"restored","slug":"%s","category":"%s","date":"%s"}\n' \
             "$slug" "$acat" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$BRAIN_DIR/wiki-archive-log.jsonl" 2>/dev/null || true
           existing="$KNOWLEDGE_WIKI/$acat/$slug.md"; target_file="$existing"; action="update"
@@ -1670,26 +1767,29 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       # `replaced` latch + a `drop` that never re-arms -- so a stray ai:begin in prose can't
       # duplicate the region or run away to EOF); inject after a real frontmatter fence if absent;
       # leave a malformed begin-without-end page untouched (never eat the body). mawk-safe: ENVIRON.
+      # E10: every page rewrite stages in its OWN temp file next to the page (pid + random); a
+      # fixed "<page>.tmp" name collided between concurrent merges editing the same page. Not
+      # mktemp: its 0600 file would carry that mode onto the page through the mv.
       if [ -n "$ai_region" ]; then
         if grep -qE '<!--[[:space:]]*ai:begin' "$target_file" 2>/dev/null; then
           if grep -qE '<!--[[:space:]]*ai:end[[:space:]]*-->' "$target_file" 2>/dev/null; then
-            AI_REGION="$ai_region" awk '
+            pt="$target_file.$$.$RANDOM" && AI_REGION="$ai_region" awk '
               BEGIN { reg = ENVIRON["AI_REGION"] }
               /<!--[[:space:]]*ai:begin/ && !replaced { print reg; drop=1; replaced=1; next }
               drop && /<!--[[:space:]]*ai:end[[:space:]]*-->/ { drop=0; next }
               drop { next }
               { print }
-            ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
+            ' "$target_file" > "$pt" && mv "$pt" "$target_file" || rm -f "$pt"
           fi
           # else: malformed (begin without end) -> no-op (safe)
         else
-          AI_REGION="$ai_region" awk '
+          pt="$target_file.$$.$RANDOM" && AI_REGION="$ai_region" awk '
             BEGIN { reg = ENVIRON["AI_REGION"]; fm=0; done=0 }
             NR==1 && !/^---[[:space:]]*$/ { print; noinject=1; next }
             noinject { print; next }
             /^---[[:space:]]*$/ && fm<2 { print; fm++; if (fm==2 && !done) { print ""; print reg; print ""; done=1 } next }
             { print }
-          ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
+          ' "$target_file" > "$pt" && mv "$pt" "$target_file" || rm -f "$pt"
         fi
       fi
       # Content-aware dedup: skip only if the new content's 60-byte prefix
@@ -1713,17 +1813,17 @@ if [ "$WIKI_UPDATES_COUNT" -gt 0 ]; then
       fi
       # Append under History/Updates section with timestamp
       if grep -q '^## History' "$target_file" 2>/dev/null; then
-        CONTENT="$content" awk -v ts="$(date +%Y-%m-%d)" '
+        pt="$target_file.$$.$RANDOM" && CONTENT="$content" awk -v ts="$(date +%Y-%m-%d)" '
           /^## History/ { print; printed=1; next }
           printed && !inserted { print "- [" ts "] " ENVIRON["CONTENT"]; inserted=1 }
           { print }
-        ' "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
+        ' "$target_file" > "$pt" && mv "$pt" "$target_file" || rm -f "$pt"
       else
         printf '\n## Updates\n\n%s\n' "$content" >> "$target_file"
       fi
       if grep -q '^updated:' "$target_file" 2>/dev/null; then
-        awk -v ts="$ts_now" '{ if (/^updated:/) print "updated: " ts; else print }' \
-          "$target_file" > "$target_file.tmp" && mv "$target_file.tmp" "$target_file"
+        pt="$target_file.$$.$RANDOM" && awk -v ts="$ts_now" '{ if (/^updated:/) print "updated: " ts; else print }' \
+          "$target_file" > "$pt" && mv "$pt" "$target_file" || rm -f "$pt"
       fi
     else
       {
@@ -1767,23 +1867,49 @@ if [ "$CHANGED" -eq 1 ]; then
   if [ ! -s "$TMP_OUT" ] || { [ -n "$ORIG_HEAD" ] && ! LC_ALL=C grep -qxF -- "$ORIG_HEAD" "$TMP_OUT"; }; then
     sb_log_error "merge-project-update.sh" "PROJECT.md staging buffer corrupted (empty or missing its original first heading '${ORIG_HEAD:0:80}') for $PROJECT_MD — write REFUSED, delta NOT applied" 3
     rm -f "$TMP_OUT" 2>/dev/null
-    trap - EXIT
-    exit 3
+    exit 3   # the EXIT trap releases the PROJECT.md lock
   fi
   # EXIT 3 ON A FAILED WRITE. This `mv` was unchecked and the script ended `exit 0` regardless,
   # so an unwritable PROJECT.md (permissions, full disk, a path that stopped existing) returned
   # success to the drainer, which recorded the transcript `outcome:ok` — and the archive cap
   # then evicted it FIRST as "already extracted". Knowledge destroyed, health file still `ok`,
-  # no log row. Sandbox-reproduced 2026-08-23 (ledger EC-13). A non-zero here becomes `retry`
-  # in the drainer (error after SB_DRAIN_MAX_FAILS) and the transcript is retained.
+  # no log row. Sandbox-reproduced 2026-08-23 (ledger EC-13). Exit 3 is "retry later": the drainer
+  # redoes the window next tick without counting it toward SB_DRAIN_MAX_FAILS; the transcript is kept.
+  # SIL-R6: the lock must still be OURS at this point. A holder pid another runtime cannot see
+  # (an MSYS pid read by the TS pin_to_project) is stolen as stale after 60 s, and that writer is
+  # then writing PROJECT.md too: replacing the file now would drop its update. Same lock-path rule
+  # as lib.sh sb_archive_lock. Exit 3 = retried later; the token is blanked so the EXIT trap leaves
+  # the other writer's lock alone.
+  _mpu_lf="$PROJECT_MD"; case "$_mpu_lf" in */*) ;; *) _mpu_lf="./$_mpu_lf" ;; esac
+  _mpu_lf="${_mpu_lf%/*}/.${_mpu_lf##*/}.lock"
+  _mpu_held=""; IFS= read -r _mpu_held < "$_mpu_lf" 2>/dev/null; _mpu_held="${_mpu_held%$'\r'}"
+  if [ "$_mpu_held" != "$MPU_LOCK_TOKEN" ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md lock is no longer ours (ours $MPU_LOCK_TOKEN, now ${_mpu_held:-none}: stolen while held) for $PROJECT_MD — write REFUSED, delta NOT applied, retried later" 3
+    MPU_LOCK_TOKEN=""
+    exit 3
+  fi
+  # A writer that takes no lock (the Edit tool: knowledge-maintainer, import-host) changed the file
+  # after the read: replacing it now would drop that edit. Whole-second mtime: an edit in the same
+  # second that keeps the size passes unseen.
+  _mpu_sig1=$(mpu_sig)
+  if [ "$_mpu_sig1" != "$MPU_SIG0" ]; then
+    sb_log_error "merge-project-update.sh" "PROJECT.md changed while the merge ran (size mtime $MPU_SIG0 -> ${_mpu_sig1:-gone}: a writer that takes no lock) for $PROJECT_MD — write REFUSED, delta NOT applied, retried later" 3
+    exit 3
+  fi
   if ! mv "$TMP_OUT" "$PROJECT_MD"; then
     sb_log_error "merge-project-update.sh" "PROJECT.md write FAILED for $PROJECT_MD — delta NOT applied; transcript must be retried, not marked extracted" 3
     rm -f "$TMP_OUT" 2>/dev/null
-    trap - EXIT
-    exit 3
+    exit 3   # the EXIT trap releases the PROJECT.md lock
   fi
-  trap - EXIT
 fi
+# E3: release right after the final mv (or the no-change path), not at exit: the reindex below can
+# run for seconds and needs no PROJECT.md lock. SIL-R6: released BEFORE the trap is dropped (an
+# exit in between used to leave the lock held), and the token blanked so a late trap does not
+# release twice.
+rm -f "$TMP_OUT"
+sb_archive_unlock "$PROJECT_MD" "$MPU_LOCK_TOKEN"
+MPU_LOCK_TOKEN=""
+trap - EXIT
 
 if [ "$WIKI_WRITES" -eq 1 ]; then
   # Centralized reindex helper (lib.sh) — handles ESM dynamic-import correctly
@@ -1793,17 +1919,6 @@ if [ "$WIKI_WRITES" -eq 1 ]; then
   # SB_MAINTAINER_THRESHOLD and auto-dispatches the maintainer subagent.
   # PROJECT_SLUG derived once near the top (single source).
   [ -n "$PROJECT_SLUG" ] && sb_inc_wiki_writes "$PROJECT_SLUG"
-fi
-
-# Reset session counter after a dream cycle. We detect "dream just accepted"
-# by the presence of a freshly-archived dream dir touched within last 5 min.
-# Cheap heuristic, no MCP roundtrip needed.
-RECENT_DREAM=$(find "$BRAIN_DIR/dreams/" -maxdepth 2 -name 'status.json' -mmin -5 2>/dev/null \
-  | xargs -I{} jq -r 'select(.status == "completed" or .status == "archived") | .id' {} 2>/dev/null | head -1)
-if [ -n "$RECENT_DREAM" ]; then
-  # PROJECT_SLUG from the guarded top-level derivation — never recompute it raw here
-  # (an unguarded basename would reach the .session-count path sink unvalidated).
-  [ -n "$PROJECT_SLUG" ] && sb_reset_session_count "$PROJECT_SLUG"
 fi
 
 exit 0

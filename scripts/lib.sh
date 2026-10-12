@@ -53,14 +53,16 @@ sb_normalize_path() {
   # ways to spell the same local drive path. D182: only //?/ was stripped, so
   # //./C:/… never matched the drive-letter case below, cygpath never ran, and
   # every credential/scope prefix compare silently missed it (fail-open).
+  # \\?\UNC\host\share\… (→ //?/UNC/host/…) is the long-path spelling of \\host\share\…
+  case "$p" in //[?.]/[Uu][Nn][Cc]/*) p="//${p#//?/???/}" ;; esac   # SEC-R7: \\.\UNC\ too
   p="${p#"//?/"}"
   p="${p#"//./"}"
-  # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…) is the same
-  # local drive in disguise — rewrite to drive form. Other-host UNC paths are
+  # Loopback admin-share UNC (\\localhost\c$\…, \\127.0.0.1\c$\…; host is case-insensitive)
+  # is the same local drive in disguise — rewrite to drive form. Other-host UNC paths are
   # not locally resolvable and pass through unchanged (documented limit).
   case "$p" in
-    //localhost/[A-Za-z]\$/*)  d="${p#//localhost/}";  d="${d%%\$*}"; p="$d:${p#//localhost/[A-Za-z]\$}" ;;
-    //127.0.0.1/[A-Za-z]\$/*)  d="${p#//127.0.0.1/}";  d="${d%%\$*}"; p="$d:${p#//127.0.0.1/[A-Za-z]\$}" ;;
+    //[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]/[A-Za-z]\$/*|//127.0.0.1/[A-Za-z]\$/*)
+      d="${p#//*/}"; d="${d%%\$*}"; p="$d:${p#//*/?\$}" ;;
   esac
   case "$p" in
     [A-Za-z]:/*)
@@ -184,20 +186,6 @@ if [ -n "${SB_SUITE_REAL_HOME_PATH:-}" ]; then
   unset _sb_kd
 fi
 
-# KB single source of truth: exports SB_STRUCTURED_TYPES / SB_CONTENT_CATEGORIES / SB_ALL_CATEGORIES
-# / SB_GENERATED_DIRS / SB_EDGE_TYPES / SB_FORGET_PROTECTED / SB_FORGET_DISCOUNTED from kb-schema.json.
-# Sourced here so every lib.sh consumer has them. Fail-soft (no-op if jq/manifest absent).
-# shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]:-$0}")/kb-schema.sh" 2>/dev/null || true
-
-# Parse hook input from stdin. Sets: SB_INPUT, SB_SESSION_ID, SB_TRANSCRIPT_PATH, SB_TIMESTAMP
-sb_parse_input() {
-  SB_INPUT=$(cat)
-  SB_SESSION_ID=$(echo "$SB_INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null | tr -d '\r')
-  SB_TRANSCRIPT_PATH=$(echo "$SB_INPUT" | jq -r '.transcript_path // ""' 2>/dev/null | tr -d '\r')
-  SB_TIMESTAMP=$(date +"%Y-%m-%d")
-}
-
 # Echo $1 if it parses as a JSON array; otherwise echo "[]". Used to harden
 # --argjson against non-JSON or non-array handoff values. Requires jq.
 sb_safe_json_array() {
@@ -215,25 +203,26 @@ sb_safe_json_array() {
 # POSIX-anchor-only: a Windows path (C:/Users/<u>/AppData/Local/Temp/...) or macOS $TMPDIR
 # (/var/folders/xx/yy/T/...) never starts with '/tmp/' etc, so ephemeral scratch files on
 # those platforms passed straight through into PROJECT.md as "[auto-captured]" decisions.
-# We run sb_normalize_path (backslash + drive-letter -> POSIX /c/... form) on a COPY of
-# each candidate purely to decide membership, then emit the ORIGINAL string unchanged so
-# kept paths keep their existing forward-slash-but-drive-letter display form (the Windows
-# boundary test above pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/...").
+# One jq pass: the candidate is compared in a copy with \ -> / (codepoint 92 -> 47; CR dropped, as
+# jq.exe emits CRLF) and any //?/ or //./ prefix removed; the ORIGINAL string is emitted unchanged
+# so kept paths keep their forward-slash-but-drive-letter display form (the Windows boundary test
+# pins "C:/Work/proj/tests/thing.ts", not a cygpath'd "/c/Work/..."). Paths travel on stdin, never
+# as --arg (jq.exe drops a >~32 KB argv and rewrites a leading-slash arg into a Windows path).
+# shortcut: no cygpath, so a drive path that only cygpath maps into /tmp (MSYS2-standalone
+# C:/msys64/tmp/x) is kept; the AppData/Local/Temp rule covers Git-for-Windows. Upgrade if a
+# non-default MSYS root ever shows scratch files in PROJECT.md.
 #   sb_filter_scratch_paths '["a.ts","/tmp/x"]' -> '["a.ts"]'
 sb_filter_scratch_paths() {
-  local arr="${1:-[]}" out="[]" p np
-  while IFS= read -r p; do
-    [ -z "$p" ] && continue
-    np=$(sb_normalize_path "$p")
-    case "$np" in
-      /tmp/*|/var/tmp/*|/proc/*|/dev/*|/run/*) continue ;;
-      */[Aa][Pp][Pp][Dd][Aa][Tt][Aa]/[Ll][Oo][Cc][Aa][Ll]/[Tt][Ee][Mm][Pp]/*) continue ;;
-      /var/folders/*) continue ;;
-    esac
-    sb_cap_arg p 4096   # jq.exe drops a >~32 KB argv whole; no real path is this long
-    out=$(printf '%s' "$out" | jq -c --arg p "$p" '. + [$p]' 2>/dev/null) || out="$out"
-  done < <(printf '%s' "$arr" | jq -r '.[]?' 2>/dev/null | tr -d '\r')
-  printf '%s' "$out"
+  local out
+  out=$(printf '%s' "${1:-[]}" | jq -c '
+    def cap: if length > 4096 then .[0:4096] + "…(+\(length - 4096) chars)" else . end;
+    def scratch:
+      (explode | map(select(. != 13) | if . == 92 then 47 else . end) | implode
+        | ltrimstr("//?/") | ltrimstr("//./")) as $n
+      | ($n | test("^/(tmp|var/tmp|proc|dev|run)/|^/var/folders/"))
+        or ($n | ascii_downcase | contains("/appdata/local/temp/"));
+    [.[]? | tostring | select(length > 0 and (scratch | not)) | cap]' 2>/dev/null) || out="[]"
+  printf '%s' "${out//$'\r'/}"
 }
 
 # sb_window_tool_count <transcript> <start_line> <end_line>: the tool_use calls in raw transcript
@@ -374,7 +363,8 @@ sb_extract_archived_deterministic() {
 sb_floor_transcript() {
   local txt="$1" slug="$2"
   [ -f "$txt" ] || return 1
-  slug=$(sb_sanitize_slug "$slug") || slug="unknown"
+  slug=$(sb_slug_from_dir "$slug")   # the funnel's slug form, as sb_extract_transcript (audit L1)
+  case "$slug" in .|..) slug="unknown" ;; esac
   local delta; delta=$(sb_extract_archived_deterministic "$txt")
   [ -n "$delta" ] || return 1
   local nfiles; nfiles=$(printf '%s' "$delta" | jq '.files_touched | length' 2>/dev/null || echo 0)
@@ -419,7 +409,7 @@ sb_floor_transcript() {
 sb_rotate_log() {
   local f="$1" sz
   [ -f "$f" ] || return 0
-  sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+  sz=$(wc -c < "$f" 2>/dev/null); sz="${sz//[!0-9]/}"
   case "$sz" in ''|*[!0-9]*) return 0 ;; esac
   [ "$sz" -gt 524288 ] || return 0
   tail -n 1000 "$f" > "$f.tmp.$$" 2>/dev/null \
@@ -896,9 +886,7 @@ sb_log_audit() {
 # awk pass: the file is read once (buffered, decided in END{}).
 sb_rotate_audit_log() {
   [ -f "$SB_AUDIT_FILE" ] || return 0
-  local lines bytes
-  lines=$(wc -l < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
-  bytes=$(wc -c < "$SB_AUDIT_FILE" 2>/dev/null | tr -d ' ')
+  local lines bytes; read -r lines bytes < <(wc -lc < "$SB_AUDIT_FILE" 2>/dev/null)   # one wc, no tr (audit L7)
   [[ "$lines" =~ ^[0-9]+$ ]] || lines=0
   [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
   if [ "$lines" -gt "$SB_AUDIT_MAX_LINES" ] || [ "$bytes" -gt "$SB_AUDIT_MAX_BYTES" ]; then
@@ -1049,10 +1037,7 @@ sb_reindex_wiki() {
 sb_validate_wiki() {
   local knowledge_dir="${1:-$(sb_knowledge_dir)}"
   knowledge_dir="${knowledge_dir/#\~/$HOME}"
-  local plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
-  if [ -z "$plugin_root" ] || [ ! -d "$plugin_root" ]; then
-    plugin_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd) || plugin_root=""
-  fi
+  local plugin_root; plugin_root=$(sb_plugin_root)
   local validate_js="$plugin_root/mcp/dist/tools/knowledge-validate.bundle.js"
   if command -v node >/dev/null 2>&1 && [ -f "$validate_js" ]; then
     local _val_err _verr
@@ -1097,12 +1082,41 @@ sb_auto_accept_decision() {
   echo "accept"
 }
 
+# Injection classifier for untrusted text, shared by merge-project-update.sh (plan[] and
+# compact_pending gates) and merge-persona-signals.sh (persona graduation, audit E1).
+# Classes, in this precedence: control = any \p{Cc} (items are single-line by the time they get
+# here, so no character is exempt); format = invisible/format characters (\p{Cf} incl. the Tags
+# block, line/paragraph separators, variation selectors incl. the E0100 supplement, Hangul fillers,
+# U+034F); phrase = every tool-return-scanner.sh pattern, case-INSENSITIVE (that scanner is
+# case-sensitive after the first letter), plus the evasions it misses: "ignore the above
+# instructions", "disregard", a system: marker or a <system>/<system-reminder> tag ANYWHERE in
+# the text (not only at line start -- a leading "[ ] " used to defeat the anchor). jq/Oniguruma,
+# 1.7.1-safe; apostrophe-free (it lives inside single quotes).
+SB_GATE_CLASS_JQ='
+  def bad_class:
+    if test("\\p{Cc}") then "control"
+    elif test("[\\p{Cf}\\p{Zl}\\p{Zp}\\x{FE00}-\\x{FE0F}\\x{E0100}-\\x{E01EF}\\x{115F}\\x{1160}\\x{3164}\\x{FFA0}\\x{034F}]") then "format"
+    elif test("ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above)\\s+(instructions?|context|messages?|directions?|prompts?)|disregard\\s+(all\\s+|any\\s+)?(the\\s+|your\\s+)?(previous|prior|above|earlier|preceding|former)\\b|\\bsystem\\s*:|<\\s*/?\\s*system([\\s>/-]|$)|</?(human|assistant)[\\s>]|(begin|end)\\s+(system\\s+prompt|instructions?)|do\\s+not\\s+(tell|inform|notify|mention)\\s+(the\\s+)?user|execute\\s+the\\s+following\\s+(command|code|instructions?|prompt)|new\\s+(instructions?|system\\s+prompt|directive)\\s*:"; "i") then "phrase"
+    else "" end;
+  def gate_row($v):
+    [ $v[] | select(.c != "") ] as $bad
+    | "GATE \($bad | length) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .i | tostring ] | join(",")) end) \(if ($bad | length) == 0 then "-" else ([ $bad[] | .c ] | join(",")) end)";
+'
+# Echo the class of $1 (control|format|phrase; CR/LF/TAB count as spaces), nothing when clean.
+# Returns 1 when the classifier itself failed (no CLASS: row): callers fail closed.
+sb_text_injection_class() {
+  local v
+  v=$(printf '%s' "${1:-}" | jq -Rrs "$SB_GATE_CLASS_JQ"'gsub("[\r\n\t]+"; " ") | "CLASS:" + bad_class' | tr -d '\r')
+  case "$v" in CLASS:*) printf '%s' "${v#CLASS:}" ;; *) return 1 ;; esac
+}
+
 # Pin a preference line to USER.md, under "## Pinned". Cap counts PIN LINES ONLY
 # ("- [YYYY-MM-DD] …", max 15) — NEVER the whole file. The previous 2200-byte whole-file cap
 # counted the operator's hand-written About/Intent prose: the live USER.md was 2716 bytes with
-# ZERO pins, so every pin (and every auto-graduated persona signal from
-# merge-persona-signals.sh) was refused with a bare `return 1`, silently, forever — the signal
-# then re-fired on every extraction (ledger LC-07, 2026-08-23). Mirrors
+# ZERO pins, so every pin (and every auto-graduated persona signal, which then went through here)
+# was refused with a bare `return 1`, silently, forever — the signal
+# then re-fired on every extraction (ledger LC-07, 2026-08-23). Auto-graduated signals no longer
+# come here (SEC-R5): they go to sb_pin_to_learned below; USER.md is human pins only. Mirrors
 # mcp/src/tools/pin-to-user.ts's structure (same regex, same MAX, same section) — change both or
 # neither. Returns 0 on success/dupe-noop, 1 on a REFUSAL, which is now logged, never silent.
 sb_pin_to_user() {
@@ -1112,17 +1126,14 @@ sb_pin_to_user() {
   local flatten_cap=400
   local today new_line text
 
-  # D109: flatten BEFORE splicing — text here can be transcript-derived (persona
-  # signals graduate through this exact function). USER.md is the priority-1 block
+  # D109: flatten BEFORE splicing — text here could be transcript-derived (persona
+  # signals graduated through this function before SEC-R5). USER.md is the priority-1 block
   # session-load.sh injects into EVERY SessionStart, so an embedded newline/backtick
   # forges "## Section" headers or fenced directives into that context (the same
   # memory-poisoning primitive pin-to-project.ts's flattenField closed in 0.48.0).
   # CR/LF/backtick -> space, collapse whitespace runs, trim, cap length — no NFC
   # step (bash has none; a JS-only gap the TS twin still normalizes for).
-  text=$(printf '%s' "$raw_text" | tr '\r\n`' '   ' | tr -s '[:space:]' ' ')
-  text="${text#"${text%%[![:space:]]*}"}"
-  text="${text%"${text##*[![:space:]]}"}"
-  text="${text:0:$flatten_cap}"
+  _sb_pin_flatten "$raw_text" "$flatten_cap"; text="$_SB_PIN_TEXT"
   if [ -z "$text" ]; then
     sb_log_error "lib.sh" "sb_pin_to_user REFUSED: text was empty after flattening (was: ${raw_text:0:80})" 1
     return 1
@@ -1130,6 +1141,17 @@ sb_pin_to_user() {
   today=$(date -u +%Y-%m-%d)
   new_line="- [$today] $text"
 
+  # E3: the read-modify-write below holds the same .USER.md.lock as the TS pin_to_user
+  # (mcp/src/tools/hot-file-lock.ts); busy past the wait = logged by sb_archive_lock, return 1.
+  mkdir -p "$BRAIN_DIR"
+  sb_archive_lock "$user_file" sb_pin_to_user || return 1
+  local lock_tok="$_SB_ARCHIVE_LOCK_TOKEN" rc=0
+  _sb_pin_to_user_locked "$user_file" "$text" "$new_line" "$max_pins" || rc=$?
+  sb_archive_unlock "$user_file" "$lock_tok"
+  return "$rc"
+}
+_sb_pin_to_user_locked() {  # $1 USER.md, $2 flattened text, $3 pin line, $4 max pins
+  local user_file="$1" text="$2" new_line="$3" max_pins="$4"
   local content=""
   if [ -f "$user_file" ]; then
     content=$(cat "$user_file")
@@ -1179,6 +1201,100 @@ sb_pin_to_user() {
     return 1
   }
   return 0
+}
+# The D109 flatten both pin writers use: $1 raw text, $2 cap -> $_SB_PIN_TEXT (one line).
+_sb_pin_flatten() {
+  local t
+  t=$(printf '%s' "$1" | tr '\r\n`' '   ' | tr -s '[:space:]' ' ')
+  t="${t#"${t%%[![:space:]]*}"}"
+  t="${t%"${t##*[![:space:]]}"}"
+  _SB_PIN_TEXT="${t:0:$2}"
+}
+
+# SEC-R5: auto-graduated persona signals (merge-persona-signals.sh) land HERE, never in USER.md.
+# They are transcript-derived and a phrase classifier cannot hold paraphrases or homoglyphs, so
+# session-load.sh serves this file inside the untrusted-data frame; USER.md, the trusted block,
+# keeps human pins only (pin_to_user, /pin). Same "- [YYYY-MM-DD] text" lines and flatten as
+# sb_pin_to_user; exact-text dedupe; at 15 lines the OLDEST is evicted (refusing at the cap would
+# leave the signal ungraduated and re-fire it on every merge, the LC-07 class). Held under its own
+# .persona-learned.md.lock (Stop and the drainer can graduate at once). Returns 0 on success or a
+# dupe, 1 on a failure (logged).
+sb_pin_to_learned() {
+  local raw_text="${1:?sb_pin_to_learned: text required}" f="$BRAIN_DIR/persona-learned.md" tok rc=0
+  _sb_pin_flatten "$raw_text" 400
+  if [ -z "$_SB_PIN_TEXT" ]; then
+    sb_log_error "lib.sh" "sb_pin_to_learned REFUSED: text was empty after flattening (was: ${raw_text:0:80})" 1
+    return 1
+  fi
+  mkdir -p "$BRAIN_DIR"
+  sb_archive_lock "$f" sb_pin_to_learned || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"
+  [ -f "$f" ] || printf '# Learned preferences (auto-graduated from session history; served as untrusted data)\n\n' > "$f" || rc=1
+  # One awk: header lines pass through, pin lines are collected; a dupe exits 3 (no write), else the
+  # newest max-1 pins plus the new one are printed. ENVIRON, not -v: -v rewrites backslashes.
+  [ "$rc" -eq 0 ] && { PIN_TEXT="$_SB_PIN_TEXT" PIN_DAY="$(date -u +%Y-%m-%d)" LC_ALL=C awk -v max=15 '
+    /^- \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] / { if (substr($0, 16) == ENVIRON["PIN_TEXT"]) dup = 1; p[++n] = $0; next }
+    { print }
+    END { if (dup) exit 3; for (i = (n >= max ? n - max + 2 : 1); i <= n; i++) print p[i]; print "- [" ENVIRON["PIN_DAY"] "] " ENVIRON["PIN_TEXT"] }
+  ' "$f" > "$f.tmp.$$"; rc=$?; }
+  case "$rc" in
+    0) mv "$f.tmp.$$" "$f" || rc=1 ;;
+    3) rc=0 ;;
+  esac
+  rm -f "$f.tmp.$$" 2>/dev/null
+  [ "$rc" -eq 0 ] || sb_log_error "lib.sh" "sb_pin_to_learned: write failed for $f, signal not stored: ${_SB_PIN_TEXT:0:80}" 1
+  sb_archive_unlock "$f" "$tok"
+  return "$rc"
+}
+
+# One-time move (ensure-dirs.sh, SessionStart): before SEC-R5, graduation wrote persona signals into
+# USER.md as trusted priority-1 pins. Every USER.md pin line whose text is a graduated:true record of
+# persona-signals.jsonl, flattened as that old sb_pin_to_user wrote it, moves to persona-learned.md;
+# human pins stay. Held under the USER.md lock with a 1 s wait (the hook has 5 s); every line is
+# pinned to the learned store BEFORE USER.md is rewritten, so a failure leaves at worst a duplicate
+# (sb_pin_to_learned dedupes the retry). The marker is written only after a complete pass: a busy
+# lock or a failed write retries at the next SessionStart. Returns 0 done, 1 retry later.
+sb_migrate_learned_pins() {
+  local u="$BRAIN_DIR/USER.md" s="$BRAIN_DIR/persona-signals.jsonl" m="$BRAIN_DIR/.persona-learned-migrated"
+  local _SB_ARCHIVE_LOCK_WAIT_S=1 texts t list="" tok moved_f rc=0 n ws=$'\t\v\f\r'
+  [ -f "$m" ] && return 0
+  if [ ! -s "$u" ] || [ ! -s "$s" ]; then : > "$m"; return 0; fi
+  command -v jq >/dev/null 2>&1 || return 1
+  texts=$(jq -Rr 'fromjson? | select(type == "object" and .graduated == true) | .signal | select(type == "string") | gsub("[\r\n`]"; " ")' "$s") \
+    || { sb_log_error "lib.sh" "sb_migrate_learned_pins: cannot read $s; retried next session" 1; return 1; }
+  # The rest of the old flatten (_sb_pin_flatten) on builtins, one jq spawn in all: every other
+  # ASCII space becomes a space, runs squeeze to one, trim, cut at 400.
+  while IFS= read -r t; do
+    t="${t//[$ws]/ }"
+    while [ "${t#*  }" != "$t" ]; do t="${t//  / }"; done
+    t="${t#"${t%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"; t="${t:0:400}"
+    [ -n "$t" ] && list="$list$t"$'\n'
+  done < <(printf '%s\n' "$texts")
+  [ -n "$list" ] || { : > "$m"; return 0; }
+  sb_archive_lock "$u" sb_migrate_learned_pins || return 1
+  tok="$_SB_ARCHIVE_LOCK_TOKEN"; moved_f="$u.moved.$$"
+  MIG_TEXTS="$list" LC_ALL=C awk -v mf="$moved_f" '
+    BEGIN { n = split(ENVIRON["MIG_TEXTS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") g[a[i]] = 1 }
+    /^- \[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\] / { t = substr($0, 16); sub(/\r$/, "", t); if (t in g) { print t > mf; next } }
+    { print }
+  ' "$u" > "$u.tmp.$$" || rc=1
+  if [ "$rc" -eq 0 ] && [ -s "$moved_f" ]; then
+    while IFS= read -r t; do
+      sb_pin_to_learned "$t" || rc=1
+    done < "$moved_f"
+    [ "$rc" -eq 0 ] && { mv "$u.tmp.$$" "$u" || rc=1; }
+    if [ "$rc" -eq 0 ]; then
+      n=$(grep -c . "$moved_f")
+      sb_log_error "lib.sh" "persona-learned migration: moved $n auto-graduated pin(s) from USER.md to persona-learned.md (served as untrusted data): $(tr '\n' ';' < "$moved_f" | head -c 400)" 0
+    fi
+  fi
+  rm -f "$u.tmp.$$" "$moved_f"
+  sb_archive_unlock "$u" "$tok"
+  if [ "$rc" -ne 0 ]; then
+    sb_log_error "lib.sh" "sb_migrate_learned_pins: USER.md not rewritten (a learned-store or USER.md write failed); retried next session" 1
+    return 1
+  fi
+  : > "$m"
 }
 
 # Portable canonicalization of a path to an absolute, symlink-resolved form. Works on GNU
@@ -1551,7 +1667,7 @@ sb_project_identity() {
   local reg="$1" slug="$2" rp="$3" gr="$4"
   [ -f "$reg" ] || { echo "new"; return 0; }
   command -v jq >/dev/null 2>&1 || { echo "new"; return 0; }
-  local rec; rec=$(jq -c --arg s "$slug" 'select(.slug==$s)' "$reg" 2>/dev/null | head -1)
+  local rec; rec=$(jq -cR --arg s "$slug" 'fromjson? | select(type=="object" and .slug==$s)' "$reg" 2>/dev/null | head -1)
   [ -n "$rec" ] || { echo "new"; return 0; }
   local ex_rp ex_gr
   ex_rp=$(printf '%s' "$rec" | jq -r '.root_path // ""')
@@ -1714,7 +1830,10 @@ sb_sanitize_slug() {
 # that replaced it in between is put back (noclobber) instead of deleted. On bash 3.2 (no
 # BASHPID) two subshells of one process share the pid part of the token; the nonce separates
 # them unless $RANDOM repeats, which only same-process subshells contending one lock could hit.
-_SB_ARCHIVE_LOCK_WAIT_S=5
+# SB_ARCHIVE_LOCK_WAIT_S overrides the wait (TST-R5: tests that hold a lock on purpose); anything
+# but a plain decimal (no leading zero: 08 is bad octal) falls back to 5, since it feeds $(( )).
+_SB_ARCHIVE_LOCK_WAIT_S="${SB_ARCHIVE_LOCK_WAIT_S:-5}"
+case "$_SB_ARCHIVE_LOCK_WAIT_S" in ''|0?*|*[!0-9]*) _SB_ARCHIVE_LOCK_WAIT_S=5 ;; esac
 _SB_ARCHIVE_LOCK_STALE_S=60
 _SB_ARCHIVE_LOCK_HUNG_S=600
 _SB_ARCHIVE_LOCK_TOKEN=""
@@ -1949,8 +2068,12 @@ sb_scrub_secrets() {
       n++; lit[n] = "authorization"; kind[n] = "basic-auth"; lc[n] = 1; md[n] = "k"
            kp[n] = ci("authorization") ":[ \t]?[ \t]?[ \t]?" ci("basic") "[ \t][ \t]?[ \t]?"
            re[n] = kp[n] rep(b64, 8) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
-      n++; lit[n] = "_secret_access_key"; kind[n] = "aws"; lc[n] = 1; md[n] = "k"
-           kp[n] = "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\"\047]?[ \t]?[ \t]?[ \t]?[=:][ \t]?[ \t]?[ \t]?[\"\047]?"
+      # One entry per keyword spelling, never their alternation: on a line holding both, mawk 1.3.4
+      # split() on "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)..." missed the first match (X2).
+      ks = "[\"\047]?[ \t]?[ \t]?[ \t]?[=:][ \t]?[ \t]?[ \t]?[\"\047]?"
+      n++; lit[n] = "aws_secret_access_key"; kind[n] = "aws"; md[n] = "k"; kp[n] = lit[n] ks
+           re[n] = kp[n] rep(b64, 40) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
+      n++; lit[n] = "AWS_SECRET_ACCESS_KEY"; kind[n] = "aws"; md[n] = "k"; kp[n] = lit[n] ks
            re[n] = kp[n] rep(b64, 40) b64 "*"; kp[n] = "^" kp[n]; vr[n] = "^" b64 "*"
       n++; lit[n] = "sk-";          kind[n] = "openai";      md[n] = "b"
            re[n] = "([^A-Za-z0-9]|\\\\[A-Za-z])sk-" rep(an, 20) an "*"; vr[n] = "^" an "*"
@@ -2817,32 +2940,6 @@ sb_prune_transcripts() {
   return 0
 }
 
-# --- Session-cadence + maintenance flags ---------------------------------
-# Track substantive sessions per project so SessionStart can prompt for
-# /second-brain:dream after a threshold without manual reminders. The flag
-# files are per-project under $BRAIN_DIR/projects/<slug>/ so a noisy project
-# doesn't trigger banners on quiet ones.
-
-sb_increment_session_count() {
-  local slug="$1"
-  local f="$BRAIN_DIR/projects/$slug/.session-count"
-  mkdir -p "$(dirname "$f")" 2>/dev/null
-  local n=0
-  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
-  [[ "$n" =~ ^[0-9]+$ ]] || n=0
-  printf '%d' "$((n + 1))" > "$f"
-}
-
-sb_get_session_count() {
-  local f="$BRAIN_DIR/projects/$1/.session-count"
-  local n=0
-  [ -f "$f" ] && n=$(tr -d '[:space:]' < "$f" 2>/dev/null)
-  [[ "$n" =~ ^[0-9]+$ ]] || n=0
-  printf '%d' "$n"
-}
-
-sb_reset_session_count() { echo 0 > "$BRAIN_DIR/projects/$1/.session-count" 2>/dev/null; }
-
 # --- Maintainer auto-dispatch state helpers -----------------------------
 # Per-project wiki-write counter. session-load.sh consumes this at the
 # threshold and dispatches the maintainer subagent.
@@ -2940,21 +3037,6 @@ sb_generate_dream_id() {
 # No dream dir/status helpers exist here by design: dream paths are composed
 # inline as "$BRAIN_DIR/dreams/<id>" and status reads are inline jq — the
 # canonical pattern across the scripts.
-
-sb_dream_set_status() {
-  local dream_id="$1" field="$2" value="$3"
-  local status_file="$BRAIN_DIR/dreams/$dream_id/status.json"
-  [ -f "$status_file" ] || return 1
-  local tmp
-  tmp=$(mktemp)
-  if [ "$value" = "null" ]; then
-    jq --arg f "$field" '.[$f] = null' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  elif echo "$value" | jq -e 'type == "number"' >/dev/null 2>&1; then
-    jq --arg f "$field" --argjson v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  else
-    jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$status_file" > "$tmp" && mv "$tmp" "$status_file"
-  fi
-}
 
 # Single source of truth for "is this dream wedged?" — the one staleness policy
 # shared by dream-snapshot.sh (deadlock-break before staging a new dream),
@@ -3245,7 +3327,7 @@ sb_call_extractor() {
   #
   # SB_USE_BWRAP=1 (opt-in): wrap the claude invocation in
   # bubblewrap so the extractor sees a read-only root with only
-  # ~/.second-brain writable. Requires bwrap binary;
+  # $BRAIN_DIR writable. Requires bwrap binary;
   # falls back to direct invocation if absent. Network stays enabled
   # (extractor needs the API).
   # One retry, and only for a tier spec: a model-unavailable verdict on attempt 1 blocklists
@@ -3262,10 +3344,11 @@ sb_call_extractor() {
       fi
       local -a WRAP_PREFIX=()
       if [ "${SB_USE_BWRAP:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
+        [ -d "$BRAIN_DIR" ] || mkdir -p "$BRAIN_DIR"   # bwrap refuses to bind a missing source
         WRAP_PREFIX=(
           bwrap
           --ro-bind / /
-          --bind "$HOME/.second-brain" "$HOME/.second-brain"
+          --bind "$BRAIN_DIR" "$BRAIN_DIR"
           --tmpfs /tmp
           --proc /proc
           --dev /dev
@@ -4115,7 +4198,7 @@ TMPL
   if [ "$is_subagent" -eq 0 ] && [ -n "$sess_id" ]; then
     sess_flag=(--session "$sess_id")
   fi
-  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err
+  local cur="$from" win hdr wbytes cend start in_f out_f delta extract_merge_err merge_rc
   # P0 rec 5: this session's deterministic observation ledger gives the extractor ground truth for
   # files_touched / error→fix issues / procedures. SUBAGENT archives are excluded: sub-*.txt
   # carries the PARENT session's id (sb_archive_subagent_result), so embedding here would re-mine
@@ -4184,12 +4267,16 @@ TMPL
     # SF-C1: same fix as sb_floor_transcript above -- capture stderr instead of folding it into
     # the discarded stdout, so a failed merge on the drainer's REAL (non-floor) extraction path
     # is diagnosable instead of a bare "return 1" with zero trace of why.
-    extract_merge_err=$(mktemp)
-    if ! printf '%s' "$delta" \
-        | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
-          >/dev/null 2>"$extract_merge_err"; then
-      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
+    # Exit 3 is the merge's "PROJECT.md busy or refused, retry later": returned as 3, which the drainer
+    # retries without counting it toward SB_DRAIN_MAX_FAILS.
+    extract_merge_err=$(mktemp); merge_rc=0
+    printf '%s' "$delta" \
+      | bash "$sdir/merge-project-update.sh" --project-md "$project_md" --knowledge-dir "$kdir" ${sess_flag[@]+"${sess_flag[@]}"} \
+          >/dev/null 2>"$extract_merge_err" || merge_rc=$?
+    if [ "$merge_rc" -ne 0 ]; then
+      sb_log_error "lib.sh" "sb_extract_transcript: merge-project-update.sh failed (exit $merge_rc) slug=$slug lines=$start..$cend err=$(tr '\n' ' ' < "$extract_merge_err" | head -c 300)" 1
       rm -f "$extract_merge_err"
+      [ "$merge_rc" -eq 3 ] && return 3
       return 1
     fi
     rm -f "$extract_merge_err"
@@ -4226,9 +4313,9 @@ TMPL
     if [ -n "$sigs" ] && printf '%s' "$sigs" \
       | jq -e '(.persona_signals | length) + (.rule_candidates | length) > 0' >/dev/null 2>&1; then
       if [ -n "$slug" ]; then
-        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" 2>/dev/null || true
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --slug "$slug" --session "${sess_id:-unknown}" 2>/dev/null || true
       else
-        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" 2>/dev/null || true
+        printf '%s' "$sigs" | bash "$sdir/merge-persona-signals.sh" --session "${sess_id:-unknown}" 2>/dev/null || true
       fi
     fi
     cur="$cend"; SB_EXTRACT_REACHED="$cend"
@@ -4393,13 +4480,14 @@ sb_auto_memory_state() {
 # Is the per-OS extract-drain scheduler registered? Returns 0 (installed) / 1 (absent).
 # OS arg optional ($1); else SB_INSTALL_OS_OVERRIDE; else uname-derived (systemd|launchd|windows).
 # Signal = the install artifact the matching install-extract-timer.sh --apply branch writes and
-# --uninstall removes: the systemd user TIMER unit (Linux) / the LaunchAgent plist (macOS) / a
-# live schtasks query (Windows leaves no file artifact, so we ask the scheduler). Using the unit
-# FILE rather than `systemctl --user is-enabled` keeps this portable and unit-testable, and stays
-# in lockstep with what uninstall deletes. A unit present-but-administratively-disabled is a rare
-# partial state that the self-healing --ensure re-applies harmlessly.
+# --uninstall removes — the systemd user TIMER unit (Linux) / the LaunchAgent plist (macOS) — and
+# then the scheduler's own answer: `systemctl --user is-enabled` / `launchctl print`, so a disabled
+# timer or an unloaded agent reads as absent and --ensure re-applies it. Windows leaves no file
+# artifact: a live schtasks query. When the scheduler cannot be asked at all (no user bus, a
+# container, WSL without systemd, no gui domain) the file stands as the signal: an --apply could not
+# be verified there either, so 'absent' would only re-run --ensure on every session.
 sb_timer_installed() {
-  local os="${1:-${SB_INSTALL_OS_OVERRIDE:-}}"
+  local os="${1:-${SB_INSTALL_OS_OVERRIDE:-}}" st rc
   if [ -z "$os" ]; then
     case "$(uname -s 2>/dev/null)" in
       Linux)                os=systemd ;;
@@ -4417,14 +4505,34 @@ sb_timer_installed() {
   [ -f "${BRAIN_DIR:-$HOME/.second-brain}/bin/sb-extract-drain.sh" ] || return 1
   case "$os" in
     systemd)
-      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] ;;
+      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/sb-extract-drain.timer" ] || return 1
+      # A reachable user manager always prints a state word (enabled, disabled, not-found…);
+      # unreachable — or no systemctl — prints nothing on stdout.
+      st=$(systemctl --user is-enabled sb-extract-drain.timer 2>/dev/null); rc=$?
+      [ "$rc" = 0 ] && return 0
+      [ -n "$st" ] && return 1
+      _sb_timer_unverifiable systemd ;;
     launchd)
-      [ -f "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ] ;;
+      [ -f "$HOME/Library/LaunchAgents/sb-extract-drain.plist" ] || return 1
+      launchctl print "gui/$(id -u)/sb-extract-drain" >/dev/null 2>&1 && return 0
+      # The gui domain answers but holds no such service: not loaded.
+      launchctl print "gui/$(id -u)" >/dev/null 2>&1 && return 1
+      _sb_timer_unverifiable launchd ;;
     windows)
       MSYS_NO_PATHCONV=1 schtasks /Query /TN sb-extract-drain >/dev/null 2>&1 ;;
     *)
       return 1 ;;
   esac
+}
+
+# _sb_timer_unverifiable OS: the unit/plist file is there but the scheduler cannot be asked. Reads
+# as installed (see sb_timer_installed), with one error-log row the first time, not one per session.
+_sb_timer_unverifiable() {
+  local m="$BRAIN_DIR/.timer-unverifiable"
+  [ -f "$m" ] && return 0
+  sb_log_error "lib.sh" "sb_timer_installed: the $1 drainer scheduler's unit file is present but whether it is enabled/loaded cannot be verified (no user bus or gui session: a container, WSL without systemd, an ssh-only login) - treated as installed; logged once (delete $m to log again)" 0
+  : > "$m"
+  return 0
 }
 
 # One-line human status of the drainer scheduler: "installed" | "absent" (passes $@ through to

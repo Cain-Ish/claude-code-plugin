@@ -441,3 +441,88 @@ describe('empty-page autofix race guard (D066)', () => {
     expect(out).toContain('real content');   // re-check saw it was no longer empty — not deleted
   });
 });
+
+// Audit T9: the young-empty-page guard (D066) keeps the file, but addFrontmatter then stubbed it,
+// so the page stopped being empty and the guard's job was undone.
+describe('autofix leaves a young empty page empty (audit T9)', () => {
+  it('does not give an empty page a frontmatter stub', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-t9-'));
+    const wiki = join(dir, 'wiki');
+    await fs.mkdir(join(wiki, 'learnings'), { recursive: true });
+    const f = join(wiki, 'learnings', 'fresh-empty.md');
+    await fs.writeFile(f, '');
+    await knowledgeValidate(dir, { autofix: true });
+    expect(await fs.readFile(f, 'utf-8')).toBe('');
+  });
+});
+
+// Audit D3: an UNCLOSED fence made matchFrontmatter run to a later '---' in the body, and the
+// duplicate-key collapse then deleted body lines (a repeated 'Step:' line).
+describe('normalize refuses a fence that swallowed the body (audit D3)', () => {
+  it('leaves a page with an unclosed frontmatter fence byte-identical', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-d3-'));
+    const wiki = join(dir, 'wiki', 'learnings');
+    await fs.mkdir(wiki, { recursive: true });
+    const f = join(wiki, 'runbook.md');
+    const page = [
+      '---', 'title: Runbook', 'type: learnings', '',
+      '# Restore', 'Step: 1', 'psql -c "select 1"', 'Step: 2', 'psql -c "select 2"', '---', 'tail text', '',
+    ].join('\n');
+    await fs.writeFile(f, page);
+    await knowledgeValidate(dir, { autofix: true });
+    expect(await fs.readFile(f, 'utf-8')).toBe(page);
+  });
+});
+
+// Audit D9: normalize rewrote the file, then patch read the NEW mtime and stamped created: today.
+describe('normalize-then-patch keeps the original date (audit D9)', () => {
+  it('derives created/updated from the pre-fix mtime', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-d9-'));
+    const wiki = join(dir, 'wiki', 'learnings');
+    await fs.mkdir(wiki, { recursive: true });
+    const f = join(wiki, 'old-page.md');
+    // malformed (bracketless related) AND incomplete (no created/updated)
+    await fs.writeFile(f, '---\ntitle: Old\ntype: learnings\nrelated: [[a]], [[b]]\n---\n\nbody body body\n');
+    const past = new Date('2024-03-05T12:00:00Z');
+    await fs.utimes(f, past, past);
+    await knowledgeValidate(dir, { autofix: true });
+    const out = await fs.readFile(f, 'utf-8');
+    expect(out).toMatch(/^created: 2024-03-05$/m);
+    expect(out).toMatch(/^updated: 2024-03-05$/m);
+  });
+});
+
+// Audit review TS-R3/TS-R7: CRLF and `# comment` frontmatter used to look like prose and was never patched.
+describe('CRLF and comment frontmatter are still shaped (TS-R3)', () => {
+  const run = async (lines: string[]) => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-r3-'));
+    const wiki = join(dir, 'wiki', 'learnings');
+    await fs.mkdir(wiki, { recursive: true });
+    const f = join(wiki, 'crlf-page.md');
+    await fs.writeFile(f, lines.join('\r\n'));
+    await knowledgeValidate(dir, { autofix: true });
+    return fs.readFile(f, 'utf-8');
+  };
+  it('patches missing fields on a CRLF page', async () => {
+    const out = await run(['---', 'title: Crlf', 'type: learnings', 'tags:', '---', '', '# Crlf', 'body', '']);
+    expect(out).toMatch(/^created:/m);
+    expect(out).toContain('body');
+  });
+  it('patches a page whose frontmatter has a YAML comment line', async () => {
+    const out = await run(['---', '# managed by hand', 'title: Commented', 'type: learnings', '---', '', '# Commented', 'body', '']);
+    expect(out).toMatch(/^created:/m);
+    expect(out).toContain('# managed by hand');
+  });
+});
+
+describe('addFrontmatter reports whether it wrote (TS-R7)', () => {
+  it('returns false for an empty page and true after stubbing a real one', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'kv-r7-'));
+    const wiki = join(dir, 'wiki', 'learnings');
+    await fs.mkdir(wiki, { recursive: true });
+    const e = join(wiki, 'empty.md'); await fs.writeFile(e, '');
+    const r = join(wiki, 'real.md'); await fs.writeFile(r, '# Real\nbody\n');
+    expect(await addFrontmatter(e, join(dir, 'wiki'))).toBe(false);
+    expect(await addFrontmatter(r, join(dir, 'wiki'))).toBe(true);
+  });
+});

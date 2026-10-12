@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { archiveToWiki } from './archive-to-wiki.js';
@@ -88,5 +88,61 @@ describe('archive_to_wiki', () => {
     const decisionsWindow = lines.slice(decisionsIdx + 1);
     expect(decisionsWindow.some(l => l.includes('→ wiki/decisions/test-slug/'))).toBe(true);
     expect(decisionsWindow.some(l => l === '- [resolved] shared text')).toBe(false);
+  });
+
+  // M6 (audit 2026-10): a non-ASCII entryText slugs to "-", so a second same-day archive of a
+  // DIFFERENT entry overwrote the first page; and "" matched the first [resolved] line.
+  it('two same-day archives whose text slugs alike never overwrite each other', async () => {
+    writeFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'),
+      '# PROJECT: test\n## Open blockers\n- [resolved] 日本語のテスト\n- [resolved] Ελληνικά δοκιμή\n', 'utf-8');
+    const a = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: '日本語のテスト', targetCategory: 'issues', brainDir, knowledgeDir });
+    const b = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'Ελληνικά δοκιμή', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(a.ok && b.ok).toBe(true);
+    expect(b.archived_path).not.toBe(a.archived_path);
+    expect(readFileSync(a.archived_path, 'utf-8')).toContain('日本語のテスト');
+    expect(readFileSync(b.archived_path, 'utf-8')).toContain('Ελληνικά δοκιμή');
+    const proj = readFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8');
+    expect(proj).toContain(a.archived_path.split(/[\\/]/).pop());
+    expect(proj).toContain(b.archived_path.split(/[\\/]/).pop());
+  });
+
+  it('rejects an empty or blank entryText (it matched the first [resolved] entry)', async () => {
+    for (const entryText of ['', '   ']) {
+      const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText, targetCategory: 'issues', brainDir, knowledgeDir });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toMatch(/empty/);
+    }
+    expect(readFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8')).toBe(tpl);
+  });
+
+  // E3 (audit 2026-10): the PROJECT.md rewrite holds the shared .PROJECT.md.lock the merge takes.
+  it('E3: waits for the shared .PROJECT.md.lock before rewriting PROJECT.md', async () => {
+    const projectMd = join(brainDir, 'projects', 'test-slug', 'PROJECT.md');
+    const lf = join(brainDir, 'projects', 'test-slug', '.PROJECT.md.lock');
+    writeFileSync(lf, `${process.pid}.held\n`);
+    const p = archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    await new Promise(r => setTimeout(r, 400));
+    expect(readFileSync(projectMd, 'utf-8')).toBe(tpl);
+    rmSync(lf);
+    expect((await p).ok).toBe(true);
+    expect(readFileSync(projectMd, 'utf-8')).toMatch(/→ wiki\/issues\/test-slug\//);
+    expect(existsSync(lf)).toBe(false);
+  });
+
+  it('TS-R2: a failed PROJECT.md replace removes the page it wrote, so a retry does not duplicate', async () => {
+    const fsp = (await import('fs')).promises;
+    const realRename = fsp.rename;
+    const spy = vi.spyOn(fsp, 'rename').mockImplementation(async (a: any, b: any) => {
+      if (String(a).endsWith('.tmp')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+      return realRename(a, b);
+    });
+    const args = { slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir } as const;
+    await expect(archiveToWiki({ ...args })).rejects.toThrow('disk full');
+    const wikiDir = join(knowledgeDir, 'wiki', 'issues', 'test-slug');
+    expect(existsSync(wikiDir) ? readdirSync(wikiDir) : []).toEqual([]);
+    spy.mockRestore();
+    const res = await archiveToWiki({ ...args });
+    expect(res.ok).toBe(true);
+    expect(res.archived_path).not.toMatch(/-2\.md$/);
   });
 });

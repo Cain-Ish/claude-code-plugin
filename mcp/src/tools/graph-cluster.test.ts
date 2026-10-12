@@ -57,6 +57,17 @@ describe('labelPropagate (deterministic)', () => {
   });
 });
 
+describe('labelPropagate non-convergence (audit B5)', () => {
+  it('a bare pair forms one community', () => {
+    const r = labelPropagate(adjOf([['a', 'b']]));
+    expect(r.get('a')).toBe(r.get('b'));
+  });
+  it('a star keeps its hub in the community', () => {
+    const r = labelPropagate(adjOf([['hub', 'l1'], ['hub', 'l2'], ['hub', 'l3'], ['hub', 'l4']]));
+    expect(new Set(r.values()).size).toBe(1);
+  });
+});
+
 describe('clusters + memberHash', () => {
   it('groups by community, drops clusters below minSize', () => {
     const labels = new Map(Object.entries({ a: 'a', b: 'a', c: 'a', d: 'a', x: 'x', y: 'x' }));

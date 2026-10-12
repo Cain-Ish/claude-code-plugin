@@ -31,6 +31,16 @@ grep -q 'LIVE-COPY' "$KNOWLEDGE_DIR/wiki/entities/x.md" 2>/dev/null \
 [ -f "$BRAIN_DIR/wiki-archive/entities/x.md" ] && grep -q 'ARCHIVED-COPY' "$BRAIN_DIR/wiki-archive/entities/x.md" \
   && ok "D193: archived copy preserved (not destroyed by the refused move)" \
   || bad "D193: archived copy was lost even though the restore was refused"
+
+# D2 (audit): `mv` kept the archive's OLD mtime, so dream-accept did not treat the restored page as
+# post-snapshot and its rsync --delete removed it again (the archive copy already gone: a move).
+rm -f "$KNOWLEDGE_DIR/wiki/entities/x.md"; touch -t 202501010000 "$BRAIN_DIR/wiki-archive/entities/x.md"
+REF="$SB/ref"; touch "$REF"
+bash "$RS" entities/x >/dev/null 2>&1; rc=$?
+if [ "$rc" -ne 0 ] || [ ! -f "$KNOWLEDGE_DIR/wiki/entities/x.md" ]; then bad "D2: restore failed (rc=$rc)"
+elif [ "$REF" -nt "$KNOWLEDGE_DIR/wiki/entities/x.md" ]; then bad "D2: restored page kept the archive's old mtime (dream-accept would delete it)"
+else ok "D2: restored page carries a fresh mtime"
+fi
 rm -rf "$SB"
 
 echo "PASS:$P FAIL:$F"; [ "$F" -eq 0 ]

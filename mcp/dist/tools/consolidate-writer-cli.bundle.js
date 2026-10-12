@@ -160,7 +160,7 @@ var init_kb_schema = __esm({
 });
 
 // src/constants/kb-schema.ts
-var STRUCTURED_TYPES, UNSTRUCTURED_TYPES, GENERATED_DIRS, EDGE_TYPES, PROJECT_SECTIONS, FORGET_PROTECTED, FORGET_DISCOUNTED, RAW_DIR, RAW_STATUSES, CANDIDATE_FACTS, FRONTMATTER_REQUIRED, AI_BLOCK_TYPES, CONTENT_CATEGORIES, ALL_CATEGORIES;
+var STRUCTURED_TYPES, UNSTRUCTURED_TYPES, GENERATED_DIRS, CANDIDATE_FACTS, FRONTMATTER_REQUIRED, AI_BLOCK_TYPES, CONTENT_CATEGORIES, ALL_CATEGORIES;
 var init_kb_schema2 = __esm({
   "src/constants/kb-schema.ts"() {
     "use strict";
@@ -168,12 +168,6 @@ var init_kb_schema2 = __esm({
     STRUCTURED_TYPES = kb_schema_default.structured_types;
     UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
     GENERATED_DIRS = kb_schema_default.generated_dirs;
-    EDGE_TYPES = kb_schema_default.edge_types;
-    PROJECT_SECTIONS = kb_schema_default.project_sections;
-    FORGET_PROTECTED = kb_schema_default.forget_protection.protected;
-    FORGET_DISCOUNTED = kb_schema_default.forget_protection.discounted;
-    RAW_DIR = kb_schema_default.raw.dir;
-    RAW_STATUSES = kb_schema_default.raw.statuses;
     CANDIDATE_FACTS = kb_schema_default.candidate_facts;
     FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
     AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;

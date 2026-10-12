@@ -77,13 +77,14 @@ maintainer 2026-07-04; ecosystem comparison wording → sb-external-positioning.
 **This repo's asset.** A working enforcement point plus a working signal pipeline — the two
 halves SOTA lacks, already running autonomously:
 
-- `scripts/persona-tool-guard.sh` — PreToolUse guard over `Bash|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent`,
+- `scripts/persona-tool-guard.sh` — PreToolUse guard over `Bash|PowerShell|Write|Edit|MultiEdit|Read|WebFetch|WebSearch|Task|Agent`,
   rules from `scripts/persona-rules.default.json`, every verdict audit-logged via
   `sb_log_audit`, kill switch `SB_PERSONA_GATE=off`. Re-armed on Windows path forms in 0.33.31
   (`sb_normalize_path` funnel — archive/docs:CHANGELOG.md, 0.33.31 entry).
 - `scripts/merge-persona-signals.sh` — Stop-hook signal accumulation into
   `BRAIN_DIR/persona-signals.jsonl` with word-overlap dedup; `count>=2` high-confidence signals
-  already auto-graduate (today: to USER.md prose via `sb_pin_to_user`, line 99).
+  already auto-graduate (today: to `BRAIN_DIR/persona-learned.md` via `sb_pin_to_learned`;
+  USER.md is human pins only).
 - A proven bi-temporal soft-retire pattern to copy: `scripts/merge-edges.sh`
   (`valid_from`/`valid_to`, conflict log, never hard-delete).
 - A complete, constitution-checked plan: `archive/docs:docs/superpowers/plans/2026-06-30-p2-learning-to-guardrail.md`.
@@ -384,11 +385,11 @@ transfer vehicle.
    delivers this datum anyway — sequence after it to avoid a merge collision).
 2. Split the graduation target in `merge-persona-signals.sh`: `scope:"project"` signals
    graduate into that project's PROJECT.md (the `pin_to_project` / decisions path) instead of
-   USER.md; `scope:"global"` (and legacy scopeless) keep today's `sb_pin_to_user` behavior —
+   persona-learned.md; `scope:"global"` (and legacy scopeless) keep today's `sb_pin_to_learned` behavior —
    backward compatibility is a test, not a hope.
 3. Add the leak test: `tests/test-persona-signal-scope.sh` (surface-budget bump required) —
    fixture signals under two slugs in a `mktemp -d` BRAIN_DIR; assert a project-scoped signal
-   containing a repo-A path never reaches USER.md, and a global practice graduated from repo A
+   containing a repo-A path never reaches persona-learned.md, and a global practice graduated from repo A
    is present in the context a repo-B session would load (drive `scripts/session-load.sh` with
    `CLAUDE_PROJECT_DIR` pointed at the second fixture repo).
 
@@ -400,7 +401,7 @@ the two-slug test. Falsifier: either a portable practice that stays siloed, or o
 project fact, fails the milestone.
 
 **Status: NOT-STARTED.** No plan doc, no scope field, no split graduation. Today's behavior is
-all-or-nothing global: every graduated signal lands in USER.md regardless of origin — transfer
+all-or-nothing global: every graduated signal lands in persona-learned.md regardless of origin — transfer
 by leakage, not by design.
 
 ---
@@ -465,8 +466,8 @@ wc -l tests/fixtures/eval-queries.jsonl
 grep -rin 'silence.latency' scripts/ mcp/src/
 # CI lanes (expect: ubuntu-latest + macos-latest; a windows lane would close a step in problem 5)
 grep -n 'runs-on' .github/workflows/ci.yml
-# graduation still all-global? (expect: sb_pin_to_user with no scope branch)
-grep -n 'sb_pin_to_user\|scope' scripts/merge-persona-signals.sh
+# graduation still all-global? (expect: sb_pin_to_learned with no scope branch)
+grep -n 'sb_pin_to_learned\|scope' scripts/merge-persona-signals.sh
 # P6 remainder still unimplemented? (expect: no summarizer agent / writer CLI)
 ls agents/dream-summarizer.md mcp/src/tools/candidate-facts.ts 2>&1
 ```

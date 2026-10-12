@@ -4,6 +4,7 @@
 # pins: SB_EXTRACT_MAX_BYTES — set per call to force 2 forward chunks on a small fixture (the chunking IS the behavior under test)
 # pins: SB_TRANSCRIPT_CAP — the X2 S1/S2 eviction cases cap at 3 so a 4-archive fixture is over the cap
 # pins: SB_SUBAGENT_ARCHIVE_CAP — the X2 S4 cases cap the subagent archives at 2 (soft) / 6 (hard) to exercise both passes
+# pins: SB_ARCHIVE_LOCK_WAIT_S — the busy case shortens the PROJECT.md lock wait 5 -> 1 s: the exit 3 it ends in is under test, not the wait
 # shellcheck disable=SC2015  # `cond && ok || no`: ok/no always return 0, so || is never wrongly taken
 # shellcheck disable=SC2317  # sb_call_extractor is overridden as a stub; reached indirectly via sb_extract_transcript
 set -euo pipefail
@@ -98,6 +99,16 @@ rm -rf "/tmp/sb-pwned-$$" 2>/dev/null || true
 sb_call_extractor() { : > "$2"; return 1; }
 sb_extract_transcript "$TX" "my-proj" && no "extract fails on empty LLM" || ok "extract fails on empty LLM"
 
+# --- final review should-fix: a merge exit 3 (PROJECT.md busy, retry later) comes back as 3, not 1,
+# so the drainer retries the window without counting it toward SB_DRAIN_MAX_FAILS. The lock holder is
+# this shell ($$: alive, never stolen as stale); the merge child takes the 1 s wait from the env.
+sb_call_extractor() { printf '{"recent_decisions":["busy lock decision"]}' > "$2"; return 0; }
+printf '%s\n' "$$.held" > "$BRAIN_DIR/projects/my-proj/.PROJECT.md.lock"
+x_rc=0; SB_ARCHIVE_LOCK_WAIT_S=1 sb_extract_transcript "$TX" "my-proj" >/dev/null 2>&1 || x_rc=$?
+rm -f "$BRAIN_DIR/projects/my-proj/.PROJECT.md.lock"
+eq "busy: a merge exit 3 (PROJECT.md lock held) returns 3" "$x_rc" "3"
+grep -q "busy lock decision" "$BRAIN_DIR/projects/my-proj/PROJECT.md" && no "busy: the merge wrote under a held lock" || ok "busy: nothing merged under the held lock"
+
 # --- DR-1 (Slice 1 §5.4): the drainer passes --session from the archive header, and a seeded
 # .prov file makes the Handoff stamp reflect the ORIGINAL session's epoch (not drainer merge
 # time) -- a back-dated handoff must not look fresh. ---
@@ -128,6 +139,18 @@ case "$DR1_STAMP" in
   "written: t=1789000000 session=sessDRAI"*) ok "DR-1: drainer stamp uses the archive's .prov epoch (back-dated, not fresh)" ;;
   *) no "DR-1: unexpected stamp: $DR1_STAMP" ;;
 esac
+
+# --- TST-R4 (drainer path): the persona merge gets the ARCHIVE HEADER's session_id, the unit
+# graduation counts; a dropped --session would read "unknown" or the drainer's own env id. ---
+sb_call_extractor() {
+  local out="$2"
+  printf '{"recent_decisions":[],"open_blockers":[],"cross_refs":[],"files_touched":[],"persona_signals":[{"category":"workflow","signal":"drainer persona signal carries the archive session","evidence":"e","confidence":"high"}]}' > "$out"
+  return 0
+}
+CLAUDE_CODE_SESSION_ID=drainer-env-decoy sb_extract_transcript "$TX_DR1" "dr-proj" >/dev/null 2>&1 || true
+eq "TST-R4: the drainer's persona merge records the archive header's session_id" \
+  "$(jq -rs '[.[] | select(.signal | test("drainer persona signal")) | .evidence[].session] | unique | join(",")' "$BRAIN_DIR/persona-signals.jsonl" 2>/dev/null | tr -d '\r')" \
+  "sessDRAIN01"
 
 # --- DR-2: the drainer's merge call uses the SAME merge_plan carry guard as in-session capture
 # -- an existing unfinished item the stub's plan omits is carried, not dropped. ---

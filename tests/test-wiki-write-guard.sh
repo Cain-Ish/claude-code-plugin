@@ -99,6 +99,7 @@ pass "Bash tool silent"
 # Archived page 'gone' lives in the archive (NOT the live wiki) + log says archived.
 mkdir -p "$TMP/brain/wiki-archive/concepts"
 printf -- '---\ntitle: "Gone"\ntype: concepts\n---\n# Gone\noriginal.\n' > "$TMP/brain/wiki-archive/concepts/gone.md"
+touch -d '2001-01-01' "$TMP/brain/wiki-archive/concepts/gone.md"   # SIL-R4: archive keeps an old mtime
 printf '%s\n' '{"event":"archived","slug":"gone","category":"concepts","date":"2026-05-26T01:00:00Z"}' > "$TMP/brain/wiki-archive-log.jsonl"
 GONE="$TMP/knowledge/wiki/concepts/gone.md"; mkdir -p "$(dirname "$GONE")"
 
@@ -111,6 +112,7 @@ out=$(printf '%s' "$PAYLOAD" | bash "$SCRIPT")
 echo "$out" | grep -qi "restore" || fail "deny reason should mention restore (got: $out)"
 [ -f "$GONE" ] || fail "archived original should be restored to the wiki path"
 grep -q '"event":"restored"' "$TMP/brain/wiki-archive-log.jsonl" || fail "restored event not logged"
+[ -z "$(find "$GONE" -mtime +1 2>/dev/null)" ] || fail "SIL-R4: restored page kept the archive's old mtime (forgetting would re-archive it)"
 pass "archived-slug Write restores original + denies"
 
 # Test 11: Write a non-archived NEW page with frontmatter → allowed (tombstone doesn't fire).

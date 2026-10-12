@@ -25,8 +25,22 @@ check(){ local g="$1"; shift; [ -n "$(matcher_for "$g")" ] || fail "$g is NOT re
 # Each guard must cover every file/command-bearing tool it inspects.
 check wiki-write-guard.sh    Write Edit MultiEdit
 check symlink-guard.sh       Write Edit MultiEdit
-check flow-guard.sh          Bash WebFetch WebSearch
-check persona-tool-guard.sh  Bash Write Edit MultiEdit Read
+# G1 (audit 2026-10-10): Claude Code's PowerShell tool carries a shell command in tool_input.command
+# like Bash; unmatched, a force-push, rm or key egress through it reached no guard.
+check flow-guard.sh          Bash PowerShell WebFetch WebSearch
+check persona-tool-guard.sh  Bash PowerShell Write Edit MultiEdit Read
+
+# The after-the-call side reads a PowerShell call as it reads a Bash one: the injection scan of its
+# output and the observation ledger, success and failure.
+# ev_covers <event> <script> <tool>: registered under <event>, its matcher matches <tool> exactly.
+ev_covers(){ local m; m=$(jq -r --arg e "$1" --arg g "$2" '.hooks[$e][]? | select([.hooks[]?.command]|join(" ")|test($g)) | .matcher' "$HJ" | head -1 | tr -d '\r')
+  [ -n "$m" ] && printf '%s' "$3" | grep -Eq "^(${m})\$"; }
+for t in Bash PowerShell; do
+  for eg in "PostToolUse tool-return-scanner.sh" "PostToolUse observe-tool-use.sh" "PostToolUseFailure observe-tool-use.sh"; do
+    ev_covers ${eg% *} ${eg#* } "$t" || fail "${eg#* } is not wired under ${eg% *} for tool '$t'"
+  done
+done
+pass "tool-return-scanner.sh (PostToolUse) and observe-tool-use.sh (PostToolUse + PostToolUseFailure) cover Bash and PowerShell"
 
 # --- persona-tool-guard tool-scope REACHABILITY (the guard inspects per-tool inputs) ---
 # The persona-tool-guard's matcher in the REAL hooks.json must be a SUPERSET of every
@@ -46,7 +60,7 @@ GUARD_SRC="$ROOT/scripts/persona-tool-guard.sh"
 #    tools whose protection silently dies if the matcher narrows below them.
 grep -q 'tool_input\.command'   "$GUARD_SRC" || fail "guard no longer reads tool_input.command — update the reachability contract"
 grep -q 'tool_input\.file_path' "$GUARD_SRC" || fail "guard no longer reads tool_input.file_path — update the reachability contract"
-PTG_INTENT="Bash Write Edit MultiEdit Read"
+PTG_INTENT="Bash PowerShell Write Edit MultiEdit Read"
 for t in $PTG_INTENT; do
   covers persona-tool-guard.sh "$t" \
     || fail "persona-tool-guard matcher is NOT a superset of its declared intent: missing '$t' (matcher='$(matcher_for persona-tool-guard.sh)') — guard inspects this tool's input but the matcher would never deliver it"

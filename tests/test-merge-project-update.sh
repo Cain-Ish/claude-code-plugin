@@ -8,6 +8,7 @@
 # [[refs]] in ~/knowledge/wiki/entities/, updates last_updated. Exits 0 on success;
 # non-zero on an unparseable PROJECT.md, invalid JSON, or (since 2026-08-23, EC-13) a
 # FAILED PROJECT.md write — so the drainer retries instead of marking the transcript done.
+# pins: SB_AI_RENDER_TIMEOUT_S — R3 and sanitize-timeout shorten the node-CLI bound 20 -> 2 s: that the bound fires and the merge carries on is under test, not its length
 set -u
 SCRIPT="$(cd "$(dirname "$0")"/.. && pwd)/scripts/merge-project-update.sh"
 TMP=$(mktemp -d)
@@ -974,5 +975,302 @@ printf '%s' '{"recent_decisions":["chose memcached instead of redis for the cach
 grep -qF 'chose redis for the caching layer' "$P_DA3" || fail "DA-3: the older decision was lost when detect_supersede failed"
 grep -q 'gate=supersede-failed' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null || fail "DA-3: no supersede-failed row: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
 pass "DA-3: a failed detect_supersede rewrite marks nothing and logs ec1"
+
+# === audit 2026-10 package P1 (E10, E9, T10, E6, E3/E5). Each block failed at 10d3321. ===
+P1_TODAY=$(date +%Y-%m-%d)
+
+# E10: wiki page rewrites used ONE fixed temp name, "<page>.md.tmp", so two merges editing the same
+# page clobbered each other's temp file. Each rewrite now takes its own mktemp next to the page.
+# Discriminator: a temp file the merge does not own must survive it.
+E10_KD="$TMP/e10k"; mkdir -p "$E10_KD/wiki/learnings"
+E10_PAGE="$E10_KD/wiki/learnings/e10-page.md"
+printf -- '---\ntitle: "E10"\ntype: learnings\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:00:00Z\n---\n\n# E10\n\nbody\n\n## History\n- [2026-01-01] first\n' > "$E10_PAGE"
+printf 'FOREIGN TEMP SENTINEL\n' > "$E10_PAGE.tmp"
+PROJ="$TMP/e10.md"; seed_project "$PROJ"
+jq -nc '{wiki_updates:[{category:"learnings", slug:"e10-page", action:"update", content:"E10 NEW HISTORY LINE"}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$E10_KD" >/dev/null 2>&1 || fail "E10: merge exited non-zero"
+grep -qF 'E10 NEW HISTORY LINE' "$E10_PAGE" || fail "E10: the update did not land: $(cat "$E10_PAGE")"
+[ "$(cat "$E10_PAGE.tmp" 2>/dev/null)" = "FOREIGN TEMP SENTINEL" ] || fail "E10: the merge clobbered a temp file it does not own"
+[ "$(ls -A "$E10_KD/wiki/learnings" | grep -c '^e10-page\.md\.')" -eq 1 ] || fail "E10: a merge temp file was left behind: $(ls -A "$E10_KD/wiki/learnings")"
+[ "$(grep -cF '$target_file.tmp' "$SCRIPT")" -eq 0 ] || fail "E10: a fixed \$target_file.tmp name is still in the script"
+pass "E10: wiki page rewrites use a private temp file next to the page"
+
+# E9: only the FOOTER comments end the ## Plan region. Any "<!--" used to end it, so checklist
+# lines below a human comment were never reconciled or aged (zombie items).
+PROJ="$TMP/e9.md"
+printf '# PROJECT: e9\n\n## Plan\n\n- [ ] e9 alpha step\n<!-- human note: keep this comment -->\n- [ ] e9 beta step\n- [ ] [carried 2020-01-01] e9 ancient step\n\n## Recent decisions\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n' > "$PROJ"
+printf '%s' '{"plan":["e9 alpha step"]}' | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$TMP/e9k" >/dev/null 2>&1 || fail "E9: merge exited non-zero"
+grep -qxF -- "- [ ] [carried $P1_TODAY] e9 beta step" "$PROJ" || fail "E9: an omitted item below a comment was not carried: $(cat "$PROJ")"
+grep -qxF -- '- [stale] [ ] [carried 2020-01-01] e9 ancient step' "$PROJ" || fail "E9: an old carried item below a comment was not aged: $(cat "$PROJ")"
+grep -qxF -- '<!-- human note: keep this comment -->' "$PROJ" || fail "E9: the human comment was lost"
+pass "E9: a human <!-- comment --> inside ## Plan no longer ends the managed region"
+
+# T10: a wiki_update into a GENERATED dir (kb-schema.json generated_dirs: projects, themes) was
+# written, then unlinked by the next reindex (MOC prune). It is now refused with a log row.
+PROJ="$TMP/t10.md"; seed_project "$PROJ"; T10_KD="$TMP/t10k"; mkdir -p "$T10_KD/wiki"
+: > "$BRAIN_DIR/error-log.jsonl"
+jq -nc '{wiki_updates:[
+  {category:"projects", slug:"t10-moc-clash", action:"create", title:"T", content:"T10 PROJECTS BODY"},
+  {category:"Themes", slug:"t10-theme-clash", action:"create", title:"T", content:"T10 THEMES BODY"},
+  {category:"learnings", slug:"t10-kept", action:"create", title:"T", content:"T10 KEPT BODY"}]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$T10_KD" >/dev/null 2>&1 || fail "T10: merge exited non-zero"
+[ ! -e "$T10_KD/wiki/projects/t10-moc-clash.md" ] || fail "T10: a page was written into the generated projects/ dir"
+[ ! -e "$T10_KD/wiki/themes/t10-theme-clash.md" ] || fail "T10: a page was written into the generated themes/ dir"
+[ -f "$T10_KD/wiki/learnings/t10-kept.md" ] || fail "T10: an ordinary-category update was dropped too"
+[ "$(grep -c 'gate=wiki-update-generated-dir' "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)" -eq 2 ] \
+  || fail "T10: want one error row per refused update: $(cat "$BRAIN_DIR/error-log.jsonl" 2>/dev/null)"
+pass "T10: extractor wiki_updates into generated dirs are refused and logged"
+
+# E6: a missing or trailing-space section heading silently dropped every decision/blocker
+# (insert_bullet's awk never matched, yet the merge exited 0). Trailing whitespace on a heading is
+# normalized at ingest; a missing section is re-created before the footer comments and logged.
+PROJ="$TMP/e6.md"
+printf '# PROJECT: e6\n\n## Recent decisions \n- [2026-01-01] e6 older decision kept\n\n## Cross-references\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n<!-- last_queried_wiki: -->\n' > "$PROJ"
+: > "$BRAIN_DIR/audit-log.jsonl"
+printf '%s' '{"recent_decisions":["e6 decision under a trailing-space heading"],"open_blockers":["[active] e6 blocker without a heading"]}' \
+  | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$TMP/e6k" >/dev/null 2>&1 || fail "E6: merge exited non-zero"
+grep -qF 'e6 decision under a trailing-space heading' "$PROJ" || fail "E6: decision dropped under a trailing-space heading: $(cat "$PROJ")"
+[ "$(grep -c '^## Recent decisions' "$PROJ")" -eq 1 ] || fail "E6: the trailing-space heading was duplicated: $(cat "$PROJ")"
+grep -qF 'e6 blocker without a heading' "$PROJ" || fail "E6: blocker dropped when ## Open blockers is missing: $(cat "$PROJ")"
+[ "$(grep -c '^## Open blockers$' "$PROJ")" -eq 1 ] || fail "E6: ## Open blockers not re-created exactly once"
+awk '/^## Open blockers$/ { h = NR } /^<!-- last_updated:/ { f = NR } END { exit !(h && f && h < f) }' "$PROJ" \
+  || fail "E6: the re-created section landed after the footer comments: $(cat "$PROJ")"
+grep -q 'gate=section-scaffolded section=## Open blockers' "$BRAIN_DIR/audit-log.jsonl" || fail "E6: re-creating a section left no log row"
+pass "E6: missing / trailing-space section headings no longer drop decisions and blockers"
+
+# E3/E5: the PROJECT.md read-modify-write holds the same .PROJECT.md.lock pin_to_project and
+# archive_to_wiki take (lib.sh sb_archive_lock), stages next to PROJECT.md, and refuses an empty
+# read. Merge alpha is held inside its window (a mv shim sleeps before its final PROJECT.md
+# replace) while merge beta starts: unlocked, beta read the pre-alpha file and one decision was lost.
+E3D="$TMP/e3"; mkdir -p "$E3D/projects/e3p" "$E3D/kd/wiki" "$E3D/bin"
+E3P="$E3D/projects/e3p/PROJECT.md"; seed_project "$E3P"
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v mv)"
+  cat <<'EOF'
+for a in "$@"; do last="$a"; done
+case "$last" in */PROJECT.md)
+  printf '%s\n' "$*" >> "$E3_MVLOG"
+  if [ -n "${E3_HOLD:-}" ]; then : > "$E3_HOLD"; sleep 4; fi ;;
+esac
+exec "$REAL" "$@"
+EOF
+} > "$E3D/bin/mv"; chmod +x "$E3D/bin/mv"
+e3_merge() {   # $1 decision, $2 hold-marker path or ""; exit 3 (lock busy) is retried, as the callers do
+  local rc n=0
+  while :; do
+    printf '{"recent_decisions":["%s"]}' "$1" | PATH="$E3D/bin:$PATH" E3_MVLOG="$E3D/mv.log" E3_HOLD="$2" BRAIN_DIR="$E3D" \
+      bash "$SCRIPT" --project-md "$E3P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1; rc=$?
+    [ "$rc" -eq 3 ] && [ "$n" -lt 4 ] && { n=$((n + 1)); continue; }
+    return "$rc"
+  done
+}
+e3_merge "e3 decision from merge alpha" "$E3D/alpha-holds" & E3_PA=$!
+i=0; while [ ! -e "$E3D/alpha-holds" ] && [ "$i" -lt 900 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$E3D/alpha-holds" ] || fail "E3 harness: merge alpha never reached its final PROJECT.md write"
+e3_merge "e3 decision from merge beta" ""; E3_RB=$?
+wait "$E3_PA"; E3_RA=$?
+[ "$E3_RA" -eq 0 ] && [ "$E3_RB" -eq 0 ] || fail "E3: merges exited alpha=$E3_RA beta=$E3_RB: $(cat "$E3D/error-log.jsonl" 2>/dev/null)"
+grep -qF 'e3 decision from merge alpha' "$E3P" || fail "E3: lost update, merge alpha's decision is gone: $(cat "$E3P")"
+grep -qF 'e3 decision from merge beta' "$E3P" || fail "E3: lost update, merge beta's decision is gone: $(cat "$E3P")"
+[ ! -e "$E3D/projects/e3p/.PROJECT.md.lock" ] || fail "E3: the PROJECT.md lock was left behind"
+pass "E3: two racing merges keep both decisions (shared PROJECT.md lock)"
+[ -s "$E3D/mv.log" ] || fail "E5 harness: no final PROJECT.md mv was recorded"
+while IFS= read -r l; do
+  case "$l" in "$E3P".*" $E3P") ;; *) fail "E5: the final PROJECT.md mv did not come from a temp file next to it: $l" ;; esac
+done < "$E3D/mv.log"
+pass "E5: PROJECT.md is staged next to itself (the final mv is a same-filesystem rename)"
+
+E5P="$E3D/projects/e5p/PROJECT.md"; mkdir -p "${E5P%/*}"; : > "$E5P"
+: > "$E3D/error-log.jsonl"
+E5_RC=0
+printf '%s' '{"recent_decisions":["e5 decision must not replace an empty read"]}' \
+  | BRAIN_DIR="$E3D" bash "$SCRIPT" --project-md "$E5P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1 || E5_RC=$?
+[ "$E5_RC" -eq 3 ] || fail "E5: an empty PROJECT.md read must exit 3 (callers retry), got $E5_RC"
+[ ! -s "$E5P" ] || fail "E5: an empty read was replaced by a stub: $(cat "$E5P")"
+grep -q 'no heading' "$E3D/error-log.jsonl" 2>/dev/null || fail "E5: the refused empty read left no error row"
+[ ! -e "${E5P%/*}/.PROJECT.md.lock" ] || fail "E5: the refused merge left its lock behind"
+[ "$(ls -A "${E5P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "E5: the refused merge left its temp file behind: $(ls -A "${E5P%/*}")"
+pass "E5: an empty PROJECT.md read is refused (exit 3), never replaced by a stub"
+
+# SIL-R2: the E5 refusal must not last forever. A 0-byte file whose mtime is past the 60 s
+# mid-write window is genuinely empty: rebuild it from the scaffold and merge. A non-empty file with
+# no heading gets one prepended. Both used to exit 3 on every run (Stop re-extracted each turn,
+# PostCompact dropped its tasks, the drainer dead-lettered).
+: > "$E5P"; touch -t 200101010000 "$E5P"; : > "$E3D/error-log.jsonl"
+E5_RC=0
+printf '%s' '{"recent_decisions":["sil-r2 decision lands in a rebuilt file"]}' \
+  | BRAIN_DIR="$E3D" bash "$SCRIPT" --project-md "$E5P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1 || E5_RC=$?
+[ "$E5_RC" -eq 0 ] || fail "SIL-R2: a stale 0-byte PROJECT.md must be rebuilt and merged (exit 0), got $E5_RC: $(cat "$E3D/error-log.jsonl")"
+[ "$(head -1 "$E5P")" = "# PROJECT: e5p" ] || fail "SIL-R2: the rebuilt file does not start with the scaffold heading: $(cat "$E5P")"
+grep -q '^## Goal$' "$E5P" || fail "SIL-R2: the rebuilt file is not the scaffold template: $(cat "$E5P")"
+grep -qF 'sil-r2 decision lands in a rebuilt file' "$E5P" || fail "SIL-R2: the decision did not land in the rebuilt file: $(cat "$E5P")"
+grep -q 'rebuilt from the scaffold' "$E3D/error-log.jsonl" 2>/dev/null || fail "SIL-R2: the rebuild left no log row"
+[ ! -e "${E5P%/*}/.PROJECT.md.lock" ] || fail "SIL-R2: the rebuild left its lock behind"
+pass "SIL-R2: a stale 0-byte PROJECT.md is rebuilt from the scaffold and merged (fresh stays refused, E5)"
+
+printf 'hand-written notes with no heading\nand a second line\n' > "$E5P"; : > "$E3D/error-log.jsonl"
+E5_RC=0
+printf '%s' '{"recent_decisions":["sil-r2 decision under a prepended heading"]}' \
+  | BRAIN_DIR="$E3D" bash "$SCRIPT" --project-md "$E5P" --knowledge-dir "$E3D/kd" >/dev/null 2>&1 || E5_RC=$?
+[ "$E5_RC" -eq 0 ] || fail "SIL-R2: a headingless PROJECT.md must get a heading and merge (exit 0), got $E5_RC: $(cat "$E3D/error-log.jsonl")"
+[ "$(head -1 "$E5P")" = "# PROJECT: e5p" ] || fail "SIL-R2: no heading was prepended: $(cat "$E5P")"
+grep -qx 'hand-written notes with no heading' "$E5P" || fail "SIL-R2: the hand-written text was lost: $(cat "$E5P")"
+grep -qF 'sil-r2 decision under a prepended heading' "$E5P" || fail "SIL-R2: the decision did not land: $(cat "$E5P")"
+grep -q 'no heading' "$E3D/error-log.jsonl" 2>/dev/null || fail "SIL-R2: the prepended heading left no log row"
+pass "SIL-R2: a headingless PROJECT.md gets '# PROJECT: <slug>' prepended, logged, and the merge lands"
+
+# SIL-R6: the lock is never held without the EXIT trap (trap set BEFORE the lock, lock released
+# BEFORE the trap is dropped), and a lock that is no longer ours at the final mv refuses the write:
+# a pin_to_project that stole it (a holder pid it cannot see, past the stale age) is writing too.
+MPU_SRC=$(grep -v '^[[:space:]]*#' "$SCRIPT")
+TRAP_L=$(printf '%s\n' "$MPU_SRC" | grep -n "trap '" | head -1 | cut -d: -f1)
+LOCK_L=$(printf '%s\n' "$MPU_SRC" | grep -n 'sb_archive_lock "\$PROJECT_MD"' | head -1 | cut -d: -f1)
+UNLOCK_L=$(printf '%s\n' "$MPU_SRC" | grep -n 'sb_archive_unlock "\$PROJECT_MD"' | tail -1 | cut -d: -f1)
+UNTRAP_L=$(printf '%s\n' "$MPU_SRC" | grep -n 'trap - EXIT' | tail -1 | cut -d: -f1)
+[ -n "$TRAP_L" ] && [ -n "$LOCK_L" ] && [ "$TRAP_L" -lt "$LOCK_L" ] \
+  || fail "SIL-R6: the EXIT trap (line ${TRAP_L:-?}) must be set before the PROJECT.md lock is taken (line ${LOCK_L:-?})"
+[ -n "$UNLOCK_L" ] && [ -n "$UNTRAP_L" ] && [ "$UNLOCK_L" -lt "$UNTRAP_L" ] \
+  || fail "SIL-R6: the lock must be released (line ${UNLOCK_L:-?}) before the EXIT trap is dropped (line ${UNTRAP_L:-?})"
+pass "SIL-R6: static order -- EXIT trap before the lock, release before trap -"
+# A mktemp shim takes the lock away right after the merge took it (the staging-file mktemp is the
+# merge's next step), the way a stealer would: the merge must notice before its final mv.
+R6D="$TMP/r6"; mkdir -p "$R6D/projects/r6p" "$R6D/kd/wiki" "$R6D/bin"
+R6P="$R6D/projects/r6p/PROJECT.md"; seed_project "$R6P"
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v mktemp)"
+  cat <<'EOF'
+case "${1:-}" in */PROJECT.md.XXXXXX) printf 'foreign.token\n' > "${1%/*}/.PROJECT.md.lock" ;; esac
+exec "$REAL" "$@"
+EOF
+} > "$R6D/bin/mktemp"; chmod +x "$R6D/bin/mktemp"
+R6_HASH=$(content_hash "$R6P")
+R6_RC=0
+printf '%s' '{"recent_decisions":["sil-r6 decision must not land under a stolen lock"]}' \
+  | PATH="$R6D/bin:$PATH" BRAIN_DIR="$R6D" bash "$SCRIPT" --project-md "$R6P" --knowledge-dir "$R6D/kd" >/dev/null 2>&1 || R6_RC=$?
+[ "$R6_RC" -eq 3 ] || fail "SIL-R6: a merge whose lock was taken away must exit 3 (retry later), got $R6_RC"
+[ "$(content_hash "$R6P")" = "$R6_HASH" ] || fail "SIL-R6: PROJECT.md was replaced under a lock that was no longer ours: $(cat "$R6P")"
+grep -q 'no longer ours' "$R6D/error-log.jsonl" 2>/dev/null || fail "SIL-R6: the lost lock left no error row: $(cat "$R6D/error-log.jsonl" 2>/dev/null)"
+[ "$(cat "$R6D/projects/r6p/.PROJECT.md.lock" 2>/dev/null)" = "foreign.token" ] || fail "SIL-R6: the merge removed a lock that was not its own"
+[ "$(ls -A "${R6P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "SIL-R6: the refused merge left its temp file behind: $(ls -A "${R6P%/*}")"
+pass "SIL-R6: a lock that is no longer ours at the final mv refuses the write (exit 3), the foreign lock stays"
+
+# --- Residual 3: the ai-block render CLI runs while the PROJECT.md lock is held, so it is bounded. A
+# node shim that hangs ONLY on the render bundle must not hang the merge: the refresh is skipped with
+# an error row, the page is still written, the merge exits 0.
+R3D="$TMP/r3"; mkdir -p "$R3D/bin" "$R3D/kd" "$R3D/projects/r3p"
+REAL_NODE=$(command -v node)
+printf '#!%s\ncase "$*" in *ai-block-render-cli*) exec sleep 60 ;; esac\nexec "%s" "$@"\n' "$BASH" "$REAL_NODE" > "$R3D/bin/node"
+chmod +x "$R3D/bin/node"
+R3P="$R3D/projects/r3p/PROJECT.md"; seed_project "$R3P"
+R3_START=$SECONDS; R3_RC=0
+jq -nc '{wiki_updates:[{category:"learnings",slug:"r3-render-hang",action:"create",title:"T",description:"d",
+  content:"R3 BODY SENTINEL",ai_block:{summary:"x"}}]}' \
+  | PATH="$R3D/bin:$PATH" BRAIN_DIR="$R3D" SB_AI_RENDER_TIMEOUT_S=2 bash "$SCRIPT" --project-md "$R3P" --knowledge-dir "$R3D/kd" >/dev/null 2>&1 || R3_RC=$?
+[ "$R3_RC" -eq 0 ] || fail "R3: a hung render CLI must not fail the merge, got exit $R3_RC"
+[ $((SECONDS - R3_START)) -lt 40 ] || fail "R3: the merge waited for the hung render CLI ($((SECONDS - R3_START)) s)"
+grep -q 'ai-block render timed out' "$R3D/error-log.jsonl" 2>/dev/null || fail "R3: the render timeout left no error row: $(cat "$R3D/error-log.jsonl" 2>/dev/null)"
+grep -qF 'R3 BODY SENTINEL' "$R3D/kd/wiki/learnings/r3-render-hang.md" 2>/dev/null || fail "R3: the page was not written after the render timeout"
+[ ! -e "$R3D/projects/r3p/.PROJECT.md.lock" ] || fail "R3: the merge left the PROJECT.md lock behind"
+pass "R3: a hung ai-block render CLI is bounded (timeout row, page still written, exit 0, lock released)"
+
+# --- Final review blocker 1: a FAILED or short PROJECT.md read never becomes a scaffold rebuild. An AV
+# scanner or sync client holding PROJECT.md made the read fail (MSYS: EBUSY on the `<` redirect); the
+# empty staging buffer then took the SIL-R2 "empty for 60 s+" branch and the final mv replaced the
+# human's file with the scaffold. A tr shim stands in for the held file: on the PROJECT.md bytes (the
+# sentinel line) it prints nothing and exits 1 (the redirect failure) or 0 (a silent short read).
+B1D="$TMP/b1"; mkdir -p "$B1D/projects/b1p" "$B1D/kd/wiki" "$B1D/trbin" "$B1D/awkbin"
+B1P="$B1D/projects/b1p/PROJECT.md"
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v tr)"
+  cat <<'EOF'
+in=$(mktemp); cat > "$in"
+if grep -q 'B1-HELD-SENTINEL' "$in"; then rm -f "$in"; exit "${B1_TR_RC:-1}"; fi
+"$REAL" "$@" < "$in"; rc=$?; rm -f "$in"; exit "$rc"
+EOF
+} > "$B1D/trbin/tr"; chmod +x "$B1D/trbin/tr"
+b1_check_untouched() {  # $1 case label, $2 hash before, $3 log text expected
+  [ "$B1_EC" -eq 3 ] || fail "B1 ($1): the merge must exit 3 (retry later), got $B1_EC: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+  [ "$(content_hash "$B1P")" = "$2" ] || fail "B1 ($1): PROJECT.md was replaced: $(cat "$B1P")"
+  grep -qF "$3" "$B1D/error-log.jsonl" 2>/dev/null || fail "B1 ($1): no '$3' error row: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+  [ ! -e "$B1D/projects/b1p/.PROJECT.md.lock" ] || fail "B1 ($1): the refused merge left its lock behind"
+  [ "$(ls -A "${B1P%/*}" | grep -c '^PROJECT\.md\.')" -eq 0 ] || fail "B1 ($1): the refused merge left its temp file behind: $(ls -A "${B1P%/*}")"
+}
+for B1_RC in 1 0; do
+  seed_project "$B1P"; printf 'B1-HELD-SENTINEL\n' >> "$B1P"; touch -t 202001010000 "$B1P"
+  B1_HASH=$(content_hash "$B1P"); : > "$B1D/error-log.jsonl"; B1_EC=0
+  printf '%s' '{"recent_decisions":["b1 decision must not replace a held file"]}' \
+    | PATH="$B1D/trbin:$PATH" B1_TR_RC="$B1_RC" BRAIN_DIR="$B1D" bash "$SCRIPT" --project-md "$B1P" --knowledge-dir "$B1D/kd" >/dev/null 2>&1 || B1_EC=$?
+  if [ "$B1_RC" -eq 1 ]; then b1_check_untouched "read fails" "$B1_HASH" 'could not be read'
+  else b1_check_untouched "read comes back empty" "$B1_HASH" 'read came back empty'; fi
+done
+pass "B1: a failed or empty read of a non-empty PROJECT.md exits 3 (logged), never rebuilds it from the scaffold"
+
+# A UTF-16 (or NUL-led) PROJECT.md is refused, not given a prepended heading over the UTF-16 bytes.
+for B1_U in '\377\376#\000 \000P\000\n\000' '\376\377\000#\000 \000P\000\n' '#\000 \000P\000\n\000'; do
+  printf "$B1_U" > "$B1P"; touch -t 202001010000 "$B1P"
+  B1_HASH=$(content_hash "$B1P"); : > "$B1D/error-log.jsonl"; B1_EC=0
+  printf '%s' '{"recent_decisions":["b1 decision must not land in a utf-16 file"]}' \
+    | BRAIN_DIR="$B1D" bash "$SCRIPT" --project-md "$B1P" --knowledge-dir "$B1D/kd" >/dev/null 2>&1 || B1_EC=$?
+  b1_check_untouched "utf-16 $B1_U" "$B1_HASH" 'UTF-16'
+done
+pass "B1: a UTF-16 / NUL-led PROJECT.md is refused (exit 3, logged), bytes untouched"
+
+# A writer that takes no lock (the Edit tool: the knowledge-maintainer, import-host) changed PROJECT.md
+# after the merge read it, and the final mv overwrote that edit. An awk shim appends a line to the file
+# right after the merge's read (keyed on the read program's BOM-strip text).
+{ echo '#!/bin/bash'
+  printf 'REAL=%q\n' "$(command -v awk)"
+  cat <<'EOF'
+"$REAL" "$@"; rc=$?
+case "$*" in *'\357\273\277'*) [ -z "${B1_EDIT:-}" ] || printf -- '- [2026-01-02] b1 edit made while the merge ran\n' >> "$B1_EDIT" ;; esac
+exit "$rc"
+EOF
+} > "$B1D/awkbin/awk"; chmod +x "$B1D/awkbin/awk"
+seed_project "$B1P"; : > "$B1D/error-log.jsonl"; B1_EC=0
+printf '%s' '{"recent_decisions":["b1 decision must not overwrite an unlocked edit"]}' \
+  | PATH="$B1D/awkbin:$PATH" B1_EDIT="$B1P" BRAIN_DIR="$B1D" bash "$SCRIPT" --project-md "$B1P" --knowledge-dir "$B1D/kd" >/dev/null 2>&1 || B1_EC=$?
+[ "$B1_EC" -eq 3 ] || fail "B1 (changed under us): the merge must exit 3, got $B1_EC: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+grep -qF 'b1 edit made while the merge ran' "$B1P" || fail "B1 (changed under us): the unlocked edit was overwritten: $(cat "$B1P")"
+grep -qF 'b1 decision must not overwrite' "$B1P" && fail "B1 (changed under us): the merge wrote over a file that changed after its read"
+grep -qF 'changed while the merge ran' "$B1D/error-log.jsonl" 2>/dev/null || fail "B1 (changed under us): no error row: $(cat "$B1D/error-log.jsonl" 2>/dev/null)"
+[ ! -e "$B1D/projects/b1p/.PROJECT.md.lock" ] || fail "B1 (changed under us): the refused merge left its lock behind"
+pass "B1: PROJECT.md changed after the read (an unlocked Edit) refuses the final mv (exit 3, logged), the edit stays"
+
+# --- Final review should-fix: archive_dropped_decision appends to the wiki decisions log BEFORE the
+# final PROJECT.md mv, so a merge refused at the mv (exit 3) and retried archived the same rotated
+# decision twice. The retry is simulated by restoring the pre-merge PROJECT.md and merging again.
+ADD="$TMP/ad"; mkdir -p "$ADD/projects/adp" "$ADD/kd/wiki"
+ADP="$ADD/projects/adp/PROJECT.md"
+printf '# PROJECT: adp\n\n## Recent decisions\n' > "$ADP"
+for n in 1 2 3 4 5; do printf -- '- [2026-01-0%s] ad decision %s\n' "$n" "$n" >> "$ADP"; done
+printf '\n## Open blockers\n\n<!-- last_updated: 2026-01-01T00:00:00Z -->\n' >> "$ADP"
+cp "$ADP" "$ADD/seed.md"
+for try in 1 2; do
+  cp "$ADD/seed.md" "$ADP"
+  printf '%s' '{"recent_decisions":["ad decision six pushes the oldest out"]}' \
+    | BRAIN_DIR="$ADD" bash "$SCRIPT" --project-md "$ADP" --knowledge-dir "$ADD/kd" >/dev/null 2>&1 \
+    || fail "archive-dedup: merge $try exited non-zero: $(cat "$ADD/error-log.jsonl" 2>/dev/null)"
+done
+ADLOG="$ADD/kd/wiki/decisions/adp-decisions-log.md"
+[ "$(grep -c 'ad decision 1$' "$ADLOG" 2>/dev/null)" = 1 ] \
+  || fail "archive-dedup: a retried merge must archive the dropped decision once: $(cat "$ADLOG" 2>/dev/null)"
+pass "archive-dedup: a retried merge does not archive the same dropped decision twice"
+
+# --- Final review should-fix: the compact gate's sanitize CLI runs while the PROJECT.md lock is held,
+# so it is bounded like the render CLI (SB_AI_RENDER_TIMEOUT_S): a hung sanitizer drops the untrusted
+# item (logged), the merge exits 0 and releases the lock.
+SZD="$TMP/sz"; mkdir -p "$SZD/root/mcp/dist/tools" "$SZD/projects/szp" "$SZD/kd/wiki"
+printf 'setTimeout(function () {}, 60000);\n' > "$SZD/root/mcp/dist/tools/sanitize-cli.bundle.js"
+SZP="$SZD/projects/szp/PROJECT.md"; seed_project "$SZP"
+SZ_START=$SECONDS; SZ_RC=0
+printf '%s' '{"compact_pending":["sz compact item under a hung sanitizer"]}' \
+  | CLAUDE_PLUGIN_ROOT="$SZD/root" BRAIN_DIR="$SZD" SB_AI_RENDER_TIMEOUT_S=2 bash "$SCRIPT" --project-md "$SZP" --knowledge-dir "$SZD/kd" >/dev/null 2>&1 || SZ_RC=$?
+[ "$SZ_RC" -eq 0 ] || fail "sanitize-timeout: a hung sanitizer must not fail the merge, got exit $SZ_RC"
+[ $((SECONDS - SZ_START)) -lt 40 ] || fail "sanitize-timeout: the merge waited for the hung sanitizer ($((SECONDS - SZ_START)) s)"
+grep -q 'gate=untrusted-items caller=compact_pending reason=sanitize-timeout' "$SZD/error-log.jsonl" 2>/dev/null \
+  || fail "sanitize-timeout: no timeout row: $(cat "$SZD/error-log.jsonl" 2>/dev/null)"
+grep -qF 'sz compact item' "$SZP" && fail "sanitize-timeout: an unsanitized item was stored"
+[ ! -e "$SZD/projects/szp/.PROJECT.md.lock" ] || fail "sanitize-timeout: the merge left the PROJECT.md lock behind"
+pass "sanitize-timeout: a hung sanitize CLI is bounded (item dropped, timeout row, exit 0, lock released)"
 
 echo "ALL PASS"

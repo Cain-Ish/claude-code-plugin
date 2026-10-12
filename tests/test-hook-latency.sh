@@ -39,6 +39,8 @@ OUT=$(printf 'payload-123' | bash "$TIMER" 60 "$CHILD" 2>"$SANDBOX/err"); rc=$?
 [ "$rc" -eq 0 ] || fail "(a) rc not passed through (got $rc)"
 [ "$OUT" = "child-stdout:payload-123" ] || fail "(a) stdout altered: $OUT"
 grep -q 'child-stderr' "$SANDBOX/err" || fail "(a) stderr swallowed"
+# SIL-R7: nothing of the wrapper's own (bash 3.2 printed a "Terminated" notice for the stopped watchdog)
+[ "$(cat "$SANDBOX/err")" = "child-stderr" ] || fail "(a) the wrapper added to the child's stderr: $(cat "$SANDBOX/err")"
 pass "(a) wrapper is transparent (stdin/stdout/stderr/rc)"
 
 # --- (b) nonzero child rc passes through ------------------------------------
@@ -104,6 +106,14 @@ else
 fi
 grep -qF 'export SB_HOOK_LATE_MS=$(( T0 + BUDGET_S * 1000 - 2000 ))' "$TIMER" \
   || fail "(g) source lock: the deadline is T0 + BUDGET_S * 1000 - 2000 (the 2000 ms CLI head start)"
+# A heavy hook (budget >= 10) runs under a runner subshell, its parent: SB_HOOK_LATE_PID names the runner
+# (BASHPID, bash 4+; bash 3.2 cannot name it, and stamps no late row without EPOCHREALTIME anyway).
+if [ -n "$(bash -c 'printf %s "${BASHPID:-}"')" ]; then
+  OUT=$(printf '' | bash "$TIMER" 10 "$PLUG/scripts/deadline.sh" 2>/dev/null)
+  read -r g_late g_pid g_ppid <<< "$OUT"   # <<<-bounded: three short fields
+  case "$g_late" in ''|unset|*[!0-9]*) fail "(g) a heavy hook must get a numeric SB_HOOK_LATE_MS (got: '$OUT')" ;; esac
+  [ "$g_pid" = "$g_ppid" ] || fail "(g) a heavy hook's SB_HOOK_LATE_PID must name its parent, the runner (got: '$OUT')"
+fi
 # The skip arm (budget 0) hands no deadline on — an inherited one included.
 OUT=$(printf '' | SB_HOOK_LATE_MS=1 SB_HOOK_LATE_PID=1 bash "$TIMER" 0 "$PLUG/scripts/deadline.sh" 2>/dev/null)
 case "$OUT" in "unset unset "*) ;; *) fail "(g) budget 0 must unset an inherited SB_HOOK_LATE_MS/SB_HOOK_LATE_PID (child saw: '$OUT')" ;; esac
@@ -147,5 +157,138 @@ PATH="$H_NJ" BRAIN_DIR="$BRAIN_DIR" "$BASH" -c 'source "$1" 2>/dev/null; command
 grep '"rule":"r3"' "$AUD" | grep -q '"late":true' \
   || fail "(h) GX8: without jq, the caller's extra late flag must reach the row: $(cat "$AUD")"
 pass "(h) sb_log_audit: the deadline is the direct child's only; a caller's late flag survives a missing jq"
+
+# --- (i)-(l) audit H7 watchdog. The CLI kills a hook at its budget and the wrapper dies with it,
+# writing no row. A watchdog sleeps the WHOLE budget (the CLI's clock starts first, so it has given
+# up by then) and, if the hook still runs, writes the timeout row itself. Under a short budget
+# (< 10 s: the PreToolUse guards) it also reaps the hook's process group, grandchildren included (no
+# pkill on git-bash); a heavy hook (>= 10 s) is never killed and finishes its side effects. The
+# wrapper maps to 124 only a child the watchdog killed, and keeps no state between runs (review
+# SEC-R6, IMP-R1/R2/R8, SIL-R1/R3/R7, TST-R3, PORT-R1).
+# hang.sh leaves a grandchild: a kill that stops at the direct child misses it. heavy.sh outlives a
+# 10 s budget, then does its side effect and exits 3 (its own code, not the wrapper's).
+HANG="$SANDBOX/hang.sh"
+printf '#!/bin/bash\ncat >/dev/null\nsleep 30 &\necho $! > "$1"\nwait\n' > "$HANG"; chmod +x "$HANG"
+HEAVY="$SANDBOX/heavy.sh"
+printf '#!/bin/bash\ncat >/dev/null\nsleep 11\n: > "$1"\nexit 3\n' > "$HEAVY"; chmod +x "$HEAVY"
+# ms_clock: the rows' duration is the wrapper's own clock — ms-precise with bash 5's EPOCHREALTIME or
+# GNU date %N; a whole-second clock can read 3.0 s as 2000 ms, so duration bounds are skipped there.
+ms_clock=""
+if [ -n "$(bash -c 'printf %s "${EPOCHREALTIME:-}"')" ] || [[ $(date +%s%N) =~ ^[0-9]+$ ]]; then ms_clock=1; fi
+row_ms() { printf '%s' "$1" | sed 's/.*"duration_ms":\([0-9]*\).*/\1/'; }
+# cli_run <brain> <budget> <kill_at> <script> [args…]: the wrapper as Claude Code runs it — SIGKILLed
+# before its own budget (the CLI's clock started first), so only the watchdog is left to act.
+cli_run() {
+  local b=$1 budget=$2 k=$3 w; shift 3
+  printf 'in' | BRAIN_DIR="$b" bash "$TIMER" "$budget" "$@" >/dev/null 2>&1 &
+  w=$!; sleep "$k"; kill -KILL "$w" 2>/dev/null
+}
+# The 10-11 s cases run in the background while (i)-(k) run; (l) collects them.
+mkdir -p "$SANDBOX/l1" "$SANDBOX/l2" "$SANDBOX/i2"
+( printf 'in' | BRAIN_DIR="$SANDBOX/l1" bash "$TIMER" 10 "$HEAVY" "$SANDBOX/l1/done" >/dev/null 2>&1
+  echo $? > "$SANDBOX/l1/rc" ) &
+L1=$!
+cli_run "$SANDBOX/l2" 10 8 "$HEAVY" "$SANDBOX/l2/done" &
+L2=$!
+cli_run "$SANDBOX/i2" 3 2 "$HANG" "$SANDBOX/i2/gc.pid" &
+I2=$!
+
+# --- (i) a short-budget hook still running at its budget: reaped with its grandchild, exit 124, one row
+: > "$AUD"
+i_t0=$SECONDS
+printf 'in' | bash "$TIMER" 3 "$HANG" "$SANDBOX/gc-i.pid" >/dev/null 2>"$SANDBOX/err-i"; i_rc=$?
+i_dt=$(( SECONDS - i_t0 ))
+[ "$i_dt" -le 6 ] || fail "(i) the wrapper did not cut a hung child near its budget (took ${i_dt}s)"
+[ "$i_rc" -eq 124 ] || fail "(i) a child the watchdog killed must exit 124 (got $i_rc)"
+i_row=$(grep '"kind":"latency"' "$AUD" | grep '"hook":"hang.sh"' | grep '"timeout":true')
+[ -n "$i_row" ] || fail "(i) no timeout latency row for the killed hook: $(cat "$AUD")"
+[ "$(grep -c '"kind":"latency"' "$AUD")" -eq 1 ] || fail "(i) one run, one row: $(cat "$AUD")"
+if [ -n "$ms_clock" ]; then
+  i_ms=$(row_ms "$i_row")
+  [ "${i_ms:-0}" -ge 3000 ] || fail "(i) the watchdog cut a 3 s-budget hook at ${i_ms} ms: never before the budget (the CLI still waits on it)"
+fi
+grep -q 'Terminated' "$SANDBOX/err-i" && fail "(i) a job notice leaked to stderr (bash 3.2): $(cat "$SANDBOX/err-i")"
+sleep 0.5
+i_gc=$(cat "$SANDBOX/gc-i.pid" 2>/dev/null)
+[ -n "$i_gc" ] || fail "(i) precondition: hang.sh never recorded its grandchild"
+kill -0 "$i_gc" 2>/dev/null && { kill "$i_gc" 2>/dev/null; fail "(i) the hook's grandchild (sleep 30) survived the reap"; }
+pass "(i) a short-budget hook past its budget: reaped with its grandchild, exit 124, one timeout row"
+
+# --- (j) SEC-R6: a verdict printed in budget, its hook exiting just before the budget, passes through
+# untouched (the old watchdog fired 0.3 s early and turned it into 124 = fail-open). The child aims at
+# the wrapper's start + budget - 200 ms, read off SB_HOOK_LATE_MS (start + budget - 2000 ms).
+if [ -n "$(bash -c 'printf %s "${EPOCHREALTIME:-}"')" ]; then
+  VERD="$SANDBOX/verdict.sh"
+  cat > "$VERD" <<'EOF'
+#!/bin/bash
+cat >/dev/null
+echo '{"permissionDecision":"ask"}'
+n=${EPOCHREALTIME//[!0-9]/}
+left=$(( SB_HOOK_LATE_MS + 2000 - 200 - 10#$n / 1000 ))
+[ "$left" -gt 0 ] && sleep "$(( left / 1000 )).$(printf %03d $(( left % 1000 )))"
+exit 0
+EOF
+  chmod +x "$VERD"
+  : > "$AUD"
+  OUT=$(printf 'in' | bash "$TIMER" 3 "$VERD" 2>/dev/null); rc=$?
+  [ "$rc" -eq 0 ] || fail "(j) an in-budget verdict must keep its exit 0 (got $rc)"
+  [ "$OUT" = '{"permissionDecision":"ask"}' ] || fail "(j) the verdict must pass through untouched: $OUT"
+  LINE=$(grep '"kind":"latency"' "$AUD")
+  [ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.exit_code == 0 and (has("timeout") | not)' >/dev/null \
+    || fail "(j) an in-budget run is no timeout: $LINE"
+  pass "(j) a verdict printed and exited just before the budget keeps exit 0 and its stdout"
+else
+  echo "SKIP: (j) in-budget edge — no EPOCHREALTIME in bash (bash < 5): the child cannot aim at the budget"
+fi
+
+# --- (k) a heavy hook (budget >= 10 s) that finishes inside its budget: one row, its own exit code, no
+# timeout marks. Its row comes from the hook's runner (see (l)), never from the wrapper as well.
+: > "$AUD"
+OUT=$(printf 'p' | CHILD_RC=5 bash "$TIMER" 10 "$CHILD" 2>/dev/null); rc=$?
+[ "$rc" -eq 5 ] && [ "$OUT" = "child-stdout:p" ] || fail "(k) an in-budget heavy hook must pass its rc and stdout through (rc=$rc out=$OUT)"
+[ "$(grep -c '"kind":"latency"' "$AUD")" -eq 1 ] || fail "(k) one in-budget run, one row: $(cat "$AUD")"
+LINE=$(grep '"kind":"latency"' "$AUD")
+[ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.exit_code == 5 and (has("timeout") | not) and (has("after_timeout") | not)' >/dev/null \
+  || fail "(k) an in-budget heavy run carries its exit code and no timeout marks: $LINE"
+pass "(k) an in-budget heavy hook: one row with its own exit code, no timeout marks"
+
+# --- (l) heavy hooks (budget >= 10 s; 10 = session-load --compact) are never killed, and the short
+# budget's reap works with the wrapper dead, as in production. A heavy hook past its budget leaves two
+# rows: the watchdog's timeout row at the budget (124), then, once it finishes, its runner's
+# completion row with its real exit code and duration (after_timeout) — with the wrapper alive or
+# killed (the timeout row alone hid the hook's real outcome). -------------------------------------
+wait "$L1" "$L2" "$I2"
+l_rc=$(cat "$SANDBOX/l1/rc" 2>/dev/null)
+[ "$l_rc" = 3 ] || fail "(l) a heavy hook that finishes after its budget keeps its own exit code (want 3, got '$l_rc')"
+for l in l1 l2; do
+  # l2's hook runs on as an orphan once its wrapper is killed: its completion row follows its side
+  # effect, so wait for the second row (up to 10 s), not for the side effect alone.
+  l_w=0
+  until [ "$(grep -c '"kind":"latency"' "$SANDBOX/$l/audit-log.jsonl" 2>/dev/null)" = 2 ] || [ "$l_w" -ge 20 ]; do
+    sleep 0.5; l_w=$(( l_w + 1 ))
+  done
+  [ -e "$SANDBOX/$l/done" ] || fail "(l) $l: the heavy hook was killed before its side effect"
+  l_rows=$(grep -c '"kind":"latency"' "$SANDBOX/$l/audit-log.jsonl" 2>/dev/null)
+  [ "$l_rows" = 2 ] || fail "(l) $l: a heavy run past its budget leaves a timeout row and a completion row (got ${l_rows:-0}): $(cat "$SANDBOX/$l/audit-log.jsonl" 2>/dev/null)"
+  LINE=$(grep '"kind":"latency"' "$SANDBOX/$l/audit-log.jsonl" | grep '"timeout":true')
+  [ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.hook == "heavy.sh" and .exit_code == 124 and (has("after_timeout") | not)' >/dev/null \
+    || fail "(l) $l: the heavy hook past its budget must leave a timeout row: $LINE"
+  DONE_LINE=$(grep '"kind":"latency"' "$SANDBOX/$l/audit-log.jsonl" | grep -v '"timeout":true')
+  [ -n "$DONE_LINE" ] && printf '%s' "$DONE_LINE" | jq -e '.hook == "heavy.sh" and .exit_code == 3 and .after_timeout == true' >/dev/null \
+    || fail "(l) $l: the finished heavy hook must leave its real exit code in an after_timeout row: $DONE_LINE"
+  if [ -n "$ms_clock" ]; then
+    l_ms=$(row_ms "$LINE")
+    [ "${l_ms:-0}" -ge 10000 ] || fail "(l) $l: the timeout row came at ${l_ms} ms, before the 10 s budget"
+    l_ms=$(row_ms "$DONE_LINE")
+    [ "${l_ms:-0}" -ge 11000 ] || fail "(l) $l: the completion row says ${l_ms} ms for an 11 s hook"
+  fi
+done
+LINE=$(grep '"kind":"latency"' "$SANDBOX/i2/audit-log.jsonl" 2>/dev/null)
+[ -n "$LINE" ] && printf '%s' "$LINE" | jq -e '.hook == "hang.sh" and .timeout == true' >/dev/null \
+  || fail "(l) i2: with the wrapper killed, the watchdog must still write the timeout row: $LINE"
+i_gc=$(cat "$SANDBOX/i2/gc.pid" 2>/dev/null)
+[ -n "$i_gc" ] || fail "(l) i2 precondition: hang.sh never recorded its grandchild"
+kill -0 "$i_gc" 2>/dev/null && { kill "$i_gc" 2>/dev/null; fail "(l) i2: with the wrapper killed, the short-budget hook's grandchild survived"; }
+pass "(l) heavy hooks finish past their budget: a timeout row, then their real exit code in an after_timeout row (wrapper alive or killed); a killed wrapper's guard is still reaped"
 
 echo "ALL PASS"

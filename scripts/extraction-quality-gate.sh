@@ -129,8 +129,14 @@ Candidate ($kind): $entry"
 # Process an array under a given key; filter, log rejections, return new array.
 filter_array() {
   local key="$1"
-  local arr_json
-  arr_json=$(printf '%s' "$INPUT" | jq -cr ".${key} // []")
+  local arr_json nonstr
+  # E8: strings only. `jq -r` printed a non-string entry as multi-line JSON text that then came back
+  # as a string bullet, past the merge's D142 non-string guard. One jq: "<dropped>\t<strings>".
+  arr_json=$(printf '%s' "$INPUT" | jq -r --arg k "$key" '
+    (.[$k] // []) | (if type == "array" then . else [] end)
+    | "\(map(select(type != "string")) | length)\t\(map(select(type == "string")) | tojson)"' | tr -d '\r')
+  nonstr="${arr_json%%$'\t'*}"; arr_json="${arr_json#*$'\t'}"
+  case "$nonstr" in ''|0) ;; *) sb_log_audit "extraction-quality-gate" "deny" "rules:non-string" "$key" "dropped $nonstr non-string entr(y/ies)" ;; esac
   local len
   len=$(printf '%s' "$arr_json" | jq 'length')
   [ -z "$len" ] || [ "$len" = "0" ] && { echo '[]'; return; }

@@ -2,6 +2,8 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { assertWithin, validateSlug, PathGuardError } from '../path-guard.js';
 import { resolveBrainDir } from '../brain-paths.js';
+import { withFileLock } from './hot-file-lock.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 export type PinSection = 'blockers' | 'decisions' | 'conventions';
 export interface PinToProjectArgs {
@@ -83,6 +85,14 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
     }
     throw e;
   }
+  // E3: read-modify-write under the shared .PROJECT.md.lock (merge-project-update.sh holds it too)
+  // and replace by temp + rename: an in-place write landing inside a merge's window was erased by it.
+  return withFileLock(file,
+    reason => ({ ok: false, line_added: '', project_slug: args.slug, reason }),
+    () => pinLocked(args, file));
+}
+
+async function pinLocked(args: PinToProjectArgs, file: string): Promise<PinToProjectResult> {
   const content = await fs.readFile(file, 'utf-8');
   const sectionHeader = SECTION_HEADER[args.section];
   const trimmed = flattenField(args.text, 400);
@@ -161,7 +171,7 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
     if (!lines[i].startsWith('- ')) continue;
     if (lines[i].startsWith('- [superseded] ') || lines[i].startsWith('- [stale] ')) continue;
     if (bulletCore(lines[i]) === newCore) {
-      if (marked) await fs.writeFile(file, lines.join('\n'), 'utf-8');
+      if (marked) await writeFileAtomic(file, lines.join('\n'));
       const dup: PinToProjectResult = { ok: true, line_added: lines[i], project_slug: args.slug, reason: 'already present' };
       if (supersedesRequested) dup.superseded = marked;
       return dup;
@@ -169,7 +179,7 @@ export async function pinToProject(args: PinToProjectArgs): Promise<PinToProject
   }
 
   lines.splice(endIdx, 0, newEntry);
-  await fs.writeFile(file, lines.join('\n'), 'utf-8');
+  await writeFileAtomic(file, lines.join('\n'));
   const res: PinToProjectResult = { ok: true, line_added: newEntry, project_slug: args.slug };
   if (reason) res.reason = reason;
   if (supersedesRequested) res.superseded = marked;

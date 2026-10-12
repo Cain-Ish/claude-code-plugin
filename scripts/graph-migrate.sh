@@ -64,7 +64,7 @@ find "$WIKI" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while IFS= re
   {
     # (a) bracketed [[wiki-links]], anywhere EXCEPT inside fenced ``` code blocks
     #     (so a bash `[[ "$X" == y ]]` test in a code fence is never slurped), with
-    #     the [[target|alias]] display form reduced to its target.
+    #     [[cat/target#heading|alias]] reduced to its target (as wiki-forget-score.sh reads them).
     awk '
       /^[[:space:]]*```/ { infence = !infence; next }
       infence { next }
@@ -72,7 +72,7 @@ find "$WIKI" -name '*.md' -type f ! -name 'index.md' 2>/dev/null | while IFS= re
         s = $0
         while (match(s, /\[\[[^]]+\]\]/)) {
           tok = substr(s, RSTART+2, RLENGTH-4)
-          sub(/\|.*/, "", tok)                       # [[target|alias]] -> target
+          sub(/[|#].*/, "", tok); sub(/.*\//, "", tok) # [[cat/target#h|alias]] -> target
           gsub(/^[[:space:]]+/, "", tok); gsub(/[[:space:]]+$/, "", tok)
           if (tok != "") print tok
           s = substr(s, RSTART+RLENGTH)

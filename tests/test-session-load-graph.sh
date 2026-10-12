@@ -53,6 +53,14 @@ OUT=$(cd "$WORKDIR" && echo '{"hook_event_name":"SessionStart","source":"startup
 echo "$OUT" | grep -q 'vps-ufw-depinned' || fail "active-project neighbourhood not injected (expected vps-ufw-depinned)"
 pass "session-load injects current dependency neighbourhood"
 
+# --- Test 1b: a [[cat/slug#heading|alias]] cross-reference seeds the graph with its bare slug ---
+sed 's/^- \[\[wg-tunnel\]\]$/- [[entities\/wg-tunnel#Setup|the tunnel]]/' "$BRAIN_DIR/projects/demo/PROJECT.md" > "$TMP/p1b" \
+  && mv "$TMP/p1b" "$BRAIN_DIR/projects/demo/PROJECT.md"
+grep -qF '[[entities/wg-tunnel#Setup|the tunnel]]' "$BRAIN_DIR/projects/demo/PROJECT.md" || fail "1b: fixture rewrite failed"
+OUT1B=$(cd "$WORKDIR" && echo '{"hook_event_name":"SessionStart","source":"startup"}' | bash "$ROOT/scripts/session-load.sh" 2>/dev/null)
+echo "$OUT1B" | grep -q 'vps-ufw-depinned' || fail "1b: [[entities/wg-tunnel#Setup|alias]] did not seed wg-tunnel's neighbourhood"
+pass "a [[cat/slug#h|alias]] cross-reference seeds the graph with its bare slug"
+
 # --- Test 2: no graph dir → no crash, no graph block (back-compat) ---
 rm -rf "$KDIR/graph"
 OUT2=$(cd "$WORKDIR" && echo '{"hook_event_name":"SessionStart","source":"startup"}' | bash "$ROOT/scripts/session-load.sh" 2>/dev/null)

@@ -7,12 +7,12 @@ import { EDGE_TYPES, type EdgeType } from "./tools/graph-store.js";
 import { pinToUser } from "./tools/pin-to-user.js";
 import { pinToProject } from "./tools/pin-to-project.js";
 import { archiveToWiki } from "./tools/archive-to-wiki.js";
-import { knowledgeSearch, reportInjectPrecision } from "./tools/knowledge-search.js";
+import { knowledgeSearch, reportInjectPrecision, frameSearchResult } from "./tools/knowledge-search.js";
 import { knowledgeFetch } from "./tools/knowledge-fetch.js";
 import { knowledgeReindex } from "./tools/knowledge-reindex.js";
 import { knowledgeValidate } from "./tools/knowledge-validate.js";
 import { dreamCreate, dreamStatus, dreamList, dreamAccept, dreamDiscard, dreamCancel } from "./tools/dream.js";
-import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, renderEpisodicSearch } from "./tools/episodic-search.js";
+import { episodicSearch, episodicRead, assertTranscriptPath, withActiveScope, renderEpisodicSearch, renderEpisodicRead } from "./tools/episodic-search.js";
 import { personaThink } from "./tools/persona-think.js";
 import { personaStats } from "./tools/persona-stats.js";
 import { personaDismiss } from "./tools/persona-dismiss.js";
@@ -142,7 +142,7 @@ registerJsonTool(
     query: z.string().describe("Search query — tokenized on lowercase alphanumerics, date tokens filtered out, matched via BM25 scoring."),
     scope: z.string().optional().describe("Restrict to a single wiki subdirectory (e.g. 'entities', 'learnings'). Omit to search all."),
   },
-  ({ query, scope }) => knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() })
+  async ({ query, scope }) => frameSearchResult(await knowledgeSearch({ query, scope, knowledgeDir: KNOWLEDGE_DIR, brainDir: BRAIN_DIR, projectSlug: resolveActiveSlug() }))
 );
 
 registerJsonTool(
@@ -381,6 +381,8 @@ registerJsonTool(
 
 // --- Episodic memory tools ---
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 registerJsonTool(
   "episodic_search",
   "Search past conversation transcripts using hybrid vector + text matching. Supports single query string or array of 2-5 concepts for AND matching. Returns ranked results with similarity scores, session metadata, and file paths for follow-up reading. When vector search is unavailable (embeddings missing) the text says so: a footer under text-only results, or a no-results line for a concept array (vector-only) that says to retry as a single string query.",
@@ -392,8 +394,8 @@ registerJsonTool(
     mode: z.enum(["vector", "text", "both"]).optional().describe("Search mode. Default: 'both'"),
     limit: z.number().min(1).max(30).optional().describe("Max results. Default: 10"),
     project: z.string().optional().describe("Hard-filter to this exact project slug. Omit to default to the ACTIVE project (soft scope, so recall stays focused); pass \"all\" to deliberately search every project."),
-    after: z.string().optional().describe("Only include results after this date (YYYY-MM-DD)"),
-    before: z.string().optional().describe("Only include results before this date (YYYY-MM-DD)"),
+    after: z.string().regex(DATE_RE, "YYYY-MM-DD").optional().describe("Only include results after this date (YYYY-MM-DD)"),
+    before: z.string().regex(DATE_RE, "YYYY-MM-DD").optional().describe("Only include results before this date (YYYY-MM-DD)"),
   },
   async (args) => {
     const result = await episodicSearch(withActiveScope(args, resolveActiveSlug()), BRAIN_DIR);
@@ -409,19 +411,13 @@ registerJsonTool(
   "Read full conversation context from a specific transcript file (must be inside the second-brain transcripts directory). Use after episodic_search to get complete exchange details.",
   {
     path: z.string().describe("Absolute path to the transcript file (inside the second-brain transcripts directory)"),
-    startLine: z.number().optional().describe("Start line (1-indexed). Omit to read from beginning."),
-    endLine: z.number().optional().describe("End line (1-indexed). Omit to read to end."),
+    startLine: z.number().int().min(1).optional().describe("Start line (1-indexed). Omit to read from beginning."),
+    endLine: z.number().int().min(1).optional().describe("End line (1-indexed). Omit to read to end."),
   },
   async (args) => {
     const safePath = assertTranscriptPath(BRAIN_DIR, args.path);
     const result = await episodicRead(safePath, args.startLine, args.endLine);
-    const header = [
-      `**Session**: ${result.sessionId}`,
-      `**Project**: ${result.project}`,
-      `**Date**: ${result.date}`,
-      '---',
-    ].join('\n');
-    return `${header}\n${result.content}`;
+    return renderEpisodicRead(result, egressBudgetTokens());
   }
 );
 

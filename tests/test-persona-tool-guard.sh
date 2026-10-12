@@ -19,6 +19,13 @@ pass() { echo "PASS: $1"; }
 PTG_TMP=$(mktemp -d); export TMPDIR="$PTG_TMP"
 trap 'rm -rf "$PTG_TMP"' EXIT
 
+# X1 (audit 2026-10-10): a guard run with no BRAIN_DIR writes its verdict rows into the maintainer's
+# REAL ~/.second-brain/audit-log.jsonl (the case-insensitivity block's gv() did, session caseT). Every
+# `bash "$SCRIPT"` line in this file names its own sandbox BRAIN_DIR.
+_x1=$(grep -n 'bash "\$SCRIPT"' "$0" | grep -v 'BRAIN_DIR=' | grep -vE '^[0-9]+:[[:space:]]*#')
+[ -z "$_x1" ] || fail "X1: guard runs without a sandbox BRAIN_DIR (they write into the real ~/.second-brain): $_x1"
+pass "X1: every guard run in this file names a sandbox BRAIN_DIR"
+
 # Test 1 (INVERTED 2026-08-23): 2>/dev/null is ADVISORY, never rewritten, never auto-allowed.
 # The old oracle asserted the shipped default REWROTE the command and emitted "allow". That
 # rewrite was a blind sed over the whole string (it turned `grep -rn "2>/dev/null" x` into
@@ -42,6 +49,49 @@ for dangerous in 'rm -rf /home/u/important 2>/dev/null' 'git push --force origin
     || fail "precedence: '$dangerous' must be ask, got: $out"
 done
 pass "precedence: ask rules win over the 2>/dev/null advisory (no auto-allow via redirect)"
+
+# G9/T8 (audit 2026-10-10, D152): warn-rm-rf needed the flags glued (-rf), so `rm -r -f` and
+# `rm --recursive --force` went through, while it fired on "rm -rf" anywhere in the text (grep
+# patterns, echo strings). warn-force-push-main missed the refspec `+main` and a force flag after the
+# branch. tests/fixtures/rm-rf-cases.txt: Y|command must ask via warn-rm-rf, N|command must not ask.
+# SEC-R2/SEC-R4 (review 2026-10-11): the start anchor is now `(^|[^[:alnum:]_])rm`, so rm after ANY
+# non-word character asks — `/bin/rm`, `\rm`, a quoted `'rm -rf'` inside bash -c / ssh / eval. A quoted
+# `rm -rf` in grep/echo text therefore asks again (accepted: safety first; word-internal rm like `form`
+# or `file-r-f.txt` stays silent). The recursive and force tokens may be split in either order with
+# other tokens between (`rm -r -v -f`, `rm -r x -f`, `rm -r --force`), within one statement.
+# warn-force-push-main also now catches `git -C repo push --force` and a combined `-fu` force flag.
+# t1b_case Y|N RULE COMMAND
+t1b_case() {
+  local out
+  rm -f "$T1_BRAIN/audit-log.jsonl"
+  out=$(jq -nc --arg c "$3" '{tool_name:"Bash",tool_input:{command:$c},session_id:"t1b"}' | BRAIN_DIR="$T1_BRAIN" bash "$SCRIPT")
+  if [ "$1" = Y ]; then
+    [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+      && grep -q "\"rule\":\"$2\"" "$T1_BRAIN/audit-log.jsonl" \
+      || fail "G9/T8: '$3' must ask via $2 (got: $out; audit: $(cat "$T1_BRAIN/audit-log.jsonl" 2>/dev/null))"
+  else
+    [ -z "$out" ] || fail "G9/T8: '$3' must not ask (got: $out)"
+  fi
+}
+T1B_N=0
+while IFS='|' read -r t1b_v t1b_c; do
+  [ -n "$t1b_v" ] || continue
+  t1b_case "$t1b_v" warn-rm-rf "$t1b_c"; T1B_N=$((T1B_N + 1))
+done < "$(dirname "$0")/fixtures/rm-rf-cases.txt"
+[ "$T1B_N" -ge 15 ] || fail "G9/T8: only $T1B_N rm cases read from tests/fixtures/rm-rf-cases.txt"
+for c in 'git push origin +main' 'git push origin +HEAD:main' 'git push origin +refs/heads/master' \
+         'git push origin main --force' 'git push origin master -f' 'git push --force origin main'; do
+  t1b_case Y warn-force-push-main "$c"
+done
+for c in 'git push -fu origin main' 'git -C repo push --force origin main'; do
+  t1b_case Y warn-force-push-main "$c"
+done
+for c in 'git push origin main' 'git push origin +feature' 'git push origin main && ls -f' \
+         'git push origin +mainline' 'git push origin main:main-force' 'git push --force origin mainline' \
+         'git push origin main --follow-tags'; do
+  t1b_case N warn-force-push-main "$c"
+done
+pass "G9/T8: $T1B_N rm spellings (split/long/non-adjacent flags and rm after any non-word char ask; recursive-only, force-only and word-internal rm do not) and the +main / trailing-flag / -fu / 'git -C … push' force pushes"
 rm -rf "$T1_BRAIN"
 
 # D219: tests 2-7 previously ran with no BRAIN_DIR override, so sb_log_audit
@@ -74,6 +124,86 @@ out=$(echo '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/USE
 grep -q '"rule":"warn-direct-write-hot-tier"' "$T27_BRAIN/audit-log.jsonl" \
   || fail "write-USER.md should ask via warn-direct-write-hot-tier specifically (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
 pass "write-USER.md asks via warn-direct-write-hot-tier"
+
+# G8 (audit 2026-10-10, D153): the hot-tier rule was Write-only — an Edit or MultiEdit of USER.md /
+# persona-card.md went through with no ask. Its locked -edit / -multiedit twins catch both (PROJECT.md is
+# deliberately not covered: the background maintainer edits it autonomously; the IMP-R4 loop pins that).
+for _g8 in Edit:USER.md:warn-direct-write-hot-tier-edit MultiEdit:persona-card.md:warn-direct-write-hot-tier-multiedit; do
+  rm -f "$T27_BRAIN/audit-log.jsonl"
+  out=$(printf '{"tool_name":"%s","tool_input":{"file_path":"/x/.second-brain/projects/p/%s","old_string":"a","new_string":"b"},"session_id":"g8"}' "${_g8%%:*}" "$(printf '%s' "$_g8" | cut -d: -f2)" \
+    | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    || fail "G8: ${_g8%%:*} of a hot-tier file should ask (got: $out)"
+  grep -q "\"rule\":\"${_g8##*:}\"" "$T27_BRAIN/audit-log.jsonl" \
+    || fail "G8: ${_g8%%:*} of a hot-tier file should ask via ${_g8##*:} (audit-log: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+done
+pass "G8: Edit/MultiEdit of a hot-tier file ask via the -edit/-multiedit twins"
+
+# IMP-R4 (review 2026-10-11): the hot-tier path match is anchored `(^|/)(…)$`, so a file whose basename
+# merely ENDS in a hot-tier name stays silent; and plugin.json is dropped from the Edit/MultiEdit twins
+# (version bumps use Edit every release) but kept for Write. Scope off so only the rule is exercised.
+for _r4 in Write:/x/docs/guides/end-user.md Edit:/x/docs/SUBPROJECT.md MultiEdit:/x/sub/my-project.md \
+           Edit:/x/.claude-plugin/plugin.json MultiEdit:/x/.claude-plugin/plugin.json \
+           Edit:/x/.second-brain/projects/x/PROJECT.md MultiEdit:/x/.second-brain/projects/x/PROJECT.md; do
+  out=$(printf '{"tool_name":"%s","tool_input":{"file_path":"%s","content":"x","old_string":"a","new_string":"b"},"session_id":"r4"}' "${_r4%%:*}" "${_r4#*:}" \
+    | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+  [ -z "$out" ] || fail "IMP-R4: ${_r4%%:*} of ${_r4#*:} must stay silent (anchored hot-tier / plugin.json dropped from Edit twins), got: $out"
+done
+# Write of plugin.json still asks (the rule keeps it).
+rm -f "$T27_BRAIN/audit-log.jsonl"
+out=$(printf '{"tool_name":"Write","tool_input":{"file_path":"/x/.claude-plugin/plugin.json","content":"{}"},"session_id":"r4w"}' \
+  | SB_RESOURCE_SCOPE=off BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+  && grep -q '"rule":"warn-direct-write-hot-tier"' "$T27_BRAIN/audit-log.jsonl" \
+  || fail "IMP-R4: Write of plugin.json must still ask via warn-direct-write-hot-tier (got: $out)"
+pass "IMP-R4: hot-tier match anchored (end-user.md / SUBPROJECT.md / my-project.md silent); plugin.json and PROJECT.md dropped from Edit/MultiEdit, kept for Write"
+
+# G1 (audit 2026-10-10): the PowerShell tool's command (tool_input.command, as Bash's) met no rule —
+# hooks.json did not route it here and the rules name tool "Bash". Bash rules now apply to it.
+for _g1 in 'warn-force-push-main|git push --force origin main' 'warn-rm-rf|rm -Recurse -Force .\build' 'warn-rm-rf|rm -r -fo .\build'; do
+  rm -f "$T27_BRAIN/audit-log.jsonl"
+  out=$(jq -nc --arg c "${_g1#*|}" '{tool_name:"PowerShell",tool_input:{command:$c},session_id:"g1"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+  [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+    && grep -q "\"rule\":\"${_g1%%|*}\"" "$T27_BRAIN/audit-log.jsonl" \
+    || fail "G1: PowerShell '${_g1#*|}' must ask via ${_g1%%|*} (got: $out; audit: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+done
+out=$(jq -nc '{tool_name:"PowerShell",tool_input:{command:"Get-ChildItem -Force"},session_id:"g1"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "G1: a harmless PowerShell command must stay silent (got: $out)"
+# A Bash REWRITE rule is not carried over: its sed targets bash syntax, and a rewrite emits "allow",
+# which would auto-approve a PowerShell command past the user's prompt.
+G1RW=$(mktemp -d)
+jq '.rules += [{name:"rw-g1",tool:"Bash",action:"rewrite",match_command:"foo",replace:"bar",reason:"rw"}]' \
+  "$(dirname "$SCRIPT")/persona-rules.default.json" > "$G1RW/persona-rules.json"
+out=$(jq -nc '{tool_name:"Bash",tool_input:{command:"echo foo"},session_id:"g1rw"}' | BRAIN_DIR="$G1RW" bash "$SCRIPT")
+[ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.updatedInput.command == "echo bar"' >/dev/null 2>&1 \
+  || fail "G1 control: the Bash rewrite rule must rewrite a Bash command (got: $out)"
+out=$(jq -nc '{tool_name:"PowerShell",tool_input:{command:"echo foo"},session_id:"g1rw"}' | BRAIN_DIR="$G1RW" bash "$SCRIPT")
+[ -z "$out" ] || fail "G1: a Bash rewrite rule must not rewrite (and auto-allow) a PowerShell command (got: $out)"
+rm -rf "$G1RW"
+pass "G1: PowerShell commands meet the Bash-SYNTAX ask rules (force-push, bash-style rm -rf / rm -Recurse -Force); Remove-Item -Recurse -Force has its own rule below; Bash rewrite rules stay Bash-only"
+
+# G1 follow-up: PowerShell's own recursive force delete, Remove-Item with both -Recurse and -Force
+# (any order, any case). tests/fixtures/remove-item-cases.txt: Y|asks via the locked rule, N|silent.
+G1RI_N=0
+while IFS='|' read -r _ri_v _ri_c; do
+  [ -n "$_ri_v" ] || continue
+  rm -f "$T27_BRAIN/audit-log.jsonl"
+  out=$(jq -nc --arg c "$_ri_c" '{tool_name:"PowerShell",tool_input:{command:$c},session_id:"g1ri"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+  if [ "$_ri_v" = Y ]; then
+    [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
+      && grep -q '"rule":"warn-remove-item-recurse-force"' "$T27_BRAIN/audit-log.jsonl" \
+      || fail "G1: PowerShell '$_ri_c' must ask via warn-remove-item-recurse-force (got: $out; audit: $(cat "$T27_BRAIN/audit-log.jsonl" 2>/dev/null))"
+  else
+    [ -z "$out" ] || fail "G1: PowerShell '$_ri_c' must stay silent (got: $out)"
+  fi
+  G1RI_N=$((G1RI_N + 1))
+done < "$(dirname "$0")/fixtures/remove-item-cases.txt"
+[ "$G1RI_N" -ge 15 ] || fail "G1: only $G1RI_N Remove-Item cases read from tests/fixtures/remove-item-cases.txt"
+# The rule is the PowerShell tool's: the same text in a Bash command (no Remove-Item there) stays silent.
+out=$(jq -nc '{tool_name:"Bash",tool_input:{command:"Remove-Item -Recurse -Force x"},session_id:"g1ri"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
+[ -z "$out" ] || fail "G1: warn-remove-item-recurse-force must not apply to a Bash command (got: $out)"
+pass "G1: $G1RI_N Remove-Item spellings (-Recurse with -Force asks in any order and case; also inside quotes, like rm; one flag and Remove-ItemProperty do not)"
+
 
 # Test 4: harmless ls → silent
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"t4"}' | BRAIN_DIR="$T27_BRAIN" bash "$SCRIPT")
@@ -535,7 +665,8 @@ rm -rf "$SPINE_BRAIN"
 # out as "claude-code-plugin-repo-brain" has no `/claude-code-plugin/` segment at all) — build
 # a throwaway root that is always literally named claude-code-plugin/ instead.
 RRT="$(mktemp -d)/claude-code-plugin"; mkdir -p "$RRT/scripts" "$RRT/hooks"
-gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"file_path":"%s/%s","content":"y"}}' "$1" "$RRT" "$RRT" "$2" | bash "$SCRIPT"; }
+RRT_BRAIN="$(dirname "$RRT")/brain"; mkdir -p "$RRT_BRAIN"
+gv() { printf '{"tool_name":"%s","session_id":"caseT","cwd":"%s","tool_input":{"file_path":"%s/%s","content":"y"}}' "$1" "$RRT" "$RRT" "$2" | BRAIN_DIR="$RRT_BRAIN" bash "$SCRIPT"; }
 
 for variant in "persona-rules.json" "Persona-Rules.json" "PERSONA-RULES.JSON" "PeRsOnA-RuLeS.jSoN"; do
   out=$(gv Write "$variant")
@@ -553,7 +684,7 @@ pass "case-varied plugin-script writes all ask"
 
 # Command rules run through the same loop.
 for cmd in "git push --force origin main" "git push --FORCE origin MAIN"; do
-  out=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd" | bash "$SCRIPT")
+  out=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$cmd" | BRAIN_DIR="$RRT_BRAIN" bash "$SCRIPT")
   [ -n "$out" ] && echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null \
     || fail "case-varied command '$cmd' must ask (got: $out)"
 done
@@ -789,13 +920,15 @@ b7_ask "force-push (upper case, 2nd line)" warn-force-push-main '{"tool_name":"B
 b7_ask "Edit plugin script" warn-self-edit-plugin-scripts-edit '{"tool_name":"Edit","tool_input":{"file_path":"/home/x/claude-code-plugin/scripts/lib.sh","old_string":"a","new_string":"b"},"session_id":"b7c"}'
 b7_ask "Windows-form hooks.json Write" warn-self-edit-plugin-scripts '{"tool_name":"Write","tool_input":{"file_path":"C:\\Users\\x\\.claude\\plugins\\cache\\second-brain\\second-brain\\0.54.0\\hooks\\hooks.json","content":"{}"},"session_id":"b7d"}'
 b7_ask "Write hot-tier file" warn-direct-write-hot-tier '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/persona-rules.json","content":"{}"},"session_id":"b7e"}'
+b7_ask "Edit hot-tier file (G8)" warn-direct-write-hot-tier-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/.second-brain/USER.md","old_string":"a","new_string":"b"},"session_id":"b7e2"}'
 b7_ask "MultiEdit repo rules" warn-self-edit-repo-rules-multiedit '{"tool_name":"MultiEdit","tool_input":{"file_path":"/x/.second-brain/projects/demo/rules.json","edits":[{"old_string":"a","new_string":"b"}]},"session_id":"b7f"}'
 b7_ask "Edit rules cache" warn-self-edit-rules-cache-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/.second-brain/projects/demo/.rules-effective.json","old_string":"a","new_string":"b"},"session_id":"b7g"}'
 # hook-timer.sh wraps this guard in hooks.json: the wrapper must add no dependency either.
 b7_ask "rm -rf through hook-timer" warn-rm-rf '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/b7-x"},"session_id":"b7h"}' "$(dirname "$SCRIPT")/hook-timer.sh" 5
 # T1: the -edit twin of a self-edit rule is decided on the fast path too (a broken _PTG_RE_PRULES
-# made the fast path decline while parity still passed).
-b7_ask "Edit persona-rules.json" warn-self-edit-persona-rules-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/persona-rules.json","old_string":"a","new_string":"b"},"session_id":"b7i"}'
+# made the fast path decline while parity still passed). The .default file: plain persona-rules.json
+# also matches the hot-tier -edit twin (G8), which comes first, as it does for Write (t7b).
+b7_ask "Edit persona-rules.default.json" warn-self-edit-persona-rules-edit '{"tool_name":"Edit","tool_input":{"file_path":"/x/persona-rules.default.json","old_string":"a","new_string":"b"},"session_id":"b7i"}'
 # SEC-M1: the role-card / slug caches the hooks inject are locked like the rule files.
 b7_ask "Write into .second-brain/.injected" warn-self-edit-injected '{"tool_name":"Write","tool_input":{"file_path":"/x/.second-brain/.injected/s1.rolecard","content":"x"},"session_id":"b7j"}'
 # L3: with resource_scope on (the default), an out-of-scope target gets the full logic's scope ask —
@@ -967,17 +1100,31 @@ PAR_FAST=0
 for c in 'rm -rf /tmp/x' 'rm -fr x' 'sudo rm -Rf x' $'ls\nrm -rf x' $'rm\n-rf x' 'xrm -rf y' 'rm -rf2 x' \
          'git push --force origin main' 'git push -f origin master' 'git push --force-with-lease origin main' \
          'GIT PUSH --FORCE ORIGIN MAIN' 'git push --force origin mainline' $'git push --force origin\nmain' \
-         'git push origin main' 'ls -la'; do
+         'git push origin main' 'ls -la' \
+         'RM -R -F x' 'rm --Recursive --Force x' 'rm x -r -f' $'rm x\n-r -f' 'GIT PUSH ORIGIN +MAIN' \
+         'git push origin +HEAD:main' 'git push origin main --force' 'git push origin main--force' \
+         'git push origin main;ls -f' 'git push origin main && ls -f' 'git push origin +mainline' 'git push origin main --follow-tags' \
+         'git push origin main:main-force' 'git push -f+main'; do
   par Bash command "$c"
 done
-for f in /x/USER.md /x/superuser.md /x/persona-rules.json /x/persona-rules.default.json /x/.claude-plugin/plugin.json \
+# G1: the PowerShell tool reaches the same table on both paths.
+for c in 'git push --force origin main' 'rm -r -fo .\build' 'rm -Recurse -Force x' 'Get-ChildItem -Force' \
+         'Remove-Item -Recurse -Force x'; do
+  par PowerShell command "$c"
+done
+par Bash command 'Remove-Item -Recurse -Force x'
+while IFS='|' read -r _v c; do [ -n "$_v" ] && par PowerShell command "$c"; done < "$(dirname "$0")/fixtures/remove-item-cases.txt"
+# G9/T8: every rm spelling of tests/fixtures/rm-rf-cases.txt, on both paths.
+while IFS='|' read -r _v c; do [ -n "$_v" ] && par Bash command "$c"; done < "$(dirname "$0")/fixtures/rm-rf-cases.txt"
+for f in /x/USER.md /x/superuser.md /x/docs/guides/end-user.md /x/persona-rules.json /x/persona-rules.default.json /x/.claude-plugin/plugin.json \
          /h/claude-code-plugin/scripts/x.sh /h/Second-Brain/SCRIPTS/Lib.SH /c/cache/second-brain/second-brain/0.1/hooks/hooks.json \
          /h/claude-code-plugin/scripts/sub/x.sh /b/projects/demo/rules.pending.json /b/.rules-effective.json \
          'C:\h\claude-code-plugin\scripts\x.sh' /x/README.md; do
   par Write file_path "$f"
 done
-for f in /x/USER.md /x/persona-rules.json /b/projects/demo/rules.json /h/claude-code-plugin/hooks/hooks.json; do par Edit file_path "$f"; done
-for f in /x/persona-rules.default.json /b/projects/demo/.rules-effective.json; do par MultiEdit file_path "$f"; done
+# IMP-R4: plugin.json Edit/MultiEdit stays silent on BOTH paths (dropped from the Edit twins); end-user.md anchored out.
+for f in /x/projects/x/PROJECT.md /x/USER.md /x/persona-rules.json /b/projects/demo/rules.json /h/claude-code-plugin/hooks/hooks.json /x/.claude-plugin/plugin.json /x/docs/guides/end-user.md; do par Edit file_path "$f"; done
+for f in /x/projects/x/PROJECT.md /x/persona-rules.default.json /b/projects/demo/.rules-effective.json /x/.claude-plugin/plugin.json; do par MultiEdit file_path "$f"; done
 # SEC-M1: the .injected caches, all three tools.
 for t in Write Edit MultiEdit; do par "$t" file_path /h/.second-brain/.injected/s1.rolecard; done
 # L3: resource_scope on (a cwd given) — out-of-scope targets get the scope ask on both paths,
@@ -1553,6 +1700,23 @@ grep -q '"rule":"warn-rm-rf"' "$SZ/audit-log.jsonl" || fail "SEC-H1: the 5000-li
 grep -q '"fastpath":true' "$SZ/audit-log.jsonl" \
   && fail "SEC-H1: a 5000-line command must be left to the full logic's grep, not the fast path's per-line regex"
 pass "SEC-H1: 5000-line command asks in ${BD_EL}s, decided by the full logic"
+
+# G9/T8: the rm and force-push patterns carry an unbounded run after each `rm ` / `git push`; glibc's
+# regexec retries it from every start, O(n^2) on one line (~1 s for 16 KB of `rm ` on Debian, 0.6 s for
+# `git push ` — measured 2026-10-10; MSYS's engine is linear). The fast path reads up to 16 KiB, so a
+# dense single line of either is its worst case: it must still answer inside the hook budget.
+G9R_RM=$(printf '%4900s' '' | sed 's/ /rm /g'); G9R_PUSH=$(printf '%1500s' '' | sed 's/ /git push +/g')
+# SEC-R4: the split recursive/force flags carry a middle `[^;&|]*` scanned per rm-start — a dense
+# `rm -r ` line with no force flag is its worst case (the scan runs to end of line at every `rm`). It
+# must stay silent AND inside the hook budget.
+G9R_RMR=$(printf '%2600s' '' | sed 's/ /rm -r /g')
+for g9r in "$G9R_RM:-" "$G9R_PUSH:-" "$G9R_RMR:-" "$G9R_RM-r -f /tmp/g9r:ask"; do
+  printf '{"session_id":"g9r","tool_name":"Bash","tool_input":{"command":"%s"}}' "${g9r%:*}" > "$SZ/g9r.json"
+  bounded "G9 dense single-line ${g9r:0:10}… (${#g9r} chars)" "$BIG_BOUND" "$SZ/g9r.json"
+  if [ "${g9r##*:}" = ask ]; then is_ask "$BD_OUT" || fail "G9: a dense rm line ending in split rm flags must ask (got: $BD_OUT)"
+  else [ -z "$BD_OUT" ] || fail "G9: a dense flagless rm / git push line must stay silent (got: $BD_OUT)"; fi
+done
+pass "G9: dense 15 KB single-line rm / git push shapes answer inside the hook budget (last ${BD_MS} ms)"
 
 # SEC-C1: a 65,600-character command: the pre-filter grep's here-string (65,601 bytes) hung on MSYS.
 C1_PRE='{"session_id":"c1","tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/c1 # '

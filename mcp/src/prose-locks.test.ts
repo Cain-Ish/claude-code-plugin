@@ -166,11 +166,12 @@ describe('session intent spine locks', () => {
 
   it('spine emits permissionDecision only at the two defined deny points', () => {
     // Gate A + Gate B are the ONLY spine denies; the drift warn is additionalContext
-    // only (an advisory must never widen permissions), the legacy advisory keeps its
-    // single "allow", and nothing spine-side ever emits "ask".
+    // only (an advisory must never widen permissions), the legacy advisory emits
+    // additionalContext only — its old "allow" auto-approved edits (audit G10) — and
+    // nothing spine-side ever emits "ask".
     const src = nudge();
     expect((src.match(/permissionDecision: "deny"/g) ?? []).length).toBe(2);
-    expect((src.match(/permissionDecision: "allow"/g) ?? []).length).toBe(1);
+    expect(src).not.toMatch(/permissionDecision: "allow"/);
     expect(src).not.toMatch(/permissionDecision: "ask"/);
     // The other two spine touchpoints add no permission surface at all.
     expect(pctx()).not.toContain('permissionDecision');

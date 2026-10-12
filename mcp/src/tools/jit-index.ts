@@ -270,7 +270,7 @@ const execFileAsync = promisify(execFile);
  *  `ls-files -z` output well before it's unusually large — same trap scan-sources.ts's
  *  defaultRunGit documents for the identical command), a 5s timeout, windowsHide so no console
  *  flashes on Windows. */
-async function defaultGitRunner(args: string[], cwd: string): Promise<string> {
+export async function defaultGitRunner(args: string[], cwd: string): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
     cwd, maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout: 5000,
   });

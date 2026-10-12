@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -86,8 +86,22 @@ describe('drift', () => {
       expect(await isDirty('/repo', gitAt(REV_A, ' M src/a.ts\n'))).toBe(true);
     });
 
+    it('ignores untracked files (audit B9)', async () => {
+      let seen: string[] = [];
+      await isDirty('/repo', async (args) => { seen = args; return ''; });
+      expect(seen).toContain('--untracked-files=no');
+    });
+
     it('false when status --porcelain is empty', async () => {
       expect(await isDirty('/repo', gitAt(REV_A))).toBe(false);
+    });
+
+    it('true (unknown => stale) when git status times out, and says so', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const timedOut: GitRunner = async () => { throw Object.assign(new Error('timed out'), { killed: true, signal: 'SIGTERM' }); };
+      expect(await isDirty('/repo', timedOut)).toBe(true);
+      expect(err).toHaveBeenCalledTimes(1);
+      err.mockRestore();
     });
 
     it("false when git fails ('nogit' — no tree to be dirty against)", async () => {

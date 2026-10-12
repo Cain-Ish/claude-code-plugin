@@ -1,4 +1,7 @@
 import { spawn } from 'child_process';
+import { mkdirSync } from 'fs';
+import { join } from 'path';
+import { resolveBrainDir } from '../brain-paths.js';
 import { resolveModel } from '../model-resolve.js';
 
 export interface PersonaThinkArgs {
@@ -24,7 +27,7 @@ export interface PersonaThinkDeps {
 // Resolved per call, not at module load: a demotion recorded mid-session must take effect
 // without restarting the MCP server. SB_PERSONA_MODEL is a DEEP pin in model-ladder.json.
 const advisorModel = (): string => resolveModel('deep', 'headless');
-const THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? '30000');
+const THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? '20000');
 
 const SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
@@ -37,15 +40,38 @@ Given the user's prompt plus optional context hints, return ONLY a JSON object w
 Be terse. Default silent on questions/specialists/risks — only populate when the value is concrete.
 Output ONLY the JSON object, no prose around it.`;
 
+// --bare skips OAuth/keychain, so it only works with an API key (same rule as lib.sh's extractor).
+export function personaSpawnArgs(model: string, system: string, apiKey = process.env.ANTHROPIC_API_KEY): string[] {
+  // The prompt is user text (injection surface): no tools, no settings, no MCP servers, no persisted
+  // session — maintain-llm-drain.sh's zero-tool headless form (`--tools "" --setting-sources ""`).
+  return ['-p', ...(apiKey ? ['--bare'] : []), '--tools', '', '--strict-mcp-config', '--setting-sources', '',
+    '--no-session-persistence', '--model', model, '--system-prompt', system];
+}
+
+// Mirrors lib.sh's recursive-claude guard: a `claude -p` spawned inside a session on OAuth only
+// re-enters the locked process and hangs to the timeout. SB_FORCE_CLI=1 is lib.sh's escape hatch.
+export function inSessionRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.CLAUDECODE === '1' && env.SB_FORCE_CLI !== '1' && !env.ANTHROPIC_API_KEY) {
+    return 'in-session OAuth only: a nested claude -p would hang; set ANTHROPIC_API_KEY to enable persona_think';
+  }
+  return null;
+}
+
 function defaultRunner(system: string, user: string, model: string): Promise<string> {
   // G2: a test that forgets to inject a runner must not spawn a REAL `claude -p` (account
   // usage + a nondeterministic suite). Vitest sets VITEST; fail loud instead of spawning.
   if (process.env.VITEST) {
     return Promise.reject(new Error('persona-think defaultRunner: refusing to spawn a real claude under VITEST; inject deps.runner'));
   }
+  const refusal = inSessionRefusal();
+  if (refusal) return Promise.reject(new Error(refusal));
+  const cwd = join(resolveBrainDir(), 'scratch');
+  mkdirSync(cwd, { recursive: true });
   return new Promise((resolve, reject) => {
-    const p = spawn('claude', ['-p', '--bare', '--model', model, '--system-prompt', system], {
+    const p = spawn('claude', personaSpawnArgs(model, system), {
+      cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, SB_NESTED_SPAWN: '1' },
     });
     let out = '';
     let err = '';
@@ -53,7 +79,7 @@ function defaultRunner(system: string, user: string, model: string): Promise<str
     const timer = setTimeout(() => {
       killed = true;
       p.kill('SIGTERM');
-      setTimeout(() => { if (!p.killed) p.kill('SIGKILL'); }, 2000);
+      setTimeout(() => { if (p.exitCode === null && p.signalCode === null) p.kill('SIGKILL'); }, 2000);
       reject(new Error(`timeout after ${THINK_TIMEOUT_MS}ms`));
     }, THINK_TIMEOUT_MS);
     p.stdout.on('data', (d) => { out += d.toString(); });
@@ -63,7 +89,7 @@ function defaultRunner(system: string, user: string, model: string): Promise<str
       clearTimeout(timer);
       if (killed) return;
       if (code === 0) resolve(out);
-      else reject(new Error(err || `claude -p exited ${code}`));
+      else reject(new Error(err || out.trim() || `claude -p exited ${code}`));
     });
     p.stdin.write(user);
     p.stdin.end();

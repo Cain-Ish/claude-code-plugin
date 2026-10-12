@@ -40,19 +40,17 @@ feedback: test fallback/default branches) says treat "bash" as necessary, not su
 | `SB_ACTIVE_SLUG_VAL` | `$(sb_resolve_slug)` | Shell-local holder of the resolved slug pre-export. | INT | persona-context.sh:190 | none |
 | `SB_NESTED_SPAWN` | `0` | Set to `1` by every plugin-spawned headless `claude` so hook entrypoints no-op inside nested spawns — 13 scripts under `scripts/` carry the `[ "${SB_NESTED_SPAWN:-0}" = "1" ] && exit 0` early exit (e.g. `ensure-dirs.sh:3`). The 3 SETTERS (lib.sh, maintain-llm-drain.sh, extraction-quality-gate.sh) export `SB_NESTED_SPAWN=1` into spawns and do NOT no-op; a grep of all mentions counts 17 files (13 readers + 3 setters + a comment-only hit in hook-timer.sh:16) — don't audit guard coverage against 17. TS guard: `mcp/src/nested-spawn-guard.ts:16` (`=== '1'`). | INT/guard | nested-spawn-guard.ts:16 | bash+vitest |
 | `SB_VECTOR_DEPS_DIR` | `$HOME/.second-brain/vector-deps` | Shared embeddings node_modules location (junction-linked per plugin version; `ln -s` deep-copies on MSYS — fixed 0.33.7). | PATH | bin/install-vector-deps.sh:34 | bash |
-| `SB_KB_SCHEMA` | `<plugin>/kb-schema.json` (computed relative to kb-schema.sh) | Path override for the KB schema JSON. | PATH/TESTDBL | scripts/kb-schema.sh:7 | bash |
+| `SB_KB_SCHEMA` | `<plugin>/kb-schema.json` (computed relative to kb-schema.sh) | Path override for the KB schema JSON. | PATH/TESTDBL | scripts/kb-schema.sh:14 | bash |
 | `SB_DIR` | `${BRAIN_DIR:-$HOME/.second-brain}` | Local var inside the timer installer. | INT | scripts/install-extract-timer.sh | none |
 | `SB_REPO_KEY_COMMON_DIR` | `on` | A linked `git worktree`'s slug resolves against its MAIN checkout (git-common-dir's parent), so every worktree of one repo shares a single project brain. `off` restores the pre-change basename-of-worktree-dir behavior. Bash: `sb_repo_key`. TS twin: `mainWorktreeDir`/`slugFromProjectDir`. | KS | lib.sh:2978; project-dir.ts | bash+vitest |
 
-**kb-schema-derived exports** — all set by `scripts/kb-schema.sh:9-21` from `kb-schema.json`
-(env-first overridable, sourced via lib.sh, guarded by `tests/test-kb-schema.sh`; fail-soft: if jq
-or the manifest is absent the vars stay UNSET, no hardcoded fallback):
+**kb-schema-derived exports** — all set by `scripts/kb-schema.sh:16-27` from `kb-schema.json`
+in one jq read (sourced by its readers ensure-dirs.sh, kb-ai-block-candidates.sh and
+wiki-forget-score.sh, not by lib.sh; guarded by `tests/test-kb-schema.sh`; fail-soft: if jq or the
+manifest is absent the vars stay UNSET, no hardcoded fallback):
 `SB_STRUCTURED_TYPES` (learnings decisions entities issues concepts security),
-`SB_UNSTRUCTURED_TYPES` (state sources), `SB_GENERATED_DIRS` (projects themes),
-`SB_CONTENT_CATEGORIES` (structured+unstructured; also defaulted inline at `ensure-dirs.sh:15`),
-`SB_ALL_CATEGORIES` (union), `SB_EDGE_TYPES` (requires affects relates part_of supersedes),
-`SB_FORGET_PROTECTED` / `SB_FORGET_DISCOUNTED` (shell fallbacks `wiki-forget-score.sh:22-23`),
-`SB_RAW_DIR` (`raw`), `SB_RAW_STATUSES` (unprocessed processed discarded).
+`SB_CONTENT_CATEGORIES` (structured+unstructured; also defaulted inline at `ensure-dirs.sh:14`),
+`SB_FORGET_PROTECTED` / `SB_FORGET_DISCOUNTED` (shell fallbacks `wiki-forget-score.sh:22-23`).
 
 ## 2. Hook guards & nudges (hooks.json-wired)
 
@@ -148,9 +146,8 @@ unconditional `echo`. `SB_QUALITY_GATE` gates the pipeline-invoked `extraction-q
 | `SB_MAINTAINER_AUTO` | `on` | Auto-dispatch of knowledge-maintainer after N wiki writes. | KS | session-load.sh:151 | bash |
 | `SB_MAINTAINER_THRESHOLD` | `3` | Wiki writes since last consolidation before dispatch. | TUNE | session-load.sh:150 | bash |
 | `SB_MAINTAINER_MAX_FAILS` | `3` | Consecutive maintainer failures before auto-disable (`.maintainer-auto-disabled` marker). | TUNE | session-load.sh:158 | bash |
-| `SB_DREAM_AUTOSTAGE` | `on` | dream-autostage banner logic (suggests `/second-brain:dream`, reclaims stale pendings, banners quarantine). `off` re-enables the legacy session-count nag. | KS | dream-autostage.sh:23; session-load.sh:145 | bash |
+| `SB_DREAM_AUTOSTAGE` | `on` | dream-autostage banner logic (suggests `/second-brain:dream`, reclaims stale pendings, banners quarantine). | KS | dream-autostage.sh:23 | bash |
 | `SB_DREAM_NEW_THRESHOLD` | `10` | New transcripts since last terminal dream before the suggest-banner. | TUNE | dream-autostage.sh:25 | bash |
-| `SB_DREAM_CADENCE` | `15` | Legacy session-count threshold (only when autostage off). | TUNE | session-load.sh:141 | none |
 | `SB_DREAM_STALE_DAYS` | `7` | Banner when the last dream is older than N days. | TUNE | session-load.sh:649 | none |
 | `SB_PERSONA_SIGNAL_WINDOW_DAYS` | `30` | Signal window for persona stats in session context. | TUNE | session-load.sh:482 | none |
 
@@ -316,8 +313,9 @@ grep for `process.env.SB_` alone MISSES the helper-mediated ones (grep for the b
 
 ## 9. Internal variables (set by the plugin — NOT user axes; do not document as flags)
 
-`SB_INPUT`, `SB_SESSION_ID`, `SB_TRANSCRIPT_PATH`, `SB_TIMESTAMP` — populated by the stdin-parse
-helper in lib.sh. `SB_AUDIT_FILE` (= `$BRAIN_DIR/audit-log.jsonl`, lib.sh:247) with rotation
+`SB_SESSION_ID` — the session id `persona-context.sh` hands its node CLIs (they drop the session's
+own episodic rows); `sb_log_audit` (lib.sh) falls back to it. (`SB_INPUT`, `SB_TRANSCRIPT_PATH`,
+`SB_TIMESTAMP` went with the deleted stdin-parse helper.) `SB_AUDIT_FILE` (= `$BRAIN_DIR/audit-log.jsonl`, lib.sh:247) with rotation
 constants `SB_AUDIT_MAX_LINES=5000` / `SB_AUDIT_MAX_BYTES=5242880` (lib.sh:248-249 — hard-coded
 assignments, NOT env-overridable). `SB_HEALTH_FILE` (= `$BRAIN_DIR/.extractor-health.json`,
 lib.sh:1128). `SB_EPI_INDEX` (episodic index path, session-load.sh). `SB_GATE` (gate-reason

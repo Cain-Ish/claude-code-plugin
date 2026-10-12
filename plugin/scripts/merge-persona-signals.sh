@@ -15,9 +15,11 @@ source "$(dirname "$0")/lib.sh"
 # behavior byte-for-byte. The caller (sb_extract_transcript, lib.sh) passes the project slug it
 # already resolved for this extraction — never args from the transcript itself.
 SLUG=""
+SESSION_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --slug) shift; SLUG="${1:-}"; shift || true ;;
+    --session) shift; SESSION_ARG="${1:-}"; shift || true ;;
     *) shift ;;
   esac
 done
@@ -32,7 +34,12 @@ touch "$SIGNALS_FILE"
 
 PRUNE_DAYS=90
 TODAY=$(date -u +%Y-%m-%d)
-SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+# E1: the session these signals came from, the unit graduation counts. Callers pass --session (the
+# hook payload's id; the archive header's for the drainer); CLAUDE_CODE_SESSION_ID is what Claude
+# Code exports. CLAUDE_SESSION_ID alone was never set, so every sighting read "unknown".
+SESSION_ID="${SESSION_ARG:-${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}}"
+case "$SESSION_ID" in *[!A-Za-z0-9_-]*) SESSION_ID="unknown" ;; esac
+SESSION_ID="${SESSION_ID:0:64}"
 
 RAW_INPUT=$(cat)
 if printf '%s' "$RAW_INPUT" | jq -e 'type == "object"' >/dev/null 2>&1; then
@@ -52,6 +59,14 @@ if echo "$NEW_SIGNALS" | jq -e 'length == 0' >/dev/null 2>&1 \
   && echo "$NEW_CANDIDATES" | jq -e 'length == 0' >/dev/null 2>&1; then
   exit 0
 fi
+
+# Residual 1: the read-modify-write of persona-signals.jsonl (read here, mv below) holds the same
+# .persona-signals.jsonl.lock primitive as PROJECT.md; two merges (Stop+Stop, Stop+drainer) otherwise
+# lose a signal update. Busy past SB_ARCHIVE_LOCK_WAIT_S: sb_archive_lock logs, exit 1 (retried later).
+_MPS_LOCK_TOKEN=""; _MPS_TMP_E=""; _MPS_TMP_N=""
+trap 'rm -f ${_MPS_TMP_E:+"$_MPS_TMP_E"} ${_MPS_TMP_N:+"$_MPS_TMP_N"}; [ -z "$_MPS_LOCK_TOKEN" ] || sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"' EXIT
+sb_archive_lock "$SIGNALS_FILE" merge-persona-signals.sh || exit 1
+_MPS_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
 
 # Load existing signals as JSON array. D139: `jq -s '.'` aborts the WHOLE slurp on
 # one unparseable line (a partial append, a crash mid-write, a concurrent-write
@@ -74,7 +89,6 @@ _MPS_TMP_E=$(mktemp "${TMPDIR:-/tmp}/mps-existing.XXXXXX") && _MPS_TMP_N=$(mktem
   rm -f "${_MPS_TMP_E:-}"
   exit 1
 }
-trap 'rm -f "$_MPS_TMP_E" "$_MPS_TMP_N"' EXIT
 printf '%s' "$EXISTING" > "$_MPS_TMP_E"
 printf '%s' "$NEW_SIGNALS" > "$_MPS_TMP_N"
 MERGED=$(jq -nc \
@@ -150,7 +164,7 @@ MERGED=$(echo "$MERGED" | jq -c \
 # weeks rather than nuking the record. Ungraduated signals decayed below 0.2
 # are PRUNED (logged loud below); graduated ones are kept — their record is
 # the dedup ledger that stops a paraphrase from re-graduating into a
-# duplicate USER.md pin.
+# duplicate learned pin (persona-learned.md).
 SCORED=$(echo "$MERGED" | jq -c '
   map(. + {score:
     # The WHOLE value expression is parenthesized: an object value that is a bare
@@ -176,19 +190,38 @@ if [ "$PRUNED_N" -gt 0 ]; then
 fi
 MERGED=$(echo "$SCORED" | jq -c '.keep')
 
-# --- Auto-graduate high-confidence signals with 2+ observations ---
+# --- Auto-graduate high-confidence signals seen in 2+ DISTINCT sessions ---
 # Threshold was count>=3, but field data showed cross-session paraphrase
 # divergence + the old strict dedup kept nearly everything at count=1. After
-# loosening the dedup above, count>=2 is the natural floor: a behavior seen
+# loosening the dedup above, two sessions are the natural floor: a behavior seen
 # in two distinct sessions with high LLM confidence is genuine signal.
-GRAD_CANDIDATES=$(echo "$MERGED" | jq -c '[.[] | select(.count >= 2 and .confidence == "high" and .graduated == false)]')
+# E1: distinct sessions, not count. count is extraction runs, and one window is
+# extracted more than once (a Stop retry, Stop plus the drainer); "unknown" never counts.
+GRAD_CANDIDATES=$(echo "$MERGED" | jq -c '[.[] | select(.confidence == "high" and .graduated == false
+  and ([.evidence[]?.session | select(type == "string" and . != "" and . != "unknown")] | unique | length) >= 2)]')
 GRAD_COUNT=$(echo "$GRAD_CANDIDATES" | jq 'length')
 
 if [ "$GRAD_COUNT" -gt 0 ]; then
   GRADUATED_INDICES=""
   for i in $(seq 0 $((GRAD_COUNT - 1))); do
     SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal" | tr -d '\r')
-    if sb_pin_to_user "$SIG_TEXT"; then
+    # E1: this text is transcript-derived, so it passes the injection classifier first. A hit is
+    # refused, logged, and the record dropped, so it does not re-fire on every later merge.
+    # SIL-R5: a classifier FAILURE (jq/fork error) is no verdict: the record stays ungraduated and
+    # the next merge classifies it again; dropping it lost the signal for good.
+    if ! SIG_CLASS=$(sb_text_injection_class "$SIG_TEXT"); then
+      sb_log_error "merge-persona-signals.sh" "persona graduation skipped: injection classifier failed, signal kept for the next merge: ${SIG_TEXT:0:160}" 1
+      continue
+    fi
+    if [ -n "$SIG_CLASS" ]; then
+      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=$SIG_CLASS, signal dropped: ${SIG_TEXT:0:160}" 1
+      MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT" 'map(select(.signal != $sig))')
+      continue
+    fi
+    # SEC-R5: a phrase classifier cannot hold paraphrases and homoglyphs, so a graduated signal goes
+    # to the machine-learned store that session-load.sh serves inside the untrusted-data frame, never
+    # to the trusted USER.md (human pins only: pin_to_user, /pin).
+    if sb_pin_to_learned "$SIG_TEXT"; then
       GRADUATED_INDICES="$GRADUATED_INDICES $i"
     fi
   done
@@ -235,6 +268,7 @@ if [ -n "$MERGED" ] && echo "$MERGED" | jq -e 'type == "array"' >/dev/null 2>&1;
     rm -f "$TMP_SIG" 2>/dev/null
   fi
 fi
+sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN" && _MPS_LOCK_TOKEN=""
 
 # --- Rule-candidate accumulation → auto-arm as learned WARN rules ---
 # Candidates come from the extractor only when the transcript showed an

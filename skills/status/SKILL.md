@@ -127,7 +127,7 @@ else
 fi
 ```
 
-Graduation is automatic: `merge-persona-signals.sh` (Stop hook) auto-pins count≥2 high-confidence signals to USER.md. If ungraduated signals linger here, offer to pin them explicitly via the `pin_to_user` MCP tool.
+Graduation is automatic: `merge-persona-signals.sh` (Stop hook) moves high-confidence signals seen in 2+ distinct sessions into `~/.second-brain/persona-learned.md` (served at SessionStart as untrusted data, not as USER.md rules). If ungraduated signals linger here, or a learned line should become a trusted rule, offer to pin it explicitly via the `pin_to_user` MCP tool.
 
 ### 4d. Dream status
 
@@ -257,7 +257,7 @@ if [ -f "$AUD" ] && grep -q '"kind":"latency"' "$AUD" 2>/dev/null; then
           printf "  %-22s p50=%sms p95=%sms (n=%d)\n", h, p50, p95, m
         }
       }'
-  WARNS=$(grep -c '"budget_warn":true' "$AUD" 2>/dev/null || echo 0)
+  WARNS=$(grep -c '"budget_warn":true' "$AUD" 2>/dev/null); WARNS=${WARNS:-0}
   [ "$WARNS" -gt 0 ] && echo "  ⚠ $WARNS run(s) exceeded 70% of their hook budget — check which hook above is near its hooks.json timeout"
 else
   echo "  (no latency telemetry yet — lands after the first wrapped-hook run on >=0.24.46)"

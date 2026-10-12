@@ -1,0 +1,30 @@
+Y|rm -rf /tmp/x
+Y|rm -fr /tmp/x
+Y|rm -Rf /tmp/x
+Y|rm -r -f /tmp/x
+Y|rm -f -r /tmp/x
+Y|rm --recursive --force /tmp/x
+Y|cd a && rm -rf b
+Y|sudo rm -r -f ~
+Y|find . | xargs rm -rf
+Y|(rm -rf x)
+Y|/bin/rm -rf x
+Y|/usr/bin/rm -rf x
+Y|\rm -rf x
+Y|bash -c 'rm -rf x'
+Y|ssh h "rm -rf /d"
+Y|eval 'rm -rf x'
+Y|find . -exec /bin/rm -rf {} +
+Y|grep -n 'rm -rf' scripts/a.sh
+Y|echo "rm -rf is bad"
+Y|rm -r --force x
+Y|rm --recursive -f x
+Y|rm -r -v -f x
+Y|rm -r x -f
+N|rm -r /tmp/x
+N|rm -f file
+N|rm file-r-f.txt
+N|cat x | grep form -rf
+N|rm -f yarn-error.log
+N|rm -r some-folder
+N|docker run --rm img make -f Makefile

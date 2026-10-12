@@ -4,7 +4,8 @@ import { join } from 'path';
 import { resolveBrainDir, resolveKnowledgeDir } from '../brain-paths.js';
 import { embedTexts, cosineSimilarity, appendErrorLog, appendGateTrace } from './embeddings.js';
 import { estimateTokens } from './egress-budget.js';
-import { loadRegistry, servableEntries, isPlainAbsolutePath } from './doc-sources.js';
+import { servableEntries, isPlainAbsolutePath } from './doc-sources.js';
+import { loadRegistry } from './doc-registry.js';
 import { activeProjectDir } from './project-dir.js';
 import { stripInvisible } from './sanitize.js';
 import { loadEdges, foldToCurrent, validAt, CurrentEdge } from './graph-store.js';
@@ -13,7 +14,7 @@ import { projectFamily } from './project-registry.js';
 import { parseDoc, ParsedDoc } from './frontmatter.js';
 import { walkWiki } from './walk-wiki.js';
 import { assertWithin, validateSlug, cleanEnvPath } from '../path-guard.js';
-import { foldServedSnippet } from './episodic-search.js';
+import { foldServedSnippet, untrustedFrame } from './episodic-search.js';
 
 // Frontmatter parsing lives in ./frontmatter.ts (single source); re-exported here for back-compat.
 export { parseDoc, extractYamlValue, extractYamlList } from './frontmatter.js';
@@ -218,6 +219,17 @@ const SINGLE_LETTER_RE = /^[a-z]$/;
 // lost, no injection changed; R2 #27 ("season 8 … new") grounds on "season" + "new". Mixed
 // alphanumerics (d154, v2, 627m) still ground. Grounding only; BM25 still scores digits.
 const PURE_DIGITS_RE = /^[0-9]+$/;
+
+/** A numeric env override, clamped to [lo, hi]; unset, empty or non-numeric falls back to `def`
+ *  (audit N6: shared by the two injecting CLIs). NaN would make every `>= NaN` gate false. */
+export const envNum = (name: string, def: number, lo: number, hi: number): number => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const v = Number(raw);
+  return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+};
+
+let embedFailLogged = false;
 
 export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<KnowledgeSearchResult> {
   const knowledgeDir = resolveKnowledgeDir(args.knowledgeDir);
@@ -451,7 +463,13 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
           : 0;
       }
     }
-  } catch { /* ONNX unavailable — continue with BM25 + graph scores */ }
+  } catch (e) {
+    // ONNX failed mid-run — keep the BM25 + graph scores, but say why once (audit M9).
+    if (!embedFailLogged) {
+      embedFailLogged = true;
+      console.error(`knowledge-search: embeddings failed, falling back to BM25: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   // Stub penalty: auto-extracted skeletons and very short pages rank below real content
   for (let i = 0; i < scored.length; i++) {
@@ -469,7 +487,7 @@ export async function knowledgeSearch(args: KnowledgeSearchArgs): Promise<Knowle
     const updated = new Date(dateStr).getTime();
     if (isNaN(updated)) continue;
     const daysSince = (now - updated) / (86400000);
-    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS);
+    scored[i].score *= 1 + RECENCY_BOOST_MAX * Math.min(1, Math.max(0, 1 - daysSince / RECENCY_WINDOW_DAYS));
   }
 
   // --- SP-1 project-scoped serving (scoped-first, auto-broaden). Pure reorder + filter. ---
@@ -726,6 +744,16 @@ export function injectableWiki<C extends KnowledgeSearchResult['candidates'][num
   return candidates.filter(c => !c.stub
     && c.score >= o.minScore && c.relevance >= o.minRelevance
     && c.grounded >= injectionGroundingNeed(o.minGrounded, c.discriminative_terms ?? 0, c.cross_project === true));
+}
+
+/** knowledge_search's MCP return: every non-empty description (a page description, ai-block or body
+ *  snippet, a local doc's gist — all store text) rides in knowledge_fetch's untrusted frame (audit M4).
+ *  MCP only: the injecting CLIs read knowledgeSearch raw and fold each description into one line. */
+export function frameSearchResult(result: KnowledgeSearchResult): KnowledgeSearchResult {
+  return {
+    ...result,
+    candidates: result.candidates.map(c => (c.description ? { ...c, description: untrustedFrame('search snippet', c.description) } : c)),
+  };
 }
 
 /** The one line an injecting CLI prints per gated candidate: knowledge-search-cli (read by

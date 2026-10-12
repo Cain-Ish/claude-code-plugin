@@ -26,10 +26,14 @@ set -u
 RAW=$(cat 2>/dev/null || true)
 [ -z "$RAW" ] && exit 0
 
-# lib.sh gives BRAIN_DIR its single-source resolution (incl. the MSYS cygpath
-# normalization). This is telemetry: if lib.sh is unsourceable, go quiet —
-# unlike the PreToolUse guards, there is nothing here that must stay armed.
-if ! source "$(dirname "$0")/lib.sh" 2>/dev/null; then exit 0; fi
+# BRAIN_DIR without lib.sh (sourcing it costs ~300 ms on EVERY tool call, audit H8): protocol-guard.sh's
+# two-line resolution. lib.sh loads lazily (obs_lib) only where a lib function is needed.
+BRAIN_DIR="${BRAIN_DIR:-$HOME/.second-brain}"
+case "$BRAIN_DIR" in *:*|*\\*) command -v cygpath >/dev/null 2>&1 && BRAIN_DIR=$(cygpath -u "$BRAIN_DIR" 2>/dev/null || printf '%s' "$BRAIN_DIR") ;; esac
+# Telemetry: if lib.sh is unsourceable, go quiet (nothing here must stay armed, unlike the PreToolUse
+# guards). A line that may carry a credential is then DROPPED, never written unscrubbed.
+OBS_LIB_DIR="$(dirname "$0")"
+obs_lib() { command -v sb_log_error >/dev/null 2>&1 || source "$OBS_LIB_DIR/lib.sh" 2>/dev/null; }
 
 TOOL=$(printf '%s' "$RAW" | jq -r '.tool_name // empty' 2>/dev/null | tr -d '\r')
 [ -z "$TOOL" ] && exit 0
@@ -55,7 +59,7 @@ obs_loud_once() {
   # The braces carry the stderr redirect: `: > f 2>/dev/null` reports a failed `> f` before it
   # applies (the redirections run left to right), so the hook printed "Permission denied" anyway.
   { : > "$flag"; } 2>/dev/null || { : > "$alt"; } 2>/dev/null || return 0
-  sb_log_error "observe-tool-use.sh" "$2" 1
+  obs_lib && sb_log_error "observe-tool-use.sh" "$2" 1
 }
 
 # A ledger directory that cannot be created loses every observation of the session: said once.
@@ -124,10 +128,21 @@ if [ -z "$LINE" ]; then
   obs_loud_once jq-build-failed "observation ledger: jq could not build the record of a tool use of session ${SID:0:8} (tool=$TOOL); the observation is lost (reported once per session)"
   exit 0
 fi
-if sb_has_scrub_literal "$LINE"; then
-  if ! LINE=$(printf '%s\n' "$LINE" | sb_scrub_secrets) || [ -z "$LINE" ]; then
-    sb_log_error "observe-tool-use.sh" "secret scrub of an observation failed; the observation is dropped, not written unscrubbed (session=${SID:0:8} tool=$TOOL)" 1
-    exit 0
+# Prefilter = lib.sh's _SB_SCRUB_LITERALS (case-insensitive; a test pins the two lists together):
+# only a hit pays for loading lib.sh, whose own sb_has_scrub_literal then decides as before.
+_obs_nc=0; shopt -q nocasematch && _obs_nc=1; shopt -s nocasematch
+case "$LINE" in
+  *sk-*|*k_live_*|*github_pat_*|*ghp_*|*gho_*|*ghs_*|*ghu_*|*ghr_*|*AKIA*|*ASIA*|*AIza*|*npm_*|*glpat-*|*hf_*|*xox*|*xapp-*|*eyJ*|*"bearer "*|*authorization*|*_secret_access_key*|*"PRIVATE KEY"*|*$'\xe2\x80\x8b'*|*$'\xe2\x80\x8c'*|*$'\xe2\x80\x8d'*|*$'\xe2\x81\xa0'*|*$'\xef\xbb\xbf'*) _obs_hit=1 ;;
+  *) _obs_hit=0 ;;
+esac
+[ "$_obs_nc" = 1 ] || shopt -u nocasematch
+if [ "$_obs_hit" = 1 ]; then
+  obs_lib || exit 0
+  if sb_has_scrub_literal "$LINE"; then
+    if ! LINE=$(printf '%s\n' "$LINE" | sb_scrub_secrets) || [ -z "$LINE" ]; then
+      sb_log_error "observe-tool-use.sh" "secret scrub of an observation failed; the observation is dropped, not written unscrubbed (session=${SID:0:8} tool=$TOOL)" 1
+      exit 0
+    fi
   fi
 fi
 if ! { printf '%s\n' "$LINE" >> "$OBS_FILE"; } 2>/dev/null; then   # braces: see obs_loud_once

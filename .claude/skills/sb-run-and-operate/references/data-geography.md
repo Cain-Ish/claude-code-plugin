@@ -24,7 +24,7 @@ or history if removed; **REGEN** = regenerable, safe to delete; **AUTO** = prune
 
 | Path | What it is | Writer(s) | Reader(s) | Delete? |
 |---|---|---|---|---|
-| `USER.md` | pinned user preferences (hot tier) | setup step 2; `pin_to_user` MCP tool | `session-load.sh` hot-tier injection | NEVER |
+| `USER.md` | pinned user preferences (hot tier); human pins only (auto-graduated signals go to `persona-learned.md`) | setup step 2; `pin_to_user` MCP tool | `session-load.sh` hot-tier injection | NEVER |
 | `persona-card.md` | always-loaded identity card (user-owned after setup step 5; plugin never rewrites, only idempotent Charter fill) | setup step 5; the user | `persona-context.sh` each UserPromptSubmit | NEVER |
 | `persona-rules.json` | user-owned HARD guard policy — when present it wins over the shipped `scripts/persona-rules.default.json` (`persona-tool-guard.sh:39`) | the user (no plugin writer) | `persona-tool-guard.sh` each PreToolUse | KEEP (deleting reverts to shipped defaults, loses your rules) |
 | `projects.jsonl` (+ `.bak.*`) | project registry, one compact JSON object per line | setup step 4; `session-load.sh` auto-register; `lib.sh` hardener | slug resolution everywhere (`sb_project_identity`, `project-dir.ts`) | NEVER |
@@ -62,6 +62,9 @@ or history if removed; **REGEN** = regenerable, safe to delete; **AUTO** = prune
 | `.last-maintain` / `.last-llm-maintain` / `.last-verify` / `.plan-nudge*` / `.verify-gate-blocks-<sid>` | interval + once-per-session markers (maintenance cadence, verify freshness, plan-first nudge, verify-gate block count) | their namesake scripts (`maintain-deterministic.sh`, `maintain-llm-drain.sh`, `verify.sh:106`, `plan-first-nudge.sh:50`, `stop-verify-gate.sh:23`) | same | REGEN (deleting just re-arms the timer/nudge) |
 | `.injected/*.json` | per-session persona-injection memos | `persona-context.sh` | GC'd by `ensure-dirs.sh` at 7 days | AUTO |
 | `persona-signals.jsonl`, `.pin-candidates.jsonl`, `persona-budget.json`, `.persona-dismissals.jsonl` | persona learning state | extraction pipeline; `persona_think`/`persona_dismiss` MCP | `persona-context.sh`; `persona_stats` | KEEP |
+| `persona-learned.md` | auto-graduated persona signals (untrusted; USER.md stays human pins) | `merge-persona-signals.sh` (lib.sh `sb_pin_to_learned`); `ensure-dirs.sh` one-time move of pre-0.57.0 auto-graduated USER.md pins (lib.sh `sb_migrate_learned_pins`) | `session-load.sh` untrusted-data frame | KEEP |
+| `.persona-learned-migrated` | done-marker of that one-time USER.md -> `persona-learned.md` move (written only after a complete pass) | `ensure-dirs.sh` (lib.sh `sb_migrate_learned_pins`) | same | safe (deleting re-runs the idempotent move at the next SessionStart) |
+| `.timer-unverifiable` | log-once marker: the drainer timer's unit/plist exists but systemd/launchd cannot be asked (no user bus / gui session), so it counts as installed | lib.sh `_sb_timer_unverifiable` (via `sb_timer_installed`) | same | safe (deleting logs the unverifiable state once more) |
 | `.llm-maintain-quarantine` / `.llm-maintain-fails` | headless-maintainer 3-strike quarantine | `maintain-llm-drain.sh` | dream-autostage banner; only a CLI-version quarantine clears itself (healthy preflight), any other cause stays until both files are deleted | safe (delete BOTH to clear: the strike count alone re-quarantines on the next failure) |
 | `scratch/` | cwd for nested extractor spawns | drainer | GC'd (+3d) by drainer | AUTO |
 | `regressions/` | quality-gate regression capture | quality gates | review flows | KEEP |

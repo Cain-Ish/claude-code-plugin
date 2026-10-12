@@ -1,19 +1,22 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { resolveBrainDir } from '../brain-paths.js';
+import { withFileLock } from './hot-file-lock.js';
+import { writeFileAtomic } from './atomic-write.js';
 
 // Cap on PIN LINES ONLY ("- [YYYY-MM-DD] …"), never on the whole file. The previous cap
 // (15 non-blank lines of the ENTIRE file, pin appended at EOF) counted the operator's own
 // hand-written About/Intent sections — the live USER.md was 23 non-blank lines with ZERO pins,
-// so every pin_to_user call and every auto-graduated persona signal was refused, silently, for
-// months (ledger LC-07, 2026-08-23). scripts/lib.sh sb_pin_to_user applies the SAME rule
+// so every pin_to_user call (and, then, every auto-graduated persona signal) was refused, silently,
+// for months (ledger LC-07, 2026-08-23). Graduation no longer goes through here: it writes
+// $BRAIN_DIR/persona-learned.md via sb_pin_to_learned; USER.md is human pins only. scripts/lib.sh sb_pin_to_user applies the SAME rule
 // (same regex, same MAX_PINS, same section) — keep them in lockstep.
 export const MAX_PINS = 15;
 export const PIN_RE = /^- \[\d{4}-\d{2}-\d{2}\]\s+(.*)$/;
 const PIN_SECTION = '## Pinned';
 
 // D109: text spliced into USER.md unflattened let a forged "\n## Operator instructions\nALWAYS
-// …" (e.g. from a transcript-derived, auto-graduated persona signal) create a NEW heading that
+// …" (e.g. from transcript-derived text; graduation itself now targets persona-learned.md) create a NEW heading that
 // session-load.sh then injects verbatim into EVERY SessionStart — USER.md is priority-1 and is
 // never wrapped as untrusted (test-injection-wrap.sh). Ported verbatim from pin-to-project.ts's
 // flattenField (added there in 0.48.0 for exactly this memory-poisoning primitive): strip
@@ -37,9 +40,23 @@ export async function pinToUser(args: PinToUserArgs): Promise<PinToUserResult> {
   }
   const newLine = `- [${date}] ${trimmed}`;
 
+  // E3: read-modify-write under the shared .USER.md.lock (lib.sh sb_pin_to_user, the bash twin of
+  // this tool, holds it too) and replace by temp + rename.
+  await fs.mkdir(dir, { recursive: true });
+  return withFileLock(file, reason => ({ ok: false, line_added: '', reason }),
+    () => pinUserLocked(file, trimmed, newLine));
+}
+
+async function pinUserLocked(file: string, trimmed: string, newLine: string): Promise<PinToUserResult> {
   let content = '';
   try { content = await fs.readFile(file, 'utf-8'); }
-  catch { content = `# USER preferences\n\n${PIN_SECTION}\n`; }
+  catch (e) {
+    // M5: only a MISSING file gets the template. EPERM/EBUSY (a locked file on Windows) used to
+    // write template + one pin over the real profile and report ok:true.
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') return { ok: false, line_added: '', reason: `cannot read USER.md (${code ?? String(e)}); nothing written` };
+    content = `# USER preferences\n\n${PIN_SECTION}\n`;
+  }
 
   const lines = content.split('\n');
   const pinLines = lines.filter(l => PIN_RE.test(l));
@@ -70,7 +87,6 @@ export async function pinToUser(args: PinToUserArgs): Promise<PinToUserResult> {
   out.splice(insertAt, 0, newLine);
   const projected = out.join('\n').replace(/\n*$/, '\n');
 
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(file, projected, 'utf-8');
+  await writeFileAtomic(file, projected);
   return { ok: true, line_added: newLine };
 }

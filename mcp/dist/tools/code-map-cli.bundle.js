@@ -213,8 +213,6 @@ function resolveActiveSlug(brainDir, env = process.env, cwd = process.cwd) {
 }
 
 // src/tools/codemap/scan-sources.ts
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { existsSync as existsSync3, statSync as statSync3 } from "fs";
 import { readFile, stat } from "fs/promises";
 import { homedir as homedir2, tmpdir } from "os";
@@ -6281,8 +6279,102 @@ var glob = Object.assign(glob_, {
 });
 glob.glob = glob;
 
-// src/tools/codemap/scan-sources.ts
+// src/tools/jit-index.ts
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+// ../kb-schema.json
+var kb_schema_default = {
+  _comment: "SINGLE SOURCE OF TRUTH for the second-brain knowledge-base structure. Edit HERE only. Read by the TS MCP server via mcp/src/constants/kb-schema.ts (esbuild inlines this JSON) and by every bash script/hook via scripts/kb-schema.sh (sourced by lib.sh, reads this file with jq). Derived sets (content/all categories) are computed by the loaders, never stored, so they cannot drift. Guarded by tests/test-kb-schema.sh.",
+  structured_types: ["learnings", "decisions", "entities", "issues", "concepts", "security"],
+  unstructured_types: ["state", "sources"],
+  frontmatter_required: ["title", "description", "type", "created", "updated", "tags", "related"],
+  ai_blocks: {
+    markers: { begin: "<!-- ai:begin", end: "<!-- ai:end -->" },
+    body: "flat YAML key: value lines",
+    types: {
+      learnings: { fields: ["claim", "trigger", "action", "scope", "evidence", "supersedes"], required: ["claim", "action"] },
+      decisions: { fields: ["context", "choice", "alternatives", "rationale", "status", "supersedes"], required: ["choice"] },
+      entities: { fields: ["identity", "current_state", "depends_on", "owns", "status"], required: ["identity"] },
+      issues: { fields: ["symptom", "cause", "fix", "severity", "status"], required: ["symptom", "status"] },
+      concepts: { fields: ["problem", "solution", "where_applied", "tradeoffs"], required: ["problem", "solution"] },
+      security: { fields: ["threat", "mitigation", "scope", "status"], required: ["threat", "mitigation"] }
+    }
+  },
+  candidate_facts: {
+    _comment: "Stage A <-> Stage B contract for the P6 quarantined consolidation split. json_schema is passed VERBATIM to the Stage A summarizer spawn (claude -p --json-schema, validator-enforced from CLI 2.1.205) by scripts/maintain-llm-drain.sh (jq -c .candidate_facts.json_schema). The Stage B writer (mcp/src/tools/candidate-facts.ts) validates against the SAME object, deriving the kind vocabulary and byte caps from it - never a second copy. kind_to_category maps writable kinds to wiki categories; kinds absent from the map are handled elsewhere: `preference` is DROPPED (no consumer yet); `relation` carries from_hint/to_hint/rel and becomes a proposed EDGE (Stage B resolves the hints deterministically, dream-accept applies them via merge-edges.sh). `rel` is deliberately restricted to `relates` for the unattended lane - typed edges (requires/affects/part_of) and especially `supersedes` stay a live-maintainer judgement: a wrong typed edge distorts knowledge_neighbors blast-radius answers, and a wrong supersedes retires a true page.",
+    kind_to_category: { decision: "decisions", learning: "learnings", entity: "entities", issue: "issues" },
+    relation_edge_types: ["relates"],
+    json_schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["facts"],
+      properties: {
+        facts: {
+          type: "array",
+          maxItems: 200,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "claim"],
+            properties: {
+              kind: { type: "string", enum: ["decision", "learning", "entity", "issue", "preference", "relation"] },
+              from_hint: { type: "string", maxLength: 120 },
+              to_hint: { type: "string", maxLength: 120 },
+              rel: { type: "string", enum: ["relates"] },
+              title: { type: "string", maxLength: 120 },
+              claim: { type: "string", minLength: 1, maxLength: 2e3 },
+              evidence: { type: "string", maxLength: 1e3 },
+              source: { type: "string", maxLength: 300 },
+              confidence: { type: "string", enum: ["high", "medium", "low"] }
+            }
+          }
+        }
+      }
+    }
+  },
+  generated_dirs: ["projects", "themes"],
+  edge_types: ["requires", "affects", "relates", "part_of", "supersedes"],
+  project_sections: ["blockers", "decisions", "conventions"],
+  forget_protection: {
+    protected: ["learnings", "decisions", "concepts", "security", "themes", "projects"],
+    discounted: ["entities", "sources", "issues"]
+  },
+  raw: {
+    dir: "raw",
+    tier: "project",
+    statuses: ["unprocessed", "processed", "discarded"],
+    searchable: false
+  }
+};
+
+// src/constants/kb-schema.ts
+var STRUCTURED_TYPES = kb_schema_default.structured_types;
+var UNSTRUCTURED_TYPES = kb_schema_default.unstructured_types;
+var GENERATED_DIRS = kb_schema_default.generated_dirs;
+var CANDIDATE_FACTS = kb_schema_default.candidate_facts;
+var FRONTMATTER_REQUIRED = kb_schema_default.frontmatter_required;
+var AI_BLOCK_TYPES = kb_schema_default.ai_blocks.types;
+var CONTENT_CATEGORIES = [...STRUCTURED_TYPES, ...UNSTRUCTURED_TYPES];
+var ALL_CATEGORIES = [...CONTENT_CATEGORIES, ...GENERATED_DIRS];
+
+// src/tools/ai-block.ts
+var AI_BLOCK_RE = /<!--\s*ai:begin[^\n]*?-->\n?([\s\S]*?)<!--\s*ai:end\s*-->/;
+var AI_BLOCK_RE_G = new RegExp(AI_BLOCK_RE.source, "g");
+
+// src/tools/jit-index.ts
 var execFileAsync = promisify(execFile);
+async function defaultGitRunner(args, cwd) {
+  const { stdout } = await execFileAsync("git", args, {
+    cwd,
+    maxBuffer: 64 * 1024 * 1024,
+    windowsHide: true,
+    timeout: 5e3
+  });
+  return stdout;
+}
+
+// src/tools/codemap/scan-sources.ts
 var DEFAULT_MAX_FILE_BYTES = 524288;
 var DEFAULT_MAX_FILES = 4e3;
 var IGNORE_DIRS = ["node_modules", "dist", "build", ".git", "coverage", "vendor", ".next", "out"];
@@ -6303,14 +6395,7 @@ function envInt(name, fallback) {
   const n = Number.parseInt(raw.trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
-async function defaultRunGit(args, cwd) {
-  const { stdout } = await execFileAsync("git", args, {
-    cwd,
-    maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true
-  });
-  return stdout;
-}
+var defaultRunGit = defaultGitRunner;
 function byId(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -6328,7 +6413,7 @@ async function scanSources(repoRoot, opts = {}) {
   let candidates;
   try {
     const stdout = await runGit(["ls-files", "-z"], repoRoot);
-    candidates = stdout.split("\0").filter((rel) => rel.length > 0).map((rel) => ({ id: rel, abs: path2.resolve(repoRoot, rel) }));
+    candidates = [...new Set(stdout.split("\0"))].filter((rel) => rel.length > 0).map((rel) => ({ id: rel, abs: path2.resolve(repoRoot, rel) }));
   } catch {
     const absList = await glob("**/*", {
       cwd: repoRoot,
@@ -6452,8 +6537,7 @@ function expandBase(base, lang) {
     if (alias) out2.push(base.slice(0, -ext2.length) + alias);
     return out2;
   }
-  if (ext2) return [base];
-  const out = [];
+  const out = ext2 ? [base] : [];
   if (base !== "") for (const e of fileExts) out.push(base + e);
   const dirPrefix = base === "" ? "" : base + "/";
   if (wantIndex) for (const e of INDEX_EXTS) out.push(dirPrefix + "index" + e);
@@ -6883,9 +6967,14 @@ async function currentRev(repoRoot, runGit = defaultRunGit) {
 }
 async function isDirty(repoRoot, runGit = defaultRunGit) {
   try {
-    const out = await runGit(["status", "--porcelain"], repoRoot);
+    const out = await runGit(["status", "--porcelain", "--untracked-files=no"], repoRoot);
     return out.trim().length > 0;
-  } catch {
+  } catch (e) {
+    const err = e;
+    if (err.killed || err.signal || err.code === "ETIMEDOUT") {
+      console.error(`[codemap] git status did not finish in ${repoRoot} (${err.signal ?? err.code ?? "killed"}); treating the tree as dirty`);
+      return true;
+    }
     return false;
   }
 }

@@ -179,7 +179,7 @@ coverage: [references/flag-catalog.md](references/flag-catalog.md). Index:
 | 6 | Search / retrieval / MCP server | scoping, boosts, MOC, capture dedup, egress budget |
 | 7 | Persona subsystem | dismissal backoff, persona_think model/timeout |
 | 8 | Eval / project-merge / misc | recall gates, staleness, liveness/test overrides |
-| 9 | Internal variables | set by lib.sh — NOT user axes (`SB_INPUT`, `SB_AUDIT_FILE`, …) |
+| 9 | Internal variables | set by the plugin — NOT user axes (`SB_SESSION_ID`, `SB_AUDIT_FILE`, …) |
 | 10 | Test-infrastructure vars | run-all knobs + stub doubles, tests/-only |
 
 ## 6. The most load-bearing flags

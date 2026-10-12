@@ -1,9 +1,7 @@
 // src/tools/persona-think.ts
 import { spawn } from "child_process";
-
-// src/model-resolve.ts
-import { readFileSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { mkdirSync } from "fs";
+import { join as join3 } from "path";
 
 // src/brain-paths.ts
 import { join, isAbsolute } from "path";
@@ -40,6 +38,10 @@ function resolveBrainDir(override) {
     cleanEnvPath(process.env.SB_BRAIN_DIR || process.env.BRAIN_DIR) || join(homedir(), ".second-brain")
   );
 }
+
+// src/model-resolve.ts
+import { readFileSync } from "node:fs";
+import { join as join2 } from "node:path";
 
 // ../model-ladder.json
 var model_ladder_default = {
@@ -109,7 +111,7 @@ function resolveModel(tier, surface = "headless") {
 
 // src/tools/persona-think.ts
 var advisorModel = () => resolveModel("deep", "headless");
-var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "30000");
+var THINK_TIMEOUT_MS = Number(process.env.SB_PERSONA_TIMEOUT_MS ?? "20000");
 var SYSTEM_PROMPT = `You are the user's senior-developer persona for the second-brain plugin.
 Given the user's prompt plus optional context hints, return ONLY a JSON object with these fields:
   intent_read: one sentence \u2014 what the user probably wants
@@ -120,13 +122,41 @@ Given the user's prompt plus optional context hints, return ONLY a JSON object w
 
 Be terse. Default silent on questions/specialists/risks \u2014 only populate when the value is concrete.
 Output ONLY the JSON object, no prose around it.`;
+function personaSpawnArgs(model, system, apiKey = process.env.ANTHROPIC_API_KEY) {
+  return [
+    "-p",
+    ...apiKey ? ["--bare"] : [],
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--setting-sources",
+    "",
+    "--no-session-persistence",
+    "--model",
+    model,
+    "--system-prompt",
+    system
+  ];
+}
+function inSessionRefusal(env = process.env) {
+  if (env.CLAUDECODE === "1" && env.SB_FORCE_CLI !== "1" && !env.ANTHROPIC_API_KEY) {
+    return "in-session OAuth only: a nested claude -p would hang; set ANTHROPIC_API_KEY to enable persona_think";
+  }
+  return null;
+}
 function defaultRunner(system, user, model) {
   if (process.env.VITEST) {
     return Promise.reject(new Error("persona-think defaultRunner: refusing to spawn a real claude under VITEST; inject deps.runner"));
   }
+  const refusal = inSessionRefusal();
+  if (refusal) return Promise.reject(new Error(refusal));
+  const cwd = join3(resolveBrainDir(), "scratch");
+  mkdirSync(cwd, { recursive: true });
   return new Promise((resolve, reject) => {
-    const p = spawn("claude", ["-p", "--bare", "--model", model, "--system-prompt", system], {
-      stdio: ["pipe", "pipe", "pipe"]
+    const p = spawn("claude", personaSpawnArgs(model, system), {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, SB_NESTED_SPAWN: "1" }
     });
     let out = "";
     let err = "";
@@ -135,7 +165,7 @@ function defaultRunner(system, user, model) {
       killed = true;
       p.kill("SIGTERM");
       setTimeout(() => {
-        if (!p.killed) p.kill("SIGKILL");
+        if (p.exitCode === null && p.signalCode === null) p.kill("SIGKILL");
       }, 2e3);
       reject(new Error(`timeout after ${THINK_TIMEOUT_MS}ms`));
     }, THINK_TIMEOUT_MS);
@@ -153,7 +183,7 @@ function defaultRunner(system, user, model) {
       clearTimeout(timer);
       if (killed) return;
       if (code === 0) resolve(out);
-      else reject(new Error(err || `claude -p exited ${code}`));
+      else reject(new Error(err || out.trim() || `claude -p exited ${code}`));
     });
     p.stdin.write(user);
     p.stdin.end();
