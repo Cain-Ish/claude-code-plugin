@@ -69,8 +69,8 @@ every other decision depends on them.
 - **Rejected:** v1's rule D2 ("the knowledge base outside the repo is the only home for decisions"): it made
   decisions readable only through a working v1 plugin, and the system being rebuilt cannot be the store of its own
   redesign. v1's research also lived in gitignored `docs/researchs/`, local to one machine.
-- **Check:** the files are tracked on `origin/v2` and a fresh clone of `v2` contains them. **Result:** pass once the
-  first push lands.
+- **Check:** the files are tracked on `origin/v2` and a fresh clone of `v2` contains them. **Result:** pass
+  (fresh shallow clone of `v2` at `b6ee109`, 2026-10-19, lists every `docs/v2/` file).
 - **Reopen if:** v2's own map format is ready (D13); then this repo's v2 knowledge moves into it.
 
 ### V2-D05 — Version numbering
