@@ -1,54 +1,18 @@
-# User knowledge — NEVER committed
-knowledge/
-
-# Plugin learning state — local only (legacy + current names)
-.claude-companion/
-.second-brain/
-
-# Plugin data directory (managed by Claude Code)
-.claude-plugin-data/
-
-# Local-only Claude Code session settings (per-user permission grants etc.)
-.claude/settings.local.json
-
-# Transient harness runtime state (scheduled-task locks, etc.) — never committed.
-.claude/scheduled_tasks.lock
-.claude/*.lock
-
-# MCP server build artifacts.
-# Only the self-contained *.bundle.js files are tracked (marketplace installs
-# run them without npm — mcp.json launches dist/server.bundle.js). The per-file
-# tsc output (*.js / *.d.ts / *.map) is build-only: nothing imports it at
-# runtime (esbuild inlines everything), so it is ignored to keep ~176 redundant
-# artifacts out of the tree. `npm run build` regenerates whatever is needed.
-mcp/node_modules/
-mcp/dist/**/*.js
-mcp/dist/**/*.d.ts
-mcp/dist/**/*.map
-!mcp/dist/**/*.bundle.js
-
-# OS files
+# OS and editors
 .DS_Store
 Thumbs.db
-# git-bash / Cygwin crash dumps (transient; never committed)
 *.stackdump
+.idea/
+.vscode/
+*.swp
 
 # Node
 node_modules/
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-docs/.amreview.wf.js
-docs/.screview.wf.js
-docs/.wmreview.wf.js
+# Local Claude Code state (per user, never shared)
+.claude/settings.local.json
+.claude/*.lock
+.claude/worktrees/
 
-# Internal planning docs stay local (pre-1.0 diet, 2026-07-24; re-applied 2026-09-24).
-docs/audits/
-docs/plans/*
-# ...except the one plan CONSTITUTION.md cites as current direction and as where the protocol
-# lock gate is tracked: it must resolve in a fresh clone (0.53.0 review).
-!docs/plans/2026-09-24-repo-brain.md
-docs/researchs/
+# Raw research material (transcripts, local paths) stays on one machine; distilled notes live in docs/v2/research/
+docs/v2/research/raw/

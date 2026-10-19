@@ -24,7 +24,7 @@ export const meta = {
 //    therefore told to state the cross-axis cost of their own proposed fix.
 // ---------------------------------------------------------------------------
 
-const REPO = 'C:/Workplace/Projects/claude-code-plugin-2'
+const REPO = 'C:/Workplace/Projects/claude-code-plugin-v2'
 
 const scope = (() => {
   if (!args) return { phase: 'the current working-tree changes', claims: '', files: '' }
@@ -33,32 +33,31 @@ const scope = (() => {
 })()
 
 const CTX = `
-Repo: ${REPO} — the second-brain Claude Code plugin (a local memory system for Claude Code).
+Repo: ${REPO} — branch v2 of the second-brain Claude Code plugin (per-repo project memory for Claude Code).
 Inspect real state: \`git -C "${REPO}" log --oneline -12\`, \`git -C "${REPO}" diff\`, and the files themselves.
+v1 is frozen at tag v1-final; read it with \`git -C "${REPO}" show v1-final:<path>\`.
 
 UNDER REVIEW: ${scope.phase}
 ${scope.files ? `KEY FILES: ${scope.files}` : ''}
 ${scope.claims ? `CLAIMS MADE ABOUT IT (treat every one as a hypothesis to falsify, not a fact):\n${scope.claims}` : ''}
 
-PROJECT CONSTRAINTS a finding must respect (check the code, do not assume):
-- Windows git-bash/MSYS is the PRIMARY dev platform; also macOS (bash 3.2 floor, BSD tools),
-  Linux, BSD CI. No GNU-only flags. jq on Windows emits CRLF -> tr -d '\\r' at read boundaries.
-  GNU tar/rsync read "C:\\..." as host:path. pgrep/flock/ps -o are NOT all present on MSYS.
-- Fail LOUD everywhere except PreToolUse guards (which fail safe). No silent 2>/dev/null exits.
-- CONSTITUTION.md: fully autonomous, ZERO required user interaction. Safety comes from
-  REVERSIBLE auto-consolidation, never from a human approval gate. A design that needs a human
-  to approve routine writes is a violation, not a feature.
-- Canonical wiki is ~/knowledge/wiki; ~/.second-brain/wiki is a legacy trap invisible to search.
-- Single-source resolution: brain/knowledge dirs resolve ONLY via mcp/src/brain-paths.ts (TS)
-  and lib.sh helpers (bash). Re-deriving them inline is the "two wikis" bug class.
-- mcp/dist/** is committed and byte-compared by tests/test-bundle-current.sh.
-- Determinism: same inputs must produce byte-identical output (no wall clock, no randomness).
-- PROSE PROMISES NEED MACHINE LOCKS: a comment/doc/skill claiming a guarantee that no code
-  enforces is itself a defect in this repo, not a nitpick.
-- Surface budget is ratcheted: new scripts/tests/skills/agents need a same-commit bump.
+PROJECT CONSTRAINTS a finding must respect (check the files, do not assume):
+- The brief is docs/v2/00-charter.md, the rules are docs/v2/01-process.md, decisions are
+  docs/v2/DECISIONS.md. A LOCKED decision is settled: attack it only with NEW evidence that fires
+  one of its "reopen if" triggers, and say which trigger.
+- Platform claims must match docs/v2/research/ (Claude Code capability notes, cited doc URLs) or a
+  probe result under docs/v2/probes/. A claim about what Claude Code loads, when, or into which
+  agent, with no citation or probe behind it, is UNPROVEN.
+- Runs on Windows (Git Bash), macOS and Linux; no heavy native dependencies.
+- Untrusted text (transcripts, web, tool output) is data, never instructions, and never enters
+  the project map without a reviewable diff.
+- PROSE PROMISES NEED MACHINE LOCKS: a guarantee with no named check or test is a defect.
+- v1 failed by building capture and storage before proving delivery, and by growing surface
+  without measured value (docs/v2/02-v1-postmortem.md). Over-build is a finding.
 
 WHAT COUNTS AS A FINDING: something that is BROKEN, UNPROVEN, DISHONEST (claim without a lock),
-or DISPROPORTIONATE. Point at a file and line. If you cannot point at code, it is not a finding.
+or DISPROPORTIONATE. Point at a file and line (or a doc section). If you cannot point at it, it is
+not a finding.
 Do NOT report style preferences, and do NOT report pre-existing behavior unrelated to this work
 unless this work made it load-bearing.
 `
@@ -126,7 +125,8 @@ constitution. A prose promise without a machine lock IS the finding.` },
   { key: 'historian', prompt: `${CTX}
 
 LENS 4 — THE HISTORIAN. This repo keeps a detailed incident record. Read
-.claude/skills/sb-failure-archaeology/ (SKILL.md + references/) and relevant git history, then
+docs/v2/02-v1-postmortem.md, then \`git show v1-final:.claude/skills/sb-failure-archaeology/SKILL.md\`
+(and its references/ the same way) and relevant git history, then
 answer: does this work re-introduce a pattern that was tried and REVERTED before, repeat a known
 incident class (fail-open guards, CRLF, MSYS path forms, stale bundles, SKIP false-greens,
 silent no-ops, ranking boosts), or contradict a documented decision? Cite the incident.` },
