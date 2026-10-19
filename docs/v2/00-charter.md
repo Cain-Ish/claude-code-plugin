@@ -42,7 +42,9 @@ or a background process that rewrites knowledge without a reviewable diff. v1 sh
 ## Success means measured outcomes
 
 Every claim of value is an eval result against two baselines: no plugin, and a hand-written native setup
-(`CLAUDE.md` only). Thresholds are fixed in V2-D17 before anything is built.
+(`CLAUDE.md` only). The baselines run first: they need no v2 code, and they show what Claude gets wrong today.
+Thresholds are then set as improvements over the measured baseline (V2-D17), before any v2 feature is built. v1
+built a 2,710-line outcome harness and never ran it; a harness counts only once it has run.
 
 | Outcome | Measure |
 | --- | --- |
@@ -50,7 +52,7 @@ Every claim of value is an eval result against two baselines: no plugin, and a h
 | Orientation | Tool calls and files read before the first correct file |
 | Cost | Tokens per task; always-on bytes per session |
 | Arrival | Every delivery channel proven by a nonce probe to reach the main session and subagents before it carries content |
-| Freshness | Zero stale claims delivered as current |
+| Freshness | Zero stale claims delivered as current (mechanism: V2-D16, deterministic anchors) |
 
 ## Constraints carried over from v1
 
@@ -58,7 +60,8 @@ Every claim of value is an eval result against two baselines: no plugin, and a h
 - No heavy native dependencies.
 - Untrusted text (transcripts, web pages, tool output) is data, never instructions, and does not enter the map
   without review.
-- A guarantee stated in prose names the test or check that enforces it, or is marked as direction.
+- A guarantee stated in prose names the test or check that enforces it, or is marked as direction. In the concept
+  phase, where no code exists yet, the rule is: every claim cites its source (doc, research note) or probe.
 - Tests must not disable the thing they test.
 
 ## Concept phase: deliverables and definition of done
@@ -70,8 +73,8 @@ The concept phase is done when these exist on branch `v2`:
 2. `02-v1-postmortem.md`: v1's root causes, each turned into a checkable v2 rule.
 3. `04-architecture.md`: a one-page architecture built only from locked decisions. (The vision lives in this
    charter and the open questions in `DECISIONS.md`; no separate vision document.)
-4. `05-eval-plan.md`: acceptance tasks, arms and pre-registered thresholds. The eval harness is the first thing
-   built.
+4. `05-eval-plan.md`: acceptance tasks, arms, and thresholds set from baseline runs that have actually happened.
+   The harness stays small, and it is the first thing built; the walking skeleton follows and is measured by it.
 5. `06-first-slice.md`: a walking-skeleton plan with a surface budget (maximum hooks, skills, tools, scripts).
 6. One devils-advocate review of the whole concept, with every surviving finding fixed or accepted on record.
 

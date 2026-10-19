@@ -12,8 +12,9 @@ everything the next step needs. Step override from the user, if any: $ARGUMENTS
 
 ## 1. Orient
 
-Read, do not skim: `docs/v2/00-charter.md`, `docs/v2/01-process.md`, the status table in `docs/v2/DECISIONS.md`, and
-the map issue (`gh issue list --label wayfinder:map --state open --json number,title,body`). The step to run is the
+Read, do not skim: `docs/v2/00-charter.md`, `docs/v2/01-process.md`, the status table in `docs/v2/DECISIONS.md`, the
+map issue (`gh issue list --label wayfinder:map --state open --json number,title,body`), and the last step's gate
+(`git log -1 --format=%B`). The step to run is the
 override above, otherwise the first unchecked item under **Next steps** in the map issue. Say in three lines: where
 the work stands, which step you will run, and what it needs.
 
@@ -46,13 +47,15 @@ If the doubt changes the step, say so and change it before starting.
 
 ## 5. Step gate
 
-Write in the map issue's **Notes** (edit the body; keep it short):
-- what this step produced (with links);
-- what was doubted and how the doubt was settled, including what was cut as over-built;
-- what the next step needs, and whether it is in place.
+Update `DECISIONS.md` (status, result, attempts). In the map issue (edit its body), tick the step under **Next
+steps**, add a line under **Decisions so far** for anything that locked, and add new open questions under **Fog**.
+Then commit on branch `v2` with a conventional subject and this body, and push:
 
-Then: update `DECISIONS.md` (status, result, attempts), tick the step under **Next steps**, add any new open
-question under **Fog**, commit on branch `v2` with a conventional message, and push.
+```
+Produced: <what this step made, with paths>
+Doubted: <what was questioned and how it was settled; what was cut as over-built>
+Next needs: <what the next step needs; in place or not>
+```
 
 ## 6. Stop
 

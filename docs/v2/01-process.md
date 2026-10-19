@@ -8,7 +8,9 @@ ground round after round. v2 runs a check at the moment it decides, and then sto
 
 ## The decision record
 
-Every decision in [DECISIONS.md](DECISIONS.md) has these fields:
+A record is a few bullets, not a form (see [DECISIONS.md](DECISIONS.md) for the shape). Id, question, status,
+decider and parents sit in the ledger's status table; the bullets carry options, check and result, choice and
+rejected, and reopen triggers. What each field means:
 
 | Field | Rule |
 | --- | --- |
@@ -46,10 +48,10 @@ Every decision in [DECISIONS.md](DECISIONS.md) has these fields:
 8. **Review at the phase boundary, not per decision.** At the end of the concept phase, the `devils-advocate`
    workflow runs once over the whole concept. Each surviving finding either fires a reopen trigger (it is new
    evidence) or is recorded as an accepted risk. The review does not re-verify locked decisions.
-9. **Step gate.** Work goes in small steps. A step ends only when three answers are written in the map issue's
-   Notes: *what this step produced*; *what was doubted and how the doubt was settled*, which always includes "is
-   this over-built? what can be deleted?"; and *what the next step needs, and whether it is in place*. A step whose
-   next step is not ready is not done.
+9. **Step gate.** Work goes in small steps, one commit each. A step ends only when its commit body answers three
+   lines: `Produced:` what this step made; `Doubted:` what was questioned and how it was settled, always including
+   "is this over-built? what can be deleted?"; `Next needs:` what the next step needs, and whether it is in place. A
+   step whose next step is not ready is not done. `git log` on branch `v2` is the step journal.
 10. **Second opinion where it pays.** For a contested decision, or at the phase gate, ask a different model
     (Gemini, through the browser at gemini.google.com) to attack the proposal. Paste only text that is public
     in this repo anyway. Its answer is evidence to weigh, not a vote.
@@ -65,7 +67,8 @@ email addresses or transcript quotes.
 | This process | `docs/v2/01-process.md` |
 | Decision ledger | `docs/v2/DECISIONS.md` |
 | v1 post-mortem | `docs/v2/02-v1-postmortem.md` |
-| Next steps, step notes, open questions | The map issue (see below) |
+| Next steps, open questions | The map issue (see below) |
+| Step journal (produced / doubted / next needs) | Commit bodies on branch `v2` |
 | Distilled research (sourced, scrubbed) | `docs/v2/research/YYYY-MM-DD-<topic>.md` |
 | Raw research material | `docs/v2/research/raw/` (gitignored, local only) |
 | Probes | `docs/v2/probes/<decision-id>-<name>/README.md`, plus small scripts |
@@ -78,15 +81,16 @@ email addresses or transcript quotes.
   OPEN decision whose parents are all LOCKED and that nobody is assigned to.
 - **During:** one decision at a time. Write the check before running it. Save research to `research/` as it is
   found, not at the end of the session.
-- **End:** update the decision record and the map issue's "Decisions so far", commit, and list open questions under
-  "Fog" in the map issue.
+- **End:** update the decision record, tick the step and update "Decisions so far" and "Fog" in the map issue, and
+  commit with the step gate in the body (rule 9).
 
 ## GitHub mapping
 
 This follows the wayfinder conventions in [../agents/issue-tracker.md](../agents/issue-tracker.md).
 
-- **Map issue** (labels `wayfinder:map`, `v2`; milestone "v2 concept"): Notes / Decisions so far / Fog.
-- **Child issues only for work in progress.** A decision gets its issue when someone starts on it, not up front
-  (a ledger copied into 15 issues drifts). Title `[V2-Dnn] <question>`. Label `wayfinder:grilling` when the user
-  decides, `wayfinder:prototype` when a probe decides, `wayfinder:research` when research decides.
-- **Lock = resolve:** comment the result, close the issue, and add one line to the map's "Decisions so far".
+- **One map issue** (labels `wayfinder:map`, `v2`; milestone "v2 concept") holding Next steps (checkboxes),
+  Decisions so far (one line each, pointing at the ledger) and Fog (open questions). Step details live in commit
+  bodies, not in the issue.
+- **No child issues by default.** A ledger copied into issues drifts. Open one only when a decision needs a
+  discussion the ledger cannot hold (an outside contributor, a long thread), titled `[V2-Dnn] <question>`, and close
+  it when the decision locks.

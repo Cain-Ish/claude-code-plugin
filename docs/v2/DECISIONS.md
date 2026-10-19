@@ -32,9 +32,14 @@ every other decision depends on them.
 
 ### V2-D01 — Decision process
 - **Choice:** the record, rules 1-10 and step gate in [01-process.md](01-process.md).
-- **Rejected:** decide by argument and review at the end (v1: the deciding experiment S1 was designed and never run;
-  audit rounds re-checked the same ground); one GitHub issue per decision up front (duplicates the ledger).
-- **Check:** the user reviews 01-process.md and accepts it or names changes. **Result:** pending.
+- **Rejected:** decide by argument and review at the end (v1: the deciding experiment S1 was built, 2,710 lines,
+  and never run; audit rounds re-checked the same ground); one GitHub issue per decision (duplicates the ledger;
+  also raised by the Gemini review); step notes in an issue (moved to commit bodies, one home); one ADR file per
+  decision (Gemini's proposal: one ledger file is one read for an agent, fifteen files are fifteen); deleting the
+  three-strike rule or the step gate (Gemini's proposal: the user asked for both explicitly).
+- **Check:** the user reviews 01-process.md and accepts it or names changes. **Result:** pending. Second opinion:
+  Gemini Pro reviewed charter + process on 2026-10-19; accepted and rejected points are in the commit that applied
+  them.
 - **Reopen if:** a decision is re-argued twice without a fired trigger, or the step gate is skipped twice; either
   means the process does not hold.
 
@@ -106,6 +111,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   imported?
 - **Draft check:** a grilling session with the user (`mattpocock-skills:grilling`); the answers and the non-goals
   list are recorded verbatim.
+- **Evidence so far:** roles work as views over knowledge (tagged by role, owner or path authority), not as persona
+  agents (Ultimate Guide finding 9; prior-and-SOTA rule 11, low confidence); v1 scope creep drew 3 of 5 re-audit
+  MUSTs (post-mortem cause 6).
 
 ### V2-D11 — Home of a repo's knowledge
 - **Options:** (a) in the repo, committed and shared by the team through review; (b) in the repo but git-excluded
@@ -113,6 +121,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Known constraint:** the native channels that reach subagents and cost nothing until used (`CLAUDE.md`,
   `.claude/rules` with `paths:`) read files from the repo tree (research: platform capabilities).
 - **Draft check:** user answer on team sharing, combined with the D12 probe result.
+- **Evidence so far:** team knowledge in the repo, reviewed like code; personal memory local; derived indexes as
+  local caches (prior-and-SOTA rule 5: Cursor removed Memories, Devin moved Knowledge to Skills); v1's local store
+  had one author and 35 `PROJECT.md` shards (post-mortem cause 4).
 
 ### V2-D12 — Delivery channels that arrive
 - **Draft check (probe P1):** a fresh temporary repo on the installed CLI, a small model, three runs per cell. A
@@ -121,18 +132,31 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   main session and each of Explore, Plan, general-purpose and one plugin agent quote every nonce they can see: at
   start, after reading `src/a.ts`, and after `/compact`. Also: does a path rule arrive before the first Write of a
   new file in its directory? **Pass:** a channel arrives in a context if its nonce is quoted verbatim in 3 of 3 runs.
+- **Evidence so far (documented, not yet probed):** research/2026-10-19-platform-memory-channels.md (Explore and Plan
+  skip `CLAUDE.md`; path rules reach every agent type on file touch but are not re-injected after compaction; hook
+  context above 10,000 chars becomes a file preview). Path rules may arrive after planning has started (Ultimate
+  Guide finding 1). Push a small index, load details on observable triggers, never on model choice alone (Vercel:
+  passive index 100% vs skill 53-79%; prior-and-SOTA rule 3).
 
 ### V2-D13 — Shape of the project map
 - **Question:** node kinds (decision, convention, inventory, goal, design rule, …), file format, the always-on
   index and its byte cap, what loads on path touch, what is read on demand, size caps per node.
 - **Draft check:** a paper map for two repos (this repo at `v1-final`, and one front-end sample), measured always-on
   bytes against the cap, plus three navigation tasks per repo that must reach the right file.
+- **Evidence so far:** store only what the code cannot say, and no generated overviews (arXiv 2602.11988: −0.5 to
+  −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
+  all from reaching the right file); compute structure such as the component inventory from code on demand
+  instead of storing it (prior-and-SOTA rules 1, 2, 7).
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
   end-of-session suggestion; never raw transcript mining?), who may write it, and how untrusted text is kept out.
 - **Draft check:** user answer on the review model; a probe that a poisoned tool output cannot reach the map without
   appearing in a reviewable diff.
+- **Evidence so far:** capture explicitly at decision points; background extraction only proposes (prior-and-SOTA
+  rule 9: 43 of 44 kept learnings were explicit); treat every memory write as untrusted (rule 10: MINJA 98.2%
+  injection success). v1's unreviewed LLM extraction became a persistent prompt injection (post-mortem cause 5).
+  Contested: the Ultimate Guide prefers capture in hooks (zero model tokens).
 
 ### V2-D15 — Bootstrap
 - **Draft check:** a prototype bootstrap on two repos; a human reviewer accepts at least 80% of the generated
@@ -143,15 +167,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   drift; flagged claims are never delivered as current.
 - **Draft check:** seeded drift (rename, delete, edit) on a sample map; the check flags 100% of seeded cases and
   0 false alarms on an unchanged tree.
+- **Evidence so far:** every record carries code anchors, provenance and a verified-at commit, checked before
+  delivery (prior-and-SOTA rule 6: GitHub Copilot Memory). v1 delivered a lesson citing line numbers that had moved
+  (concept §2).
 
 ### V2-D17 — Measurement
 - **Question:** acceptance tasks (A1 plus lead, PM and design scenarios), arms (no plugin; native `CLAUDE.md` only;
   v2), metrics (charter table), and pre-registered thresholds.
 - **Draft check:** a harness smoke run where every gold answer scores correct, every planted wrong answer fails,
-  and no prompt leaks an answer token.
+  and no prompt leaks an answer token. Then the two baseline arms (no plugin; native `CLAUDE.md` only) run on all
+  tasks, and the thresholds are set as improvements over those measured numbers, never guessed in advance (Gemini
+  review). The harness stays small; v1's was 2,710 lines and never ran.
 
 ### V2-D18 — Runtime and surface budget
 - **Question:** which code runs where, which hook events (if any) v2 uses, the latency budget per hook, whether an
   MCP server is needed, and the maximum count of skills, agents, hooks and scripts.
 - **Draft check:** derived from D12 and the post-mortem's rules; every hook named with a measured p95 under load
   below its budget on Windows.
+- **Evidence so far:** one v1 Edit ran 8 hooks and at least 52 processes; under load a spawn cost 314 ms and about
+  217 guard runs failed open (post-mortem cause 3, proposing at most one non-shell hook per event, p95 ≤ 100 ms at 8
+  concurrent sessions). A PreToolUse timeout fails open unless the hook sets `"onFailure": "block"` (CLI ≥ 2.1.295;
+  platform note §7).
