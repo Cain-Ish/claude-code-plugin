@@ -12,7 +12,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D03 | Which branches carry v1 and v2? | LOCKED 2026-10-19 | user | D02 |
 | V2-D04 | Where do v2 planning decisions and research live? | LOCKED 2026-10-19 | evidence | D03 |
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
-| V2-D06 | Which plugins are enabled while working on v2? | CHECKING (chosen; `/context` check in step 1) | user | — |
+| V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | OPEN — frontier | user | — |
 | V2-D11 | Where does a repo's knowledge live? | OPEN | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | OPEN — frontier | evidence | — |
@@ -97,8 +97,17 @@ every other decision depends on them.
 - **Choice (user, 2026-10-19):** (c) minimal: `ecc` and `exa` disabled for the v2 checkout through its
   `.claude/settings.local.json`; ponytail and mattpocock-skills stay. Built-in WebSearch replaces exa.
 - **Check:** `/context` in a fresh session in the v2 checkout shows no `ecc:` skills or agents, and every listed
-  skill has its description (no overflow). **Result:** pending (step 1).
-- **Reopen if:** a step needs a disabled plugin's skill or agent.
+  skill has its description (no overflow). **Result:** pass (2026-10-19, CLI 2.1.303, 1M-token window). A fresh
+  headless `/context` lists 68 skills (Skills row 9.1k tokens), none from `ecc`. Its `--debug` log reports 11
+  plugins, 9 enabled and 2 disabled (`ecc`, `exa`), and no skill-listing budget warning. The Skills row is measured
+  after the budget, and an overflow writes that warning to the debug log (doc above), so no description was
+  dropped. The session's own skill listing shows every description. `/context` does not list agents; the session's
+  agent types are the built-ins only. Attempts: 0.
+- **Observed, not chosen:** four plugins synced from the claude.ai account (`design`, `engineering`, `productivity`,
+  `cowork-plugin-management`) also load: 23 skills, no hooks, and MCP connectors that wait for authentication. They
+  fit the budget.
+- **Reopen if:** a step needs a disabled plugin's skill or agent; or a session's `--debug` log shows the
+  skill-listing budget warning (for example on a smaller-window model: the budget is 1% of the window).
 
 ---
 
@@ -138,7 +147,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Evidence so far (documented, not yet probed):** research/2026-10-19-platform-memory-channels.md (Explore and Plan
   skip `CLAUDE.md`; path rules reach every agent type on file touch but are not re-injected after compaction; hook
   context above 10,000 chars becomes a file preview). Path rules may arrive after planning has started (Ultimate
-  Guide finding 1). Push a small index, load details on observable triggers, never on model choice alone (Vercel:
+  Guide finding 1).
+- **Probe note:** from Git Bash, run `claude -p "/compact"` (any slash command) with `MSYS_NO_PATHCONV=1`, or MSYS
+  rewrites the leading `/` into a Windows path and the model receives a path instead of the command. Push a small index, load details on observable triggers, never on model choice alone (Vercel:
   passive index 100% vs skill 53-79%; prior-and-SOTA rule 3).
 
 ### V2-D13 — Shape of the project map
