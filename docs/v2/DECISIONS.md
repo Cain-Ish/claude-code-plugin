@@ -7,12 +7,12 @@ settled; it reopens only when one of its "reopen if" events is observed.
 
 | Id | Question | Status | Decider | Depends on |
 | --- | --- | --- | --- | --- |
-| V2-D01 | How are decisions made, checked and tracked? | CHECKING (user review) | user | — |
+| V2-D01 | How are decisions made, checked and tracked? | LOCKED 2026-10-19 | user | — |
 | V2-D02 | Where is v1 cut? | LOCKED 2026-10-19 | user | — |
 | V2-D03 | Which branches carry v1 and v2? | LOCKED 2026-10-19 | user | D02 |
 | V2-D04 | Where do v2 planning decisions and research live? | LOCKED 2026-10-19 | evidence | D03 |
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
-| V2-D06 | Which plugins are enabled while working on v2? | OPEN | user | — |
+| V2-D06 | Which plugins are enabled while working on v2? | CHECKING (chosen; `/context` check in step 1) | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | OPEN — frontier | user | — |
 | V2-D11 | Where does a repo's knowledge live? | OPEN | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | OPEN — frontier | evidence | — |
@@ -37,7 +37,8 @@ every other decision depends on them.
   also raised by the Gemini review); step notes in an issue (moved to commit bodies, one home); one ADR file per
   decision (Gemini's proposal: one ledger file is one read for an agent, fifteen files are fifteen); deleting the
   three-strike rule or the step gate (Gemini's proposal: the user asked for both explicitly).
-- **Check:** the user reviews 01-process.md and accepts it or names changes. **Result:** pending. Second opinion:
+- **Check:** the user reviews 01-process.md and accepts it or names changes. **Result:** pass (user accepted it as
+  written, 2026-10-19). Second opinion:
   Gemini Pro reviewed charter + process on 2026-10-19; accepted and rejected points are in the commit that applied
   them.
 - **Reopen if:** a decision is re-argued twice without a fired trigger, or the step gate is skipped twice; either
@@ -93,8 +94,10 @@ every other decision depends on them.
   disables a user-level plugin for one user in one project; that file is not committed. The skill listing gets 1%
   of the context window; when it overflows, descriptions of the least-used skills are dropped first
   (https://code.claude.com/docs/en/skills#skill-descriptions-are-cut-short).
-- **Check:** the user picks; then `/context` in a fresh session on `v2` shows the skill-listing size before and
-  after. **Result:** pending.
+- **Choice (user, 2026-10-19):** (c) minimal: `ecc` and `exa` disabled for the v2 checkout through its
+  `.claude/settings.local.json`; ponytail and mattpocock-skills stay. Built-in WebSearch replaces exa.
+- **Check:** `/context` in a fresh session in the v2 checkout shows no `ecc:` skills or agents, and every listed
+  skill has its description (no overflow). **Result:** pending (step 1).
 - **Reopen if:** a step needs a disabled plugin's skill or agent.
 
 ---
