@@ -65,7 +65,7 @@ email addresses or transcript quotes.
 | This process | `docs/v2/01-process.md` |
 | Decision ledger | `docs/v2/DECISIONS.md` |
 | v1 post-mortem | `docs/v2/02-v1-postmortem.md` |
-| Vision mapped to decisions | `docs/v2/03-vision-to-decisions.md` |
+| Next steps, step notes, open questions | The map issue (see below) |
 | Distilled research (sourced, scrubbed) | `docs/v2/research/YYYY-MM-DD-<topic>.md` |
 | Raw research material | `docs/v2/research/raw/` (gitignored, local only) |
 | Probes | `docs/v2/probes/<decision-id>-<name>/README.md`, plus small scripts |

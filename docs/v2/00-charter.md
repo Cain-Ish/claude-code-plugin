@@ -68,8 +68,8 @@ The concept phase is done when these exist on branch `v2`:
 1. `DECISIONS.md`: every spine decision LOCKED, or DEFERRED with a named trigger. Each lock is backed by a check
    that ran when the decision was made.
 2. `02-v1-postmortem.md`: v1's root causes, each turned into a checkable v2 rule.
-3. `03-vision-to-decisions.md`, later `04-architecture.md`: a one-page architecture built only from locked
-   decisions.
+3. `04-architecture.md`: a one-page architecture built only from locked decisions. (The vision lives in this
+   charter and the open questions in `DECISIONS.md`; no separate vision document.)
 4. `05-eval-plan.md`: acceptance tasks, arms and pre-registered thresholds. The eval harness is the first thing
    built.
 5. `06-first-slice.md`: a walking-skeleton plan with a surface budget (maximum hooks, skills, tools, scripts).
