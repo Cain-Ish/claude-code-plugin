@@ -21,7 +21,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D15 | How is a map bootstrapped for an existing repo? | OPEN | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | OPEN | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D02-postmortem |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, 02-v1-postmortem.md |
 
 Frontier (rule 6): **D10** (one grilling session with the user) and **D12** (probe P1) can run in parallel; nearly
 every other decision depends on them.
