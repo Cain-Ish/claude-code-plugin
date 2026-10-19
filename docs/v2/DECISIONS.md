@@ -15,7 +15,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | OPEN — frontier | user | — |
 | V2-D11 | Where does a repo's knowledge live? | OPEN | user + evidence | D10, D12 |
-| V2-D12 | Which delivery channels actually arrive, and where? | OPEN — frontier | evidence | — |
+| V2-D12 | Which delivery channels actually arrive, and where? | CHECKING (probe P1 pre-registered) | evidence | — |
 | V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
 | V2-D15 | How is a map bootstrapped for an existing repo? | OPEN | evidence | D13 |
@@ -138,19 +138,31 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   had one author and 35 `PROJECT.md` shards (post-mortem cause 4).
 
 ### V2-D12 — Delivery channels that arrive
-- **Draft check (probe P1):** a fresh temporary repo on the installed CLI, a small model, three runs per cell. A
-  unique nonce in each channel: root `CLAUDE.md`, an `@import` target, an unscoped rule, a path-scoped rule
-  (`paths: src/**`), a project skill with `paths:`, SessionStart `additionalContext`, MCP server instructions. The
-  main session and each of Explore, Plan, general-purpose and one plugin agent quote every nonce they can see: at
-  start, after reading `src/a.ts`, and after `/compact`. Also: does a path rule arrive before the first Write of a
-  new file in its directory? **Pass:** a channel arrives in a context if its nonce is quoted verbatim in 3 of 3 runs.
+- **Check (pre-registered 2026-10-20, probe P1, [probes/V2-D12-channels](probes/V2-D12-channels/)):** a fresh
+  temporary git repo, the installed CLI, `claude -p` on Haiku, user settings excluded, a probe plugin loaded with
+  `--plugin-dir`, and Bash, Grep and Glob denied so nothing can search for a nonce. Each channel carries its own
+  random nonce, new for every run: root `CLAUDE.md`, an `@import` target, an unscoped rule, a path rule
+  (`paths: src/**`), a nested `src/CLAUDE.md`, a project skill and a plugin skill with `paths:` (nonce in the
+  description), plugin hook `additionalContext` on SessionStart (startup and compact tagged apart), SubagentStart
+  and UserPromptSubmit, plugin MCP server instructions, and auto memory if a project can point it into the repo.
+  Cells: the main session at start, after reading `src/a.ts`, and after `/compact` in a session that never quoted
+  a nonce before compacting; Explore, Plan, general-purpose and a plugin agent at start and after reading
+  `src/a.ts`; and write-first, where the main session creates `src/components/Avatar.tsx` without reading any file
+  and a path rule and a nested `CLAUDE.md` there each ask for their nonce in the file. Three runs.
+- **Pass (pre-registered):** a channel arrives in a cell if its nonce is quoted verbatim (or, write-first, written
+  into the file) in 3 of 3 valid runs; 0 of 3 means it does not arrive; 1 or 2 means unreliable, which counts as not
+  arriving (PM2). A run is valid when the main session quotes the positive control (root `CLAUDE.md` at start),
+  nothing quotes the negative control (a nonce in a file nothing loads), every subagent answers in the required
+  format, and the transcript shows no direct read of a nonce-bearing file other than the trigger and no nonce in a
+  prompt written to a subagent. The check passes when every cell has three valid runs. The choice then records, per
+  channel, the contexts where it arrives.
 - **Evidence so far (documented, not yet probed):** research/2026-10-19-platform-memory-channels.md (Explore and Plan
   skip `CLAUDE.md`; path rules reach every agent type on file touch but are not re-injected after compaction; hook
   context above 10,000 chars becomes a file preview). Path rules may arrive after planning has started (Ultimate
-  Guide finding 1).
-- **Probe note:** from Git Bash, run `claude -p "/compact"` (any slash command) with `MSYS_NO_PATHCONV=1`, or MSYS
-  rewrites the leading `/` into a Windows path and the model receives a path instead of the command. Push a small index, load details on observable triggers, never on model choice alone (Vercel:
+  Guide finding 1). Push a small index, load details on observable triggers, never on model choice alone (Vercel:
   passive index 100% vs skill 53-79%; prior-and-SOTA rule 3).
+- **Probe note:** from Git Bash, run `claude -p "/compact"` (any slash command) with `MSYS_NO_PATHCONV=1`, or MSYS
+  rewrites the leading `/` into a Windows path and the model receives a path instead of the command.
 
 ### V2-D13 — Shape of the project map
 - **Question:** node kinds (decision, convention, inventory, goal, design rule, …), file format, the always-on
