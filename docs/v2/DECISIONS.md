@@ -21,7 +21,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D15 | How is a map bootstrapped for an existing repo? | OPEN | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | OPEN | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 
 Frontier (rule 6): **D10** (one grilling session with the user); D12 is locked. Nearly
 every other decision depends on it.
@@ -161,9 +161,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   Arrival, 3 of 3 unless stated:
   - Root `CLAUDE.md`, its `@import` and unscoped rules: the main session, also after `/compact`; general-purpose and
     plugin agents. Never Explore or Plan.
-  - Path rules and nested `CLAUDE.md`: any agent, only after it reads a matching file (Explore 2 of 3; the miss was
-    a denied read); after `/compact` because compaction re-attaches the recently read file. **Not before the first
-    Write of a new file** (0 of 3 in the written content); they arrive with that Write.
+  - Path rules and nested `CLAUDE.md`: the main session, Plan, general-purpose and plugin agents, only after they
+    read a matching file. Explore 2 of 3 (one denied read): unreliable, so not proven. In the main session also after
+    `/compact`, because compaction re-attaches the recently read file. **Not before the first Write of a new file**
+    (0 of 3 in the written content); they arrive with that Write.
   - Skills with `paths:`: a project skill is listed after a matching read, in agents that have the Skill tool. A
     plugin skill is listed from the start; its `paths:` gate did not apply.
   - Plugin hooks: SessionStart reaches the main session only and is gone after `/compact` unless the `compact`
@@ -173,8 +174,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - Auto memory (redirected into the repo): the main session, also after `/compact`, and general-purpose and plugin
     agents (the docs say subagents do not get it). Never Explore or Plan.
 - **Choice:** a channel may carry v2 content only in the contexts where it arrived 3 of 3 above (PM2). At start,
-  Explore and Plan get only SubagentStart and unconditional skill descriptions. No probed channel delivers
-  path-scoped knowledge before the first Write of a new file.
+  Explore and Plan get only SubagentStart context and skill descriptions (a plugin skill's `paths:` did not gate
+  it). No probed channel delivers path-scoped knowledge before the first Write of a new file.
 - **Rejected:** taking the documented channel table as the answer (three cells differ: auto memory in subagents,
   path rules after compaction, plugin skill `paths:`); a path rule as the way to shape a new file (0 of 3).
 - **Reopen if:** a Claude Code release changes how `CLAUDE.md`, rules, skills, hooks or MCP instructions load

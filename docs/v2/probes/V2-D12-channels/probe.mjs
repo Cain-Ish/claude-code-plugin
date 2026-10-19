@@ -231,30 +231,38 @@ for (let i = 1; i <= RUNS; i++) {
   fs.rmSync(dir, { recursive: true, force: true });
   const N = Object.fromEntries(CODES.map((c) => [c, nonce(c)]));
   const fx = fixture(dir, N);
-  const run = { run: i, cells: {}, invalid: [] };
+  const run = { run: i, cells: {}, invalid: [], badCells: [] };
   for (const [name, fn] of sessions) {
     if (ONLY && !name.startsWith(ONLY)) continue;
     const r = await fn(fx, N, dir);
-    Object.assign(run.cells, r.cells);
-    run.invalid.push(...r.invalid);
+    const bad = [...r.invalid];
     // Only the trigger file may be read; W may re-read the file it wrote.
     const stray = filePaths(r.ev, 'Read').filter((p) => !p.endsWith('src/a.ts') && !(name === 'W' && p.endsWith('Avatar.tsx')));
-    if (stray.length) run.invalid.push(`${name}: direct read of ${stray.map((p) => path.basename(p)).join(', ')}`);
-    if (JSON.stringify(r.ev).includes(N.NEG)) run.invalid.push(`${name}: negative control quoted`);
+    if (stray.length) bad.push(`${name}: direct read of ${stray.map((p) => path.basename(p)).join(', ')}`);
+    if (JSON.stringify(r.ev).includes(N.NEG)) bad.push(`${name}: negative control quoted`);
     const mcp = (r.ev.find((e) => e.type === 'system' && e.subtype === 'init')?.mcp_servers ?? []).find((s) => s.name.includes('prb'));
-    if (mcp?.status !== 'connected') run.invalid.push(`${name}: probe MCP server ${mcp?.status ?? 'missing'}`);
+    if (mcp?.status !== 'connected') bad.push(`${name}: probe MCP server ${mcp?.status ?? 'missing'}`);
+    Object.assign(run.cells, r.cells);
+    run.invalid.push(...bad);
+    if (bad.length) run.badCells.push(...Object.keys(r.cells)); // a faulty session voids only its own cells
   }
-  if (run.cells['main.start'] && !run.cells['main.start'].CM) run.invalid.push('S: positive control (CLAUDE.md) not quoted');
+  // Without the positive control the listing method itself failed, so the whole run is void.
+  if (run.cells['main.start'] && !run.cells['main.start'].CM) {
+    run.invalid.push('S: positive control (CLAUDE.md) not quoted');
+    run.badCells.push(...Object.keys(run.cells));
+  }
   runs.push(run);
   console.log(`run ${i}: ${run.invalid.length ? run.invalid.join('; ') : 'valid'}`);
 }
 
-// Per cell and channel: hits over valid runs. 3/3 arrives, 0/3 does not, else unreliable (PM2).
-const valid = runs.filter((r) => r.invalid.length === 0);
+// Per cell and channel: hits over the runs valid for that cell. 3/3 arrives, 0/3 does not, else unreliable (PM2);
+// a cell with fewer than 3 valid runs fails the check.
 const summary = {};
 for (const cell of new Set(runs.flatMap((r) => Object.keys(r.cells)))) {
-  summary[cell] = Object.fromEntries(CODES.map((c) => [c, `${valid.filter((r) => r.cells[cell]?.[c]).length}/${valid.length}`]));
+  const ok = runs.filter((r) => r.cells[cell] && !r.badCells.includes(cell));
+  summary[cell] = Object.fromEntries(CODES.map((c) => [c, `${ok.filter((r) => r.cells[cell][c]).length}/${ok.length}`]));
 }
-const out = { date: new Date().toISOString().slice(0, 10), cli: version, model: 'haiku', runs: RUNS, validRuns: valid.length, summary, perRun: runs };
+const validRuns = runs.filter((r) => r.invalid.length === 0).length;
+const out = { date: new Date().toISOString().slice(0, 10), cli: version, model: 'haiku', runs: RUNS, validRuns, summary, perRun: runs };
 fs.writeFileSync(path.join(HERE, ONLY ? `results-${ONLY}.json` : 'results.json'), `${JSON.stringify(out, null, 2)}\n`);
 for (const [cell, row] of Object.entries(summary)) console.log(cell.padEnd(28), Object.entries(row).map(([c, v]) => `${c}=${v}`).join(' '));

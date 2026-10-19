@@ -52,8 +52,9 @@ the scored cells, scored from the stream (the model's own tool calls and text), 
    ignored it as an injection. Fixed: stream-json input, one message per turn, each after the previous result.
 4. W re-read the file it had just written; reading the file it wrote is allowed.
 
-After the check, for re-probes only: the scorer counted a denied Read as a read (see the Explore note below); it now
-requires a successful one.
+After the check, for re-probes only (`results.json` comes from the scorer as it ran): the scorer counted a denied
+Read as a read (see the Explore note below), and it now requires a successful one; and validity is judged per cell,
+as the pre-registered text says, so a faulty session voids only its own cells, not the whole run.
 
 ## Results (2026-10-20, Claude Code 2.1.304, Haiku, 3 of 3 runs valid)
 
