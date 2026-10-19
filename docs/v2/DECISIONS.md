@@ -15,7 +15,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | OPEN — frontier | user | — |
 | V2-D11 | Where does a repo's knowledge live? | OPEN | user + evidence | D10, D12 |
-| V2-D12 | Which delivery channels actually arrive, and where? | CHECKING (probe P1 pre-registered) | evidence | — |
+| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
 | V2-D15 | How is a map bootstrapped for an existing repo? | OPEN | evidence | D13 |
@@ -23,8 +23,8 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | OPEN | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, 02-v1-postmortem.md |
 
-Frontier (rule 6): **D10** (one grilling session with the user) and **D12** (probe P1) can run in parallel; nearly
-every other decision depends on them.
+Frontier (rule 6): **D10** (one grilling session with the user); D12 is locked. Nearly
+every other decision depends on it.
 
 ---
 
@@ -156,6 +156,30 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   format, and the transcript shows no direct read of a nonce-bearing file other than the trigger and no nonce in a
   prompt written to a subagent. The check passes when every cell has three valid runs. The choice then records, per
   channel, the contexts where it arrives.
+- **Result:** pass (2026-10-20, CLI 2.1.304, 3 of 3 runs valid; table and notes in
+  [the probe README](probes/V2-D12-channels/README.md#results-2026-10-20-claude-code-21304-haiku-3-of-3-runs-valid)).
+  Arrival, 3 of 3 unless stated:
+  - Root `CLAUDE.md`, its `@import` and unscoped rules: the main session, also after `/compact`; general-purpose and
+    plugin agents. Never Explore or Plan.
+  - Path rules and nested `CLAUDE.md`: any agent, only after it reads a matching file (Explore 2 of 3; the miss was
+    a denied read); after `/compact` because compaction re-attaches the recently read file. **Not before the first
+    Write of a new file** (0 of 3 in the written content); they arrive with that Write.
+  - Skills with `paths:`: a project skill is listed after a matching read, in agents that have the Skill tool. A
+    plugin skill is listed from the start; its `paths:` gate did not apply.
+  - Plugin hooks: SessionStart reaches the main session only and is gone after `/compact` unless the `compact`
+    matcher emits again; SubagentStart reaches every subagent at start and never the main session;
+    UserPromptSubmit reaches the main session on every prompt and never a subagent.
+  - Plugin MCP server instructions: the main session from the start; a subagent only after its first tool call.
+  - Auto memory (redirected into the repo): the main session, also after `/compact`, and general-purpose and plugin
+    agents (the docs say subagents do not get it). Never Explore or Plan.
+- **Choice:** a channel may carry v2 content only in the contexts where it arrived 3 of 3 above (PM2). At start,
+  Explore and Plan get only SubagentStart and unconditional skill descriptions. No probed channel delivers
+  path-scoped knowledge before the first Write of a new file.
+- **Rejected:** taking the documented channel table as the answer (three cells differ: auto memory in subagents,
+  path rules after compaction, plugin skill `paths:`); a path rule as the way to shape a new file (0 of 3).
+- **Reopen if:** a Claude Code release changes how `CLAUDE.md`, rules, skills, hooks or MCP instructions load
+  (PM8); or a design depends on a context not probed here (an interactive session, another model, auto memory at
+  its default location). Attempts: 0.
 - **Evidence so far (documented, not yet probed):** research/2026-10-19-platform-memory-channels.md (Explore and Plan
   skip `CLAUDE.md`; path rules reach every agent type on file touch but are not re-injected after compaction; hook
   context above 10,000 chars becomes a file preview). Path rules may arrive after planning has started (Ultimate
