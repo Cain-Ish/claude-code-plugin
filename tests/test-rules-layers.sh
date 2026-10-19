@@ -108,10 +108,9 @@ cat > "$B3/projects/demo/rules.json" <<'EOF'
 EOF
 payload3() { printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"make deploy"}}' "$B3"; }
 
-# Baseline: sourcing lib.sh alone spawns its own jq (kb-schema.sh, unrelated to rules layering)
-# — the delta against THIS baseline is what isolates sb_rules_effective's own spawn count,
-# rather than pinning a magic total that would break the moment some unrelated top-of-file
-# jq call is added or removed.
+# Baseline: sourcing lib.sh alone spawns no jq of its own (kb-schema.sh is no longer sourced, N2); the
+# delta against THIS baseline isolates sb_rules_effective's own spawn count, rather than pinning a magic
+# total that would break the moment some unrelated top-of-file jq call is added or removed.
 n_base=$(jq_count "$TMP/jcbase" bash -c "source '$ROOT/scripts/lib.sh'")
 n_cold=$(jq_count "$TMP/jc0" bash -c "source '$ROOT/scripts/lib.sh'; BRAIN_DIR='$B3' sb_rules_effective demo")
 [ "$n_cold" -gt "$n_base" ] || fail "cache: a cold rebuild should spawn at least one jq beyond baseline sourcing (base=$n_base, cold=$n_cold)"
@@ -222,7 +221,7 @@ pass "kill switch: SB_RULES_LAYERS=off restores today's U/P precedence, no cache
 # --------------------------------------------------------------------------
 B6="$TMP/b6"; mkdir -p "$B6"
 PAYLOAD6='{"persona_signals":[],"rule_candidates":[{"event":"bash","pattern":"npm run migrate","message":"always confirm before migrating"}]}'
-for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6" bash "$MERGESIG" --slug demo >/dev/null 2>&1; done
+for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6" bash "$MERGESIG" --slug demo --session "rl6-$i" >/dev/null 2>&1; done
 [ "$(jq -r '.learned[0].pattern' "$B6/projects/demo/rules.json" 2>/dev/null)" = "npm run migrate" ] \
   || fail "candidates per repo: repo rules.json .learned[0].pattern should be the armed candidate"
 [ "$(jq -r '.learned[0].action' "$B6/projects/demo/rules.json" 2>/dev/null)" = "warn" ] \
@@ -243,7 +242,7 @@ out2=$(printf '{"tool_name":"Bash","session_id":"s2","cwd":"%s","tool_input":{"c
   || fail "candidates per repo: a session pinned to a DIFFERENT repo must not see demo's learned rule (got: $out2)"
 
 B6u="$TMP/b6u"; mkdir -p "$B6u"
-for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6u" bash "$MERGESIG" >/dev/null 2>&1; done
+for i in 1 2 3; do printf '%s' "$PAYLOAD6" | BRAIN_DIR="$B6u" bash "$MERGESIG" --session "rl6u-$i" >/dev/null 2>&1; done
 [ "$(jq -r '.learned[0].pattern' "$B6u/persona-rules.json" 2>/dev/null)" = "npm run migrate" ] \
   || fail "candidates per repo: WITHOUT --slug, the user file should still receive the armed candidate"
 pass "candidates per repo: --slug arms the repo layer only, is session-scoped, and the no-slug path is unchanged"

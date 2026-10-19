@@ -87,6 +87,37 @@ B_COUNT=$(awk '/^## Open blockers$/{flag=1; next} /^## /{flag=0} flag && /^- /' 
 [ "$B_COUNT" -ge 2 ] || fail "blocker-merge: expected merge to add blockers (got $B_COUNT)"
 pass "blockers: cap 15"
 
+# --- S3-2 (re-audit): a non-bullet line inside a section (the "  → wiki/..." pointer archive_to_wiki
+# leaves where an archived entry was) does not end it. It did: each merge inserted the new decision
+# above the pointer, the next merge dropped that newest one, and the old five never rotated (6 bullets).
+PROJ="$TMP/p-s32.md"; WIKI="$TMP/wiki-s32"; mkdir -p "$WIKI"
+S32_D=$(date +%Y-%m-%d)
+cat > "$PROJ" <<EOF
+# PROJECT: test-slug
+
+## Recent decisions
+  → wiki/decisions/test-slug/2026-05-01-old-entry.md
+- [$S32_D] s32 decision d1
+- [$S32_D] s32 decision d2
+- [$S32_D] s32 decision d3
+- [$S32_D] s32 decision d4
+- [$S32_D] s32 decision d5
+
+## Open blockers
+
+<!-- last_updated: 2026-05-01T00:00:00Z -->
+EOF
+for n in n1 n2 n3; do
+  jq -nc --arg d "s32 newest $n" '{recent_decisions:[$d], open_blockers:[], cross_refs:[], files_touched:[]}' \
+    | "$SCRIPT" --project-md "$PROJ" --knowledge-dir "$WIKI" >/dev/null 2>&1 || fail "S3-2: merge $n exited non-zero"
+done
+S32=$(awk '/^## Recent decisions$/{f=1; next} /^## /{f=0} f && /^- /' "$PROJ")
+[ "$(printf '%s\n' "$S32" | grep -c .)" = 5 ] || fail "S3-2: expected 5 decision bullets after 3 merges, got: $S32"
+for n in n1 n2 n3; do printf '%s\n' "$S32" | grep -q "s32 newest $n\$" || fail "S3-2: decision $n was dropped: $S32"; done
+printf '%s\n' "$S32" | grep -qE 's32 decision d[123]$' && fail "S3-2: the oldest decisions did not rotate out: $S32"
+grep -q '→ wiki/decisions/test-slug/2026-05-01-old-entry.md' "$PROJ" || fail "S3-2: the pointer line was lost"
+pass "S3-2: a pointer line inside Recent decisions no longer ends the section (cap 5 rotates the oldest)"
+
 # --- Test 3: cross-refs scaffold wiki page for missing, leave existing untouched.
 PROJ="$TMP/p3.md"; WIKI="$TMP/wiki3"; mkdir -p "$WIKI/wiki/entities"
 seed_project "$PROJ"

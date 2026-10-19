@@ -19,6 +19,7 @@ describe('archive_to_wiki', () => {
     writeFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), tpl, 'utf-8');
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(brainDir, { recursive: true, force: true });
     rmSync(knowledgeDir, { recursive: true, force: true });
   });
@@ -106,6 +107,22 @@ describe('archive_to_wiki', () => {
     expect(proj).toContain(b.archived_path.split(/[\\/]/).pop());
   });
 
+  it('a slug with no PROJECT.md says so and creates no wiki dir (re-audit R5-6)', async () => {
+    const res = await archiveToWiki({ slug: 'no-such-project', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/no PROJECT\.md for no-such-project/);
+    expect(readdirSync(knowledgeDir)).toEqual([]);
+  });
+
+  it('rejects a traversal or dotted slug before touching any file (re-audit R5-10)', async () => {
+    for (const slug of ['../x', 'a/b', '.x']) {
+      const res = await archiveToWiki({ slug, sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+      expect(res.ok, slug).toBe(false);
+      expect(res.reason, slug).toMatch(/invalid slug/);
+    }
+    expect(readdirSync(knowledgeDir)).toEqual([]);
+  });
+
   it('rejects an empty or blank entryText (it matched the first [resolved] entry)', async () => {
     for (const entryText of ['', '   ']) {
       const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText, targetCategory: 'issues', brainDir, knowledgeDir });
@@ -129,11 +146,30 @@ describe('archive_to_wiki', () => {
     expect(existsSync(lf)).toBe(false);
   });
 
+  // Re-audit R5-1: a lock stolen during a stall: no PROJECT.md replace, and no orphan page a retry would duplicate.
+  it('a lock stolen while the archive holds it: ok:false, PROJECT.md untouched, no page left', async () => {
+    const projectMd = join(brainDir, 'projects', 'test-slug', 'PROJECT.md');
+    const lf = join(brainDir, 'projects', 'test-slug', '.PROJECT.md.lock');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fsp = (await import('fs')).promises;
+    const realReadFile = fsp.readFile.bind(fsp);
+    vi.spyOn(fsp, 'readFile').mockImplementation((async (p: any, o: any) => {
+      if (String(p) === projectMd) writeFileSync(lf, 'other.1\n');   // the merge steals during the stall
+      return realReadFile(p, o);
+    }) as any);
+    const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/stolen/);
+    expect(readFileSync(projectMd, 'utf-8')).toBe(tpl);
+    const wikiDir = join(knowledgeDir, 'wiki', 'issues', 'test-slug');
+    expect(existsSync(wikiDir) ? readdirSync(wikiDir) : []).toEqual([]);
+  });
+
   it('TS-R2: a failed PROJECT.md replace removes the page it wrote, so a retry does not duplicate', async () => {
     const fsp = (await import('fs')).promises;
     const realRename = fsp.rename;
     const spy = vi.spyOn(fsp, 'rename').mockImplementation(async (a: any, b: any) => {
-      if (String(a).endsWith('.tmp')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+      if (String(a).includes('.tmp.')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
       return realRename(a, b);
     });
     const args = { slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir } as const;
@@ -144,5 +180,25 @@ describe('archive_to_wiki', () => {
     const res = await archiveToWiki({ ...args });
     expect(res.ok).toBe(true);
     expect(res.archived_path).not.toMatch(/-2\.md$/);
+  });
+
+  // Re-audit TS-1: rename refused for the whole retry, in-place write lands, rm(tmp) refused (Windows AV).
+  it('TS-1: a temp that cannot be removed after the in-place write keeps the page PROJECT.md points to', async () => {
+    const fsp = (await import('fs')).promises;
+    const realRename = fsp.rename, realRm = fsp.rm;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(fsp, 'rename').mockImplementation(async (a: any, b: any) => {
+      if (String(a).includes('.tmp.')) throw Object.assign(new Error('EPERM rename'), { code: 'EPERM' });
+      return realRename(a, b);
+    });
+    vi.spyOn(fsp, 'rm').mockImplementation(async (p: any, o: any) => {
+      if (String(p).includes('.tmp.')) throw Object.assign(new Error('EBUSY rm'), { code: 'EBUSY' });
+      return realRm(p, o);
+    });
+    const res = await archiveToWiki({ slug: 'test-slug', sourceSection: 'blockers', entryText: 'flaky test in module X', targetCategory: 'issues', brainDir, knowledgeDir });
+    expect(res.ok).toBe(true);
+    expect(existsSync(res.archived_path)).toBe(true);
+    const proj = readFileSync(join(brainDir, 'projects', 'test-slug', 'PROJECT.md'), 'utf-8');
+    expect(proj).toContain(`→ wiki/issues/test-slug/${res.archived_path.split(/[\\/]/).pop()}`);
   });
 });

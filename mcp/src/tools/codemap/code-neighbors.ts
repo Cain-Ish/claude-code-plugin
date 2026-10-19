@@ -18,6 +18,7 @@
 
 import { codemapDir, readGraph } from './store.js';
 import { isStale } from './drift.js';
+import { defaultGitRunner } from '../jit-index.js';
 import type { GitRunner } from './scan-sources.js';
 import type { CodeEdge, CodeGraph } from './types.js';
 
@@ -172,6 +173,6 @@ export async function codeNeighbors(opts: CodeNeighborsOpts): Promise<CodeNeighb
     depth,
     neighbors: rows.slice(0, cap),
     truncated: rows.length > cap,
-    stale: await isStale(graph, graph.repo_root, opts.runGit),
+    stale: await isStale(graph, graph.repo_root, opts.runGit ?? defaultGitRunner),   // 5 s: interactive, not the CLI's 60 s
   };
 }

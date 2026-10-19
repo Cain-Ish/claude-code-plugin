@@ -359,12 +359,10 @@ case "$OUT_TASK" in *explore-above-fast*) pass "Task tool behaves identically to
 # PATH-stub jq/tr/grep/awk/sed/git/date/cygpath/mkdir/mv (idiom copied from
 # tests/test-validate-plugin.sh's `claude` stub): each shim appends its own name to
 # $SB_SPAWN_LOG then execs the REAL binary captured before PATH changes.
-# Floor is 11, not the review finding's naive "cygpath+jq+tr+date+jq+tr"=6 estimate: `source
-# lib.sh` itself unconditionally costs a 2nd cygpath (lib.sh's own BRAIN_DIR re-resolution)
-# and a hidden jq+tr (kb-schema.sh, sourced BY lib.sh, loading the KB schema once), and
-# sb_log_error's sb_rotate_audit_log does two `wc|tr -d ' '` size checks — none of that is
-# pg_agent's own code or in this slice's owned files. The number that IS this fix's to own
-# is the reduction from 18 (RED, the extra T-jq, Slower-tr and four grep pipelines) to 11.
+# Budget is 6 (measured 5 on the 0.57.0 tree): `source lib.sh` costs a 2nd cygpath (its own
+# BRAIN_DIR re-resolution), plus pg_agent's own jq/tr/date calls. lib.sh no longer sources
+# kb-schema.sh (N2) and sb_log_error's rotation size checks no longer spawn wc|tr (L7).
+# Keep this tight: slack of 1 absorbs a platform quirk, not a new per-call spawn.
 SPAWN_BIN="$SANDBOX/spawnbin"; mkdir -p "$SPAWN_BIN"
 for c in jq tr grep awk sed git date cygpath mkdir mv; do
   real=$(command -v "$c" 2>/dev/null || true)
@@ -386,8 +384,8 @@ OUT_SPAWN=$(run pre '{"hook_event_name":"PreToolUse","tool_name":"Agent","sessio
   PATH="$SPAWN_BIN:$PATH" SB_SPAWN_LOG="$SPAWN_LOG")
 [ -z "$OUT_SPAWN" ] && pass "spawn budget: warm ok-path still emits no output" || fail "spawn budget: unexpected output" "$OUT_SPAWN"
 SPAWN_COUNT=$(wc -l < "$SPAWN_LOG" 2>/dev/null | tr -d ' ')
-[ "${SPAWN_COUNT:-99}" -le 11 ] && pass "spawn budget: warm ok-path spawns <=11 external commands (got $SPAWN_COUNT)" \
-  || fail "spawn budget: warm ok-path spawned $SPAWN_COUNT external commands (budget <=11)" "$(cat "$SPAWN_LOG" 2>/dev/null)"
+[ "${SPAWN_COUNT:-99}" -le 6 ] && pass "spawn budget: warm ok-path spawns <=6 external commands (got $SPAWN_COUNT)" \
+  || fail "spawn budget: warm ok-path spawned $SPAWN_COUNT external commands (budget <=6)" "$(cat "$SPAWN_LOG" 2>/dev/null)"
 
 # RED (paste in PR): against the scaffold's stub `pg_agent() { :; }`, every case above
 # that expects a warn/rewrite gets empty output, and every gate=delegation assertion

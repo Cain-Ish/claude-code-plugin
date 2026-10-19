@@ -19,6 +19,7 @@
 import { codemapDir, readGraph } from './store.js';
 import { serialize } from './serialize.js';
 import { isStale } from './drift.js';
+import { defaultGitRunner } from '../jit-index.js';
 import type { GitRunner } from './scan-sources.js';
 
 export interface CodeMapOpts {
@@ -57,7 +58,7 @@ export async function codeMap(opts: CodeMapOpts): Promise<CodeMapResult> {
     generated_at: graph.generated_at,
     git_rev: graph.git_rev,
     generator: graph.generator,
-    stale: await isStale(graph, graph.repo_root, opts.runGit),
+    stale: await isStale(graph, graph.repo_root, opts.runGit ?? defaultGitRunner),   // 5 s: interactive, not the CLI's 60 s
     truncated: graph.truncated,
   };
 }

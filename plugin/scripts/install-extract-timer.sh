@@ -80,16 +80,27 @@ render_service() {
   # A custom knowledge dir must be BOTH forwarded (Environment=) and granted in the
   # sandbox (the default unit only grants %h/knowledge) — else the out-of-band extraction
   # AND consolidation operate on the wrong tree / are blocked by ProtectHome.
-  # ExecStart splits on whitespace: quote the shim so a space in $HOME survives (refuse a `"`).
-  case "$SHIM" in *'"'*) echo "error: refusing to render ExecStart - a double quote in the shim path ($SHIM)" >&2; return 1 ;; esac
-  if [ -n "$INSTALL_KD" ] && [ "$INSTALL_KD" != "$HOME/knowledge" ]; then
-    sed -e "s#@EXEC@#bash \"$(_sed_repl "$SHIM")\"#g" \
-        -e "s#^ReadWritePaths=.*#&  $INSTALL_KD#" \
-        -e "/^Environment=PATH=/a Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$INSTALL_KD" \
-        "$TPL_DIR/$VARIANT_SVC"
-  else
-    sed "s#@EXEC@#bash \"$(_sed_repl "$SHIM")\"#g" "$TPL_DIR/$VARIANT_SVC"
-  fi
+  # ExecStart splits on whitespace: quote the shim so a space in $HOME survives. Refuse `"`, and `\`
+  # and `%` too: systemd escape/specifier characters that sed or systemd would rewrite (re-audit R2-2).
+  case "$SHIM" in *'"'*|*'\'*|*%*) echo "error: refusing to render ExecStart - a double quote, backslash or % in the shim path ($SHIM)" >&2; return 1 ;; esac
+  # Every forwarded dir that is not the unit's default must be granted too (ProtectHome=read-only):
+  # BRAIN_DIR (lock + state), CLAUDE_CONFIG_DIR on --oauth, the knowledge dir (re-audit S7-3/S7-4).
+  # Each entry is double-quoted (a space survives). Refused: `"` (ends the quote), `\` (a systemd
+  # escape, and sed's in the replacement) and `%` (a systemd specifier: only `%%` is literal) (B2).
+  local _rw="" _kd=0
+  _rw_add() {
+    [ -n "$1" ] && [ "$1" != "$2" ] || return 0
+    case "$1" in *'"'*|*'\'*|*%*) echo "error: refusing to render the unit - a double quote, backslash or % in a granted path ($1)" >&2; return 1 ;; esac
+    _rw="$_rw \"$1\""
+  }
+  _rw_add "${BRAIN_DIR:-}" "$HOME/.second-brain" || return 1
+  [ "$VARIANT_SVC" = "sb-extract-drain-oauth.service" ] && { _rw_add "${CLAUDE_CONFIG_DIR:-}" "$HOME/.claude" || return 1; }
+  _rw_add "$INSTALL_KD" "$HOME/knowledge" || return 1
+  [ -n "$INSTALL_KD" ] && [ "$INSTALL_KD" != "$HOME/knowledge" ] && _kd=1
+  local -a _sx=(-e "s#@EXEC@#bash \"$(_sed_repl "$SHIM")\"#g")
+  [ -n "$_rw" ] && _sx+=(-e "s#^ReadWritePaths=.*#&$(_sed_repl "$_rw")#")
+  [ "$_kd" = 1 ] && _sx+=(-e "/^Environment=PATH=/a Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$(_sed_repl "$INSTALL_KD")\"")
+  sed "${_sx[@]}" "$TPL_DIR/$VARIANT_SVC"
 }
 
 # Render the stable shim. Quoted heredoc (no in-shell expansion) + sed substitution of the two
@@ -422,7 +433,7 @@ case "$ACTION" in
     ;;
   *)
     echo "# === $SVC (would be written to $UNIT_DIR) ==="
-    render_service
+    render_service || exit 1
     echo
     echo "# === $TIMER ==="
     cat "$TPL_DIR/$TIMER"

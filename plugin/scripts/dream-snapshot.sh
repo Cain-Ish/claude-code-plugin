@@ -255,6 +255,13 @@ if [ -n "$SNAPSHOT_FAIL_REASON" ]; then
   echo "error: $SNAPSHOT_FAIL_REASON" >&2
   exit 1
 fi
+# The staged page list: dream-accept tells a live page an earlier accept wrote after this snapshot
+# (it keeps that dream's older mtime) from one this dream dropped, and skips copying back a page
+# live lost since, by this list rather than by mtime.
+if ! printf '%s\n' "$_staged" | sed 's#^\./##' > "$DREAM_DIR/snapshot-pages.txt"; then
+  rm -f "$DREAM_DIR/snapshot-pages.txt"
+  sb_log_error "dream-snapshot.sh" "could not write $DREAM_DIR/snapshot-pages.txt; accepting dream $DREAM_ID protects live pages by mtime only" 1
+fi
 
 # Select and symlink transcripts
 TRANSCRIPT_DIR="$BRAIN_DIR/transcripts"

@@ -673,7 +673,11 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
         sb_log_error "extract-drain.sh" "project $slug: $base hit $nd consecutive deferrals (merge exit 3: PROJECT.md locked, unreadable, UTF-16 or unwritable); counting it as a failure toward SB_DRAIN_MAX_FAILS" 1
       fi
       fails=$((fails + 1)); drain_clock
-      if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" != "off" ] && sb_floor_transcript "$tf" "$slug"; then
+      frc=1
+      if [ "$fails" -ge "$MAX_FAILS" ] && [ "${SB_DRAIN_FLOOR:-on}" != "off" ]; then
+        sb_floor_transcript "$tf" "$slug" && frc=0 || frc=$?
+      fi
+      if [ "$frc" -eq 0 ]; then
         # Last-resort deterministic floor (P1): the LLM backend has failed MAX_FAILS times on this
         # window. Rather than dead-letter a code-changing session with NOTHING captured, write the
         # files-changed baseline (no LLM; it reads the WHOLE archive, not just the window) and mark
@@ -682,6 +686,11 @@ while IFS=$'\t' read -r base cur lines st next fails mt flag _rest; do
         drain_row ok deterministic-floor "$from" "$cend" ",\"latency_s\":$(sb_drain_latency_s "$mt")"
         sb_merge_defer_clear "$base"
         processed=$((processed + 1))
+      elif [ "$frc" -eq 3 ] && nd=$(sb_merge_defer_bump "$base") && [ "$nd" -le "$MAX_DEFERS" ]; then
+        # The floor's merge exited 3 (PROJECT.md busy or refused): defer like the LLM path above, no
+        # row, so the next tick floors the window again instead of dead-lettering it (re-audit F1).
+        deferred=$((deferred + 1))
+        sb_log_error "extract-drain.sh" "window $from..$cend of $base deferred ($nd/$MAX_DEFERS): the deterministic floor's merge exited 3 (PROJECT.md busy or refused, see its row); retried next tick" 0
       elif [ "$fails" -ge "$MAX_FAILS" ]; then
         # Dead-letter THIS window only: the error row moves `next` past it, so later growth is
         # still extracted, but never the cursor (D177): its lines stay counted as not extracted.

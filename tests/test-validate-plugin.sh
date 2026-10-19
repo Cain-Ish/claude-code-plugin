@@ -1,5 +1,6 @@
 #!/bin/bash
 # Smoke test for scripts/validate-plugin.sh.
+# run-all-timeout: 300   (measured 115-121 s on Windows against the 120 s run-all default)
 # Builds an isolated minimal plugin skeleton in a temp dir and asserts:
 #   - clean skeleton passes
 #   - bad hooks.json (invalid JSON / missing matcher / matcher on no-matcher event) fails or warns

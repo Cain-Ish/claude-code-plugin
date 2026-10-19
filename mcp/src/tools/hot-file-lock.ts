@@ -2,8 +2,8 @@ import { promises as fs } from 'fs';
 import { randomInt } from 'crypto';
 import { basename, dirname, join } from 'path';
 
-// E3 (audit 2026-10): PROJECT.md and USER.md are read-modify-written by the bash merge
-// (merge-project-update.sh, lib.sh sb_pin_to_user) AND by pin_to_project / pin_to_user /
+// E3 (audit 2026-10): PROJECT.md and USER.md are read-modify-written by bash (merge-project-update.sh;
+// lib.sh sb_migrate_learned_pins for USER.md) AND by pin_to_project / pin_to_user /
 // archive_to_wiki. Unlocked, a pin landing inside a merge's window returned ok:true and was then
 // overwritten by the merge's final mv. Every writer holds ONE on-disk lock per file: lib.sh
 // sb_archive_lock's noclobber file ".<name>.lock" next to it, holding "<pid>.<nonce>". Same stale
@@ -48,14 +48,19 @@ async function stealIfStale(lf: string): Promise<void> {
   await fs.rm(grab, { force: true });
 }
 
-/** Run fn holding file's shared lock. Still busy after waitMs: return busy(reason), nothing run. */
+export const LOCK_STOLEN = 'lock stolen while held; nothing written, retry';
+
+/** Run fn holding file's shared lock. Still busy after waitMs: return busy(reason), nothing run.
+ *  fn calls owned() right before each write and returns LOCK_STOLEN when it is false: a writer that
+ *  stalled past the stale bound lost the lock, and its buffer predates the thief's write
+ *  (merge-project-update.sh checks its token before its mv the same way). */
 export async function withFileLock<T>(
-  file: string, busy: (reason: string) => T, fn: () => Promise<T>, waitMs = LOCK_WAIT_MS,
+  file: string, busy: (reason: string) => T, fn: (owned: () => Promise<boolean>) => Promise<T>, waitMs = LOCK_WAIT_MS,
 ): Promise<T> {
   const lf = lockPathFor(file);
   const token = `${process.pid}.${randomInt(1e9)}`;
   const end = Date.now() + waitMs;
-  let lastCode = 'EEXIST';
+  let lastCode = 'EEXIST', noLock = 0;
   for (;;) {
     try { await fs.writeFile(lf, `${token}\n`, { flag: 'wx' }); break; }
     catch (e) {
@@ -63,6 +68,10 @@ export async function withFileLock<T>(
       // EPERM/EACCES too: Windows refuses a create for a moment while the old lock is being deleted.
       if (lastCode !== 'EEXIST' && lastCode !== 'EPERM' && lastCode !== 'EACCES') throw e;
     }
+    // Refused 3 times in a row with no lock there: an unwritable directory, not contention (lib.sh gives up the same way).
+    noLock = lastCode === 'EEXIST' ? 0
+      : await fs.stat(lf).then(() => 0, (s: NodeJS.ErrnoException) => (s.code === 'ENOENT' ? noLock + 1 : 0));
+    if (noLock >= 3) throw new Error(`cannot create ${lf} (${lastCode}, no lock present; directory unwritable?); ${basename(file)} not written`);
     await stealIfStale(lf);
     if (Date.now() >= end) {
       const holder = await firstLine(lf).catch(() => 'none');
@@ -70,7 +79,7 @@ export async function withFileLock<T>(
     }
     await sleep(100);
   }
-  try { return await fn(); }
+  try { return await fn(async () => (await firstLine(lf).catch(() => '')) === token); }
   finally {
     const held = await firstLine(lf).catch(() => '');
     if (held === token) {

@@ -267,12 +267,12 @@ const execFileAsync = promisify(execFile);
 
 /** Default git runner: async (never blocks the MCP server's event loop — the earlier
  *  `execFileSync` did), 64 MiB maxBuffer (the 1 MiB default throws ENOBUFS on a real repo's
- *  `ls-files -z` output well before it's unusually large — same trap scan-sources.ts's
- *  defaultRunGit documents for the identical command), a 5s timeout, windowsHide so no console
- *  flashes on Windows. */
-export async function defaultGitRunner(args: string[], cwd: string): Promise<string> {
+ *  `ls-files -z` output well before it's unusually large), a timeout (5 s here; the out-of-band
+ *  codemap passes its own, see scan-sources.ts defaultRunGit), windowsHide so no console flashes
+ *  on Windows. */
+export async function defaultGitRunner(args: string[], cwd: string, timeoutMs = 5000): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
-    cwd, maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout: 5000,
+    cwd, maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout: timeoutMs,
   });
   return stdout;
 }

@@ -8,6 +8,7 @@ INSTALL="$SCRIPT_DIR/install-extract-timer.sh"
 SANDBOX=$(mktemp -d)
 trap 'rm -rf "$SANDBOX"' EXIT
 export XDG_CONFIG_HOME="$SANDBOX/config"   # redirect systemd user dir into sandbox
+unset CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR KNOWLEDGE_DIR   # the "default render" cases need no inherited custom KD
 
 PASS=0; FAIL=0
 ok() { PASS=$((PASS+1)); echo "  PASS: $1"; }
@@ -89,10 +90,11 @@ printf '%s' "$SD" | grep -q 'sb-extract-drain.service' && ok "systemd path intac
 # job AND granted in the systemd sandbox (else extraction+consolidation hit the wrong tree).
 KD=/data/mykb
 SDC=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null)
-printf '%s' "$SDC" | grep -q "Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$KD" && ok "systemd: custom KD forwarded via Environment=" || no "systemd: custom KD not forwarded"
+printf '%s' "$SDC" | grep -q "Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$KD\"" && ok "systemd: custom KD forwarded via Environment=" || no "systemd: custom KD not forwarded"
 printf '%s' "$SDC" | grep -qE "^ReadWritePaths=.*$KD" && ok "systemd: custom KD granted in ReadWritePaths" || no "systemd: custom KD not granted (sandbox would block writes)"
-# default render must NOT inject a CLAUDE env line (back-compat)
-printf '%s' "$SD" | grep -q 'Environment=CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
+# default render must NOT inject a CLAUDE env line (back-compat). No `Environment=` prefix in the grep:
+# the line is rendered quoted, `Environment="CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=..."` (re-audit T1).
+printf '%s' "$SD" | grep -q 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR' && no "default render injected a custom KD env line" || ok "default render unchanged (no custom KD)"
 LAK=$(CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$KD" SB_INSTALL_OS_OVERRIDE=launchd bash "$INSTALL" 2>/dev/null)
 printf '%s' "$LAK" | grep -q "$KD" && ok "launchd: custom KD snapshotted into the plist env" || no "launchd: custom KD not forwarded"
 
@@ -329,6 +331,37 @@ RAN24=$(HOME="$SANDBOX/emptyhome24" CLAUDE_CONFIG_DIR="$SANDBOX/cc24" bash "$BR2
 rm -f "$BR24/.extract-timer-env"
 HOME="$SANDBOX/emptyhome24" BRAIN_DIR="$BR24" CLAUDE_CONFIG_DIR="$SANDBOX/nocache24" bash "$BR24/bin/sb-extract-drain.sh" >/dev/null 2>&1
 grep -q 'sb-extract-drain-shim' "$BR24/error-log.jsonl" 2>/dev/null && ok "shim: logs an error-log row when no drainer is found" || no "shim: not-found left no error-log row"
+
+# Test 25 (re-audit S7-3/S7-4): the rendered systemd unit must GRANT every forwarded dir that is not the
+# unit's default (BRAIN_DIR; CLAUDE_CONFIG_DIR on --oauth; a knowledge dir), each quoted so a space
+# survives; a `"` in a granted path is refused. Print mode only, in a throwaway HOME.
+H25="$SANDBOX/home 25"; mkdir -p "$H25"
+U25=$(HOME="$H25" BRAIN_DIR="$H25/brain-alt" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null || true)
+printf '%s' "$U25" | grep -F 'ReadWritePaths=' | grep -qF "\"$H25/brain-alt\"" \
+  && ok "unit grants a custom BRAIN_DIR" || no "unit does not grant BRAIN_DIR (ReadWritePaths: $(printf '%s' "$U25" | grep 'ReadWritePaths='))"
+U25=$(HOME="$H25" CLAUDE_CONFIG_DIR="$H25/cc-alt" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" --oauth 2>/dev/null || true)
+printf '%s' "$U25" | grep -F 'ReadWritePaths=' | grep -qF "\"$H25/cc-alt\"" \
+  && ok "--oauth unit grants a custom CLAUDE_CONFIG_DIR" || no "--oauth unit does not grant CLAUDE_CONFIG_DIR"
+U25=$(HOME="$H25" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$H25/kb & notes" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>/dev/null || true)
+printf '%s' "$U25" | grep -F 'ReadWritePaths=' | grep -qF "\"$H25/kb & notes\"" \
+  && ok "unit grants a knowledge dir with a space and & as ONE quoted entry" || no "knowledge dir entry split or mangled (got: $(printf '%s' "$U25" | grep 'ReadWritePaths='))"
+printf '%s' "$U25" | grep -qF "Environment=\"CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR=$H25/kb & notes\"" \
+  && ok "knowledge dir Environment= is quoted" || no "knowledge dir Environment= is not quoted"
+E25=$(HOME="$H25" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$H25/kb\"q" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 >/dev/null || true)
+printf '%s' "$E25" | grep -q 'refusing to render the unit' && ok "a double quote in a granted path is refused" || no "a double quote in the knowledge dir was rendered"
+# B2: a backslash is a systemd escape (\n splits the line) and a sed escape in the replacement (\1
+# fails, \\ loses one); % is a systemd specifier (%n = the unit name). All refused. B5: print mode
+# exits non-zero on a refused render instead of printing the rest and exiting 0.
+for bad in 'kb\nx' 'kb\1x' 'kb\\x' 'kb%nx'; do
+  if E25B=$(HOME="$H25" CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR="$H25/$bad" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 >/dev/null); then RC25B=0; else RC25B=$?; fi
+  printf '%s' "$E25B" | grep -q 'refusing to render the unit' && ok "B2: a granted path with '$bad' is refused" || no "B2: a granted path with '$bad' was rendered: $E25B"
+  [ "$RC25B" -ne 0 ] && ok "B5: print mode exits non-zero on the refused '$bad' render" || no "B5: print mode exited 0 after refusing the '$bad' render"
+done
+# R2-2: the same characters in $HOME reach ExecStart through the default-BRAIN_DIR shim path.
+H25P="$SANDBOX/home%n"; mkdir -p "$H25P"
+if E25P=$(HOME="$H25P" SB_INSTALL_OS_OVERRIDE=systemd bash "$INSTALL" 2>&1 >/dev/null); then RC25P=0; else RC25P=$?; fi
+printf '%s' "$E25P" | grep -q 'refusing to render ExecStart' && [ "$RC25P" -ne 0 ] \
+  && ok "R2-2: a % in the shim path (from HOME) is refused" || no "R2-2: a % in the shim path was rendered (rc=$RC25P): $E25P"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

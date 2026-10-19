@@ -537,7 +537,7 @@ FG_RES=(
   'xox[abprs]-[A-Za-z0-9-]{10,}'
   'BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH|PGP|ENCRYPTED)?[[:space:]]*PRIVATE[[:space:]]+KEY'
   '[Bb]earer[[:space:]]+[A-Za-z0-9+/=_-]{40,}'
-  '((@|<[[:space:]]*|(^|[^A-Za-z0-9_-])([Cc][Aa][Tt]|[Gg][Cc]|[Gg][Ee][Tt]-[Cc][Oo][Nn][Tt][Ee][Nn][Tt]|[Tt][Yy][Pp][Ee]|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+((-[^[:space:]]*|[0-9]+)[[:space:]]+){0,8}|(^|[^A-Za-z0-9_-])(scp|rsync|tar)[[:space:]]+((-[io][[:space:]]+[^[:space:]|;&]+|([^[:space:]|;&-]|-[^io[:space:]|;&]|-[io][^[:space:]|;&])[^[:space:]|;&]*|-)[[:space:]]+){0,8}|(^|[[:space:]])(-T|--upload-file|--post-file|-[Ii][Nn][Ff][Ii][Ll][Ee]|-[Ss][Oo][Uu][Rr][Cc][Ee]|-[Aa][Tt][Tt][Aa][Cc][Hh][Mm][Ee][Nn][Tt][Ss]?)(=|[[:space:]]*)|[Uu][Pp][Ll][Oo][Aa][Dd][Ff][Ii][Ll][Ee][(][^;&|)]*,[[:space:]]*)[^[:space:]@<>|;&]*|[Rr][Ee][Aa][Dd][Aa][Ll][Ll]([Tt][Ee][Xx][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Ll][Ii][Nn][Ee][Ss])[(][[:space:]]*[^[:space:]@<>|;&()]*)(\.[Ss][Ss][Hh][/\\]([Ii][Dd]_[Rr][Ss][Aa]|[Ii][Dd]_[Ee][Dd]25519|[Ii][Dd]_[Ee][Cc][Dd][Ss][Aa]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Ee][Dd]_[Kk][Ee][Yy][Ss])|\.[Aa][Ww][Ss][/\\][Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|[._][Nn][Ee][Tt][Rr][Cc]|\.[Nn][Pp][Mm][Rr][Cc]|\.[Gg][Ii][Tt]-[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|\.[Dd][Oo][Cc][Kk][Ee][Rr][/\\][Cc][Oo][Nn][Ff][Ii][Gg]\.[Jj][Ss][Oo][Nn]|\.[Kk][Uu][Bb][Ee][/\\][Cc][Oo][Nn][Ff][Ii][Gg]|\.[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]\.[Jj][Ss][Oo][Nn]|\.[Pp][Ee][Mm]|\.[Pp]12|\.[Ss][Ss][Hh][/\\]?)([^A-Za-z0-9_./\\-]|$)'
+  '((@|<[[:space:]]*|(^|[^A-Za-z0-9_-])([Cc][Aa][Tt]|[Gg][Cc]|[Gg][Ee][Tt]-[Cc][Oo][Nn][Tt][Ee][Nn][Tt]|[Tt][Yy][Pp][Ee]|base64|xxd|od|gzip|bzip2|xz|head|tail|strings|gpg)[[:space:]]+((-[^[:space:]]*|[0-9]+)[[:space:]]+){0,8}|(^|[^A-Za-z0-9_-])(scp|rsync|tar)[[:space:]]+((-[io][[:space:]]+[^[:space:]|;&]+|([^[:space:]|;&-]|-[^io[:space:]|;&]|-[io][^[:space:]|;&])[^[:space:]|;&]*|-)[[:space:]]+){0,8}|(^|[[:space:]])(-T|--upload-file|--post-file|-[Ii][Nn][Ff][Ii][Ll][Ee]|-[Ss][Oo][Uu][Rr][Cc][Ee]|-[Aa][Tt][Tt][Aa][Cc][Hh][Mm][Ee][Nn][Tt][Ss]?)(=|[[:space:]]*))[^[:space:]@<>|;&]*|[Uu][Pp][Ll][Oo][Aa][Dd][Ff][Ii][Ll][Ee][(]([^;&|)(,]*,)+[[:space:]]*[^[:space:]@<>|;&,]*|[Rr][Ee][Aa][Dd][Aa][Ll][Ll]([Tt][Ee][Xx][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Ll][Ii][Nn][Ee][Ss])[(][[:space:]]*[^[:space:]@<>|;&()]*)(\.[Ss][Ss][Hh][/\\]([Ii][Dd]_[Rr][Ss][Aa]|[Ii][Dd]_[Ee][Dd]25519|[Ii][Dd]_[Ee][Cc][Dd][Ss][Aa]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Ee][Dd]_[Kk][Ee][Yy][Ss])|\.[Aa][Ww][Ss][/\\][Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|[._][Nn][Ee][Tt][Rr][Cc]|\.[Nn][Pp][Mm][Rr][Cc]|\.[Gg][Ii][Tt]-[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]|\.[Dd][Oo][Cc][Kk][Ee][Rr][/\\][Cc][Oo][Nn][Ff][Ii][Gg]\.[Jj][Ss][Oo][Nn]|\.[Kk][Uu][Bb][Ee][/\\][Cc][Oo][Nn][Ff][Ii][Gg]|\.[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss]\.[Jj][Ss][Oo][Nn]|\.[Pp][Ee][Mm]|\.[Pp]12|\.[Ss][Ss][Hh][/\\]?)([^A-Za-z0-9_./\\-]|$)'
 )
 # The full logic's jq copy (FG_JQ below). Oniguruma backtracks: a pattern whose unbounded run must
 # be followed by something else is retried from every start inside a long run of its own characters,
@@ -572,6 +572,13 @@ FG_RES=(
 #   Bytes/Lines( starts a run of its OWN that stops at the next '(': in the shared run a dense
 #   'ReadAllBytes(.ss' pad went O(n^2) on jq 1.7 (86 KB 9.4 s; own run 12 ms). shortcut: a path built
 #   by a nested call (ReadAllText((Join-Path …))) goes unasked; the linear token check is the upgrade.
+#   S2-3 (re-audit 0.57.1): UploadFile( reads its own run as well. Its `[^;&|)]*,` went back to every
+#   comma and rescanned the rest of the line from each (jq 1.8.1: Oniguruma's retry limit at 2,000
+#   commas, so the whole scan failed and the ask lost its labels; without that limit, O(n^2) past the
+#   timeout). Now each argument is taken up to its comma once, the path after the last one stops at
+#   the next comma, and no argument crosses a '(' (a dense 'UploadFile(,' pad never rescans another
+#   start). shortcut: an argument holding '(' (a URL with parentheses) ends the run, so a credential
+#   after it goes unasked — split the arguments with a real tokenizer if that shows up.
 # - jwt: the first segment's run must end where its '.' is — the end of its run of token
 #   characters — so whether some 'ey' in a run starts a match is decided by the first 'ey' of that
 #   run with 10 characters after it. The copy starts only at a run's start (lookbehind), takes that

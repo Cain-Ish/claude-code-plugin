@@ -121,4 +121,26 @@ lx_out=$(lx_emit 0)
 pass "user bus up + timer inactive on Linux: the self-heal still runs"
 rm -rf "$LX" "$PR_MK" "$B4"
 
+# --- 7b. (re-audit H6-4) healthy-capture line with an UNKNOWN timer state must not say "timer active".
+# Same stubs as 7, but one extracted transcript so the healthy line renders; control: active -> "timer active".
+LY=$(mktemp -d); printf '#!/bin/bash\necho Linux\n' > "$LY/uname"
+cat > "$LY/systemctl" <<'EOF'
+#!/bin/bash
+case "$*" in *is-active*) exit "${SC_ACTIVE_RC:-3}" ;; *show-environment*) exit 1 ;; esac
+exit 1
+EOF
+chmod +x "$LY/uname" "$LY/systemctl"
+B5=$(mktemp -d); mkdir -p "$B5/transcripts"; : > "$B5/transcripts/s1.txt"; : > "$B5/USER.md"; touch -t 202001010000 "$B5/USER.md"
+printf '{"basename":"s1.txt","ts":"x","outcome":"ok","latency_s":5}\n' > "$B5/.extraction-state.jsonl"
+ly_emit(){ printf '{"hook_event_name":"SessionStart","cwd":"/tmp"}' \
+  | env PATH="$LY:$STUB_BIN:$PATH" ANTHROPIC_API_KEY="" SC_ACTIVE_RC="$1" BRAIN_DIR="$B5" bash "$SL" 2>/dev/null; }
+ly_out=$(ly_emit 3)
+echo "$ly_out" | grep -q 'extracted' || fail "H6-4 harness: the healthy capture line did not render (got: $(echo "$ly_out" | head -c 300))"
+echo "$ly_out" | grep -q 'timer active' && fail "H6-4: no user bus must not claim 'timer active' (got: $(echo "$ly_out" | grep 'extracted' | head -c 200))"
+echo "$ly_out" | grep -q 'timer unknown' || fail "H6-4: expected 'timer unknown' (got: $(echo "$ly_out" | grep 'extracted' | head -c 200))"
+ly_out=$(ly_emit 0)
+echo "$ly_out" | grep -q 'timer active' || fail "H6-4: an active timer must still print 'timer active' (got: $(echo "$ly_out" | head -c 300))"
+pass "H6-4: the capture line reports the real timer state (unknown vs active)"
+rm -rf "$LY" "$B5"
+
 rm -rf "$B" "$B2"; echo; echo "ALL PASS"

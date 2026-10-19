@@ -1,10 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { codeNeighbors } from './code-neighbors.js';
 import { codemapDir, writeGraph } from './store.js';
 import type { CodeEdge, CodeGraph } from './types.js';
+
+// Re-audit TS-2: records what the interactive tool hands jit-index's shared runner (no git spawned).
+const sharedRunnerCalls = vi.hoisted(() => [] as unknown[][]);
+vi.mock('../jit-index.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../jit-index.js')>()),
+  defaultGitRunner: async (...a: unknown[]) => { sharedRunnerCalls.push(a); return `${'a'.repeat(40)}
+`; },
+}));
 
 function fileNode(id: string, rank: number) {
   return { id, lang: 'ts' as const, rank, symbols: [] };
@@ -236,6 +244,17 @@ describe('codeNeighbors', () => {
     });
     if (drifted.kind !== 'ok') throw new Error(`expected ok, got ${drifted.kind}`);
     expect(drifted.stale).toBe(true);
+  });
+
+  // Re-audit TS-2: the code-map CLI's 60 s runner made a hung git stall this interactive call 60-120 s.
+  it("with no runGit, the stale probe uses jit-index's 5 s runner, not the CLI's 60 s (re-audit TS-2)", async () => {
+    const brain = await storeGraph(graphFixture());
+    sharedRunnerCalls.length = 0;
+    const res = await codeNeighbors({ brainDir: brain, slug: 'proj', node: 'src/b.ts', direction: 'in' });
+    if (res.kind !== 'ok') throw new Error(`expected ok, got ${res.kind}`);
+    expect(res.stale).toBe(false);
+    expect(sharedRunnerCalls).toHaveLength(1);
+    expect(sharedRunnerCalls[0][2]).toBeUndefined();   // undefined = defaultGitRunner's own 5 s default
   });
 });
 

@@ -57,9 +57,6 @@ KD=$(grep -lE 'CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR.*:-.*HOME/knowledge' "$ROOT"/s
 [ -z "$KD" ] && pass "no NEW hand-rolled KNOWLEDGE_DIR resolution (all use \$(sb_knowledge_dir))" \
   || fail "hand-rolled KNOWLEDGE_DIR resolution found (use sb_knowledge_dir from lib.sh):" "$KD"
 
-# --- SP-2: the `raw` group is in the manifest (TS side in kb-schema.test.ts) ---
-[ "$(jq -r '.raw.dir' "$M")" = "raw" ] || fail "kb-schema.json .raw.dir != raw"
-pass "raw group present in the manifest"
 
 # N2 (audit): lib.sh no longer sources kb-schema.sh (a jq spawn on every hook); only the readers do.
 LIBVAR=$(env -u SB_CONTENT_CATEGORIES -u SB_STRUCTURED_TYPES bash -c 'source "'"$ROOT"'/scripts/lib.sh" 2>/dev/null; printf "%s" "${SB_CONTENT_CATEGORIES:-}${SB_STRUCTURED_TYPES:-}"')

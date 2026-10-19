@@ -62,10 +62,15 @@ fi
 
 # Residual 1: the read-modify-write of persona-signals.jsonl (read here, mv below) holds the same
 # .persona-signals.jsonl.lock primitive as PROJECT.md; two merges (Stop+Stop, Stop+drainer) otherwise
-# lose a signal update. Busy past SB_ARCHIVE_LOCK_WAIT_S: sb_archive_lock logs, exit 1 (retried later).
-_MPS_LOCK_TOKEN=""; _MPS_TMP_E=""; _MPS_TMP_N=""
-trap 'rm -f ${_MPS_TMP_E:+"$_MPS_TMP_E"} ${_MPS_TMP_N:+"$_MPS_TMP_N"}; [ -z "$_MPS_LOCK_TOKEN" ] || sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"' EXIT
-sb_archive_lock "$SIGNALS_FILE" merge-persona-signals.sh || exit 1
+# lose an update. The rule candidate files (S3-5) take their own lock on the pending file below, so the
+# slow candidate loop never holds the signals lock (Q-SF2). Busy past SB_ARCHIVE_LOCK_WAIT_S: what that
+# lock guards is DROPPED (callers advance their marker, nothing retries it), logged as such, exit 1.
+_MPS_LOCK_TOKEN=""; _MPS_PEND_TOKEN=""; PENDING_FILE=""; _MPS_TMP_E=""; _MPS_TMP_N=""
+trap 'rm -f ${_MPS_TMP_E:+"$_MPS_TMP_E"} ${_MPS_TMP_N:+"$_MPS_TMP_N"}; [ -z "$_MPS_LOCK_TOKEN" ] || sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"; [ -z "$_MPS_PEND_TOKEN" ] || sb_archive_unlock "$PENDING_FILE" "$_MPS_PEND_TOKEN"' EXIT
+if ! sb_archive_lock "$SIGNALS_FILE" merge-persona-signals.sh; then
+  sb_log_error "merge-persona-signals.sh" "persona batch dropped (lock busy): session=$SESSION_ID signals=$(echo "$NEW_SIGNALS" | jq length | tr -d '\r') rule_candidates=$(echo "$NEW_CANDIDATES" | jq length | tr -d '\r') lost" 1
+  exit 1
+fi
 _MPS_LOCK_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
 
 # Load existing signals as JSON array. D139: `jq -s '.'` aborts the WHOLE slurp on
@@ -117,9 +122,10 @@ MERGED=$(jq -nc \
       ([$a[] | select(. as $w | $b | index($w))] | length) * 100 / $denom
     end;
 
+  # A refused record absorbs only its exact re-sighting: a clean paraphrase gets its own record.
   reduce ($new_sigs[0][]) as $sig ($existing[0];
     ($sig.signal | content_words) as $new_words |
-    (to_entries | map(
+    (to_entries | map(select(.value.graduated != "refused" or .value.signal == $sig.signal) |
       (.value.signal | content_words) as $old_words |
       {key: .key, pct: word_overlap($new_words; $old_words)}
     ) | map(select(.pct >= 50)) | sort_by(-.pct) | .[0].key) as $idx |
@@ -206,7 +212,9 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
   for i in $(seq 0 $((GRAD_COUNT - 1))); do
     SIG_TEXT=$(echo "$GRAD_CANDIDATES" | jq -r ".[$i].signal" | tr -d '\r')
     # E1: this text is transcript-derived, so it passes the injection classifier first. A hit is
-    # refused, logged, and the record dropped, so it does not re-fire on every later merge.
+    # refused, logged, and marked graduated "refused" so it never re-fires (candidates need false).
+    # F2: the record is kept, not deleted: a real preference such as "module system: ESM" trips the
+    # system: marker, and deleting it bought no safety (graduated text is served framed since SEC-R5).
     # SIL-R5: a classifier FAILURE (jq/fork error) is no verdict: the record stays ungraduated and
     # the next merge classifies it again; dropping it lost the signal for good.
     if ! SIG_CLASS=$(sb_text_injection_class "$SIG_TEXT"); then
@@ -214,13 +222,13 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
       continue
     fi
     if [ -n "$SIG_CLASS" ]; then
-      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=$SIG_CLASS, signal dropped: ${SIG_TEXT:0:160}" 1
-      MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT" 'map(select(.signal != $sig))')
+      sb_log_error "merge-persona-signals.sh" "persona graduation REFUSED class=$SIG_CLASS, signal kept as graduated=refused (never retried): ${SIG_TEXT:0:160}" 1
+      MERGED=$(echo "$MERGED" | jq -c --arg sig "$SIG_TEXT" 'map(if .signal == $sig then .graduated = "refused" else . end)')
       continue
     fi
     # SEC-R5: a phrase classifier cannot hold paraphrases and homoglyphs, so a graduated signal goes
     # to the machine-learned store that session-load.sh serves inside the untrusted-data frame, never
-    # to the trusted USER.md (human pins only: pin_to_user, /pin).
+    # to the trusted USER.md (human pins only: the MCP pin_to_user tool, `sb pin user`).
     if sb_pin_to_learned "$SIG_TEXT"; then
       GRADUATED_INDICES="$GRADUATED_INDICES $i"
     fi
@@ -233,6 +241,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
         # Mirror the merge-step dedup: set-min denominator, 50% threshold,
         # 3-word floor on both sides. Without this mirror, a graduated signal
         # could leave its near-duplicates ungraduated and they would re-fire.
+        # A refused near-duplicate stays refused.
         def content_words: ascii_downcase | [scan("[a-z]{3,}")] | unique;
         ($sig | content_words) as $target |
         [.[] | (.signal | content_words) as $w |
@@ -240,7 +249,7 @@ if [ "$GRAD_COUNT" -gt 0 ]; then
           else
             ([($target | length), ($w | length)] | min) as $denom |
             if (([$target[] | select(. as $t | $w | index($t))] | length) * 100 / $denom) >= 50
-            then .graduated = true else . end
+            then (if .graduated == "refused" then . else .graduated = true end) else . end
           end
         ]
       ')
@@ -268,13 +277,13 @@ if [ -n "$MERGED" ] && echo "$MERGED" | jq -e 'type == "array"' >/dev/null 2>&1;
     rm -f "$TMP_SIG" 2>/dev/null
   fi
 fi
-sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN" && _MPS_LOCK_TOKEN=""
+sb_archive_unlock "$SIGNALS_FILE" "$_MPS_LOCK_TOKEN"; _MPS_LOCK_TOKEN=""
 
 # --- Rule-candidate accumulation → auto-arm as learned WARN rules ---
 # Candidates come from the extractor only when the transcript showed an
 # explicit user correction, a revert of an assistant edit, or the same
 # mistake twice. Each is accumulated in persona-rules.pending.json keyed by
-# a stable cksum of event+pattern; at 3 sightings it auto-arms into the USER
+# a stable cksum of event+pattern; seen in 3 distinct sessions it auto-arms into the USER
 # persona-rules.json under .learned[] with action "warn" — advisory-only, so
 # unattended arming can never block or prompt. deny/rewrite arming stays a
 # human decision, and the shipped default rules file is never written.
@@ -287,6 +296,13 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
     PENDING_FILE="$BRAIN_DIR/persona-rules.pending.json"
     ARM_TARGET="$BRAIN_DIR/persona-rules.json"
   fi
+  # S3-5: this script is the only writer of the pending file and its arm target, so the pending
+  # file's lock covers both read-modify-writes.
+  if ! sb_archive_lock "$PENDING_FILE" merge-persona-signals.sh; then
+    sb_log_error "merge-persona-signals.sh" "rule candidates dropped (lock busy): session=$SESSION_ID rule_candidates=$(echo "$NEW_CANDIDATES" | jq length | tr -d '\r') lost, signals kept" 1
+    exit 1
+  fi
+  _MPS_PEND_TOKEN="$_SB_ARCHIVE_LOCK_TOKEN"
   [ -s "$PENDING_FILE" ] || echo '{}' > "$PENDING_FILE"
   USER_RULES="$ARM_TARGET"
   DEFAULT_RULES="$(dirname "$0")/persona-rules.default.json"
@@ -341,17 +357,27 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
     ev=$(printf '%s' "$cand" | jq -r '.event' | tr -d '\r')
     pat=$(printf '%s' "$cand" | jq -r '.pattern' | tr -d '\r')
     msg=$(printf '%s' "$cand" | jq -r '.message' | tr -d '\r')
+    # S3-1: the message becomes advisory context on every matching tool call, so it passes the same
+    # injection classifier as graduation. A classifier failure is no verdict: refuse (fail closed).
+    if ! cls=$(sb_text_injection_class "$msg") || [ -n "$cls" ]; then
+      sb_log_error "merge-persona-signals.sh" "rule candidate REFUSED class=${cls:-classifier-failed}, not accumulated: event=$ev message=${msg:0:160}" 1
+      continue
+    fi
     # cksum (POSIX, present on MSYS/BSD/Linux) gives a stable content key that
     # is safe as a JSON object key regardless of what regex chars pattern holds.
     key="$ev-$(printf '%s\n%s\n' "$ev" "$pat" | cksum | tr -s ' \t' '-')"
 
+    # S3-1: arming counts DISTINCT sessions (as E1 does for graduation), not extraction runs: Stop and
+    # the drainer extract the same window, so one session counted twice. "unknown" never counts; the
+    # list stops at 3 ids, all the arm check reads.
     TMP_PEND="$PENDING_FILE.tmp.$$"
-    if jq -c --arg k "$key" --arg ev "$ev" --arg pat "$pat" --arg msg "$msg" --arg today "$TODAY" '
+    if jq -c --arg k "$key" --arg ev "$ev" --arg pat "$pat" --arg msg "$msg" --arg today "$TODAY" --arg sid "$SESSION_ID" '
+      def add_session: .sessions = ([(.sessions // [])[], ($sid | select(. != "unknown"))] | unique | .[0:3]);
       .[$k] = (if .[$k] then
-          .[$k] | .count += 1 | .last_seen = $today | .message = $msg
+          .[$k] | .count += 1 | .last_seen = $today | .message = $msg | add_session
         else
           {event: $ev, pattern: $pat, action: "warn", message: $msg,
-           count: 1, first_seen: $today, last_seen: $today}
+           count: 1, first_seen: $today, last_seen: $today} | add_session
         end)
     ' "$PENDING_FILE" > "$TMP_PEND" 2>/dev/null; then
       mv "$TMP_PEND" "$PENDING_FILE"
@@ -361,9 +387,9 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
       continue
     fi
 
-    CNT=$(jq -r --arg k "$key" '.[$k].count // 0' "$PENDING_FILE" | tr -d '\r')
-    case "$CNT" in ''|*[!0-9]*) CNT=0 ;; esac
-    if [ "$CNT" -ge 3 ]; then
+    NSESS=$(jq -r --arg k "$key" '.[$k].sessions // [] | length' "$PENDING_FILE" | tr -d '\r')
+    case "$NSESS" in ''|*[!0-9]*) NSESS=0 ;; esac
+    if [ "$NSESS" -ge 3 ]; then
       # Seed the USER rules file from the shipped defaults if absent FIRST:
       # the guard prefers the user file whenever it exists, so writing a
       # learned-only file would silently shadow every default rule. Seed via
@@ -408,6 +434,7 @@ if echo "$NEW_CANDIDATES" | jq -e 'length > 0' >/dev/null 2>&1; then
       fi
     fi
   done < <(printf '%s\n' "$CAND_LIST")  # no here-string here: MSYS blocks one of ~65,537..65,651 B past the hook timeout
+  sb_archive_unlock "$PENDING_FILE" "$_MPS_PEND_TOKEN"; _MPS_PEND_TOKEN=""
 fi
 
 exit 0

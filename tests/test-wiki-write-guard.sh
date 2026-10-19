@@ -328,6 +328,73 @@ grep -q 'wiki-write-guard.sh' "$TMP/brain/error-log.jsonl" \
   || fail "G18: the failed content read must be logged (error-log: $(cat "$TMP/brain/error-log.jsonl"))"
 pass "G18: a failed jq content read asks and logs (fail closed, like Edit/MultiEdit)"
 
+# --- S2-1 (re-audit 0.57.1): an NTFS 8.3 short name reaches the wiki arms ---------------------
+# KNOWLE~1 (knowledge) matched no wiki arm, so a bare page written through it skipped the
+# frontmatter deny. The full logic expands the deepest existing ancestor with cygpath -l; a ~N name
+# cygpath cannot expand asks (every host, a failing cygpath stand-in), a literal one stays silent.
+S21W="$TMP/s21"; mkdir -p "$S21W/knowledge/wiki/state" "$S21W/notes~1" "$S21W/cyg"
+printf '#!/bin/sh\nexit 1\n' > "$S21W/cyg/cygpath"; chmod +x "$S21W/cyg/cygpath"
+s21w() {  # s21w <file_path> [VAR=val…] -> out (a bare Write: no frontmatter)
+  local f="$1"; shift
+  out=$(jq -nc --arg p "$f" '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' | env "$@" bash "$SCRIPT")
+}
+s21w "$S21W/notes~1/a.md" PATH="$S21W/cyg:$PATH"
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "S2-1: a ~N name cygpath cannot expand must ask (got: '$out')"
+s21w "$S21W/notes~1/a.md"
+[ -z "$out" ] || fail "S2-1: a literal ~N directory outside the wiki must stay silent (got: $out)"
+# SEC-1 (re-audit 0.57.1): p.md::$DATA is p.md on Windows (NTFS stream syntax), and no arm read that
+# spelling: on a Windows host (the failing stand-in makes every lane one) a target no arm reads that
+# holds a ':' past its drive asks; a drive path does not.
+out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p "$S21W/knowledge/wiki/state/p.md::\$DATA" '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
+  | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "SEC-1: a wiki page written as p.md::\$DATA must ask (got: '$out')"
+out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p 'C:\Users\me\notes\x.md' '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
+  | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
+[ -z "$out" ] || fail "SEC-1: a drive path with no stream must stay silent (got: $out)"
+# SEC-5: a ~N name under a //… path (here a \\?\Volume{…} device path) is never walked, so never
+# expanded: it asks, where it passed silent.
+out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p '\\?\Volume{2a024647-cc9f-415d-963e-f119fc16be42}\Users\u\KNOWLE~1\wiki\state\p4.md' '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' \
+  | PATH="$S21W/cyg:$PATH" bash "$SCRIPT")
+printf '%s' "$out" | grep -q '"permissionDecision":"ask"' || fail "SEC-5: a ~N name under a \\\\?\\Volume path must ask (got: '$out')"
+# T5: the expansion itself, on every lane — a cygpath stand-in spells the literal KNOWLE~1 (on disk,
+# so the walk finds it) long, and the bare page is denied as a knowledge/wiki one.
+mkdir -p "$TMP/t5/KNOWLE~1/wiki/state" "$TMP/t5/cyl"
+cat > "$TMP/t5/cyl/cygpath" <<'EOF'
+#!/bin/sh
+# cygpath -l -m -- PATH: PATH with the T5 short name spelled long.
+for a in "$@"; do p="$a"; done
+printf '%s\n' "$p" | sed -e 's/KNOWLE~1/knowledge/g'
+EOF
+chmod +x "$TMP/t5/cyl/cygpath"
+s21w "$TMP/t5/KNOWLE~1/wiki/state/t5.md" PATH="$TMP/t5/cyl:$PATH"
+printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "T5: a bare page written through an expanded KNOWLE~1 must be denied (got: '$out')"
+if command -v cygpath >/dev/null 2>&1; then
+  S21K=$(cygpath -s -m "$S21W/knowledge" | tr -d '\r')
+  case "$S21K" in
+    *KNOWLE~[0-9]*)
+      s21w "$S21K/wiki/state/s21-page.md"
+      printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "S2-1: a bare page written through '$S21K' must be denied (got: '$out')"
+      # SEC-5: ...and through '\\?\' + that short spelling, a prefix the full logic now cuts before a drive.
+      s21_dev=$(printf '\\\\?\\%s\\wiki\\state\\s21-dev.md' "$S21K" | tr '/' '\134')
+      out=$(MSYS2_ARG_CONV_EXCL='*' jq -nc --arg p "$s21_dev" '{tool_name:"Write", tool_input:{file_path:$p, content:"# bare page"}}' | bash "$SCRIPT")
+      printf '%s' "$out" | grep -q '"permissionDecision":"deny"' || fail "SEC-5: a bare page written through '$s21_dev' must be denied (got: '$out')"
+      # A custom KNOWLEDGE_DIR (no "knowledge" segment), the page spelled short, the variable spelled
+      # long or short: the full logic ('-' first: the fast path stands down) matches either spelling.
+      S21V="$S21W/Notes Vault S21"; mkdir -p "$S21V/wiki/concepts"
+      S21VS=$(cygpath -s -m "$S21V" | tr -d '\r'); S21VL=$(cygpath -l -m "$S21V" | tr -d '\r')
+      for s21_kd in "$S21VL" "$S21VS"; do
+        out=$(jq -nc --arg p "$S21VS/wiki/concepts/s21.md" '{tool_name:"Write", tool_input:{file_path:$p, content:"-not a fence"}}' \
+          | env CLAUDE_PLUGIN_OPTION_KNOWLEDGE_DIR= KNOWLEDGE_DIR="$s21_kd" bash "$SCRIPT")
+        printf '%s' "$out" | grep -q '"permissionDecision":"deny"' \
+          || fail "S2-1: a bare page '$S21VS/wiki/concepts/s21.md' under KNOWLEDGE_DIR='$s21_kd' must be denied (got: '$out')"
+      done ;;
+    *) echo "SKIP: S2-1 real short names — this volume makes none (cygpath -s gave '$S21K')" ;;
+  esac
+else
+  echo "SKIP: S2-1 real short names — not a Windows host (no cygpath)"
+fi
+pass "S2-1: a wiki page written through an 8.3 short name is checked; an unexpandable one asks"
+
 # --- B7: decided before any dependency (a late PreToolUse answer is cancelled and the Write runs) ---
 # Fixture: a plugin root whose lib.sh sleeps, plus PATH stand-ins that sleep for each external the
 # full logic uses. The deny must still arrive within B7_BOUND seconds (whole-second SECONDS; no
