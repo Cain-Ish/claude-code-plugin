@@ -44,3 +44,29 @@ folders and raw streams stay in `<scratch-dir>`.
 Gold outputs pass all 12 items; 14 planted wrong outputs each fail only their own item; the T and N prompts hold no
 answer token and no history prompt a cue word; on a synthetic event stream the harness finds the "before writing"
 point, the memory reads before it and a refused memory write (and does not count a failed Edit as a refusal).
+
+## Pilot (2026-10-20, M1 run 1, Claude Code 2.1.304, Sonnet 5.5)
+
+Valid. Five sessions, 0.30 USD in all (0.04 to 0.07 USD each, 20 to 60 seconds each). Scored record:
+[results/M1.json](results/M1.json).
+
+| Session | What Claude did with memory |
+| --- | --- |
+| H1, developer | Wrote a note on the folder rule, the style guide and `src/widgets/` being legacy, plus an index line. Did not keep the port |
+| H2, designer | Compared the notes with the code and listed the missing avatar component with its full specification, but kept nothing |
+| H3, PM | Wrote a note that avatars are never loaded from the CDN, with the client's reason, plus an index line |
+| T | Read no memory file; the index lines sufficed. Read the style guide first (the index line names it), then wrote `src/components/UserAvatar/` with `Img local` and `avatarPath`. Default size 40, no 24/64 scale and no `borderSubtle` border. The reply gave no sources |
+| N | Wrote `src/components/ProductImage/` through the CDN, and said it kept the CDN because the avatar decision is about avatars only |
+
+| Item | Result |
+| --- | --- |
+| Capture | C1 pass, C2 fail (the designer's specification was not kept), C3 pass, C4 pass |
+| T, final and at first write | T1 pass, T2 pass, T3 fail, T4 pass; T5 fail |
+| N | N1, N2, N3 pass |
+| Failure chain | folder followed, specification not kept, CDN followed |
+| Orientation | 7 tool calls and 6 files read before the first Write of `UserAvatar.tsx` |
+| Always-on memory | 310 bytes |
+
+One run shows that the harness works and that auto memory writes in `-p`. It is not a rate, and whether T1 and T4
+passed because of memory or because of the code shows only against M0. The memory files carry
+the id of the session that wrote them, so the store is kept out of this repo; only file names and sizes are recorded.

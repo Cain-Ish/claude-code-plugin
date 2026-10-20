@@ -1,0 +1,119 @@
+{
+  "plan": "../../05-eval-plan.md",
+  "runs": [
+    {
+      "arm": "M1",
+      "run": 1,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 2,
+          "costUsd": 0.07167130000000001,
+          "inputTokens": 10,
+          "outputTokens": 2459,
+          "cacheReadTokens": 109773,
+          "cacheWriteTokens": 9021,
+          "turns": 11,
+          "durationMs": 24966
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0618543,
+          "inputTokens": 6,
+          "outputTokens": 2849,
+          "cacheReadTokens": 61643,
+          "cacheWriteTokens": 6797,
+          "turns": 13,
+          "durationMs": 21567
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.040674300000000004,
+          "inputTokens": 8,
+          "outputTokens": 1482,
+          "cacheReadTokens": 84223,
+          "cacheWriteTokens": 4354,
+          "turns": 6,
+          "durationMs": 20931
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.062197300000000004,
+          "inputTokens": 8,
+          "outputTokens": 2315,
+          "cacheReadTokens": 83433,
+          "cacheWriteTokens": 7672,
+          "turns": 10,
+          "durationMs": 20745
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.061159000000000005,
+          "inputTokens": 8,
+          "outputTokens": 2174,
+          "cacheReadTokens": 83790,
+          "cacheWriteTokens": 7756,
+          "turns": 11,
+          "durationMs": 57290
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "followed"
+      },
+      "store": {
+        "avatars-never-from-cdn.md": 807,
+        "component-folder-convention.md": 1041,
+        "MEMORY.md": 310
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 7,
+        "filesReadBeforeFirstWrite": 6
+      },
+      "alwaysOnBytes": 310,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.29755620000000005,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    }
+  ]
+}

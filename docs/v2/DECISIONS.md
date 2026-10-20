@@ -305,6 +305,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   ([research/2026-10-20-memory-scenario-guide-and-docs.md](research/2026-10-20-memory-scenario-guide-and-docs.md)),
   added before anything ran. Model (Sonnet 5.5) and run count are proposed defaults, open to the user until the pilot.
   The harness stays small; v1's had 2,710 lines and never ran.
+- **Progress (2026-10-20):** (1) met: the harness ([probes/V2-D17-eval](probes/V2-D17-eval/), `b6d24c7`, 328 lines)
+  passes its smoke check. (2) met: in the M1 pilot, auto memory wrote in headless sessions (4 writes, 3 files: an
+  index and two notes). The pilot cost 0.30 USD for five sessions, so ten runs per arm cost about 4 USD in all. It is
+  a valid run in the pre-registered epoch, so it counts as M1 run 1. Results in the probe README. (3) and (4) wait for
+  the remaining runs. Attempts: 0.
 
 ### V2-D18 — Runtime and surface budget
 - **Question:** which code runs where, which hook events (if any) v2 uses, the latency budget per hook, whether an
