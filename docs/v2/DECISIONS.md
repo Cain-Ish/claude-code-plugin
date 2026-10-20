@@ -25,10 +25,10 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude look for and follow the knowledge that binds a task? | OPEN | evidence | D12, D17 |
 
-Frontier (rule 6): **D20** first (its answer decides what an entry must carry, so it shapes D13, D14 and D18; its probe
-hand-converts real rules of the test bed, the first onboarding sample), then **D13**, then **D15** (the pipeline is
-convert, then format, then enforce). D14, D16 and D18 wait for D13. D19's native baselines need no format and can run
-at any time; only its v2 arm waits.
+Frontier (rule 6): **D20 stage 1** first: Claude in the three test-bed repos as they are run today, which checks the
+premise that it misses their rules there and finds out how (research 2026-10-21-rethink); the same runs are D19's
+native baseline. Then **D20 stage 2** (mechanism arms only for the failures stage 1 shows), **D13**, **D15** (the
+pipeline is convert, then format, then enforce). D14, D16 and D18 wait for D13.
 
 ---
 
@@ -287,7 +287,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   baselines (2026-10-20): with no cue, auto memory kept the developer's and the PM's spoken decisions in 10 of 10 runs
   and dropped the one-off detail, but kept nothing of a designer's document that Claude read and reviewed (0 of 10),
   and recorded no source. Unprompted capture works for decisions said in passing, not for knowledge read in a
-  document; that gap, provenance and team sharing are where capture design has room.
+  document; that gap, provenance and team sharing are where capture design has room. Native option to weigh (memory
+  docs, fetched 2026-10-21): any settings scope may move auto memory, but only to an absolute or `~/` path, under
+  workspace trust, so a team can share it only by each person pointing a local setting into their own clone (as D17's
+  M1 arm did). v2's sharing has to beat that; it is also the natural competitor for the second-person run.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -390,6 +393,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   whether Claude follows it: in the past Claude ignored rules and documents, either because it never looked for them
   or because it had them and did not apply them. Runs use scratch clones; the private repos' results enter this
   public repo as numbers only (working rules).
+- **Shared with D20 stage 1 (2026-10-21):** the native arm's runs on the test-bed tasks are this decision's native
+  baseline.
 - **Gap (2026-10-20):** part of v1's knowledge lived in its store outside the repo, which a scratch clone does not
   have. For A2 the v1 repo's knowledge is what it commits (concept documents, skill bodies); the store enters only
   through D10's one-time reviewed seed.
@@ -421,6 +426,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   reference) in the A1 fixture and in one task on a scratch clone of P1; arms (a), (b) and (d); per rule kind:
   delivered before the first write, followed at the first write and at the end, violations fixed after feedback,
   extra turns and tokens, hook p95 on Windows. The pass condition is written before it runs.
+- **Two stages (2026-10-21, research 2026-10-21-rethink):** no adherence number we hold was measured in the
+  test-bed repos. **Stage 1** runs only arm (a), each repo as it is run today: one task per repo plus one planning or
+  review task, each binding rule leaving a decidable trace in the output (no LLM judge, D17), and for each miss the
+  failure chain (never loaded, loaded but not read, read but not applied). **Stage 2** builds only the arms that
+  answer the failures stage 1 shows. If stage 1 finds a repo's own setup following its rules, v2's case there is
+  cost and knowing where to look, and that is recorded before any gate is built. The bullets below describe stage 2.
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
