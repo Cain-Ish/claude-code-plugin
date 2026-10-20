@@ -17,8 +17,8 @@ re-argues settled decisions.
 A Claude Code plugin that keeps a **project map** (the "mindmap") per repo and puts the right part of it in front of
 Claude when a task needs it.
 
-- **Role knowledge.** The map holds what the lead developer, PM, designer (and QA or ops, where a repo has them)
-  would know: structure and conventions; goals, scope and priorities; the design system and UX rules; decisions with
+- **Role knowledge.** The map holds what the lead developer, PM and designer would know (QA and ops are deferred,
+  V2-D10): structure and conventions; goals, scope and priorities; the design system and UX rules; decisions with
   the rejected options and the reason.
 - **On demand, cheap.** Claude always sees a small index and reads a branch of the map only when the task touches
   it. Token cost is a design constraint, measured per task.
@@ -33,7 +33,7 @@ instead of writing a new one, (3) follow the styling decision on record (for exa
 colours), and (4) name the decisions it followed. It reads fewer files and spends fewer tokens than the same task
 without the plugin. More scenarios (PM, design, lead) are defined in the eval plan (V2-D17).
 
-## What v2 is not (initial list, confirmed or changed by V2-D10)
+## What v2 is not (confirmed by V2-D10)
 
 Not an orchestrator, a model router, a code reviewer, a security guard, a persona or companion, a transcript archive,
 or a background process that rewrites knowledge without a reviewable diff. v1 shipped most of these; see

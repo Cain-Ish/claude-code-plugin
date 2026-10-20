@@ -13,7 +13,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D04 | Where do v2 planning decisions and research live? | LOCKED 2026-10-19 | evidence | D03 |
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
-| V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | OPEN — frontier | user | — |
+| V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 | user | — |
 | V2-D11 | Where does a repo's knowledge live? | OPEN | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12 |
@@ -23,8 +23,8 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | OPEN | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 
-Frontier (rule 6): **D10** (one grilling session with the user); D12 is locked. Nearly
-every other decision depends on it.
+Frontier (rule 6): **D11** (its user answer came with D10; its evidence is D12) and **D17** (needs only D10). The map
+runs D11 first; D13 follows it.
 
 ---
 
@@ -121,11 +121,40 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   component inventory, UX rules), QA and ops where present. What is explicitly out (initial list in the charter)? Is
   the personal layer (one user's preferences) left to Claude Code's native auto memory? Is v1's `~/knowledge` data
   imported?
-- **Draft check:** a grilling session with the user (`mattpocock-skills:grilling`); the answers and the non-goals
-  list are recorded verbatim.
-- **Evidence so far:** roles work as views over knowledge (tagged by role, owner or path authority), not as persona
-  agents (Ultimate Guide finding 9; prior-and-SOTA rule 11, low confidence); v1 scope creep drew 3 of 5 re-audit
-  MUSTs (post-mortem cause 6).
+- **Check:** the user's explicit answers, dated, recorded here. The draft named a grilling session; it ran as one
+  written list of five questions, each with a recommended answer, because the user had asked to proceed without
+  further rounds before the list went out. The pass condition is unchanged.
+- **Result:** pass (2026-10-20). The user accepted the five recommended answers as written: (1) v2 holds lead
+  developer, PM and designer knowledge, as tags on one store rather than persona agents, with QA and ops
+  later; (2) the charter's non-goals stand as written; (3) one person's own preferences are left to Claude Code's
+  auto memory; (4) no automatic import of v1's `~/knowledge` data, at most a one-time seed of decisions the user
+  reviews; (5) the map is committed in the repo and reviewed like code (D11's question, recorded under D11).
+- **Choice:**
+  - v2 holds, or derives from the repo (D13 decides which), the knowledge of three roles: lead developer
+    (structure, conventions, decisions with their rejected options), PM (goals, scope, priorities, what is in
+    flight) and designer (design system, component inventory, UX rules).
+  - A role is an attribute of a piece of knowledge (who asserted it, in which role) within the one map of a repo.
+    It is not a persona agent and not a separate store. How the attribute is written down (tags or otherwise) is
+    D13's.
+  - QA and ops knowledge is DEFERRED (trigger below).
+  - Out of scope: the charter's non-goals ([00-charter.md](00-charter.md#what-v2-is-not-confirmed-by-v2-d10)),
+    confirmed as written; a personal-preference layer (Claude Code's auto memory holds it, and v2 builds none); any
+    automatic import of v1's `~/knowledge` store.
+  - v1's `~/knowledge` data may seed a map at most once, as proposals the user reviews entry by entry (PM5). How a
+    map is seeded is D15's.
+- **Rejected:** persona agents per role (agents control context, they are not job titles: Ultimate Guide finding
+  30; v1's role card, keyed on agent type, delivered a test-first card to a research dispatch: prior-and-SOTA A33);
+  all five roles from the start (D17's question has acceptance tasks for lead, PM and design only, so QA and ops
+  would add surface no eval measures, PM6); a v2 personal layer (it duplicates auto memory, which D12 found
+  reaching the main session, general-purpose and plugin agents); an automatic v1 import (v1's store came from
+  unreviewed LLM extraction over transcripts, PM5, and had one author, PM4).
+- **Reopen if:** the user adds or drops a role or a non-goal; the first slice's eval shows a role's knowledge
+  changes no acceptance outcome; Claude Code removes or restricts auto memory. **QA and ops trigger:** the
+  three-role first slice meets its D17 thresholds and a repo in use holds QA or ops knowledge worth delivering.
+  Attempts: 0.
+- **Evidence:** roles work as views over knowledge (tagged by role, owner or path authority), not as persona
+  agents (Ultimate Guide gap 5 and finding 30; prior-and-SOTA rule 11, low confidence); v1 scope creep drew 3 of 5
+  re-audit MUSTs (post-mortem cause 6).
 
 ### V2-D11 — Home of a repo's knowledge
 - **Options:** (a) in the repo, committed and shared by the team through review; (b) in the repo but git-excluded
@@ -133,6 +162,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Known constraint:** the native channels that reach subagents and cost nothing until used (`CLAUDE.md`,
   `.claude/rules` with `paths:`) read files from the repo tree (research: platform capabilities).
 - **Draft check:** user answer on team sharing, combined with the D12 probe result.
+- **User answer (2026-10-20, given with D10):** (a), committed in the repo and reviewed like code.
 - **Evidence so far:** team knowledge in the repo, reviewed like code; personal memory local; derived indexes as
   local caches (prior-and-SOTA rule 5: Cursor removed Memories, Devin moved Knowledge to Skills); v1's local store
   had one author and 35 `PROJECT.md` shards (post-mortem cause 4).
