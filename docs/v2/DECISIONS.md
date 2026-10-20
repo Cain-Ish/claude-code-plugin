@@ -22,8 +22,10 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 
-Frontier (rule 6): **D13** (needs D10, D11, D12; all LOCKED). D14, D15, D16 and D18 wait for D13.
+Frontier (rule 6): **D19** (its user answers first; its baselines measure the cost D13 must beat) and **D13** (needs
+D10, D11, D12; all LOCKED). D14, D15, D16 and D18 wait for D13.
 
 ---
 
@@ -246,7 +248,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   bytes against the cap, plus three navigation tasks per repo that must reach the right file, and a person reading
   and correcting one entry with the plugin disabled (PM4's format half, moved here from D11). Since D10's re-lock the
   areas are the project's own, so the paper map also covers a project whose leading area is not engineering (a
-  canon- or marketing-led sample) without a change to the format.
+  canon- or marketing-led sample) without a change to the format. At scale (research 2026-10-20-scale-real-repos):
+  the paper map also covers the two large private repos P1 and P2 (P2 as the canon-led sample), with an always-on cap
+  and a cap on bytes delivered per task, both measured against the repo's own native setup (P1: 29.5 KB always on;
+  265 KB of path rules for one five-file task).
 - **Evidence so far:** store only what the code cannot say, and no generated overviews (arXiv 2602.11988: −0.5 to
   −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
   all from reaching the right file); compute structure such as the component inventory from code on demand
@@ -275,7 +280,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
 ### V2-D15 — Bootstrap
 - **Draft check:** a prototype bootstrap on two repos; a human reviewer accepts at least 80% of the generated
-  entries as correct and useful, and the generated index stays under the D13 cap.
+  entries as correct and useful, and the generated index stays under the D13 cap. At scale: a rules document of at
+  least 100 KB is distilled into entries without losing a planted rule, and each entry keeps its source anchor
+  (research 2026-10-20-scale-real-repos §3: v1 held 3 entries for a repo with about 600 rule items).
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
@@ -335,8 +342,32 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Question:** which code runs where, which hook events (if any) v2 uses, the latency budget per hook, whether an
   MCP server is needed, and the maximum count of skills, agents, hooks and scripts.
 - **Draft check:** derived from D12 and the post-mortem's rules; every hook named with a measured p95 under load
-  below its budget on Windows.
+  below its budget on Windows. At scale: the prompt-time router's p95 measured over a map the size of P1's or P2's.
 - **Evidence so far:** one v1 Edit ran 8 hooks and at least 52 processes; under load a spawn cost 314 ms and about
   217 guard runs failed open (post-mortem cause 3, proposing at most one non-shell hook per event, p95 ≤ 100 ms at 8
   concurrent sessions). A PreToolUse timeout fails open unless the hook sets `"onFailure": "block"` (CLI ≥ 2.1.295;
   platform note §7).
+
+### V2-D19 — Measurement at scale
+- **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
+  large repo whose documents hold the important rules and criteria, where a task's context fills quickly (scenario
+  A2)? Asked by the user on 2026-10-20: v1 failed on such repos and on its own.
+- **Options:** (a) public fixture: this repo at `v1-final` (736 files, 1.5 MB of Markdown), materialised at run time
+  with `git archive` into a scratch folder, never copied into the `v2` tree; (b) the user's private repos P1 and P2,
+  run locally, with task prompts kept out of this public repo (`research/raw/`, gitignored) and only numbers
+  published; (c) a large synthetic fixture; (d) (a) for the committed, reproducible scenario and (b) as a local
+  confirmation.
+- **Arms:** the repo as it is run today (its instruction file, rules, hooks and skills; at scale this is the native
+  competitor, not an empty repo), the same plus auto memory, and v2 in the build phase.
+- **Draft measures:** rule items followed, checked deterministically, reusing a repo's own validators where it has
+  them; duplicates created, checked against an inventory generated from the code; research cost (Glob and Grep calls
+  and reads of files the output never imports, counted apart from reads it needs); peak and growth of per-turn input
+  tokens; compactions; instruction bytes loaded (a project `InstructionsLoaded` hook in the harness that appends to a
+  log).
+- **Draft check:** the user's answers (which repos, whether private repos may run locally with numbers only, that
+  the tasks are realistic); the D17 harness extended and smoke-checked; a pilot with its cost reported before the
+  baselines; then baselines and thresholds by D17's rule, unless the user sets fixed targets.
+- **Evidence so far:** P1's native setup loads 29.5 KB always and 265 KB of path rules for one five-file task; P2's
+  knowledge is 1.9 MB of documents read on demand and 6,740 scripts found only by search; v1's store held 3 entries
+  for P2 against about 600 rule items, and its P1 decisions sat in an archive sessions did not load
+  ([research/2026-10-20-scale-real-repos.md](research/2026-10-20-scale-real-repos.md)).
