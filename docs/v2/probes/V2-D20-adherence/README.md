@@ -50,7 +50,9 @@ All 27 checks passed their correct sample and failed their wrong one before the 
 ## Results (2026-10-21)
 
 Pilot: P1-build run 1, valid, 0.30 USD; five runs per task projected well under 25 USD, so all ran. 20 runs, all
-valid, one epoch (CLI 2.1.305, Sonnet 5.5), 6.37 USD in all. Counts per rule: followed / missed while not in context
+valid, one epoch (CLI 2.1.305, Sonnet 5.5), 6.37 USD in all. The private config's hash (first 12 hex of its SHA-256)
+was `6995c767da91` before the pilot and after the last run; the per-task input hashes recorded with every run are
+P1-build `115a7256d3d0`, P2-build `3c70703cefec`, R0-build `933caaaed819`, P2-plan `0605a4d1871c`. Counts per rule: followed / missed while not in context
 / missed while in context. Full counts in [results/summary.json](results/summary.json).
 
 | Task | Followed in all 5 | Missed, not in context | Missed, in context | Median cost, input tokens, turns |
@@ -80,4 +82,5 @@ What the runs show, beyond the counts:
 
 Limits: one task per repo and five runs; Sonnet 5.5 only; Bash off, so the repos' own lint, tests, e2e and builds did
 not run (P1 R2 and P2 R5 would be flagged later by them); regex checks; `followedAtFirstWrite` is blank where the
-first write holds no file a rule looks at (fixed after the pilot; it feeds no outcome).
+first write holds no file a rule looks at (fixed after the pilot; it feeds no outcome). A few skills from outside
+the repo (bundled, or the user's) were listed in every run; they are the same for every task and arm.

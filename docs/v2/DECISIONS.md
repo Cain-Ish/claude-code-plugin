@@ -460,7 +460,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   The premise holds in all three repos: P1 (a rule missed 5 of 5, another 3 of 5), P2 (three rules missed 5 of 5 in
   the build, one 5 of 5 in the plan), the v1 repo (one rule missed 4 of 5, another 2 of 5). Both kinds of miss
   occur: 25 misses with the rule not in context, 16 with it in context but not applied, as scored; two checks were
-  found wrong on reading the outputs and are corrected by hand next to the score (22 and 14), which changes no
+  found wrong on reading the outputs and are corrected by hand next to the score (22 and 13), which changes no
   outcome. So stage 2 builds both, as registered: delivery (b), and checks with accounting (c, d). What the misses
   share: every rule in a document nothing points to was missed (15 of 15); rules the neighbouring code already shows
   were followed without the rule in context, and rules it contradicts were missed, one of them in the always-on file;
