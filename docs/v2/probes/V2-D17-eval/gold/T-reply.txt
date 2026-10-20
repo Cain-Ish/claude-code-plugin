@@ -1,0 +1,6 @@
+Created src/components/UserAvatar/ with UserAvatar.tsx and index.ts.
+
+Decisions it follows:
+- Its own folder under src/components/ and the client's style guide: the lead developer's decision.
+- Sizes 24, 40 and 64 px, a circle with a borderSubtle border, initials on avatarFallback: the designer's profile notes.
+- The image is served locally, never from the CDN: the PM's note on the client's decision.

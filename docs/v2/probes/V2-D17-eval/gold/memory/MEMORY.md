@@ -1,0 +1,3 @@
+- [Component folders](component-folders.md): every component in its own folder under src/components/, client style guide (lead developer)
+- [Avatar look](avatar-look.md): designer's avatar spec, sizes 24/40/64, initials fallback
+- [Avatars stay local](avatars-local.md): PM, client decision, avatars never from the CDN

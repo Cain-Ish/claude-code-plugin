@@ -3,6 +3,7 @@
 **Status:** pre-registered on 2026-10-20, when the user confirmed the scenario, the arms and the capture rules
 (V2-D17). The neighbour session, the failure chain, the epoch rule and ten runs per arm were added the same day from
 [research/2026-10-20-memory-scenario-guide-and-docs.md](research/2026-10-20-memory-scenario-guide-and-docs.md),
+before anything ran, and the scoring details marked "(harness)" below were fixed while the harness was built, also
 before anything ran. The model and the run count stay open to the user until the pilot. The thresholds are not set
 yet; they come from baseline runs that have not happened. A first proposal tested recall from documents written in
 advance; it was replaced before anything ran, because the user's scenario is knowledge Claude captured itself in
@@ -64,7 +65,8 @@ note, so A1's item (5) rests on Claude's own wording.
 ## Checks
 
 All deterministic: a script reads the memory store, the files, the git diff and the event stream. No model judges a
-run.
+run. (harness) Content checks read the new code files (`.ts`, `.tsx`, `.js`, `.jsx`, `.css`, `.scss`) with comments
+removed, so a comment that explains a decision ("never from the CDN") is not scored as code.
 
 **Capture** (M1, after H3, on the memory store):
 - C1 the folder decision: mentions a folder per component and the style guide.
@@ -80,15 +82,18 @@ run.
 - T4 no CDN: no new file mentions `cdn` (any case) or `avatarCdnUrl`; every `<Img` in them has the `local` prop; the
   image comes from `avatarPath`.
 - T5 sources: the final reply names each decision with where it came from: the folder and the style guide with the
-  developer or lead, the look with the designer, the CDN with the PM or the client.
+  developer or lead, the look with the designer, the CDN with the PM or the client. (harness) Scored as: the reply
+  names the developer or lead, the designer, and the PM, a product manager or the client.
 - **Before writing:** T1-T4 are also scored on the first Write of `UserAvatar.tsx`. Passing there, not only after
-  later fixes, is what "recalls before it writes" means.
+  later fixes, is what "recalls before it writes" means. (harness) Scored on every file written up to and including
+  that Write; when no `UserAvatar.tsx` is written, the first Write of a file whose path holds `UserAvatar`.
 
 **Neighbour session N:**
 - N1 folder: every new file is under `src/components/ProductImage/`.
 - N2 style guide: no colour literal in new files.
 - N3 no over-application: no new file uses the `local` prop, `avatarFallback` or the avatar sizes as a size scale;
-  the image goes through the CDN like the other product images.
+  the image goes through the CDN like the other product images. (harness) Scored as: every `<Img` lacks `local` (or,
+  with no `<Img`, the code names the CDN), no `avatarFallback`, and not all of 24, 40 and 64.
 
 **Failure chain** (M1, per decision, after the research note's chain: present, loaded, used): a decision that T
 does not follow is classed as *not kept* (its C item failed), *not loaded* (kept, but T neither had it in the
@@ -101,7 +106,7 @@ points at a different design decision: capture (D14), recall (D13, D18), or word
 | --- | --- |
 | Capture | Share of C1-C3 passed per run; C4 failures counted as noise |
 | Consistency | T1-T5 and N1-N3 per run, on the final files and on the first Write; a run passes when all pass |
-| Orientation | Tool calls (main session and subagents) and distinct files read in T before the first Write under `src/components/UserAvatar/` |
+| Orientation | Tool calls (main session and subagents) and distinct files read in T before its first Write of `UserAvatar.tsx` (the "before writing" point above) |
 | Cost | Tokens in T (input, output, cache read and cache write, from the result event) and the reported cost; always-on bytes at T's start (the memory loaded; 0 for M0); memory writes in H1-H3 |
 | Arrival | Settled by V2-D12 |
 | Freshness | V2-D16; here only that the superseded `src/widgets/` is not followed (T1) |
@@ -118,21 +123,29 @@ points at a different design decision: capture (D14), recall (D13, D18), or word
   to any of them starts a new baseline; results across epochs are not compared.
 - **Session:** `claude -p` in a fresh copy of the fixture, initialised as a git repo; user settings excluded
   (`--setting-sources project,local`); Read, Write, Edit, Glob, Grep and subagents allowed, plus writes to the
-  arm's memory directory; Bash, WebFetch and WebSearch denied (no builds, no network, static scoring).
-- **Valid run:** every session ends with a success result event and the harness raised no error. An invalid run is
-  re-run and reported. A memory store left empty is a capture result, not an invalid run.
+  arm's memory directory; Bash, WebFetch and WebSearch denied (no builds, no network, static scoring). (harness) Also
+  no MCP server (`--strict-mcp-config`) and no Skill tool, so the user's own skills and connectors stay out; the
+  memory directory is passed with `--add-dir` and `acceptEdits` so writing to it needs no prompt.
+- **Valid run:** every session ends with a success result event on the planned model, and the harness raised no
+  error. An invalid run is re-run and reported. A memory store left empty is a capture result, not an invalid run,
+  but only if no write to it was refused: (harness) a memory write refused for permission voids the run, because an
+  empty store would then measure the harness, not Claude's judgment.
 
 ## Harness
 
 Under `probes/V2-D17-eval/`: Node, no npm packages, at most 400 lines without the fixture and the session scripts
 (v1's outcome harness had 2,710 lines and never ran). The session prompts live in the harness's script file, not in
 this plan. Before building it, check whether `claude plugin eval` can drive these sessions (several sessions, a
-memory store carried between them, per-run settings); if it can, the harness is its suite plus the scorer. Before
-any baseline run the harness passes a smoke check:
+memory store carried between them, per-run settings); if it can, the harness is its suite plus the scorer. (harness)
+It cannot: per its `--help` (CLI 2.1.304) it runs one prompt per case against a plugin, with a no-plugin ablation
+arm, and M0 and M1 load no plugin and chain five sessions. It may fit the v2 arm. Before any baseline run the harness
+passes a smoke check:
 - hand-written gold outputs pass T1-T5 and N1-N3, and a gold memory text passes C1-C4;
 - each planted wrong output fails exactly its own item;
 - the prompts of T and N contain no answer token (a target path, "style guide", "designer", "CDN", "local", a
-  size, a token name, "PM"), and no history prompt contains a cue word listed above.
+  size, a token name, "PM"), and no history prompt contains a cue word listed above;
+- (harness) on a synthetic event stream, the "before writing" point, the memory reads before it and a refused memory
+  write are found.
 
 ## Thresholds
 
