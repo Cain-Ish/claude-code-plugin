@@ -14,7 +14,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 | user | — |
-| V2-D11 | Where does a repo's knowledge live? | OPEN | user + evidence | D10, D12 |
+| V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
@@ -23,8 +23,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | OPEN | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 
-Frontier (rule 6): **D11** (its user answer came with D10; its evidence is D12) and **D17** (needs only D10). The map
-runs D11 first; D13 follows it.
+Frontier (rule 6): **D17** (needs only D10) and **D13** (needs D10, D11, D12). The map runs D17 first.
 
 ---
 
@@ -161,11 +160,29 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   (solo use); (c) a user directory outside the repo (v1); (d) native auto memory only (per machine, Claude-written).
 - **Known constraint:** the native channels that reach subagents and cost nothing until used (`CLAUDE.md`,
   `.claude/rules` with `paths:`) read files from the repo tree (research: platform capabilities).
-- **Draft check:** user answer on team sharing, combined with the D12 probe result.
-- **User answer (2026-10-20, given with D10):** (a), committed in the repo and reviewed like code.
-- **Evidence so far:** team knowledge in the repo, reviewed like code; personal memory local; derived indexes as
-  local caches (prior-and-SOTA rule 5: Cursor removed Memories, Devin moved Knowledge to Skills); v1's local store
-  had one author and 35 `PROJECT.md` shards (post-mortem cause 4).
+- **Check (the draft, made concrete before it was evaluated, 2026-10-20):** passes when (1) the user's dated answer
+  names a sharing model; (2) D12's result shows files in that home reaching the main session, general-purpose and
+  plugin agents through a native channel, with no plugin code (otherwise the option needs a hook, PM3); and (3) PM4's
+  location half holds: every file of that home is tracked in git, so it is opened and corrected with an editor and
+  a reviewed commit, no plugin needed. PM4's format half (a person reads and corrects one entry in v2's own format
+  with the plugin disabled) needs D13's format, so it moves into D13's check.
+- **Result:** pass (2026-10-20). (1) The user's answer, given with D10: (a), committed in the repo and reviewed like
+  code. (2) D12: root `CLAUDE.md`, its imports and unscoped rules reach the main session (also after `/compact`),
+  general-purpose and plugin agents 3 of 3; path rules and nested `CLAUDE.md` reach them after a matching read. All
+  are files in the repo tree. (3) Under (a) every map file is a tracked plain file. Exhibit of the same shape: this
+  ledger, a tracked plain file, had one entry corrected by a plain text edit, visible as a reviewable diff (the D10
+  evidence citation, `9350136`), with no plugin involved.
+- **Choice:** (a). A repo's team knowledge (the D10 roles) lives in plain files committed to that repo and changes
+  through reviewed commits. Anything machine-local (an index, a cache) is rebuilt from those files by one command
+  (PM4). One person's preferences stay in auto memory (D10). Where in the repo, and in which files, is D13's.
+- **Rejected:** (b) git-excluded: the team cannot share or review it (user answer); (c) a user directory:
+  machine-local, one author, unread by anyone else (v1's store, PM4); (d) auto memory only: per machine, written by
+  Claude without review (PM5), not shared, and probed only when redirected into the repo (D12).
+- **Reopen if:** a user needs a map in a repo where they may not commit it (then (b) is the candidate); a D12 reopen
+  shows repo-tree files no longer reaching the main session natively. Attempts: 0.
+- **Evidence:** team knowledge in the repo, reviewed like code; personal memory local; derived indexes as local
+  caches (prior-and-SOTA rule 5: Cursor removed Memories, Devin moved Knowledge to Skills); v1's local store had one
+  author and 35 `PROJECT.md` shards (post-mortem cause 4).
 
 ### V2-D12 — Delivery channels that arrive
 - **Check (pre-registered 2026-10-20, probe P1, [probes/V2-D12-channels](probes/V2-D12-channels/)):** a fresh
@@ -223,7 +240,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Question:** node kinds (decision, convention, inventory, goal, design rule, …), file format, the always-on
   index and its byte cap, what loads on path touch, what is read on demand, size caps per node.
 - **Draft check:** a paper map for two repos (this repo at `v1-final`, and one front-end sample), measured always-on
-  bytes against the cap, plus three navigation tasks per repo that must reach the right file.
+  bytes against the cap, plus three navigation tasks per repo that must reach the right file, and a person reading
+  and correcting one entry with the plugin disabled (PM4's format half, moved here from D11).
 - **Evidence so far:** store only what the code cannot say, and no generated overviews (arXiv 2602.11988: −0.5 to
   −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
   all from reaching the right file); compute structure such as the component inventory from code on demand

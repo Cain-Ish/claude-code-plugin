@@ -46,9 +46,10 @@ Decisions cite these rules as PM1-PM8.
 - **Rule:** knowledge is kept in plain files that a person can open, read and correct without the plugin running.
   Anything machine-local is a cache that one command rebuilds from those files. Who shares them is D10's and D11's
   question.
-- **Check:** *concept:* D11's record shows a person reading and correcting one entry with the plugin disabled.
-  *build:* a test deletes the cache, rebuilds it, and the eval scores the same.
-- **Binds:** D11.
+- **Check:** *concept:* D11's record shows the home is plain files tracked in git (location), and D13's paper map
+  has a person read and correct one entry with the plugin disabled (format). *build:* a test deletes the cache,
+  rebuilds it, and the eval scores the same.
+- **Binds:** D11, D13.
 
 ### PM5. Nothing enters unreviewed, nothing is delivered unchecked (RC5)
 - **Cause:** v1 ran an LLM extractor over raw transcripts at every Stop and wrote the result straight into what it
