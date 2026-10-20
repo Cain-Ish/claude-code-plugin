@@ -20,11 +20,10 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
 | V2-D15 | How is a map bootstrapped for an existing repo? | OPEN | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
-| V2-D17 | How is value measured (eval tasks, arms, thresholds)? | CHECKING | evidence + user | D10 |
+| V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 
-Frontier (rule 6): **D17** (checking: harness, pilot, then baselines) and **D13** (needs D10, D11, D12).
-The map runs D17 first.
+Frontier (rule 6): **D13** (needs D10, D11, D12; all LOCKED). D14, D15, D16 and D18 wait for D13.
 
 ---
 
@@ -268,7 +267,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   injection success). v1's unreviewed LLM extraction became a persistent prompt injection (post-mortem cause 5).
   Contested: the Ultimate Guide prefers capture in hooks; that adds no tokens to the session, but judging what to
   keep is still a model call, and the docs describe auto memory as Claude's own unprompted judgment (research
-  2026-10-20 §1-2). Capture points: `PreCompact`, `Stop`; compaction now also fires on idle (v2.1.299).
+  2026-10-20 §1-2). Capture points: `PreCompact`, `Stop`; compaction now also fires on idle (v2.1.299). D17's
+  baselines (2026-10-20): with no cue, auto memory kept the developer's and the PM's spoken decisions in 10 of 10 runs
+  and dropped the one-off detail, but kept nothing of a designer's document that Claude read and reviewed (0 of 10),
+  and recorded no source. Unprompted capture works for decisions said in passing, not for knowledge read in a
+  document; that gap, provenance and team sharing are where capture design has room.
 
 ### V2-D15 — Bootstrap
 - **Draft check:** a prototype bootstrap on two repos; a human reviewer accepts at least 80% of the generated
@@ -308,8 +311,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Progress (2026-10-20):** (1) met: the harness ([probes/V2-D17-eval](probes/V2-D17-eval/), `b6d24c7`, 328 lines)
   passes its smoke check. (2) met: in the M1 pilot, auto memory wrote in headless sessions (4 writes, 3 files: an
   index and two notes). The pilot cost 0.30 USD for five sessions, so ten runs per arm cost about 4 USD in all. It is
-  a valid run in the pre-registered epoch, so it counts as M1 run 1. Results in the probe README. (3) and (4) wait for
-  the remaining runs. Attempts: 0.
+  a valid run in the pre-registered epoch, so it counts as M1 run 1. Results in the probe README.
+- **Result:** pass (2026-10-20). (3) M0 and M1 ran ten times each, all 20 runs valid, one epoch (CLI 2.1.304, Sonnet
+  5.5), about 4 USD; the user gave the go for the remaining runs after the pilot, on the proposed model and run count.
+  (4) The thresholds are in [05-eval-plan.md](05-eval-plan.md#thresholds), computed by the pre-registered rule from
+  `results/summary.json`. Neither pre-decided outcome occurred: M0 failed T3 and T4 in every run, so the fixture
+  measures; M1 passed no run in full. What the baselines show: auto memory kept the developer's and the PM's spoken
+  decisions in 10 of 10 runs and followed them (folder 10, no CDN 7, at the first Write too), never kept the
+  one-off port, and never over-applied them (N3 10 of 10); it never kept the designer's specification that Claude
+  read and reviewed (C2 0 of 10); no arm named its sources (T5 0 of 20). Against M0, M1 lowered T's median tokens
+  from 132,036 to 97,602 at about the same cost.
+- **Choice:** scenario A1 with the neighbour N; arms M0 and M1 as run; the checks, metrics, protocol and harness in
+  05-eval-plan.md and [probes/V2-D17-eval](probes/V2-D17-eval/); the thresholds as computed. The v2 arm runs the
+  same harness in the build phase, once as the same person and once as a second person with only the committed map.
+- **Rejected:** the first proposal (four tasks on documents written in advance: not the user's scenario); a
+  hand-written `CLAUDE.md` as the native baseline (the user's answer: auto memory is the native way); `claude plugin
+  eval` as the runner (one prompt per case, no chained sessions); an LLM judge (deterministic checks suffice).
+- **Reopen if:** the CLI, the model or the fixture changes before the v2 arm runs (a new epoch: the baselines run
+  again, the rule stays); the user sets targets for C2, T3 or T5 or changes the rule (a new attempt, rule 2); a native
+  team memory ships (M1 would then reach a second person). Attempts: 0.
 
 ### V2-D18 — Runtime and surface budget
 - **Question:** which code runs where, which hook events (if any) v2 uses, the latency budget per hook, whether an

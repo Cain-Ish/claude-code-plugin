@@ -114,6 +114,1036 @@
         "model": "claude-sonnet-5-5",
         "inputs": "108861b749cb"
       }
+    },
+    {
+      "arm": "M1",
+      "run": 2,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 3,
+          "costUsd": 0.0836693,
+          "inputTokens": 12,
+          "outputTokens": 3040,
+          "cacheReadTokens": 136493,
+          "cacheWriteTokens": 9899,
+          "turns": 13,
+          "durationMs": 37632
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.06679750000000001,
+          "inputTokens": 6,
+          "outputTokens": 3346,
+          "cacheReadTokens": 61695,
+          "cacheWriteTokens": 6789,
+          "turns": 13,
+          "durationMs": 24310
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.0361179,
+          "inputTokens": 6,
+          "outputTokens": 1349,
+          "cacheReadTokens": 61439,
+          "cacheWriteTokens": 4118,
+          "turns": 5,
+          "durationMs": 13698
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0801177,
+          "inputTokens": 8,
+          "outputTokens": 2927,
+          "cacheReadTokens": 88517,
+          "cacheWriteTokens": 10495,
+          "turns": 13,
+          "durationMs": 28398
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0735183,
+          "inputTokens": 10,
+          "outputTokens": 2381,
+          "cacheReadTokens": 112803,
+          "cacheWriteTokens": 9602,
+          "turns": 12,
+          "durationMs": 19798
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "followed"
+      },
+      "store": {
+        "avatars-always-local.md": 751,
+        "component-folder-convention.md": 886,
+        "MEMORY.md": 350,
+        "ui-style-guide.md": 532
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 10,
+        "filesReadBeforeFirstWrite": 9
+      },
+      "alwaysOnBytes": 350,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.3402207,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 3,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 2,
+          "costUsd": 0.0717758,
+          "inputTokens": 10,
+          "outputTokens": 2521,
+          "cacheReadTokens": 109378,
+          "cacheWriteTokens": 8902,
+          "turns": 11,
+          "durationMs": 27026
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0633911,
+          "inputTokens": 6,
+          "outputTokens": 3001,
+          "cacheReadTokens": 61651,
+          "cacheWriteTokens": 6801,
+          "turns": 13,
+          "durationMs": 23127
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.0437358,
+          "inputTokens": 8,
+          "outputTokens": 1680,
+          "cacheReadTokens": 84718,
+          "cacheWriteTokens": 4612,
+          "turns": 7,
+          "durationMs": 22292
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0785739,
+          "inputTokens": 10,
+          "outputTokens": 2681,
+          "cacheReadTokens": 113359,
+          "cacheWriteTokens": 10102,
+          "turns": 12,
+          "durationMs": 25785
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.061583399999999996,
+          "inputTokens": 8,
+          "outputTokens": 2148,
+          "cacheReadTokens": 84514,
+          "cacheWriteTokens": 7909,
+          "turns": 11,
+          "durationMs": 19016
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "followed"
+      },
+      "store": {
+        "avatars-never-from-cdn.md": 849,
+        "component-layout-convention.md": 1011,
+        "MEMORY.md": 299
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 8
+      },
+      "alwaysOnBytes": 299,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.31906,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 4,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 3,
+          "costUsd": 0.0763075,
+          "inputTokens": 10,
+          "outputTokens": 2761,
+          "cacheReadTokens": 109775,
+          "cacheWriteTokens": 9425,
+          "turns": 12,
+          "durationMs": 25732
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0713302,
+          "inputTokens": 6,
+          "outputTokens": 3397,
+          "cacheReadTokens": 62642,
+          "cacheWriteTokens": 7771,
+          "turns": 15,
+          "durationMs": 27882
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.0456052,
+          "inputTokens": 8,
+          "outputTokens": 1703,
+          "cacheReadTokens": 84392,
+          "cacheWriteTokens": 5030,
+          "turns": 7,
+          "durationMs": 14733
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0791552,
+          "inputTokens": 8,
+          "outputTokens": 2835,
+          "cacheReadTokens": 88532,
+          "cacheWriteTokens": 10484,
+          "turns": 13,
+          "durationMs": 24250
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.072366,
+          "inputTokens": 10,
+          "outputTokens": 2281,
+          "cacheReadTokens": 112760,
+          "cacheWriteTokens": 9565,
+          "turns": 12,
+          "durationMs": 23176
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "followed"
+      },
+      "store": {
+        "avatars-never-from-cdn.md": 795,
+        "component-folder-convention.md": 903,
+        "MEMORY.md": 322,
+        "ui-style-guide.md": 528
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 10,
+        "filesReadBeforeFirstWrite": 9
+      },
+      "alwaysOnBytes": 322,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.34476409999999996,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 5,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 2,
+          "costUsd": 0.0624741,
+          "inputTokens": 10,
+          "outputTokens": 2358,
+          "cacheReadTokens": 104821,
+          "cacheWriteTokens": 7098,
+          "turns": 10,
+          "durationMs": 22096
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.08158969999999999,
+          "inputTokens": 8,
+          "outputTokens": 3482,
+          "cacheReadTokens": 91057,
+          "cacheWriteTokens": 9412,
+          "turns": 15,
+          "durationMs": 29202
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.0410085,
+          "inputTokens": 8,
+          "outputTokens": 1514,
+          "cacheReadTokens": 84245,
+          "cacheWriteTokens": 4357,
+          "turns": 6,
+          "durationMs": 13882
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0619203,
+          "inputTokens": 8,
+          "outputTokens": 2304,
+          "cacheReadTokens": 83403,
+          "cacheWriteTokens": 7631,
+          "turns": 10,
+          "durationMs": 20205
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0583876,
+          "inputTokens": 8,
+          "outputTokens": 2067,
+          "cacheReadTokens": 83336,
+          "cacheWriteTokens": 7342,
+          "turns": 10,
+          "durationMs": 15095
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "followed"
+      },
+      "store": {
+        "avatars-always-local.md": 835,
+        "component-folder-convention.md": 966,
+        "MEMORY.md": 288
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 7,
+        "filesReadBeforeFirstWrite": 6
+      },
+      "alwaysOnBytes": 288,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.3053802,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 6,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 3,
+          "costUsd": 0.0771745,
+          "inputTokens": 10,
+          "outputTokens": 2817,
+          "cacheReadTokens": 109805,
+          "cacheWriteTokens": 9501,
+          "turns": 12,
+          "durationMs": 20201
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0694192,
+          "inputTokens": 8,
+          "outputTokens": 3126,
+          "cacheReadTokens": 86992,
+          "cacheWriteTokens": 7361,
+          "turns": 14,
+          "durationMs": 24829
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.05547440000000001,
+          "inputTokens": 10,
+          "outputTokens": 2073,
+          "cacheReadTokens": 109484,
+          "cacheWriteTokens": 5944,
+          "turns": 9,
+          "durationMs": 17486
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0608904,
+          "inputTokens": 10,
+          "outputTokens": 2133,
+          "cacheReadTokens": 105364,
+          "cacheWriteTokens": 7251,
+          "turns": 10,
+          "durationMs": 21267
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.058936,
+          "inputTokens": 8,
+          "outputTokens": 2101,
+          "cacheReadTokens": 83420,
+          "cacheWriteTokens": 7392,
+          "turns": 10,
+          "durationMs": 14937
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "ignored"
+      },
+      "store": {
+        "avatars-always-local.md": 836,
+        "component-folder-convention.md": 969,
+        "MEMORY.md": 366,
+        "ui-style-guide-requirement.md": 556
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 7,
+        "filesReadBeforeFirstWrite": 4
+      },
+      "alwaysOnBytes": 366,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.3218945,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 7,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 2,
+          "costUsd": 0.0586922,
+          "inputTokens": 8,
+          "outputTokens": 2179,
+          "cacheReadTokens": 83302,
+          "cacheWriteTokens": 7139,
+          "turns": 10,
+          "durationMs": 21634
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.07176450000000001,
+          "inputTokens": 8,
+          "outputTokens": 3281,
+          "cacheReadTokens": 86905,
+          "cacheWriteTokens": 7562,
+          "turns": 15,
+          "durationMs": 34438
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.0412801,
+          "inputTokens": 8,
+          "outputTokens": 1540,
+          "cacheReadTokens": 84241,
+          "cacheWriteTokens": 4360,
+          "turns": 6,
+          "durationMs": 24851
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0619317,
+          "inputTokens": 8,
+          "outputTokens": 2285,
+          "cacheReadTokens": 83457,
+          "cacheWriteTokens": 7680,
+          "turns": 10,
+          "durationMs": 17794
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.058613,
+          "inputTokens": 8,
+          "outputTokens": 2071,
+          "cacheReadTokens": 83390,
+          "cacheWriteTokens": 7387,
+          "turns": 10,
+          "durationMs": 19097
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "followed"
+      },
+      "store": {
+        "avatars-never-from-cdn.md": 829,
+        "component-folder-convention.md": 884,
+        "MEMORY.md": 315
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 7,
+        "filesReadBeforeFirstWrite": 6
+      },
+      "alwaysOnBytes": 315,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2922815,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 8,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 2,
+          "costUsd": 0.0620512,
+          "inputTokens": 8,
+          "outputTokens": 2125,
+          "cacheReadTokens": 85212,
+          "cacheWriteTokens": 8066,
+          "turns": 9,
+          "durationMs": 19026
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0586691,
+          "inputTokens": 6,
+          "outputTokens": 2710,
+          "cacheReadTokens": 61651,
+          "cacheWriteTokens": 6348,
+          "turns": 12,
+          "durationMs": 22772
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.041269999999999994,
+          "inputTokens": 8,
+          "outputTokens": 1530,
+          "cacheReadTokens": 84260,
+          "cacheWriteTokens": 4382,
+          "turns": 6,
+          "durationMs": 18441
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.05988679999999999,
+          "inputTokens": 8,
+          "outputTokens": 2220,
+          "cacheReadTokens": 82988,
+          "cacheWriteTokens": 7343,
+          "turns": 9,
+          "durationMs": 18775
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0699814,
+          "inputTokens": 10,
+          "outputTokens": 2215,
+          "cacheReadTokens": 111474,
+          "cacheWriteTokens": 9166,
+          "turns": 11,
+          "durationMs": 25046
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "ignored"
+      },
+      "store": {
+        "avatars-never-from-cdn.md": 762,
+        "component-folder-convention.md": 908,
+        "MEMORY.md": 304
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 6,
+        "filesReadBeforeFirstWrite": 5
+      },
+      "alwaysOnBytes": 304,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2918585,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 9,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 2,
+          "costUsd": 0.060590000000000005,
+          "inputTokens": 8,
+          "outputTokens": 2366,
+          "cacheReadTokens": 83180,
+          "cacheWriteTokens": 7149,
+          "turns": 10,
+          "durationMs": 18642
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0600307,
+          "inputTokens": 6,
+          "outputTokens": 2847,
+          "cacheReadTokens": 61647,
+          "cacheWriteTokens": 6346,
+          "turns": 12,
+          "durationMs": 20804
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.041012400000000004,
+          "inputTokens": 8,
+          "outputTokens": 1517,
+          "cacheReadTokens": 84224,
+          "cacheWriteTokens": 4351,
+          "turns": 6,
+          "durationMs": 18203
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.05621699999999999,
+          "inputTokens": 8,
+          "outputTokens": 2064,
+          "cacheReadTokens": 82490,
+          "cacheWriteTokens": 6828,
+          "turns": 8,
+          "durationMs": 17650
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.07027030000000001,
+          "inputTokens": 10,
+          "outputTokens": 2224,
+          "cacheReadTokens": 111623,
+          "cacheWriteTokens": 9212,
+          "turns": 11,
+          "durationMs": 34736
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "ignored"
+      },
+      "store": {
+        "avatars-never-from-cdn.md": 793,
+        "component-folder-convention.md": 1065,
+        "MEMORY.md": 306
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 5,
+        "filesReadBeforeFirstWrite": 4
+      },
+      "alwaysOnBytes": 306,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2881204,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M1",
+      "run": 10,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 3,
+          "costUsd": 0.060971700000000004,
+          "inputTokens": 8,
+          "outputTokens": 2420,
+          "cacheReadTokens": 82397,
+          "cacheWriteTokens": 7129,
+          "turns": 10,
+          "durationMs": 19800
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0616751,
+          "inputTokens": 6,
+          "outputTokens": 2821,
+          "cacheReadTokens": 61691,
+          "cacheWriteTokens": 6821,
+          "turns": 13,
+          "durationMs": 20823
+        },
+        "H3": {
+          "memoryWrites": 2,
+          "costUsd": 0.040814199999999995,
+          "inputTokens": 8,
+          "outputTokens": 1486,
+          "cacheReadTokens": 84302,
+          "cacheWriteTokens": 4377,
+          "turns": 6,
+          "durationMs": 16608
+        },
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0788046,
+          "inputTokens": 8,
+          "outputTokens": 2817,
+          "cacheReadTokens": 88506,
+          "cacheWriteTokens": 10442,
+          "turns": 13,
+          "durationMs": 18982
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0705945,
+          "inputTokens": 8,
+          "outputTokens": 2363,
+          "cacheReadTokens": 87405,
+          "cacheWriteTokens": 9552,
+          "turns": 12,
+          "durationMs": 16520
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": false,
+        "C3": true,
+        "C4": true
+      },
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": true
+      },
+      "neighbour": {
+        "N1": true,
+        "N2": true,
+        "N3": true
+      },
+      "chain": {
+        "folder": "followed",
+        "spec": "not kept",
+        "cdn": "followed"
+      },
+      "store": {
+        "avatars-never-from-cdn.md": 779,
+        "component-folder-convention.md": 873,
+        "MEMORY.md": 346,
+        "ui-style-guide.md": 532
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 10,
+        "filesReadBeforeFirstWrite": 9
+      },
+      "alwaysOnBytes": 346,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage/index.ts",
+          "src/components/ProductImage/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.3128601,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
     }
   ]
 }

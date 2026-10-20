@@ -1,0 +1,182 @@
+{
+  "M0": {
+    "runs": 10,
+    "validRuns": 10,
+    "epochs": [
+      {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    ],
+    "capture": null,
+    "test": {
+      "T1": 4,
+      "T2": 10,
+      "T3": 0,
+      "T4": 0,
+      "T5": 0
+    },
+    "testAtFirstWrite": {
+      "T1": 4,
+      "T2": 10,
+      "T3": 0,
+      "T4": 0
+    },
+    "neighbour": {
+      "N1": 0,
+      "N2": 10,
+      "N3": 10
+    },
+    "allTestAndNeighbourPass": 0,
+    "chain": null,
+    "metrics": {
+      "toolCallsBeforeFirstWrite": {
+        "median": 9,
+        "min": 6,
+        "max": 9,
+        "spread": 3
+      },
+      "filesReadBeforeFirstWrite": {
+        "median": 5,
+        "min": 5,
+        "max": 6,
+        "spread": 1
+      },
+      "tTokensTotal": {
+        "median": 132036,
+        "min": 87000,
+        "max": 133818,
+        "spread": 46818
+      },
+      "tOutputTokens": {
+        "median": 2387,
+        "min": 2068,
+        "max": 2812,
+        "spread": 744
+      },
+      "tCostUsd": {
+        "median": 0.058768999999999995,
+        "min": 0.049055,
+        "max": 0.0707071,
+        "spread": 0.021652099999999994
+      },
+      "alwaysOnBytes": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "spread": 0
+      },
+      "memoryWritesH1toH3": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "spread": 0
+      },
+      "runCostUsd": {
+        "median": 0.0918551,
+        "min": 0.0791549,
+        "max": 0.1020719,
+        "spread": 0.022916999999999993
+      }
+    }
+  },
+  "M1": {
+    "runs": 10,
+    "validRuns": 10,
+    "epochs": [
+      {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    ],
+    "capture": {
+      "C1": 10,
+      "C2": 0,
+      "C3": 10,
+      "C4": 10
+    },
+    "test": {
+      "T1": 10,
+      "T2": 10,
+      "T3": 0,
+      "T4": 7,
+      "T5": 0
+    },
+    "testAtFirstWrite": {
+      "T1": 10,
+      "T2": 10,
+      "T3": 0,
+      "T4": 7
+    },
+    "neighbour": {
+      "N1": 10,
+      "N2": 10,
+      "N3": 10
+    },
+    "allTestAndNeighbourPass": 0,
+    "chain": {
+      "folder": {
+        "followed": 10
+      },
+      "spec": {
+        "not kept": 10
+      },
+      "cdn": {
+        "followed": 7,
+        "ignored": 3
+      }
+    },
+    "metrics": {
+      "toolCallsBeforeFirstWrite": {
+        "median": 7,
+        "min": 5,
+        "max": 10,
+        "spread": 5
+      },
+      "filesReadBeforeFirstWrite": {
+        "median": 6,
+        "min": 4,
+        "max": 9,
+        "spread": 5
+      },
+      "tTokensTotal": {
+        "median": 97601.5,
+        "min": 91390,
+        "max": 126152,
+        "spread": 34762
+      },
+      "tOutputTokens": {
+        "median": 2309.5,
+        "min": 2064,
+        "max": 2927,
+        "spread": 863
+      },
+      "tCostUsd": {
+        "median": 0.0620645,
+        "min": 0.05621699999999999,
+        "max": 0.0801177,
+        "spread": 0.02390070000000001
+      },
+      "alwaysOnBytes": {
+        "median": 312.5,
+        "min": 288,
+        "max": 366,
+        "spread": 78
+      },
+      "memoryWritesH1toH3": {
+        "median": 4,
+        "min": 4,
+        "max": 5,
+        "spread": 1
+      },
+      "runCostUsd": {
+        "median": 0.30912015,
+        "min": 0.2881204,
+        "max": 0.34476409999999996,
+        "spread": 0.056643699999999964
+      }
+    }
+  }
+}

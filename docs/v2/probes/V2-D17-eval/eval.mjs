@@ -1,5 +1,5 @@
 // V2-D17 eval harness (05-eval-plan.md): runs one arm of scenario A1 with `claude -p` and scores it deterministically.
-// Usage: node eval.mjs <scratch-dir> <M0|M1> [runs=1] [first=1]    or    node eval.mjs --smoke
+// Usage: node eval.mjs <scratch-dir> <M0|M1> [runs=1] [first=1]  |  node eval.mjs --smoke  |  node eval.mjs --summary
 // Run folders and raw streams stay in <scratch-dir>; the scored record (no paths, no session ids) is merged into
 // results/<arm>.json next to this script.
 import { spawnSync } from 'node:child_process';
@@ -302,9 +302,55 @@ function smoke() {
   return fail.length === 0;
 }
 
+// ---------- summary over the valid runs of each arm (the input to the thresholds rule) ----------
+
+function summary() {
+  const med = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const stat = (a) => ({ median: med(a), min: Math.min(...a), max: Math.max(...a), spread: Math.max(...a) - Math.min(...a) });
+  const out = {};
+  for (const arm of ['M0', 'M1']) {
+    const f = path.join(HERE, 'results', `${arm}.json`);
+    if (!fs.existsSync(f)) continue;
+    const all = JSON.parse(fs.readFileSync(f, 'utf8')).runs;
+    const runs = all.filter((r) => r.valid);
+    const count = (key) => runs.reduce((o, r) => {
+      for (const [k, v] of Object.entries(r[key] ?? {})) o[k] = (o[k] ?? 0) + (v === true ? 1 : 0);
+      return o;
+    }, {});
+    const t = (r) => r.sessions.T;
+    out[arm] = {
+      runs: all.length,
+      validRuns: runs.length,
+      epochs: [...new Set(runs.map((r) => JSON.stringify(r.epoch)))].map((e) => JSON.parse(e)),
+      capture: arm === 'M1' ? count('capture') : null,
+      test: count('test'),
+      testAtFirstWrite: count('testAtFirstWrite'),
+      neighbour: count('neighbour'),
+      allTestAndNeighbourPass: runs.filter((r) => [...Object.values(r.test), ...Object.values(r.neighbour)].every(Boolean)).length,
+      chain: arm === 'M1' ? runs.reduce((o, r) => {
+        for (const [d, c] of Object.entries(r.chain)) (o[d] ??= {})[c] = (o[d][c] ?? 0) + 1;
+        return o;
+      }, {}) : null,
+      metrics: {
+        toolCallsBeforeFirstWrite: stat(runs.map((r) => r.orientation.toolCallsBeforeFirstWrite)),
+        filesReadBeforeFirstWrite: stat(runs.map((r) => r.orientation.filesReadBeforeFirstWrite)),
+        tTokensTotal: stat(runs.map((r) => t(r).inputTokens + t(r).outputTokens + t(r).cacheReadTokens + t(r).cacheWriteTokens)),
+        tOutputTokens: stat(runs.map((r) => t(r).outputTokens)),
+        tCostUsd: stat(runs.map((r) => t(r).costUsd)),
+        alwaysOnBytes: stat(runs.map((r) => r.alwaysOnBytes)),
+        memoryWritesH1toH3: stat(runs.map((r) => ['H1', 'H2', 'H3'].reduce((a, h) => a + (r.sessions[h]?.memoryWrites ?? 0), 0))),
+        runCostUsd: stat(runs.map((r) => r.costUsd)),
+      },
+    };
+  }
+  fs.writeFileSync(path.join(HERE, 'results', 'summary.json'), `${JSON.stringify(out, null, 2)}\n`);
+  console.log(JSON.stringify(out, null, 2));
+}
+
 // ---------- main ----------
 
 if (process.argv[2] === '--smoke') process.exit(smoke() ? 0 : 1);
+if (process.argv[2] === '--summary') process.exit(summary() ?? 0);
 const [scratch, arm, runs = '1', first = '1'] = process.argv.slice(2);
 if (!scratch || !['M0', 'M1'].includes(arm)) throw new Error('usage: node eval.mjs <scratch-dir> <M0|M1> [runs] [first]  |  --smoke');
 if (!smoke()) throw new Error('smoke check failed: no run before it passes');

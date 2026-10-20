@@ -8,7 +8,7 @@ them.
 
 | Path | What |
 | --- | --- |
-| `eval.mjs` | Runner and scorer (Node, no npm packages): builds the run folders, runs the sessions, scores them, writes `results/<arm>.json`. Also the smoke check |
+| `eval.mjs` | Runner and scorer (Node, no npm packages): builds the run folders, runs the sessions, scores them, writes `results/<arm>.json`. Also the smoke check and the summary (`--summary`) |
 | `sessions.mjs` | The prompts of H1-H3, T and N, and the cue-word and answer-token patterns |
 | `fixture/` | The front-end repo every session starts from (invented client and names) |
 | `gold/` | Hand-written correct outputs for the smoke check: T's and N's files, T's reply, a memory store |
@@ -70,3 +70,9 @@ Valid. Five sessions, 0.30 USD in all (0.04 to 0.07 USD each, 20 to 60 seconds e
 One run shows that the harness works and that auto memory writes in `-p`. It is not a rate, and whether T1 and T4
 passed because of memory or because of the code shows only against M0. The memory files carry
 the id of the session that wrote them, so the store is kept out of this repo; only file names and sizes are recorded.
+
+## Baselines (2026-10-20, M0 and M1, ten runs each)
+
+All 20 runs valid, one epoch, about 4 USD. Tables, failure chain and thresholds:
+[05-eval-plan.md](../../05-eval-plan.md#baseline-results-2026-10-20). Per-run records: `results/M0.json`,
+`results/M1.json`; the aggregate: `results/summary.json` (`node eval.mjs --summary`).

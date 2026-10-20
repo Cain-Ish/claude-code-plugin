@@ -1,0 +1,679 @@
+{
+  "plan": "../../05-eval-plan.md",
+  "runs": [
+    {
+      "arm": "M0",
+      "run": 1,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0656572,
+          "inputTokens": 12,
+          "outputTokens": 2517,
+          "cacheReadTokens": 124232,
+          "cacheWriteTokens": 7010,
+          "turns": 11,
+          "durationMs": 22305
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.030146899999999997,
+          "inputTokens": 8,
+          "outputTokens": 891,
+          "cacheReadTokens": 79009,
+          "cacheWriteTokens": 3330,
+          "turns": 6,
+          "durationMs": 11146
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 5
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.0958041,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 2,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0707071,
+          "inputTokens": 10,
+          "outputTokens": 2812,
+          "cacheReadTokens": 107991,
+          "cacheWriteTokens": 7942,
+          "turns": 12,
+          "durationMs": 34056
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.031364800000000005,
+          "inputTokens": 8,
+          "outputTokens": 998,
+          "cacheReadTokens": 79008,
+          "cacheWriteTokens": 3367,
+          "turns": 6,
+          "durationMs": 10103
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 6
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.1020719,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 3,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.055209799999999996,
+          "inputTokens": 8,
+          "outputTokens": 2357,
+          "cacheReadTokens": 80718,
+          "cacheWriteTokens": 5888,
+          "turns": 11,
+          "durationMs": 30949
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0444345,
+          "inputTokens": 8,
+          "outputTokens": 1744,
+          "cacheReadTokens": 79665,
+          "cacheWriteTokens": 4753,
+          "turns": 9,
+          "durationMs": 16167
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 8,
+        "filesReadBeforeFirstWrite": 6
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.09964429999999999,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 4,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.056477799999999995,
+          "inputTokens": 8,
+          "outputTokens": 2461,
+          "cacheReadTokens": 80718,
+          "cacheWriteTokens": 5945,
+          "turns": 11,
+          "durationMs": 18047
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0303328,
+          "inputTokens": 8,
+          "outputTokens": 910,
+          "cacheReadTokens": 79008,
+          "cacheWriteTokens": 3329,
+          "turns": 6,
+          "durationMs": 9934
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 8,
+        "filesReadBeforeFirstWrite": 6
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.08681059999999999,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 5,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.049055,
+          "inputTokens": 8,
+          "outputTokens": 2068,
+          "cacheReadTokens": 79830,
+          "cacheWriteTokens": 5094,
+          "turns": 9,
+          "durationMs": 20400
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0300999,
+          "inputTokens": 8,
+          "outputTokens": 888,
+          "cacheReadTokens": 78999,
+          "cacheWriteTokens": 3326,
+          "turns": 6,
+          "durationMs": 9589
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 6,
+        "filesReadBeforeFirstWrite": 5
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.0791549,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 6,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0591086,
+          "inputTokens": 12,
+          "outputTokens": 2258,
+          "cacheReadTokens": 125046,
+          "cacheWriteTokens": 6000,
+          "turns": 11,
+          "durationMs": 16917
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.041486,
+          "inputTokens": 8,
+          "outputTokens": 1573,
+          "cacheReadTokens": 79360,
+          "cacheWriteTokens": 4451,
+          "turns": 9,
+          "durationMs": 20799
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 5
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.1005946,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 7,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0555391,
+          "inputTokens": 12,
+          "outputTokens": 2160,
+          "cacheReadTokens": 123991,
+          "cacheWriteTokens": 5379,
+          "turns": 10,
+          "durationMs": 27525
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0302385,
+          "inputTokens": 8,
+          "outputTokens": 901,
+          "cacheReadTokens": 79005,
+          "cacheWriteTokens": 3328,
+          "turns": 6,
+          "durationMs": 11187
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 8,
+        "filesReadBeforeFirstWrite": 5
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.08577760000000001,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 8,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.0621168,
+          "inputTokens": 12,
+          "outputTokens": 2504,
+          "cacheReadTokens": 125168,
+          "cacheWriteTokens": 6134,
+          "turns": 11,
+          "durationMs": 24781
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0301628,
+          "inputTokens": 8,
+          "outputTokens": 893,
+          "cacheReadTokens": 79008,
+          "cacheWriteTokens": 3329,
+          "turns": 6,
+          "durationMs": 7983
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 5
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.0922796,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 9,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.06072229999999999,
+          "inputTokens": 12,
+          "outputTokens": 2417,
+          "cacheReadTokens": 125123,
+          "cacheWriteTokens": 6004,
+          "turns": 11,
+          "durationMs": 28912
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.030128500000000003,
+          "inputTokens": 8,
+          "outputTokens": 890,
+          "cacheReadTokens": 79005,
+          "cacheWriteTokens": 3328,
+          "turns": 6,
+          "durationMs": 18424
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 5
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.0908508,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 10,
+      "date": "2026-10-20",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.05842939999999999,
+          "inputTokens": 12,
+          "outputTokens": 2310,
+          "cacheReadTokens": 124494,
+          "cacheWriteTokens": 5714,
+          "turns": 11,
+          "durationMs": 23515
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0330012,
+          "inputTokens": 8,
+          "outputTokens": 1055,
+          "cacheReadTokens": 79352,
+          "cacheWriteTokens": 3625,
+          "turns": 7,
+          "durationMs": 14559
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 6
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.0914306,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.304 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    }
+  ]
+}

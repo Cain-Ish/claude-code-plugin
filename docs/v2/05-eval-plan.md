@@ -1,11 +1,12 @@
 # v2 eval plan
 
-**Status:** pre-registered on 2026-10-20, when the user confirmed the scenario, the arms and the capture rules
+**Status:** baselines run and thresholds set on 2026-10-20 (V2-D17 LOCKED); see Baseline results and Thresholds.
+Pre-registered on 2026-10-20, when the user confirmed the scenario, the arms and the capture rules
 (V2-D17). The neighbour session, the failure chain, the epoch rule and ten runs per arm were added the same day from
 [research/2026-10-20-memory-scenario-guide-and-docs.md](research/2026-10-20-memory-scenario-guide-and-docs.md),
 before anything ran, and the scoring details marked "(harness)" below were fixed while the harness was built, also
-before anything ran. The model and the run count stay open to the user until the pilot. The thresholds are not set
-yet; they come from baseline runs that have not happened. A first proposal tested recall from documents written in
+before anything ran. After the pilot the user gave the go for the remaining runs on the proposed model (Sonnet 5.5)
+and run count (ten). A first proposal tested recall from documents written in
 advance; it was replaced before anything ran, because the user's scenario is knowledge Claude captured itself in
 earlier sessions.
 
@@ -147,13 +148,61 @@ passes a smoke check:
 - (harness) on a synthetic event stream, the "before writing" point, the memory reads before it and a refused memory
   write are found.
 
+## Baseline results (2026-10-20)
+
+Ten valid runs per arm, one epoch (Claude Code 2.1.304, Sonnet 5.5, inputs `108861b749cb`), about 4 USD in all.
+Per-run records: [probes/V2-D17-eval/results](probes/V2-D17-eval/results/); the numbers below are its
+`summary.json`, made by `node eval.mjs --summary`.
+
+| Item (passing runs of 10) | M0, no memory | M1, auto memory |
+| --- | --- | --- |
+| C1 folder and style guide kept / C2 avatar specification kept / C3 no-CDN kept / C4 port not kept | n/a | 10 / 0 / 10 / 10 |
+| T1 folder | 4 | 10 |
+| T2 no colour literal | 10 | 10 |
+| T3 avatar specification | 0 | 0 |
+| T4 no CDN | 0 | 7 |
+| T5 sources named | 0 | 0 |
+| T1-T4 at the first Write | 4 / 10 / 0 / 0 | 10 / 10 / 0 / 7 |
+| N1 folder / N2 no colour literal / N3 no over-application | 0 / 10 / 10 | 10 / 10 / 10 |
+| Runs passing every T and N item | 0 | 0 |
+
+| Measure in T (median, range) | M0 | M1 |
+| --- | --- | --- |
+| Tool calls before the first Write of `UserAvatar.tsx` | 9 (6-9) | 7 (5-10) |
+| Files read before it | 5 (5-6) | 6 (4-9) |
+| Tokens, all kinds | 132,036 (87,000-133,818) | 97,602 (91,390-126,152) |
+| Output tokens | 2,387 (2,068-2,812) | 2,310 (2,064-2,927) |
+| Cost, USD | 0.059 (0.049-0.071) | 0.062 (0.056-0.080) |
+| Always-on memory, bytes | 0 | 313 (288-366) |
+| Memory writes in H1-H3 | 0 | 4 (4-5) |
+
+- **Failure chain (M1):** the folder decision was followed in 10 runs. The avatar specification was not kept in any
+  run: in H2 Claude compared the designer's notes with the code and listed the full specification, but wrote nothing
+  to memory. The no-CDN decision was followed in 7 runs and scored "ignored" in 3. In 2 of those 3 the component did
+  load locally (`Img` with `local`) but took the image path as a prop, so it never named `avatarPath`, which T4
+  requires as pre-registered. The third rendered a plain `img` from a prop. The score stands as pre-registered.
+- **The fixture measures:** M0 failed T3 and T4 in every run and T1 in six, so the "measures nothing" condition did
+  not occur. T2 and N2 passed in every run of both arms, so they do not separate the arms here.
+- **M1 did not pass every item.** The pre-decided "v2's case rests on team sharing" outcome does not apply.
+
 ## Thresholds
 
-Not set: the baselines have not run.
+Set on 2026-10-20 from the baseline results above, by the rule below, unchanged since it was pre-registered.
 
 - **Rule:** on counts and tokens, v2 meets an outcome when its median beats M1's by more than M1's own run-to-run
-  spread (largest minus smallest of its ten runs); on pass items, v2 passes in no fewer runs than M1. The numbers go
-  here once M0 and M1 have run. Ten runs that show no difference do not show the arms are equal.
+  spread (largest minus smallest of its ten runs); on pass items, v2 passes in no fewer runs than M1. Ten runs that
+  show no difference do not show the arms are equal.
+- **Orientation:** median tool calls before the first Write of `UserAvatar.tsx` below 2 (M1: 7, spread 5), or median
+  files read before it below 1 (M1: 6, spread 5).
+- **Cost:** median T tokens of all kinds below 62,840 (M1: 97,602, spread 34,762); median T output tokens below 1,447
+  (M1: 2,310, spread 863); median T cost below 0.038 USD (M1: 0.062, spread 0.024). Always-on bytes are not a count
+  or a token figure, so the rule sets nothing for them; D13's cap governs them (M1 measured 313).
+- **Pass items:** v2 passes in at least as many runs as M1 on each item: C1 10, C2 0, C3 10, C4 10; T1 10, T2 10,
+  T3 0, T4 7, T5 0 (the same at the first Write); N1, N2, N3 10.
+- **What the rule does not cover:** where M1 passes in no run (C2, T3, T5) its floor is 0, so the rule alone cannot
+  show v2's value there, yet those are A1's items (3) and (5) in the charter. The v2 arm reports them as its own
+  result. Whether they also need a target (for example 8 of 10) is the user's call; any change to the rule counts as a
+  new attempt (01-process rule 2).
 - **If M1 passes every item in every run:** native auto memory already does A1 for one person on one machine. D17
   then records that v2's case rests on team sharing, on the contexts auto memory does not reach (Explore and Plan,
   D12) and on cost, and the user sees that result before any threshold is set.
