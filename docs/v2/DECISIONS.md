@@ -23,9 +23,10 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
+| V2-D20 | By what mechanism does v2 make Claude look for and follow the knowledge that binds a task? | OPEN | evidence | D12, D17 |
 
-Frontier (rule 6): **D19** (its user answers first; its baselines measure the cost D13 must beat) and **D13** (needs
-D10, D11, D12; all LOCKED). D14, D15, D16 and D18 wait for D13.
+Frontier (rule 6): **D20** first (its answer decides what an entry must carry, so it shapes D13, D14 and D18), then
+**D19** (scale baselines) and **D13** (needs D10, D11, D12; all LOCKED). D14, D15, D16 and D18 wait for D13.
 
 ---
 
@@ -357,6 +358,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   run locally, with task prompts kept out of this public repo (`research/raw/`, gitignored) and only numbers
   published; (c) a large synthetic fixture; (d) (a) for the committed, reproducible scenario and (b) as a local
   confirmation.
+- **User answer (2026-10-20):** all three repos are test cases: v1's own repo, P1 and P2. All are on GitHub, so each
+  run starts from a clean copy and nothing is lost. The question that matters is not where knowledge is kept but
+  whether Claude follows it: in the past Claude ignored rules and documents, either because it never looked for them
+  or because it had them and did not apply them. Runs use scratch clones; the private repos' results enter this
+  public repo as numbers only (working rules).
 - **Arms:** the repo as it is run today (its instruction file, rules, hooks and skills; at scale this is the native
   competitor, not an empty repo), the same plus auto memory, and v2 in the build phase.
 - **Draft measures:** rule items followed, checked deterministically, reusing a repo's own validators where it has
@@ -371,3 +377,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   knowledge is 1.9 MB of documents read on demand and 6,740 scripts found only by search; v1's store held 3 entries
   for P2 against about 600 rule items, and its P1 decisions sat in an archive sessions did not load
   ([research/2026-10-20-scale-real-repos.md](research/2026-10-20-scale-real-repos.md)).
+
+### V2-D20 — Adherence: how v2 makes Claude look for and follow the knowledge
+- **Question:** knowledge in the map is worth nothing unless Claude (a) has the part that binds the task before it
+  acts and (b) applies it. By what mechanism does v2 achieve both? Asked by the user on 2026-10-20: in the past Claude
+  either never looked for a rule or document, or had it and ignored it.
+- **Options:** (a) native only: an index in `CLAUDE.md` plus path rules and skills (how P1 runs today); (b) delivery:
+  the rules' own text, few at a time, when the prompt arrives, before the first write in an area (a `PreToolUse` deny
+  whose reason carries the rules), into subagents and again after compaction; (c) (b) plus deterministic checks fed
+  back after writes and at `Stop`; (d) (c) plus accounting at `Stop`, where Claude names each delivered rule it
+  applied and its source, or why it does not apply.
+- **Draft check:** a probe under `probes/V2-D20-adherence/` with planted rules of three kinds (checkable, judgment,
+  reference) in the A1 fixture and in one task on a scratch clone of P1; arms (a), (b) and (d); per rule kind:
+  delivered before the first write, followed at the first write and at the end, violations fixed after feedback,
+  extra turns and tokens, hook p95 on Windows. The pass condition is written before it runs.
+- **Evidence so far:** both failures are measured and differ: agents opened a repo's policy file in 3.5% of runs and
+  ignored 25-36% of policies they had read; v1's pointers were opened in 0-4% of cases and a protocol loaded every
+  session was followed 0 times in 46-78; a deterministic check fed back raised compliance to 70.1% from 55.0% for the
+  same rules as text, and verification to 90-100%; the docs call `CLAUDE.md` "context, not enforced configuration"
+  and only hooks apply "regardless of what Claude decides"; no study measures delivery at tool time
+  ([research/2026-10-20-adherence.md](research/2026-10-20-adherence.md)).
