@@ -1,0 +1,347 @@
+{
+ "date": "2026-10-20",
+ "tasks": {
+  "P1-build": {
+   "kind": "build",
+   "validRuns": 5,
+   "epoch": {
+    "cli": "2.1.305 (Claude Code)",
+    "model": "claude-sonnet-5-5"
+   },
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "delivery": "path rule (matches target)",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R2": {
+     "kind": "convention",
+     "delivery": "path rule (matches target)",
+     "caughtLaterBy": "repo e2e guard",
+     "followed": 2,
+     "followedAtFirstWrite": 2,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 3
+    },
+    "R3": {
+     "kind": "convention",
+     "delivery": "path rule (matches target)",
+     "caughtLaterBy": "repo lint test",
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R4": {
+     "kind": "design",
+     "delivery": "path rule (matches target)",
+     "caughtLaterBy": "repo lint test (numeric face size only)",
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R5": {
+     "kind": "design",
+     "delivery": "path rule (matches target)",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R6": {
+     "kind": "unloaded, counter-pattern",
+     "delivery": "document (named for review only)",
+     "caughtLaterBy": null,
+     "followed": 0,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 0,
+     "notInContext": 5,
+     "inContextNotApplied": 0
+    }
+   },
+   "median": {
+    "costUsd": 0.24222269999999999,
+    "inputTokensAll": 478393,
+    "turns": 16,
+    "toolCallsBeforeFirstWrite": 11,
+    "instructionBytes": 63996
+   },
+   "totalCostUsd": 1.3137836999999999
+  },
+  "P2-build": {
+   "kind": "build",
+   "validRuns": 5,
+   "epoch": {
+    "cli": "2.1.305 (Claude Code)",
+    "model": "claude-sonnet-5-5"
+   },
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "delivery": "always on (root path only) + neighbours",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R2": {
+     "kind": "convention",
+     "delivery": "pointer + validator hook",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 0,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R3a": {
+     "kind": "canon",
+     "delivery": "pointer",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R3b": {
+     "kind": "canon",
+     "delivery": "pointer",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R4": {
+     "kind": "canon (language)",
+     "delivery": "always on",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R5": {
+     "kind": "unloaded, counter-pattern",
+     "delivery": "document nothing points to",
+     "caughtLaterBy": "compiler warning only",
+     "followed": 0,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 0,
+     "notInContext": 5,
+     "inContextNotApplied": 0
+    },
+    "R6": {
+     "kind": "convention, counter-pattern",
+     "delivery": "always on",
+     "caughtLaterBy": null,
+     "followed": 0,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 5
+    },
+    "R7": {
+     "kind": "canon, unloaded, counter-pattern",
+     "delivery": "document nothing points to",
+     "caughtLaterBy": null,
+     "followed": 0,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 0,
+     "notInContext": 5,
+     "inContextNotApplied": 0
+    }
+   },
+   "median": {
+    "costUsd": 0.535654,
+    "inputTokensAll": 918137,
+    "turns": 42,
+    "toolCallsBeforeFirstWrite": 33,
+    "instructionBytes": 9880
+   },
+   "totalCostUsd": 2.6362966
+  },
+  "R0-build": {
+   "kind": "build",
+   "validRuns": 5,
+   "epoch": {
+    "cli": "2.1.305 (Claude Code)",
+    "model": "claude-sonnet-5-5"
+   },
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "delivery": "skill body, then its reference (two hops); hooks.json itself",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 3,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R2a": {
+     "kind": "counter-pattern (stale skill)",
+     "delivery": "notes file never loaded; two skills say the opposite",
+     "caughtLaterBy": "repo test (guard wiring)",
+     "followed": 4,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 3,
+     "notInContext": 1,
+     "inContextNotApplied": 0
+    },
+    "R2b": {
+     "kind": "counter-pattern (stale skill)",
+     "delivery": "notes file never loaded; two skills say the opposite",
+     "caughtLaterBy": "repo test (guard wiring)",
+     "followed": 4,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 3,
+     "notInContext": 1,
+     "inContextNotApplied": 0
+    },
+    "R3": {
+     "kind": "convention",
+     "delivery": "skill body, then its reference (two hops)",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 3,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R4": {
+     "kind": "design",
+     "delivery": "skill body (one hop), its reference (two)",
+     "caughtLaterBy": null,
+     "followed": 1,
+     "followedAtFirstWrite": 1,
+     "inContextBeforeFirstWrite": 1,
+     "notInContext": 3,
+     "inContextNotApplied": 1
+    },
+    "R5": {
+     "kind": "convention, counter-pattern",
+     "delivery": "skill body (one hop)",
+     "caughtLaterBy": "repo portability test",
+     "followed": 5,
+     "followedAtFirstWrite": 5,
+     "inContextBeforeFirstWrite": 0,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "R6": {
+     "kind": "design, counter-pattern",
+     "delivery": "skill body (one hop)",
+     "caughtLaterBy": null,
+     "followed": 3,
+     "followedAtFirstWrite": 3,
+     "inContextBeforeFirstWrite": 1,
+     "notInContext": 2,
+     "inContextNotApplied": 0
+    },
+    "R7": {
+     "kind": "unloaded (skill body only)",
+     "delivery": "skill body (one hop)",
+     "caughtLaterBy": "repo plugin validator",
+     "followed": 5,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 0,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    }
+   },
+   "median": {
+    "costUsd": 0.3560429,
+    "inputTokensAll": 641297,
+    "turns": 28,
+    "toolCallsBeforeFirstWrite": 21,
+    "instructionBytes": 0
+   },
+   "totalCostUsd": 1.7342625999999997
+  },
+  "P2-plan": {
+   "kind": "plan",
+   "validRuns": 5,
+   "epoch": {
+    "cli": "2.1.305 (Claude Code)",
+    "model": "claude-sonnet-5-5"
+   },
+   "rules": {
+    "P1": {
+     "kind": "design (site model)",
+     "delivery": "pointer index",
+     "caughtLaterBy": null,
+     "followed": 4,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 1
+    },
+    "P3a": {
+     "kind": "canon",
+     "delivery": "pointer index",
+     "caughtLaterBy": null,
+     "followed": 1,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 1,
+     "notInContext": 3,
+     "inContextNotApplied": 1
+    },
+    "P3b": {
+     "kind": "canon",
+     "delivery": "pointer index (and the lair code)",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 1,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "P4": {
+     "kind": "design (clearing)",
+     "delivery": "pointer index",
+     "caughtLaterBy": null,
+     "followed": 5,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 0
+    },
+    "P5": {
+     "kind": "process",
+     "delivery": "pointer (step 0 gate in the root file)",
+     "caughtLaterBy": null,
+     "followed": 0,
+     "followedAtFirstWrite": 0,
+     "inContextBeforeFirstWrite": 5,
+     "notInContext": 0,
+     "inContextNotApplied": 5
+    }
+   },
+   "median": {
+    "costUsd": 0.1288618,
+    "inputTokensAll": 130117,
+    "turns": 9,
+    "toolCallsBeforeFirstWrite": null,
+    "instructionBytes": 9880
+   },
+   "totalCostUsd": 0.6870004000000001
+  }
+ }
+}

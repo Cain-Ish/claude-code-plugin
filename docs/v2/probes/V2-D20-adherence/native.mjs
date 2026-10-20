@@ -65,22 +65,27 @@ function claude(cwd, prompt, model, raw) {
 
 function changedFiles(dir) {
   const out = {};
-  for (const l of git(dir, 'status', '--porcelain', '-uall').stdout.split('\n')) {
+  const fresh = new Set();
+  for (const l of git(dir, '-c', 'core.quotepath=off', 'status', '--porcelain', '-uall').stdout.split('\n')) {
     const p = slash(l.slice(3).trim().replace(/^"|"$/g, ''));
     if (!p || p === '.claude/settings.local.json' || !fs.existsSync(path.join(dir, p))) continue;
     out[p] = fs.readFileSync(path.join(dir, p), 'utf8');
+    if (l.startsWith('??') || l.startsWith('A')) fresh.add(p);
   }
-  return out;
+  return { files: out, fresh };
 }
 
 // ---------- scoring ----------
 
-function check(c, files, reply) {
+// fresh: files the run created; a newOnly check skips files that existed before (their old content is not the run's).
+function check(c, files, reply, fresh = null) {
   const re = (s) => new RegExp(s, c.flags ?? '');
-  const sel = c.where === 'reply' ? [reply] : Object.entries(files).filter(([p]) => re(c.path ?? '.').test(p)).map(([, t]) => t);
+  const sel = c.where === 'reply' ? [reply] : Object.entries(files)
+    .filter(([p]) => new RegExp(c.path ?? '.').test(p) && (!c.newOnly || !fresh || fresh.has(p))).map(([, t]) => t);
   if (!sel.length) return false;
-  if (c.must && !sel.some((t) => re(c.must).test(t))) return false;
-  if (c.mustNot && sel.some((t) => re(c.mustNot).test(t))) return false;
+  const all = (x) => [x ?? []].flat();
+  if (!all(c.must).every((m) => sel.some((t) => re(m).test(t)))) return false;
+  if (all(c.mustNot).some((m) => sel.some((t) => re(m).test(t)))) return false;
   return true;
 }
 
@@ -140,7 +145,7 @@ function runOnce(i, model = cfg.model) {
   const log = path.join(base, 'instructions.jsonl');
   makeRun(dir, log);
   const f = facts(claude(dir, task.prompt, model, path.join(base, 'stream.jsonl')), dir, log);
-  const files = changedFiles(dir);
+  const { files, fresh } = changedFiles(dir);
   fs.writeFileSync(path.join(base, 'files.json'), JSON.stringify(files, null, 1));
   const r = f.result;
   const reply = r?.result ?? '';
@@ -149,10 +154,12 @@ function runOnce(i, model = cfg.model) {
   if (f.init?.model && !f.init.model.startsWith(model)) rec.invalid.push(`ran on ${f.init.model}`);
   for (const rule of task.rules) {
     const at = f.contextAt(rule);
-    const final = check(rule.check, files, reply);
+    const final = check(rule.check, files, reply, fresh);
     rec.rules[rule.id] = {
       final,
-      atFirstWrite: f.firstWrite && rule.check.where !== 'reply' ? check(rule.check, f.firstWrite, '') : null,
+      // null when the first write holds no file this rule looks at (e.g. a test written after the component)
+      atFirstWrite: f.firstWrite && rule.check.where !== 'reply'
+        && Object.keys(f.firstWrite).some((p) => new RegExp(rule.check.path ?? '.').test(p)) ? check(rule.check, f.firstWrite, '') : null,
       inContextBeforeFirstWrite: at < f.upTo,
       inContext: at !== Infinity,
       chain: final ? 'followed' : at === Infinity ? 'not in context' : 'in context, not applied',
@@ -227,7 +234,7 @@ if (mode === 'checks') {
     const count = (id, k, v) => rs.filter((r) => r.rules[id]?.[k] === v).length;
     out.tasks[t.id] = {
       kind: t.kind, validRuns: rs.length, epoch: rs[0]?.epoch && { cli: rs[0].epoch.cli, model: rs[0].epoch.model },
-      rules: Object.fromEntries(t.rules.map((r) => [r.id, { kind: r.kind, delivery: r.delivery,
+      rules: Object.fromEntries(t.rules.map((r) => [r.id, { kind: r.kind, delivery: r.delivery, caughtLaterBy: r.caughtLater ?? null,
         followed: count(r.id, 'final', true), followedAtFirstWrite: count(r.id, 'atFirstWrite', true),
         inContextBeforeFirstWrite: count(r.id, 'inContextBeforeFirstWrite', true),
         notInContext: count(r.id, 'chain', 'not in context'), inContextNotApplied: count(r.id, 'chain', 'in context, not applied') }])),

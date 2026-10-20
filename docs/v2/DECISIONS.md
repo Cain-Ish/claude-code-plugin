@@ -25,10 +25,9 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude look for and follow the knowledge that binds a task? | OPEN | evidence | D12, D17 |
 
-Frontier (rule 6): **D20 stage 1** first: Claude in the three test-bed repos as they are run today, which checks the
-premise that it misses their rules there and finds out how (research 2026-10-21-rethink); the same runs are D19's
-native baseline. Then **D20 stage 2** (mechanism arms only for the failures stage 1 shows), **D13**, **D15** (the
-pipeline is convert, then format, then enforce). D14, D16 and D18 wait for D13.
+Frontier (rule 6): **D20 stage 2**: stage 1 (2026-10-21) found both kinds of miss in all three test-bed repos, so the
+delivery arm and the checks-and-accounting arm run on the same four tasks against stage 1's runs as arm (a). Then
+**D13**, **D15** (the pipeline is convert, then format, then enforce). D14, D16 and D18 wait for D13.
 
 ---
 
@@ -456,6 +455,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     knowing where to look, and the user hears that before D13.
   - *Also recorded, with no threshold:* followed at the first write as against at the end (the repo's own hooks
     fixing after the write), instruction bytes loaded, tokens, turns, tool calls before the first write.
+- **Stage 1 result (2026-10-21):** run as registered. Pilot 0.30 USD, then 20 runs, all valid, one epoch (CLI
+  2.1.305, Sonnet 5.5), 6.37 USD ([probes/V2-D20-adherence](probes/V2-D20-adherence/README.md#results-2026-10-21)).
+  The premise holds in all three repos: P1 (a rule missed 5 of 5, another 3 of 5), P2 (three rules missed 5 of 5 in
+  the build, one 5 of 5 in the plan), the v1 repo (one rule missed 4 of 5, another 2 of 5). Both kinds of miss
+  occur: 25 misses with the rule not in context, 16 with it in context but not applied, as scored; two checks were
+  found wrong on reading the outputs and are corrected by hand next to the score (22 and 14), which changes no
+  outcome. So stage 2 builds both, as registered: delivery (b), and checks with accounting (c, d). What the misses
+  share: every rule in a document nothing points to was missed (15 of 15); rules the neighbouring code already shows
+  were followed without the rule in context, and rules it contradicts were missed, one of them in the always-on file;
+  no run opened any of the v1 repo's 17 project skills. Not a failed attempt.
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
