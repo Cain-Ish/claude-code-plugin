@@ -30,6 +30,9 @@ Answer briefly, in writing, before any work:
 - What is the smallest version of it that still settles the question? What would be over-built?
 - Does it touch a LOCKED decision? If so, which reopen trigger fired? None fired: the decision stands.
 - What would make this step fail, and how will we notice?
+- Which assumptions does the step rest on? Name each with how it was verified (a check that ran, a primary source),
+  or mark it unverified and verify the cheap ones now. Does the step still serve the main idea (charter, "What v2
+  is")? If an assumption is false or the idea is lost, go back to the decision that rested on it.
 
 If the doubt changes the step, say so and change it before starting.
 

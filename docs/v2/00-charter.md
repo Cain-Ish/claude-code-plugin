@@ -14,8 +14,9 @@ re-argues settled decisions.
 
 ## What v2 is
 
-A Claude Code plugin that keeps a **project map** (the "mindmap") per repo and puts the right part of it in front of
-Claude when a task needs it.
+**The main idea**, which every step is checked against ([01-process.md](01-process.md), rule 9): a Claude Code plugin
+that keeps a **project map** (the "mindmap") per repo, puts the right part of it in front of Claude when a task needs
+it, and holds Claude to it.
 
 - **The project's own knowledge.** The map holds what a project's key people know and the code does not show. Which
   areas matter is per project (V2-D10): the lead developer, PM and designer of a product team (A1); the canon of an
@@ -24,10 +25,16 @@ Claude when a task needs it.
   design and UX rules; decisions with the rejected options and the reason.
 - **On demand, cheap.** Claude always sees a small index and reads a branch of the map only when the task touches
   it. Token cost is a design constraint, measured per task.
+- **Starts from what the project has** (user, 2026-10-20). The plugin's first act in a repo turns the project's
+  existing rules and documents (instruction files, rule files, docs, skill bodies) into the map's one standard
+  format, each entry anchored to its source; in a project with none, it maps what the code shows. From then on that
+  format is what is delivered and enforced, and new knowledge enters in it (V2-D15, D13).
+- **Followed, not only shown** (user, 2026-10-20). Claude is held to the rules that bind its task, not merely given
+  them; V2-D20 decides how. Only the project's own rules in the map are enforced: general code review stays a
+  non-goal.
 - **Checked, not trusted.** A claim points at the code or doc it describes and is checked before use. Stale
   knowledge is flagged, never delivered as current.
-- **Grows from work.** Decisions and lessons are recorded when they are made, with little friction. A map can be
-  bootstrapped from an existing repo.
+- **Grows from work.** Decisions and lessons are recorded when they are made, with little friction.
 
 **Acceptance scenario A1** (the user's, 2026-10-20). In earlier sessions in a front-end repo, three things happened
 that the code does not show. The lead developer and Claude agreed that every component keeps all its files in its
@@ -56,12 +63,20 @@ it has run.
 
 | Outcome | Measure |
 | --- | --- |
+| Onboarding | Share of a repo's existing rules that reach the map with their source anchor and unchanged meaning; planted rules lost |
 | Capture | Share of the decisions made in earlier sessions that are in the map afterwards, and what was kept that should not have been |
 | Consistency | Share of acceptance tasks whose output follows the recorded decisions |
 | Orientation | Tool calls and files read before the first correct file |
 | Cost | Tokens per task; always-on bytes per session |
 | Arrival | Every delivery channel proven by a nonce probe to reach the main session and subagents before it carries content |
 | Freshness | Zero stale claims delivered as current (mechanism: V2-D16, deterministic anchors) |
+
+**Test bed** (user, 2026-10-20). v1's own repo, P1 and P2 (two private repos, published here as numbers only) are
+tested as one combined example, each from a scratch clone. They hold three shapes of existing knowledge: no
+`CLAUDE.md`, with the rules in project-knowledge skills, concept documents and a store outside the repo (v1);
+path-scoped rule files, a large root file and post-write hooks (P1); large prose documents with validators and nothing
+path-scoped (P2). End projects will have other rules and shapes, so nothing is fitted to these three: each check says
+which part of its result depends on one repo's shape.
 
 ## Constraints carried over from v1
 

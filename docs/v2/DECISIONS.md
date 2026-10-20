@@ -16,17 +16,19 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
-| V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12 |
+| V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
-| V2-D15 | How is a map bootstrapped for an existing repo? | OPEN | evidence | D13 |
+| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | OPEN | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude look for and follow the knowledge that binds a task? | OPEN | evidence | D12, D17 |
 
-Frontier (rule 6): **D20** first (its answer decides what an entry must carry, so it shapes D13, D14 and D18), then
-**D19** (scale baselines) and **D13** (needs D10, D11, D12; all LOCKED). D14, D15, D16 and D18 wait for D13.
+Frontier (rule 6): **D20** first (its answer decides what an entry must carry, so it shapes D13, D14 and D18; its probe
+hand-converts real rules of the test bed, the first onboarding sample), then **D13**, then **D15** (the pipeline is
+convert, then format, then enforce). D14, D16 and D18 wait for D13. D19's native baselines need no format and can run
+at any time; only its v2 arm waits.
 
 ---
 
@@ -45,6 +47,10 @@ Frontier (rule 6): **D20** first (its answer decides what an entry must carry, s
   them.
 - **Reopen if:** a decision is re-argued twice without a fired trigger, or the step gate is skipped twice; either
   means the process does not hold.
+- **Amended (2026-10-20, by the decider):** the user asked that every step verify the assumptions it rests on, so
+  that a result showing the plugin losing its main idea sends the work back to approach it differently. Added to
+  rule 9's `Doubted:` line and to `/v2-step` §3; the charter now names the main idea. No rule renumbered; not a
+  reopen, since the decider changed its own answer.
 
 ### V2-D02 — v1 cut point
 - **Choice:** merge PR #114, then cut v1 at 0.57.1 (commit `9718cee`), tag `v1-final`.
@@ -253,6 +259,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   the paper map also covers the two large private repos P1 and P2 (P2 as the canon-led sample), with an always-on cap
   and a cap on bytes delivered per task, both measured against the repo's own native setup (P1: 29.5 KB always on;
   265 KB of path rules for one five-file task).
+- **Test bed (2026-10-20):** the format is the target of D15's conversion and the source of D20's delivery, so it
+  must carry what D20's mechanism needs. The paper map covers all three shapes of the test bed (charter): v1's repo,
+  P1 and P2.
 - **Evidence so far:** store only what the code cannot say, and no generated overviews (arXiv 2602.11988: −0.5 to
   −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
   all from reaching the right file); compute structure such as the component inventory from code on demand
@@ -279,11 +288,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   and recorded no source. Unprompted capture works for decisions said in passing, not for knowledge read in a
   document; that gap, provenance and team sharing are where capture design has room.
 
-### V2-D15 — Bootstrap
+### V2-D15 — Onboarding (bootstrap)
+- **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
+  existing rules and documents into the map's standard format, or map a project that has none, so that everything
+  later is delivered and enforced from that format? Within it: what is converted into entries and what stays a
+  document indexed by section; whether the source stays the home with the entry anchored to it, or the entry
+  replaces it (two copies drift, D16); how a project's areas are found (D10).
+- **Inputs it must accept:** the test bed's three shapes. v1's repo at `v1-final`: no `CLAUDE.md` anywhere in the
+  tree (only a 0.9 KB instruction file for another agent); 180 Markdown files, 1.5 MB, 731 KB of it in 17
+  project-knowledge skills (architecture contract, change control, debugging playbook and the like), so its rules
+  load only when a skill is invoked; plus concept documents, and a store outside the repo. P1: a 29.5 KB root file and 29
+  path-scoped rule files (578 KB, 818 list items), plus reminders and a lint test after writes. P2: a 9.9 KB root
+  file pointing into 1.9 MB of documents (152 KB of rules, 13 files, 599 list items), a hand-written pointer index and
+  five validators; nothing path-scoped. End projects will bring shapes none of these has.
 - **Draft check:** a prototype bootstrap on two repos; a human reviewer accepts at least 80% of the generated
   entries as correct and useful, and the generated index stays under the D13 cap. At scale: a rules document of at
   least 100 KB is distilled into entries without losing a planted rule, and each entry keeps its source anchor
-  (research 2026-10-20-scale-real-repos §3: v1 held 3 entries for a repo with about 600 rule items).
+  (research 2026-10-20-scale-real-repos §3: v1 held 3 entries for a repo with about 600 rule items). Since
+  2026-10-20: run on all three test-bed repos; a reviewer compares each entry with its source and finds its meaning
+  unchanged; a repo with no rules gets a map from its code.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
@@ -363,6 +386,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   whether Claude follows it: in the past Claude ignored rules and documents, either because it never looked for them
   or because it had them and did not apply them. Runs use scratch clones; the private repos' results enter this
   public repo as numbers only (working rules).
+- **Gap (2026-10-20):** part of v1's knowledge lived in its store outside the repo, which a scratch clone does not
+  have. For A2 the v1 repo's knowledge is what it commits (concept documents, skill bodies); the store enters only
+  through D10's one-time reviewed seed.
 - **Arms:** the repo as it is run today (its instruction file, rules, hooks and skills; at scale this is the native
   competitor, not an empty repo), the same plus auto memory, and v2 in the build phase.
 - **Draft measures:** rule items followed, checked deterministically, reusing a repo's own validators where it has
@@ -391,6 +417,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   reference) in the A1 fixture and in one task on a scratch clone of P1; arms (a), (b) and (d); per rule kind:
   delivered before the first write, followed at the first write and at the end, violations fixed after feedback,
   extra turns and tokens, hook p95 on Windows. The pass condition is written before it runs.
+- **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
+  so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
+  its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
+  documents, and the probe records their count and bytes against what the native setup loads for that task (P1:
+  265 KB). A1's planted decisions stay as the public part. The private repos' converted text stays in
+  `research/raw/` (gitignored) or the scratch clone, never in the probe folder, which holds only counts and bytes.
+- **Boundary to verify:** the checks come only from the project's own rules in the map. A check that is not traced
+  to an entry is out of scope (charter non-goal: code reviewer, D10).
+- **Reopen if (to carry into the lock):** D13's format changes what can be delivered verbatim.
 - **Evidence so far:** both failures are measured and differ: agents opened a repo's policy file in 3.5% of runs and
   ignored 25-36% of policies they had read; v1's pointers were opened in 0-4% of cases and a protocol loaded every
   session was followed 0 times in 46-78; a deterministic check fed back raised compliance to 70.1% from 55.0% for the

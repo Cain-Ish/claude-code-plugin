@@ -50,8 +50,11 @@ rejected, and reopen triggers. What each field means:
    evidence) or is recorded as an accepted risk. The review does not re-verify locked decisions.
 9. **Step gate.** Work goes in small steps, one commit each. A step ends only when its commit body answers three
    lines: `Produced:` what this step made; `Doubted:` what was questioned and how it was settled, always including
-   "is this over-built? what can be deleted?"; `Next needs:` what the next step needs, and whether it is in place. A
-   step whose next step is not ready is not done. `git log` on branch `v2` is the step journal.
+   "is this over-built? what can be deleted?" and the assumptions the step rests on, each with how it was verified (a
+   check that ran, a primary source) or marked unverified, and whether the result still serves the main idea in the
+   charter. A step that finds an assumption false or the main idea lost goes back to the decision that rested on it
+   (rule 4), even when its own check passed (user, 2026-10-20). `Next needs:` what the next step needs, and whether
+   it is in place. A step whose next step is not ready is not done. `git log` on branch `v2` is the step journal.
 10. **Second opinion where it pays.** For a contested decision, or at the phase gate, ask a different model
     (Gemini, through the browser at gemini.google.com) to attack the proposal. Paste only text that is public
     in this repo anyway. Its answer is evidence to weigh, not a vote.
