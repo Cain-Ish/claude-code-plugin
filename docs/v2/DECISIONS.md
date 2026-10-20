@@ -261,7 +261,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   265 KB of path rules for one five-file task).
 - **Test bed (2026-10-20):** the format is the target of D15's conversion and the source of D20's delivery, so it
   must carry what D20's mechanism needs. The paper map covers all three shapes of the test bed (charter): v1's repo,
-  P1 and P2.
+  P1 and P2. Assumption to test (any stack, charter): an inventory of what exists is computed without a
+  per-language parser, on shell, TypeScript and C# alike.
 - **Evidence so far:** store only what the code cannot say, and no generated overviews (arXiv 2602.11988: −0.5 to
   −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
   all from reaching the right file); compute structure such as the component inventory from code on demand
@@ -306,7 +307,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   least 100 KB is distilled into entries without losing a planted rule, and each entry keeps its source anchor
   (research 2026-10-20-scale-real-repos §3: v1 held 3 entries for a repo with about 600 rule items). Since
   2026-10-20: run on all three test-bed repos; a reviewer compares each entry with its source and finds its meaning
-  unchanged; a repo with no rules gets a map from its code.
+  unchanged; a repo with no rules gets a map from its code (stand-in: the A1 fixture, which has no rule files).
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
@@ -371,6 +372,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   217 guard runs failed open (post-mortem cause 3, proposing at most one non-shell hook per event, p95 ≤ 100 ms at 8
   concurrent sessions). A PreToolUse timeout fails open unless the hook sets `"onFailure": "block"` (CLI ≥ 2.1.295;
   platform note §7).
+- **Boundary to verify (2026-10-20, public plugin):** a map entry is never turned into a command the plugin runs.
+  Only the project's own hooks and tools run, under Claude Code's workspace trust; a plugin that ran checks defined in
+  a cloned repo's map would open a new way to execute untrusted code.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
@@ -425,6 +429,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   `research/raw/` (gitignored) or the scratch clone, never in the probe folder, which holds only counts and bytes.
 - **Boundary to verify:** the checks come only from the project's own rules in the map. A check that is not traced
   to an entry is out of scope (charter non-goal: code reviewer, D10).
+- **Any stack (user, 2026-10-20):** a public plugin cannot ship per-language checks. A checkable rule is held either
+  as a pattern the plugin reads as data (glob, regex, file exists, forbidden string), written at onboarding and
+  reviewed, or by the project's own linter or validator, whose result the plugin only feeds back. The probe records,
+  for each converted checkable rule, which of the two holds it, or neither; that turns "checkable" into a measured
+  share.
+- **Work without a write (user, 2026-10-20):** Claude also plans, designs the architecture and reviews, and none of
+  these has a first write to gate. Their channels are prompt arrival, `SubagentStart` (Plan and Explore skip
+  `CLAUDE.md`, D12) and accounting at `Stop`. The probe adds one such task (a plan or a review) in one test-bed repo,
+  so the result is not read as covering work it did not test.
 - **Reopen if (to carry into the lock):** D13's format changes what can be delivered verbatim.
 - **Evidence so far:** both failures are measured and differ: agents opened a repo's policy file in 3.5% of runs and
   ignored 25-36% of policies they had read; v1's pointers were opened in 0-4% of cases and a protocol loaded every

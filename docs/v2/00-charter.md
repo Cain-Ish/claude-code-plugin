@@ -18,6 +18,13 @@ re-argues settled decisions.
 that keeps a **project map** (the "mindmap") per repo, puts the right part of it in front of Claude when a task needs
 it, and holds Claude to it.
 
+**Any project, any stack** (user, 2026-10-20). v2 is a public plugin on the Claude Code marketplace, for projects in
+Java, PHP, C#, TypeScript or any other language, each with its own rules. Claude does the architecture, planning,
+coding and review itself. The plugin's job is that, in each of those activities, Claude has and knows where to find
+what the project already decided (its concept, end idea, rules and decisions, made at the start or along the way)
+whenever it changes or creates a small part, the way the project's creators remember it. No part of v2 may depend on
+one language or stack.
+
 - **The project's own knowledge.** The map holds what a project's key people know and the code does not show. Which
   areas matter is per project (V2-D10): the lead developer, PM and designer of a product team (A1); the canon of an
   app built on books or a fictional universe; the brand and audience of a marketing-led product; the engineering
@@ -76,7 +83,8 @@ tested as one combined example, each from a scratch clone. They hold three shape
 `CLAUDE.md`, with the rules in project-knowledge skills, concept documents and a store outside the repo (v1);
 path-scoped rule files, a large root file and post-write hooks (P1); large prose documents with validators and nothing
 path-scoped (P2). End projects will have other rules and shapes, so nothing is fitted to these three: each check says
-which part of its result depends on one repo's shape.
+which part of its result depends on one repo's shape or one language. The test bed covers shell, TypeScript and C#;
+Java, PHP, Python and the rest are not in it.
 
 ## Constraints carried over from v1
 
