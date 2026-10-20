@@ -17,9 +17,11 @@ re-argues settled decisions.
 A Claude Code plugin that keeps a **project map** (the "mindmap") per repo and puts the right part of it in front of
 Claude when a task needs it.
 
-- **Role knowledge.** The map holds what the lead developer, PM and designer would know (QA and ops are deferred,
-  V2-D10): structure and conventions; goals, scope and priorities; the design system and UX rules; decisions with
-  the rejected options and the reason.
+- **The project's own knowledge.** The map holds what a project's key people know and the code does not show. Which
+  areas matter is per project (V2-D10): the lead developer, PM and designer of a product team (A1); the canon of an
+  app built on books or a fictional universe; the brand and audience of a marketing-led product; the engineering
+  decisions of a pure development project. Typical content: structure and conventions; goals, scope and priorities;
+  design and UX rules; decisions with the rejected options and the reason.
 - **On demand, cheap.** Claude always sees a small index and reads a branch of the map only when the task touches
   it. Token cost is a design constraint, measured per task.
 - **Checked, not trusted.** A claim points at the code or doc it describes and is checked before use. Stale

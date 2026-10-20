@@ -13,7 +13,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D04 | Where do v2 planning decisions and research live? | LOCKED 2026-10-19 | evidence | D03 |
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
-| V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 | user | — |
+| V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12 |
@@ -23,7 +23,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | CHECKING | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 
-Frontier (rule 6): **D17** (needs only D10; checking, its tasks wait for the user) and **D13** (needs D10, D11, D12).
+Frontier (rule 6): **D17** (checking: harness, pilot, then baselines) and **D13** (needs D10, D11, D12).
 The map runs D17 first.
 
 ---
@@ -115,7 +115,7 @@ The map runs D17 first.
 
 Each has a draft check. It is finalised (pre-registered) when work on the decision starts.
 
-### V2-D10 — Scope and role knowledge
+### V2-D10 — Scope: the project's knowledge areas
 - **Question:** which kinds of knowledge does v2 hold? Candidates: lead developer (structure, conventions,
   decisions and their rejected options), PM (goals, scope, priorities, what is in flight), designer (design system,
   component inventory, UX rules), QA and ops where present. What is explicitly out (initial list in the charter)? Is
@@ -129,29 +129,32 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   later; (2) the charter's non-goals stand as written; (3) one person's own preferences are left to Claude Code's
   auto memory; (4) no automatic import of v1's `~/knowledge` data, at most a one-time seed of decisions the user
   reviews; (5) the map is committed in the repo and reviewed like code (D11's question, recorded under D11).
+- **Reopened (2026-10-20, same day):** the trigger "the user adds or drops a role" fired. The user said the three
+  roles were an example, not the scope: projects differ in which knowledge leads. An app built on a canon of books or
+  a fictional universe has strong concept rules; a pure development project has mostly engineering decisions; a
+  marketing-led product has a strong brand and audience base. Re-lock check: the same, the user's explicit dated
+  answer. Result: pass; answers (2) to (5) stand, answer (1) is replaced by the choice below. Not a failed attempt.
 - **Choice:**
-  - v2 holds, or derives from the repo (D13 decides which), the knowledge of three roles: lead developer
-    (structure, conventions, decisions with their rejected options), PM (goals, scope, priorities, what is in
-    flight) and designer (design system, component inventory, UX rules).
-  - A role is an attribute of a piece of knowledge (who asserted it, in which role) within the one map of a repo.
-    It is not a persona agent and not a separate store. How the attribute is written down (tags or otherwise) is
-    D13's.
-  - QA and ops knowledge is DEFERRED (trigger below).
+  - v2 holds the knowledge that a project's key people hold and the code does not show. Which knowledge areas a
+    project has is the project's own, not a fixed list in v2: the lead developer, PM and designer of A1; the canon of
+    an app built on books or a fictional universe; the brand and audience of a marketing-led product; the engineering
+    decisions of a pure development project. QA and ops are areas a project may have, not a separate deferral.
+  - An area is an attribute of a piece of knowledge (which area, who asserted it) within the one map of a repo. It is
+    not a persona agent and not a separate store, and v2 builds no area-specific machinery (PM6). How a project
+    declares its areas and how the attribute is written down is D13's; how a new map finds a repo's areas is D15's.
   - Out of scope: the charter's non-goals ([00-charter.md](00-charter.md#what-v2-is-not-confirmed-by-v2-d10)),
     confirmed as written; a personal-preference layer (Claude Code's auto memory holds it, and v2 builds none); any
     automatic import of v1's `~/knowledge` store.
   - v1's `~/knowledge` data may seed a map at most once, as proposals the user reviews entry by entry (PM5). How a
     map is seeded is D15's.
-- **Rejected:** persona agents per role (agents control context, they are not job titles: Ultimate Guide finding
-  30; v1's role card, keyed on agent type, delivered a test-first card to a research dispatch: prior-and-SOTA A33);
-  all five roles from the start (D17's question has acceptance tasks for lead, PM and design only, so QA and ops
-  would add surface no eval measures, PM6); a v2 personal layer (it duplicates auto memory, which D12 found
-  reaching the main session, general-purpose and plugin agents); an automatic v1 import (v1's store came from
-  unreviewed LLM extraction over transcripts, PM5, and had one author, PM4).
-- **Reopen if:** the user adds or drops a role or a non-goal; the first slice's eval shows a role's knowledge
-  changes no acceptance outcome; Claude Code removes or restricts auto memory. **QA and ops trigger:** the
-  three-role first slice meets its D17 thresholds and a repo in use holds QA or ops knowledge worth delivering.
-  Attempts: 0.
+- **Rejected:** a fixed list of roles (the first choice: projects differ in which knowledge leads, user 2026-10-20);
+  persona agents per role (agents control context, they are not job titles: Ultimate Guide finding 30; v1's role
+  card, keyed on agent type, delivered a test-first card to a research dispatch: prior-and-SOTA A33); a v2 personal
+  layer (it duplicates auto memory, which D12 found reaching the main session, general-purpose and plugin agents); an
+  automatic v1 import (v1's store came from unreviewed LLM extraction over transcripts, PM5, and had one author,
+  PM4).
+- **Reopen if:** the user adds or drops a non-goal; the first slice's eval shows that labelling knowledge by area
+  changes no acceptance outcome; Claude Code removes or restricts auto memory. Attempts: 0.
 - **Evidence:** roles work as views over knowledge (tagged by role, owner or path authority), not as persona
   agents (Ultimate Guide gap 5 and finding 30; prior-and-SOTA rule 11, low confidence); v1 scope creep drew 3 of 5
   re-audit MUSTs (post-mortem cause 6).
@@ -173,9 +176,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   are files in the repo tree. (3) Under (a) every map file is a tracked plain file. Exhibit of the same shape: this
   ledger, a tracked plain file, had one entry corrected by a plain text edit, visible as a reviewable diff (the D10
   evidence citation, `9350136`), with no plugin involved.
-- **Choice:** (a). A repo's team knowledge (the D10 roles) lives in plain files committed to that repo and changes
-  through reviewed commits. Anything machine-local (an index, a cache) is rebuilt from those files by one command
-  (PM4). One person's preferences stay in auto memory (D10). Where in the repo, and in which files, is D13's.
+- **Choice:** (a). A repo's team knowledge (the D10 knowledge areas) lives in plain files committed to that repo and
+  changes through reviewed commits. Anything machine-local (an index, a cache) is rebuilt from those files by one
+  command (PM4). One person's preferences stay in auto memory (D10). Where in the repo, and in which files, is D13's.
 - **Rejected:** (b) git-excluded: the team cannot share or review it (user answer); (c) a user directory:
   machine-local, one author, unread by anyone else (v1's store, PM4); (d) auto memory only: per machine, written by
   Claude without review (PM5), not shared, and probed only when redirected into the repo (D12).
@@ -242,7 +245,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   index and its byte cap, what loads on path touch, what is read on demand, size caps per node.
 - **Draft check:** a paper map for two repos (this repo at `v1-final`, and one front-end sample), measured always-on
   bytes against the cap, plus three navigation tasks per repo that must reach the right file, and a person reading
-  and correcting one entry with the plugin disabled (PM4's format half, moved here from D11).
+  and correcting one entry with the plugin disabled (PM4's format half, moved here from D11). Since D10's re-lock the
+  areas are the project's own, so the paper map also covers a project whose leading area is not engineering (a
+  canon- or marketing-led sample) without a change to the format.
 - **Evidence so far:** store only what the code cannot say, and no generated overviews (arXiv 2602.11988: −0.5 to
   −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
   all from reaching the right file); compute structure such as the component inventory from code on demand
