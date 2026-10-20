@@ -432,6 +432,30 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   failure chain (never loaded, loaded but not read, read but not applied). **Stage 2** builds only the arms that
   answer the failures stage 1 shows. If stage 1 finds a repo's own setup following its rules, v2's case there is
   cost and knowing where to look, and that is recorded before any gate is built. The bullets below describe stage 2.
+- **Stage 1 check (pre-registered 2026-10-21, before any task run):**
+  - *Setup.* The harness [probes/V2-D20-adherence/native.mjs](probes/V2-D20-adherence/) runs each session in a fresh
+    worktree of a scratch clone pinned to a commit, with the repo's own `CLAUDE.md`, rules, skills and hooks (setting
+    sources project and local; no user settings, plugins, MCP servers or auto memory; Bash and the web off, so nothing
+    is installed or built). Sonnet 5.5, headless. An `InstructionsLoaded` hook logs every instruction file that
+    loads and what triggered it; hook output is read from the event stream.
+  - *Tasks.* Four, in a private config passed by path (task text and rules of private repos never enter this repo):
+    one build task in each test-bed repo and one review or planning task. Each binding rule has a deterministic check
+    on the output (where a file must be; a regex that must or must not match), a kind, and the way the native setup
+    delivers it (always on, path rule, pointer, skill, document, hook). The config's hash is recorded with every run,
+    so a change after results is visible (rule 2). Before the pilot, every check passes a correct sample and fails a
+    plausible wrong one, both written into the config (the harness's `checks` mode, as D17's smoke check did).
+  - *Runs.* A pilot of one run of the P1 build task, with its cost reported. Then five runs per task, if that
+    projects to at most 25 USD; otherwise the user is asked first. A run is valid when the session ends in success on
+    the pinned model, at the pinned commit, and the `InstructionsLoaded` log holds the session-start load where the
+    repo has a `CLAUDE.md`.
+  - *Outcome per repo, decided now.* The premise holds in a repo if one of its binding rules fails its check in at
+    least 2 of 5 runs. It does not hold if every rule passes in at least 4 of 5 runs. Each miss is classed as not in
+    context (split by whether the native setup pointed at the rule) or in context but not applied.
+  - *What stage 2 then builds.* Misses mostly not in context: the delivery arm (b). Misses mostly in context: checks
+    and accounting (c, d). Both: both. No miss in any repo: no adherence arm. v2's case in these repos is then cost and
+    knowing where to look, and the user hears that before D13.
+  - *Also recorded, with no threshold:* followed at the first write as against at the end (the repo's own hooks
+    fixing after the write), instruction bytes loaded, tokens, turns, tool calls before the first write.
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
