@@ -20,10 +20,11 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
 | V2-D15 | How is a map bootstrapped for an existing repo? | OPEN | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
-| V2-D17 | How is value measured (eval tasks, arms, thresholds)? | OPEN | evidence + user | D10 |
+| V2-D17 | How is value measured (eval tasks, arms, thresholds)? | CHECKING | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 
-Frontier (rule 6): **D17** (needs only D10) and **D13** (needs D10, D11, D12). The map runs D17 first.
+Frontier (rule 6): **D17** (needs only D10; checking, its tasks wait for the user) and **D13** (needs D10, D11, D12).
+The map runs D17 first.
 
 ---
 
@@ -273,10 +274,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 ### V2-D17 — Measurement
 - **Question:** acceptance tasks (A1 plus lead, PM and design scenarios), arms (no plugin; native `CLAUDE.md` only;
   v2), metrics (charter table), and pre-registered thresholds.
-- **Draft check:** a harness smoke run where every gold answer scores correct, every planted wrong answer fails,
-  and no prompt leaks an answer token. Then the two baseline arms (no plugin; native `CLAUDE.md` only) run on all
-  tasks, and the thresholds are set as improvements over those measured numbers, never guessed in advance (Gemini
-  review). The harness stays small; v1's was 2,710 lines and never ran.
+- **Check (proposed 2026-10-20; pre-registered once the user confirms the tasks):** the tasks, arms, metrics and
+  protocol are in [05-eval-plan.md](05-eval-plan.md). The check passes when (1) the user confirms the tasks, the
+  no-plugin arm's contents, the model and the run count; (2) the harness in `probes/V2-D17-eval/` (Node, no npm
+  packages, at most 400 lines without fixture and tasks) passes the smoke check: every gold answer passes all its
+  items, each planted wrong answer fails exactly its own item, and no task prompt contains an answer token; (3) B0
+  (no plugin) and B1 (native `CLAUDE.md`) run 5 times on every task, all runs valid; (4) the thresholds are written
+  into 05-eval-plan.md from those runs by its rule (a margin larger than B1's run-to-run spread), never guessed in
+  advance (Gemini review). If B0 passes every item in every run, the fixture measures nothing: a failed attempt, and
+  the fixture changes. If B1 passes every item in every run, D17 records that v2's case rests on orientation and
+  cost, and the user sees it before any threshold is set. The harness stays small; v1's had 2,710 lines and never
+  ran.
 
 ### V2-D18 — Runtime and surface budget
 - **Question:** which code runs where, which hook events (if any) v2 uses, the latency budget per hook, whether an
