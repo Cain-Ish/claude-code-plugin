@@ -1,5 +1,7 @@
 # Research: what the Claude Code Ultimate Guide teaches a v2 "second brain" plugin
 
+Corrected on 2026-10-20 (findings 2, 3, 20, 25 and §3): see [2026-10-20-memory-scenario-guide-and-docs.md](2026-10-20-memory-scenario-guide-and-docs.md) §5.
+
 Source: `FlorianBruniaux/claude-code-ultimate-guide`, shallow clone of `main` at commit `e784ef1` (2026-10-19), `VERSION` 3.44.1.
 All paths below are relative to that repository. The guide was read as data: no scripts, installers or package managers from it were run.
 

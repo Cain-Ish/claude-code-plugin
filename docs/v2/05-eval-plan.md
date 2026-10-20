@@ -1,83 +1,146 @@
 # v2 eval plan
 
-**Status:** tasks, arms, metrics and protocol proposed on 2026-10-20. They become pre-registered when the user
-confirms them (V2-D17). The thresholds are not set yet; they come from baseline runs that have not happened.
+**Status:** pre-registered on 2026-10-20, when the user confirmed the scenario, the arms and the capture rules
+(V2-D17). The neighbour session, the failure chain, the epoch rule and ten runs per arm were added the same day from
+[research/2026-10-20-memory-scenario-guide-and-docs.md](research/2026-10-20-memory-scenario-guide-and-docs.md),
+before anything ran. The model and the run count stay open to the user until the pilot. The thresholds are not set
+yet; they come from baseline runs that have not happened. A first proposal tested recall from documents written in
+advance; it was replaced before anything ran, because the user's scenario is knowledge Claude captured itself in
+earlier sessions.
 
-The eval answers one question: does a project map change what Claude does? Every claim of value in the charter is a
-result of this eval against two baselines that need no v2 code, so the baselines run first (PM1).
+The eval answers one question: does Claude, in a fresh session, know and follow what was decided or read in earlier
+sessions, which the code does not show? Every claim of value in the charter is a result of this eval against two
+baselines that need no v2 code, so the baselines run first (PM1).
+
+## Scenario A1
+
+The charter's A1, played as headless sessions on one fixture repo. Sessions H1-H3 are the history; T is the test,
+and N is its neighbour.
+
+| Session | Who | What happens | Knowledge that appears |
+| --- | --- | --- | --- |
+| H1 | lead developer | A small refactor of an existing component. In passing the developer says that from now on every component keeps all its files in its own folder under `src/components/` and follows the client's style guide; earlier they had said new components go under `src/widgets/`, and they take that back. They also mention that their dev server runs on another port today | the folder decision; the style-guide decision; a superseded option (`src/widgets/`); a one-off detail (the port) |
+| H2 | designer | Claude is asked to check the designer's notes for a new profile page against the existing components and list what is missing. The notes are pasted into the prompt (they live outside the repo). One section says exactly how avatars look: sizes 24, 40 and 64 px, a circle with a `borderSubtle` border, and initials on the `avatarFallback` colour when there is no photo | the avatar specification |
+| H3 | PM | A small change to the members list. In passing the PM says the client decided that avatars never load from the CDN, even when a CDN address exists; they are served locally | the no-CDN decision |
+| T | anyone | A fresh session: "Create a UserAvatar component." | none: only what was kept |
+| N | anyone | Another fresh session from the same memory state: "Create a ProductImage component that shows a product's photo." | none. The folder and style-guide decisions apply; the avatar specification and the no-CDN decision do not, so product images still load from the CDN |
+
+- **No cue:** no history prompt asks Claude to remember. The words "remember", "memorize", "memory", "note this",
+  "keep in mind", "for later" and "for future" do not appear in them. Claude decides on its own what to keep (D14's
+  user answer).
+- **Only memory carries over:** before T and N, every file change from H1-H3 is discarded, so the repo is the
+  fixture again. T and N each start from a copy of the memory store as H3 left it. What they know about H1-H3 can
+  only come from that store.
+- **Why N:** a store that applies everything everywhere would pass T. N is the permitted neighbour (research
+  2026-10-20 §4): it shows whether recall is selective.
 
 ## Fixture
 
-One front-end repo built for the eval, under `probes/V2-D17-eval/fixture/` once the harness exists. It is React and
-TypeScript source with no packages installed. Runs are scored on files and replies, not builds.
+A small front-end repo built for the eval, under `probes/V2-D17-eval/fixture/` once the harness exists: React and
+TypeScript source, no packages installed, scored on files and replies, not builds. Invented names only (the repo is
+public).
 
-- **Principle:** the code alone must not settle any decision a task checks. For each checked decision, older files
-  follow the rejected option and newer files follow the chosen one, so reading code cannot tell which is current.
-  If the no-plugin arm passes every item anyway, the fixture measures nothing and is changed.
-- **Knowledge:** decisions with their rejected options and reasons, each attributed to the lead, the PM or the
-  designer (D10), written as a team would: decision records under `docs/decisions/`, a design-system note and a
-  roadmap. Proposed volume: a realistic team's, about 40 decisions across the three roles, of which the tasks check
-  six.
-- **Hygiene:** invented names only; no real people, emails or paths (the repo is public).
+- **Principle:** the code must not settle any checked decision, and where it leans, it leans the wrong way. Older
+  components are flat files, newer ones sit in folders. Some older files use colour literals. Every existing image,
+  avatars included, goes through the CDN: the image primitive `Img` loads through the CDN unless it gets the `local`
+  prop, and the user type has both `avatarPath` and `avatarCdnUrl`. The client's style guide and the tokens
+  (`avatarFallback`, `borderSubtle` among them) are in the repo. The designer's notes are not.
+- **If the no-memory arm passes the folder, specification and no-CDN items in every run,** the fixture measures
+  nothing and is changed (a failed attempt).
 
 ## Arms
 
-| Arm | What the run sees |
+| Arm | Memory between sessions |
 | --- | --- |
-| B0, no plugin | The fixture with its docs, and no `CLAUDE.md`. Claude has to find the knowledge itself |
-| B1, native | B0 plus a hand-written root `CLAUDE.md` that states every recorded decision in one line with its id and points at the docs: the strongest native setup, not a straw man |
-| v2 | The first slice from the build phase. Not run in the concept phase |
+| M0, no memory | None: auto memory off (`autoMemoryEnabled: false`). Only T and N run: with nothing carried over and the repo reset, H1-H3 cannot change them |
+| M1, auto memory | Claude Code's own auto memory, on, pointed at an empty directory per run outside the repo (`autoMemoryDirectory` in `settings.local.json`, as in D12). H1-H3 run in order, then T and N |
+| v2 | The first slice from the build phase, with the map committed in the repo (D11). Not run in the concept phase |
 
-## Tasks
+Not run, because it is known: when a teammate on another machine runs T, auto memory carries nothing (it is per
+user and per machine, [the memory docs](https://code.claude.com/docs/en/memory)), so M1 falls to M0. v2's committed
+map is meant to close that gap; its arm will run T as a second person too. Auto memory also records no source for a
+note, so A1's item (5) rests on Claude's own wording.
 
-The full prompts are below. When the harness exists, the prompts live in `probes/V2-D17-eval/tasks.json` and this
-table points there instead of repeating them. No prompt names a path, a primitive or a decision id.
+## Checks
 
-| Id | Role | Prompt | Check items (deterministic) | Target files |
-| --- | --- | --- | --- | --- |
-| A1 | designer, lead | Create a UserAvatar component that shows a user's photo, or their initials when there is no photo. | (1) the component sits where the structure decision says (`src/components/UserAvatar/UserAvatar.tsx` and `index.ts`); (2) it renders the image through the image primitive `Img`, with no raw `<img`; (3) no colour literal (hex, `rgb(`, a named colour) in new files; (4) the reply names at least two recorded decisions it followed (id or title) | `src/components/UserAvatar/` |
-| L1 | lead | Show the signed-in user's display name in the header. The profile comes from the backend. | (1) the request goes through the API client (`apiGet`), with no `fetch(` or `axios` in changed lines; (2) loading lives in a hook under `src/hooks/`; (3) the reply names the API-client decision | `src/hooks/`, the header component |
-| P1 | PM | Add Google sign-in to the login page. | (1) no code for Google or OAuth sign-in: no changed line matches `google`, `oauth` or `gsi` (any case); (2) the reply names the scope decision that puts social login out of this release | none: no write is expected |
-| D1 | designer | Show an error message on the login form when sign-in fails. | (1) the error uses the `Alert` component with `tone="danger"`; (2) no colour literal in changed lines; (3) the error text has no exclamation mark and is in sentence case; (4) the reply names the error-display decision | the login form |
+All deterministic: a script reads the memory store, the files, the git diff and the event stream. No model judges a
+run.
 
-Headless runs have no one to ask, so P1's expected behaviour is "writes no code for the out-of-scope feature and
-names the decision", not "asks first".
+**Capture** (M1, after H3, on the memory store):
+- C1 the folder decision: mentions a folder per component and the style guide.
+- C2 the avatar specification: mentions avatar, the sizes 24, 40 and 64, and the initials fallback.
+- C3 the no-CDN decision: mentions the CDN and local loading.
+- C4 noise: the one-off port is not kept.
+
+**Test session T:**
+- T1 folder: every new file is under `src/components/UserAvatar/`, which holds `UserAvatar.tsx`; nothing is written
+  under `src/widgets/`.
+- T2 style guide: no colour literal (hex, `rgb(`, `hsl(`, a named colour) in new files; colours come from the tokens.
+- T3 specification: the sizes 24, 40 and 64 and the tokens `avatarFallback` and `borderSubtle` appear.
+- T4 no CDN: no new file mentions `cdn` (any case) or `avatarCdnUrl`; every `<Img` in them has the `local` prop; the
+  image comes from `avatarPath`.
+- T5 sources: the final reply names each decision with where it came from: the folder and the style guide with the
+  developer or lead, the look with the designer, the CDN with the PM or the client.
+- **Before writing:** T1-T4 are also scored on the first Write of `UserAvatar.tsx`. Passing there, not only after
+  later fixes, is what "recalls before it writes" means.
+
+**Neighbour session N:**
+- N1 folder: every new file is under `src/components/ProductImage/`.
+- N2 style guide: no colour literal in new files.
+- N3 no over-application: no new file uses the `local` prop, `avatarFallback` or the avatar sizes as a size scale;
+  the image goes through the CDN like the other product images.
+
+**Failure chain** (M1, per decision, after the research note's chain: present, loaded, used): a decision that T
+does not follow is classed as *not kept* (its C item failed), *not loaded* (kept, but T neither had it in the
+loaded index nor read its topic file before the first Write), or *ignored* (loaded, not followed). Each class
+points at a different design decision: capture (D14), recall (D13, D18), or wording.
 
 ## Metrics
 
 | Outcome (charter) | Measure here |
 | --- | --- |
-| Consistency | Per run, each check item passes or fails; a run passes when all its items pass. Per arm and task: the share of runs that pass, and the share of items |
-| Orientation | Tool calls (main session and subagents) and distinct files read before the first Write or Edit to a target file. Not scored for P1 |
-| Cost | Tokens per run (input, output, cache read and cache write, from the run's result event) and the reported cost; always-on bytes per session (the root `CLAUDE.md` and its imports; 0 for B0) |
-| Arrival | Settled by V2-D12, not measured here |
-| Freshness | V2-D16, not measured here |
+| Capture | Share of C1-C3 passed per run; C4 failures counted as noise |
+| Consistency | T1-T5 and N1-N3 per run, on the final files and on the first Write; a run passes when all pass |
+| Orientation | Tool calls (main session and subagents) and distinct files read in T before the first Write under `src/components/UserAvatar/` |
+| Cost | Tokens in T (input, output, cache read and cache write, from the result event) and the reported cost; always-on bytes at T's start (the memory loaded; 0 for M0); memory writes in H1-H3 |
+| Arrival | Settled by V2-D12 |
+| Freshness | V2-D16; here only that the superseded `src/widgets/` is not followed (T1) |
 
 ## Protocol
 
-- **Model:** Sonnet 5.5 (`claude-sonnet-5-5`), proposed. Results do not transfer across models (research Q7), so
+- **Model:** Sonnet 5.5 (`claude-sonnet-5-5`). Results do not transfer across models (prior research Q7), so
   another model is another baseline.
-- **Runs:** 5 per task and arm: 40 runs. The cost of the first run is measured before the rest start.
-- **Session:** `claude -p` on a fresh copy of the fixture, initialised as a git repo; user settings excluded
-  (`--setting-sources project,local`); Read, Write, Edit, Glob, Grep and subagents allowed; Bash, WebFetch and
-  WebSearch denied (no builds, no network, static scoring).
-- **Valid run:** the session ends with a success result event and the harness raised no error. An invalid run is
-  re-run and reported.
-- **Scoring:** a script reads the final files, the git diff and the event stream. No model judges a run.
+- **Runs:** 10 per arm (the guide's floor for replayed scenarios; 5 gives pass rates in steps of 20 points): 20
+  sessions for M0 and 50 for M1. The first M1 run is a pilot: its cost is reported, and it shows that auto memory
+  writes in headless sessions at all, before the other runs start. If the pilot's cost makes 10 runs unreasonable,
+  the user decides before any further run.
+- **Epoch:** each run records the CLI version, the model id and a hash of the fixture and session scripts. A change
+  to any of them starts a new baseline; results across epochs are not compared.
+- **Session:** `claude -p` in a fresh copy of the fixture, initialised as a git repo; user settings excluded
+  (`--setting-sources project,local`); Read, Write, Edit, Glob, Grep and subagents allowed, plus writes to the
+  arm's memory directory; Bash, WebFetch and WebSearch denied (no builds, no network, static scoring).
+- **Valid run:** every session ends with a success result event and the harness raised no error. An invalid run is
+  re-run and reported. A memory store left empty is a capture result, not an invalid run.
 
 ## Harness
 
-Under `probes/V2-D17-eval/`: Node, no npm packages, at most 400 lines without the fixture and the task file (v1's
-outcome harness had 2,710 lines and never ran). Before any baseline run it passes a smoke check: every gold answer
-passes all items of its task, each planted wrong answer (one per check item) fails exactly that item, and no task
-prompt contains an answer token (a target path, a primitive name, a decision id).
+Under `probes/V2-D17-eval/`: Node, no npm packages, at most 400 lines without the fixture and the session scripts
+(v1's outcome harness had 2,710 lines and never ran). The session prompts live in the harness's script file, not in
+this plan. Before building it, check whether `claude plugin eval` can drive these sessions (several sessions, a
+memory store carried between them, per-run settings); if it can, the harness is its suite plus the scorer. Before
+any baseline run the harness passes a smoke check:
+- hand-written gold outputs pass T1-T5 and N1-N3, and a gold memory text passes C1-C4;
+- each planted wrong output fails exactly its own item;
+- the prompts of T and N contain no answer token (a target path, "style guide", "designer", "CDN", "local", a
+  size, a token name, "PM"), and no history prompt contains a cue word listed above.
 
 ## Thresholds
 
 Not set: the baselines have not run.
 
-- **Rule:** v2 meets an outcome when it beats B1 on that task and metric by more than B1's own run-to-run spread
-  (largest minus smallest of its five runs), and is no worse than B1 on consistency. The numbers go here once B0 and
-  B1 have run.
-- **If B1 passes every item in every run:** this fixture shows no consistency gap for v2 to close. D17 records that
-  v2's case then rests on orientation and cost alone, and the user sees that result before any threshold is set.
+- **Rule:** on counts and tokens, v2 meets an outcome when its median beats M1's by more than M1's own run-to-run
+  spread (largest minus smallest of its ten runs); on pass items, v2 passes in no fewer runs than M1. The numbers go
+  here once M0 and M1 have run. Ten runs that show no difference do not show the arms are equal.
+- **If M1 passes every item in every run:** native auto memory already does A1 for one person on one machine. D17
+  then records that v2's case rests on team sharing, on the contexts auto memory does not reach (Explore and Plan,
+  D12) and on cost, and the user sees that result before any threshold is set.

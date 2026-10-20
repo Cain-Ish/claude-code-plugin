@@ -253,10 +253,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   end-of-session suggestion; never raw transcript mining?), who may write it, and how untrusted text is kept out.
 - **Draft check:** user answer on the review model; a probe that a poisoned tool output cannot reach the map without
   appearing in a reviewable diff.
+- **User answer (2026-10-20, given with D17):** Claude decides on its own what is worth keeping, with no cue from
+  anyone; an entry it adds shows up in the working-tree diff and is committed with the work, with no separate
+  approval step. The commit's review is the review. Tension to settle in the check: prior-and-SOTA A18 found that
+  agents rarely capture on their own (43 of 44 kept learnings came from an explicit command), so the mechanism has to
+  make unprompted capture reliable; D17's capture metric measures it.
 - **Evidence so far:** capture explicitly at decision points; background extraction only proposes (prior-and-SOTA
   rule 9: 43 of 44 kept learnings were explicit); treat every memory write as untrusted (rule 10: MINJA 98.2%
   injection success). v1's unreviewed LLM extraction became a persistent prompt injection (post-mortem cause 5).
-  Contested: the Ultimate Guide prefers capture in hooks (zero model tokens).
+  Contested: the Ultimate Guide prefers capture in hooks; that adds no tokens to the session, but judging what to
+  keep is still a model call, and the docs describe auto memory as Claude's own unprompted judgment (research
+  2026-10-20 §1-2). Capture points: `PreCompact`, `Stop`; compaction now also fires on idle (v2.1.299).
 
 ### V2-D15 — Bootstrap
 - **Draft check:** a prototype bootstrap on two repos; a human reviewer accepts at least 80% of the generated
@@ -272,19 +279,27 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   (concept §2).
 
 ### V2-D17 — Measurement
-- **Question:** acceptance tasks (A1 plus lead, PM and design scenarios), arms (no plugin; native `CLAUDE.md` only;
-  v2), metrics (charter table), and pre-registered thresholds.
-- **Check (proposed 2026-10-20; pre-registered once the user confirms the tasks):** the tasks, arms, metrics and
-  protocol are in [05-eval-plan.md](05-eval-plan.md). The check passes when (1) the user confirms the tasks, the
-  no-plugin arm's contents, the model and the run count; (2) the harness in `probes/V2-D17-eval/` (Node, no npm
-  packages, at most 400 lines without fixture and tasks) passes the smoke check: every gold answer passes all its
-  items, each planted wrong answer fails exactly its own item, and no task prompt contains an answer token; (3) B0
-  (no plugin) and B1 (native `CLAUDE.md`) run 5 times on every task, all runs valid; (4) the thresholds are written
-  into 05-eval-plan.md from those runs by its rule (a margin larger than B1's run-to-run spread), never guessed in
-  advance (Gemini review). If B0 passes every item in every run, the fixture measures nothing: a failed attempt, and
-  the fixture changes. If B1 passes every item in every run, D17 records that v2's case rests on orientation and
-  cost, and the user sees it before any threshold is set. The harness stays small; v1's had 2,710 lines and never
-  ran.
+- **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
+  metrics (charter table) and the thresholds.
+- **User answers (2026-10-20):** A1 is the user's scenario (charter): knowledge from three earlier sessions, captured
+  by Claude's own judgment, recalled in a fresh session; one scenario first instead of four tasks; the designer's
+  document lives outside the repo; no cue to remember; the native baseline is auto memory instead of a hand-written
+  `CLAUDE.md`. A first proposal (four tasks on documents written in advance) was replaced before anything ran.
+- **Check (pre-registered 2026-10-20):** the scenario, arms, checks, metrics and protocol in
+  [05-eval-plan.md](05-eval-plan.md). It passes when (1) the harness in `probes/V2-D17-eval/` (Node, no npm packages,
+  at most 400 lines without fixture and session scripts) passes the smoke check: gold outputs pass every item, each
+  planted wrong output fails exactly its own item, the test prompts hold no answer token and no history prompt a cue
+  word; (2) the M1 pilot shows auto memory writing in a headless session; (3) M0 and M1 run 10 times each, all runs
+  valid; (4) the thresholds are written into 05-eval-plan.md from those runs by its rule (a margin larger than M1's
+  run-to-run spread on counts and tokens, no fewer passing runs on pass items), never guessed in advance (Gemini
+  review). If M0 passes the folder, specification and no-CDN items in every run, the fixture measures nothing: a
+  failed attempt, and the fixture changes. If M1 passes every item in every run, D17 records that v2's case rests on
+  team sharing, on Explore and Plan (which auto memory does not reach, D12) and on cost, and the user sees it before
+  any threshold is set. The neighbour session N, the failure chain (not kept, not loaded, ignored), the epoch rule and
+  ten runs came from the guide and docs check
+  ([research/2026-10-20-memory-scenario-guide-and-docs.md](research/2026-10-20-memory-scenario-guide-and-docs.md)),
+  added before anything ran. Model (Sonnet 5.5) and run count are proposed defaults, open to the user until the pilot.
+  The harness stays small; v1's had 2,710 lines and never ran.
 
 ### V2-D18 — Runtime and surface budget
 - **Question:** which code runs where, which hook events (if any) v2 uses, the latency budget per hook, whether an

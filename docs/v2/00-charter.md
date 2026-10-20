@@ -27,11 +27,16 @@ Claude when a task needs it.
 - **Grows from work.** Decisions and lessons are recorded when they are made, with little friction. A map can be
   bootstrapped from an existing repo.
 
-**Acceptance scenario A1.** In a front-end repo that has a map, the request "create a UserAvatar component" makes
-Claude (1) put it where the team's component structure says, (2) reuse the existing avatar or image primitive
-instead of writing a new one, (3) follow the styling decision on record (for example design tokens, not inline
-colours), and (4) name the decisions it followed. It reads fewer files and spends fewer tokens than the same task
-without the plugin. More scenarios (PM, design, lead) are defined in the eval plan (V2-D17).
+**Acceptance scenario A1** (the user's, 2026-10-20). In earlier sessions in a front-end repo, three things happened
+that the code does not show. The lead developer and Claude agreed that every component keeps all its files in its
+own folder and follows the client's style guide. Claude read the designer's document, kept outside the repo, on
+exactly how avatars look and behave. A week later the PM said avatars never load from the CDN, even when a CDN
+address exists, because the client keeps them local. Nobody told Claude to remember any of it: Claude judged each
+worth keeping and added it to the map. In a later session with a clear context, "create a UserAvatar component"
+makes Claude, before it writes anything, (1) recall all three; (2) put the component in its own folder and follow
+the style guide; (3) build the avatar as the designer's document says; (4) load the image locally, never from the
+CDN; and (5) name each decision it followed and where it came from. It spends fewer tokens and steps than the same
+task without the plugin. The eval plan (V2-D17) turns this into checks.
 
 ## What v2 is not (confirmed by V2-D10)
 
@@ -41,13 +46,15 @@ or a background process that rewrites knowledge without a reviewable diff. v1 sh
 
 ## Success means measured outcomes
 
-Every claim of value is an eval result against two baselines: no plugin, and a hand-written native setup
-(`CLAUDE.md` only). The baselines run first: they need no v2 code, and they show what Claude gets wrong today.
-Thresholds are then set as improvements over the measured baseline (V2-D17), before any v2 feature is built. v1
-built a 2,710-line outcome harness and never ran it; a harness counts only once it has run.
+Every claim of value is an eval result against two baselines: no memory between sessions, and Claude Code's own auto
+memory, the native way Claude remembers across sessions (V2-D17). The baselines run first: they need no v2 code, and
+they show what Claude gets wrong today. Thresholds are then set as improvements over the measured baseline (V2-D17),
+before any v2 feature is built. v1 built a 2,710-line outcome harness and never ran it; a harness counts only once
+it has run.
 
 | Outcome | Measure |
 | --- | --- |
+| Capture | Share of the decisions made in earlier sessions that are in the map afterwards, and what was kept that should not have been |
 | Consistency | Share of acceptance tasks whose output follows the recorded decisions |
 | Orientation | Tool calls and files read before the first correct file |
 | Cost | Tokens per task; always-on bytes per session |
