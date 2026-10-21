@@ -1,0 +1,33 @@
+{
+ "date": "2026-10-21",
+ "pass": true,
+ "docs": {
+  "P1": {
+   "docKb": 172,
+   "planted": 8,
+   "found": 8,
+   "lost": 0,
+   "calls": 5,
+   "failed": 0,
+   "costUsd": 0.57
+  },
+  "P2": {
+   "docKb": 134,
+   "planted": 8,
+   "found": 8,
+   "lost": 0,
+   "calls": 4,
+   "failed": 0,
+   "costUsd": 0.4
+  },
+  "R0": {
+   "docKb": 58,
+   "planted": 8,
+   "found": 8,
+   "lost": 0,
+   "calls": 2,
+   "failed": 0,
+   "costUsd": 0.22
+  }
+ }
+}

@@ -550,8 +550,41 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     invented rules.
   - *Settled by part 1's result.* If quotes are verbatim, the source stays the home: an entry is a committed
     derivative of its source, anchored to its blocks, and drift goes to D16.
+- **Attempt 1 result (2026-10-21): fail, on recall only.** Counts in
+  [probes/V2-D15-onboarding/results](probes/V2-D15-onboarding/results/).
 
-  Attempts: 0.
+  | Part | P1 | P2 | R0 | Bar |
+  | --- | --- | --- | --- | --- |
+  | 1. Verbatim (all entries) | 99.1% | 96.6% | 99.0% | 95%: pass |
+  | 4. Precision (binds and faithful) | 0.98 (53) | 0.92 (50) | 0.96 (55) | 0.8: pass |
+  | 4. Recall (pass A's rules covered) | 0.79 (76) | **0.48** (94) | **0.73** (59) | 0.8: **fail** |
+  | 5. Planted rules found | 8 of 8 | 8 of 8 | 8 of 8 | none lost: pass |
+  | 6. PM4 round trip | | | 126 files, 1 edit, 1 entry changed | pass |
+
+  A1's two docs: 7 entries, all binding and faithful; 9 of 9 rules covered. Quotes over 300 characters: 53, 72 and
+  60. P2's verbatim misses are mostly tables restated as lists. The sample was amended before any paste, as
+  recorded above. Cost: 0.02 USD for A1 and 1.19 USD for the planted runs. P1 pass B errored once in Gemini and was
+  retried in the same chat.
+  - *Where recall was lost.* By stratum, the share of pass A's rules covered:
+    - sections with entries in pointed files: 78%, 67% and 87%;
+    - sections with entries in unpointed files: 84%, 54% and 75%;
+    - sections where the converter wrote nothing: 0 of 1, 0 of 22 and 0 of 9.
+
+    The missed rules are real: P2's canon base and UI language, and R0's skill routing.
+  - *Why, across all 421 converter calls and not only the sampled misses.* The converter's yield falls with the size
+    of its input:
+
+    | Input size | Rules per KB |
+    | --- | --- |
+    | Under 5 KB | 3.1 to 3.6 |
+    | 5 to 15 KB | 1.5 to 1.8 |
+    | 15 to 30 KB | 1.0 to 1.3 |
+    | 30 to 40 KB | 0.7 to 1.2 |
+
+    Two of P2's 30 to 40 KB inputs returned no entries at all. The planted rules, eight in a long document and each
+    phrased as an explicit rule, were all found. The rules that were lost are the plainer ones in long inputs.
+
+  Attempts: 1.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
