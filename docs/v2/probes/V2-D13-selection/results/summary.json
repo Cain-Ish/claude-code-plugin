@@ -1,0 +1,557 @@
+{
+ "date": "2026-10-21",
+ "config": "08a2dc047fb1",
+ "cards": "a03235ffd65a",
+ "native": {
+  "ruleRunShare": 0.6,
+  "rulesInAllRuns": 13
+ },
+ "maps": {
+  "P1": {
+   "entries": 2854,
+   "kb": 1914,
+   "pointedEntries": 2805,
+   "pointedKb": 1893,
+   "scopedEntries": 449
+  },
+  "P2": {
+   "entries": 10229,
+   "kb": 3638,
+   "pointedEntries": 4042,
+   "pointedKb": 1347,
+   "scopedEntries": 0
+  },
+  "R0": {
+   "entries": 3414,
+   "kb": 1614,
+   "pointedEntries": 2807,
+   "pointedKb": 1389,
+   "scopedEntries": 0
+  }
+ },
+ "tasks": {
+  "P1-build": {
+   "rules": 6,
+   "all": {
+    "buildMs": 151,
+    "queryMs": 4,
+    "scored": 2306,
+    "held": {
+     "2": 0,
+     "4": 1,
+     "8": 2,
+     "16": 2,
+     "32": 2
+    },
+    "bytes": {
+     "2": 2034,
+     "4": 3988,
+     "8": 8159,
+     "16": 16343,
+     "32": 32693
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0.32,
+     "8": 0.4,
+     "16": 0.27,
+     "32": 0.13
+    },
+    "perRule": {
+     "R1": {
+      "wholeCorpus": 0.07,
+      "heldAt": []
+     },
+     "R2": {
+      "wholeCorpus": 0.88,
+      "heldAt": []
+     },
+     "R3": {
+      "wholeCorpus": 0.95,
+      "heldAt": []
+     },
+     "R4": {
+      "wholeCorpus": 0.94,
+      "heldAt": [
+       4,
+       8,
+       16,
+       32
+      ]
+     },
+     "R5": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "R6": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     }
+    }
+   },
+   "pointed": {
+    "buildMs": 143,
+    "queryMs": 4,
+    "scored": 2262,
+    "held": {
+     "2": 0,
+     "4": 1,
+     "8": 2,
+     "16": 2,
+     "32": 2
+    },
+    "bytes": {
+     "2": 2034,
+     "4": 3988,
+     "8": 8159,
+     "16": 16343,
+     "32": 32693
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0.32,
+     "8": 0.4,
+     "16": 0.27,
+     "32": 0.13
+    },
+    "perRule": {
+     "R1": {
+      "wholeCorpus": 0.07,
+      "heldAt": []
+     },
+     "R2": {
+      "wholeCorpus": 0.88,
+      "heldAt": []
+     },
+     "R3": {
+      "wholeCorpus": 0.95,
+      "heldAt": []
+     },
+     "R4": {
+      "wholeCorpus": 0.94,
+      "heldAt": [
+       4,
+       8,
+       16,
+       32
+      ]
+     },
+     "R5": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "R6": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     }
+    }
+   }
+  },
+  "P2-build": {
+   "rules": 8,
+   "all": {
+    "buildMs": 299,
+    "queryMs": 7,
+    "scored": 1592,
+    "held": {
+     "2": 0,
+     "4": 0,
+     "8": 0,
+     "16": 0,
+     "32": 1
+    },
+    "bytes": {
+     "2": 2029,
+     "4": 4081,
+     "8": 8163,
+     "16": 16332,
+     "32": 32730
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0,
+     "8": 0.03,
+     "16": 0.11,
+     "32": 0.09
+    },
+    "perRule": {
+     "R1": {
+      "wholeCorpus": 0.6,
+      "heldAt": []
+     },
+     "R2": {
+      "wholeCorpus": 0.71,
+      "heldAt": []
+     },
+     "R3a": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       32
+      ]
+     },
+     "R3b": {
+      "wholeCorpus": 0.92,
+      "heldAt": []
+     },
+     "R4": {
+      "wholeCorpus": 0.82,
+      "heldAt": []
+     },
+     "R5": {
+      "wholeCorpus": 0.73,
+      "heldAt": []
+     },
+     "R6": {
+      "wholeCorpus": 0.78,
+      "heldAt": []
+     },
+     "R7": {
+      "wholeCorpus": 0.66,
+      "heldAt": []
+     }
+    }
+   },
+   "pointed": {
+    "buildMs": 102,
+    "queryMs": 3,
+    "scored": 551,
+    "held": {
+     "2": 0,
+     "4": 0,
+     "8": 0,
+     "16": 1,
+     "32": 1
+    },
+    "bytes": {
+     "2": 2018,
+     "4": 4043,
+     "8": 8192,
+     "16": 16383,
+     "32": 32726
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0.15,
+     "8": 0.21,
+     "16": 0.22,
+     "32": 0.2
+    },
+    "perRule": {
+     "R1": {
+      "wholeCorpus": 0.6,
+      "heldAt": []
+     },
+     "R2": {
+      "wholeCorpus": 0.71,
+      "heldAt": []
+     },
+     "R3a": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       16,
+       32
+      ]
+     },
+     "R3b": {
+      "wholeCorpus": 0.92,
+      "heldAt": []
+     },
+     "R4": {
+      "wholeCorpus": 0.82,
+      "heldAt": []
+     },
+     "R5": {
+      "wholeCorpus": 0,
+      "heldAt": []
+     },
+     "R6": {
+      "wholeCorpus": 0.78,
+      "heldAt": []
+     },
+     "R7": {
+      "wholeCorpus": 0,
+      "heldAt": []
+     }
+    }
+   }
+  },
+  "R0-build": {
+   "rules": 8,
+   "all": {
+    "buildMs": 132,
+    "queryMs": 4,
+    "scored": 2527,
+    "held": {
+     "2": 0,
+     "4": 0,
+     "8": 1,
+     "16": 1,
+     "32": 1
+    },
+    "bytes": {
+     "2": 2048,
+     "4": 4095,
+     "8": 8186,
+     "16": 16381,
+     "32": 32762
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0.34,
+     "8": 0.28,
+     "16": 0.25,
+     "32": 0.21
+    },
+    "perRule": {
+     "R1": {
+      "wholeCorpus": 0.88,
+      "heldAt": []
+     },
+     "R2a": {
+      "wholeCorpus": 0.94,
+      "heldAt": []
+     },
+     "R2b": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     },
+     "R3": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     },
+     "R4": {
+      "wholeCorpus": 0.82,
+      "heldAt": []
+     },
+     "R5": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "R6": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     },
+     "R7": {
+      "wholeCorpus": 0.95,
+      "heldAt": []
+     }
+    }
+   },
+   "pointed": {
+    "buildMs": 114,
+    "queryMs": 2,
+    "scored": 2052,
+    "held": {
+     "2": 0,
+     "4": 0,
+     "8": 1,
+     "16": 1,
+     "32": 1
+    },
+    "bytes": {
+     "2": 2043,
+     "4": 4094,
+     "8": 8180,
+     "16": 16368,
+     "32": 32734
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0.34,
+     "8": 0.28,
+     "16": 0.25,
+     "32": 0.19
+    },
+    "perRule": {
+     "R1": {
+      "wholeCorpus": 0.88,
+      "heldAt": []
+     },
+     "R2a": {
+      "wholeCorpus": 0.94,
+      "heldAt": []
+     },
+     "R2b": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     },
+     "R3": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     },
+     "R4": {
+      "wholeCorpus": 0.82,
+      "heldAt": []
+     },
+     "R5": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "R6": {
+      "wholeCorpus": 1,
+      "heldAt": []
+     },
+     "R7": {
+      "wholeCorpus": 0.95,
+      "heldAt": []
+     }
+    }
+   }
+  },
+  "P2-plan": {
+   "rules": 5,
+   "all": {
+    "buildMs": 268,
+    "queryMs": 6,
+    "scored": 5519,
+    "held": {
+     "2": 0,
+     "4": 0,
+     "8": 3,
+     "16": 3,
+     "32": 4
+    },
+    "bytes": {
+     "2": 2017,
+     "4": 4049,
+     "8": 8187,
+     "16": 16361,
+     "32": 32764
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0,
+     "8": 0.55,
+     "16": 0.27,
+     "32": 0.23
+    },
+    "perRule": {
+     "P1": {
+      "wholeCorpus": 0.91,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "P3a": {
+      "wholeCorpus": 0.94,
+      "heldAt": []
+     },
+     "P3b": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "P4": {
+      "wholeCorpus": 0.92,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "P5": {
+      "wholeCorpus": 0.86,
+      "heldAt": [
+       32
+      ]
+     }
+    }
+   },
+   "pointed": {
+    "buildMs": 100,
+    "queryMs": 3,
+    "scored": 1955,
+    "held": {
+     "2": 0,
+     "4": 0,
+     "8": 3,
+     "16": 4,
+     "32": 4
+    },
+    "bytes": {
+     "2": 2017,
+     "4": 4064,
+     "8": 8190,
+     "16": 16377,
+     "32": 32735
+    },
+    "cardBytesShare": {
+     "2": 0,
+     "4": 0.16,
+     "8": 0.62,
+     "16": 0.42,
+     "32": 0.21
+    },
+    "perRule": {
+     "P1": {
+      "wholeCorpus": 0.91,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "P3a": {
+      "wholeCorpus": 0.94,
+      "heldAt": []
+     },
+     "P3b": {
+      "wholeCorpus": 1,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "P4": {
+      "wholeCorpus": 0.92,
+      "heldAt": [
+       8,
+       16,
+       32
+      ]
+     },
+     "P5": {
+      "wholeCorpus": 0.86,
+      "heldAt": [
+       16,
+       32
+      ]
+     }
+    }
+   }
+  }
+ },
+ "pass": {
+  "cap": 8,
+  "perTask": {
+   "P1-build": "2/6",
+   "P2-build": "0/8",
+   "R0-build": "1/8",
+   "P2-plan": "3/5"
+  },
+  "share": 0.22,
+  "passed": false
+ }
+}

@@ -167,7 +167,7 @@ export function rank(ix, prompt) {
   })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s || a.i - b.i);
 }
 
-const shown = (e) => `${e.file}${e.heads.length ? ` › ${e.heads.join(' › ')}` : ''}\n${e.text}\n`;
+export const shown = (e) => `${e.file}${e.heads.length ? ` › ${e.heads.join(' › ')}` : ''}\n${e.text}\n`;
 
 export function deliver(entries, ranked, capKb) {
   let used = 0;
@@ -193,7 +193,8 @@ export function cover(want, sets) {
 
 // ---- modes ----
 
-const [mode, cfgArg, cardsArg] = process.argv.slice(2);
+// imported (by a diagnostic) rather than run: no mode
+const [mode, cfgArg, cardsArg] = path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url) ? process.argv.slice(2) : ['lib'];
 const sha = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex').slice(0, 12);
 const repoOf = (t) => t.id.split('-')[0];
 
@@ -307,7 +308,7 @@ if (mode === 'selftest') {
   fs.writeFileSync(path.join(HERE, 'results', 'summary.json'), `${JSON.stringify(sum, null, 1)}\n`);
   console.log(JSON.stringify(sum.pass), '\nheld by cap (all docs):',
     Object.entries(sum.tasks).map(([k, x]) => `${k} ${CAPS.map((c) => x.all.held[c]).join('/')}`).join(' | '));
-} else {
+} else if (mode !== 'lib') {
   console.error('usage: node select.mjs selftest | map <config> | score <config> <cards>');
   process.exit(2);
 }

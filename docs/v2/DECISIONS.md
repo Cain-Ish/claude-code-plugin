@@ -332,8 +332,21 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Not tested:* whether Claude follows a ranker's noisier set, since D20 delivered exactly the binding rules
     (D18's first slice); follow-up prompts, where a ranker should stay silent; subagents and compaction; the hook's
     runtime (D18); whether an entry should quote its source or state the rule and point to it (Fog, D15).
+- **Attempt 1 result (2026-10-21): fail.** Run as registered
+  ([probes/V2-D13-selection](probes/V2-D13-selection/README.md#attempt-1-2026-10-21)). The blind maps hold 2,854
+  (P1), 10,229 (P2) and 3,414 (R0) entries. At 8 KB the ranker held 6 of 27 cards (0.22, against native's 0.60):
+  P1 2 of 6, P2 build 0 of 8, R0 1 of 8, the plan 3 of 5. At 32 KB it held 8. Ranking took 2 to 7 ms per prompt
+  after a 100 to 300 ms index build.
+  - *A ranking miss, not a corpus miss.* Against the whole corpus, 21 of 27 cards reach the 80% bar. Five P2 cards
+    fall short because they stitch a heading to its body, and P1 R1 sits in a config file. At a 60% bar the whole
+    corpus holds 26, and the ranker still holds 6 at 8 KB. The bar changes no outcome.
+  - *Why.* A binding rule shares few words with the task. In ranked order, the first entry that holds a card sits
+    beyond 60 KB, or scores 0, for 13 of the 21 cards the corpus holds at the 80% bar.
+  - *What it shows about the format.* The h1 and h2 sections that hold a task's cards come to 14 to 32 KB per task,
+    and the whole files 14 to 186 KB. So with the sources' own blocks as entries, any selector coarser than one block
+    overflows 8 KB, and the 10,000-character `additionalContext` limit with it.
 
-  Attempts: 0.
+  Attempts: 1.
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
