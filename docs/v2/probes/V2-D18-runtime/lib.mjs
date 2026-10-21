@@ -48,14 +48,37 @@ const headerLineAbove = (text, at) => {
   return { start, line: text.slice(start).split('\n')[0] };
 };
 const paragraphAt = (text, at) => { const a = text.lastIndexOf('\n\n', at); const b = text.indexOf('\n\n', at); return text.slice(a < 0 ? 0 : a, b < 0 ? text.length : b); };
-export function foundIn(e, text, norm) {
+// Attempt 3: where spanRe(stretch).exec(text) starts, found from the document's words scanned once (a long quote's
+// case-insensitive Unicode regex cost 5 to 15 ms per entry). The first word may end a longer word, the last may start
+// one, the ones between are whole words. Null when lowercasing changes a word's length (offsets would shift): the
+// regex is used then.
+// shortcut: toLowerCase stands in for the regex's Unicode case folding; they differ on a few letters (long s, Greek
+// final sigma). Bench build asserts equality on the test bed; upgrade to a case-fold table if a corpus needs those.
+export const wordsAt = (text) => {
+  const ws = [];
+  for (const m of text.matchAll(/[\p{L}\p{N}]+/gu)) { const w = m[0].toLowerCase(); if (w.length !== m[0].length) return null; ws.push([w, m.index]); }
+  return ws;
+};
+function spanStart(stretch, ws) {
+  const s = stretch.split(' ');
+  const last = s.length - 1;
+  for (let i = 0; i + last < ws.length; i++) {
+    if (!ws[i][0].endsWith(s[0])) continue;
+    let k = 1;
+    while (k < last && ws[i + k][0] === s[k]) k++;
+    if (k === last && ws[i + last][0].startsWith(s[last])) return ws[i][1] + ws[i][0].length - s[0].length;
+  }
+  return -1;
+}
+export function foundIn(e, text, norm, wsOf) {
   const st = stretches(e.quote);
   if (!st.every((x) => norm.includes(` ${x} `))) return false;
   if (!e.context) return true;
-  const m = st.length ? spanRe(st[0]).exec(text) : null;
-  if (!m) return false;
-  if (e.context.startsWith('|')) return words(headerLineAbove(text, m.index)?.line).join(' ') === words(e.context).join(' ');
-  return normOf(paragraphAt(text, m.index)).includes(` ${words(e.context).join(' ')} `);
+  const ws = st.length && wsOf ? wsOf() : null;
+  const at = !st.length ? -1 : ws ? spanStart(st[0], ws) : (spanRe(st[0]).exec(text)?.index ?? -1);
+  if (at < 0) return false;
+  if (e.context.startsWith('|')) return words(headerLineAbove(text, at)?.line).join(' ') === words(e.context).join(' ');
+  return normOf(paragraphAt(text, at)).includes(` ${words(e.context).join(' ')} `);
 }
 
 // ---- copied: D22's keys ----
@@ -122,15 +145,27 @@ export function parseMap(file, text) {
 // sees one whole version. Versions older than a minute are removed; no hook runs that long.
 
 const shardName = (source) => `${crypto.createHash('sha1').update(source).digest('hex').slice(0, 16)}.json`;
-const writeAtomic = (f, s) => { const t = `${f}.${process.pid}.tmp`; fs.writeFileSync(t, s); fs.renameSync(t, f); };
+const writeAtomic = (f, s) => { const t = `${f}.${process.pid}.tmp`; fs.writeFileSync(t, s); try { fs.renameSync(t, f); } catch (err) { fs.rmSync(t, { force: true }); throw err; } };
+// git's own files that move on a commit, reset, checkout or add; the git dir may be named by a .git file (worktrees)
+const gitDir = (root) => {
+  const g = path.join(root, '.git');
+  try { return fs.statSync(g).isDirectory() ? g : path.resolve(root, /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(g, 'utf8'))[1].trim()); } catch { return null; }
+};
+const gitStamp = (root) => {
+  const d = gitDir(root);
+  return d ? Math.max(0, ...['index', 'HEAD', path.join('logs', 'HEAD')].map((f) => { try { return fs.statSync(path.join(d, f)).mtimeMs; } catch { return 0; } })) : 0;
+};
+const openNow = (root) => { const at = Date.now(); const git = gitStamp(root); return { git, at, files: uncommitted(root) }; };
+// mtimes in whole milliseconds, as the stamp is: a sub-millisecond mtime in the build's first millisecond (its own
+// cache folder) must not read as newer. A map write in that same millisecond waits for the next change.
 function walk(root) {
   const files = [];
   let newest = 0;
   const go = (d) => {
-    newest = Math.max(newest, fs.statSync(d).mtimeMs);
+    newest = Math.max(newest, Math.floor(fs.statSync(d).mtimeMs));
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const f = path.join(d, e.name);
-      if (e.isDirectory()) { if (e.name !== '.cache') go(f); } else if (f.endsWith('.md')) { files.push(f); newest = Math.max(newest, fs.statSync(f).mtimeMs); }
+      if (e.isDirectory()) { if (e.name !== '.cache') go(f); } else if (f.endsWith('.md')) { files.push(f); newest = Math.max(newest, Math.floor(fs.statSync(f).mtimeMs)); }
     }
   };
   if (fs.existsSync(path.join(root, MAP))) go(path.join(root, MAP));
@@ -139,6 +174,8 @@ function walk(root) {
 const current = (root) => { try { return path.join(root, CACHE, fs.readFileSync(path.join(root, CACHE, 'current'), 'utf8')); } catch { return null; } };
 
 export function buildCache(root, files = walk(root).files) {
+  // the cache folder first: creating it moves the map folder's mtime, which must not read as a map change
+  fs.mkdirSync(path.join(root, CACHE), { recursive: true });
   const started = Date.now();
   const name = `v${started}-${process.pid}`;
   const dir = path.join(root, CACHE, name);
@@ -153,7 +190,7 @@ export function buildCache(root, files = walk(root).files) {
     es.forEach((e, i) => { for (const t of new Set(e.when.flatMap(tokensOf))) keyed.push([`${source}#${i}`, t]); });
   }
   fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify(keyed));
-  fs.writeFileSync(path.join(dir, 'open.json'), JSON.stringify(uncommitted(root)));
+  fs.writeFileSync(path.join(dir, 'open.json'), JSON.stringify(openNow(root)));
   const stamp = path.join(root, CACHE, 'stamp');
   try {
     writeAtomic(path.join(root, CACHE, 'current'), name);
@@ -165,15 +202,18 @@ export function buildCache(root, files = walk(root).files) {
     if (m && v !== name && Number(m[1]) < started - 60_000) try { fs.rmSync(path.join(root, CACHE, v), { recursive: true, force: true }); } catch { /* in use; the next build retries */ }
   }
 }
-// The cache (and the uncommitted set with it) is rebuilt when a map file or folder is newer than the stamp: a new or
-// edited entry changes its file, a deleted file its folder. A commit changes neither, so its entries stay labelled
-// until the next session start, which always rebuilds the uncommitted set (the safe direction).
-export function refresh(root, sessionStart = false) {
+// The cache is rebuilt when a map file or folder is newer than the stamp: a new or edited entry changes its file, a
+// deleted file its folder. The uncommitted set is re-read when git's index or HEAD log moved since it was read, and
+// on every hook within 2 s of such a move, since a coarse file clock cannot tell two moves in one tick apart.
+export function refresh(root) {
   let stamp = -1;
   try { stamp = fs.statSync(path.join(root, CACHE, 'stamp')).mtimeMs; } catch { /* no cache yet */ }
   const w = walk(root);
-  if (stamp < 0 || w.newest > stamp || !current(root)) buildCache(root, w.files);
-  else if (sessionStart) writeAtomic(path.join(current(root), 'open.json'), JSON.stringify(uncommitted(root)));
+  if (stamp < 0 || w.newest > stamp || !current(root)) return buildCache(root, w.files);
+  const o = openOf(root);
+  if (!o || gitStamp(root) > o.git || o.git >= o.at - 2000) {
+    try { writeAtomic(path.join(current(root), 'open.json'), JSON.stringify(openNow(root))); } catch { /* a concurrent hook wrote the same set */ }
+  }
 }
 export function shard(root, source) {
   try { return JSON.parse(fs.readFileSync(path.join(current(root), 'byfile', shardName(source)), 'utf8')); } catch { return []; }
@@ -197,9 +237,11 @@ export function entriesFor(root, file) {
 
 const keyOf = (e) => `${e.area}\n${e.quote}`;
 // D14: per uncommitted map file, the entries its HEAD version holds (null for a file HEAD does not have). An entry is
-// unreviewed when its file is listed here and HEAD does not hold it.
+// unreviewed when its file is listed here and HEAD does not hold it. Outside git: null, and every entry is unreviewed.
+// --no-optional-locks: this read must not rewrite the index, or it would move the stamp it is checked against.
 export function uncommitted(root) {
-  const r = spawnSync('git', ['status', '--porcelain=v1', '-z', '-uall', '--', MAP], { cwd: root, encoding: 'utf8' });
+  const r = spawnSync('git', ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '-uall', '--', MAP], { cwd: root, encoding: 'utf8' });
+  if (r.status !== 0) return null;
   const parts = (r.stdout ?? '').split('\0');
   const out = {};
   for (let i = 0; i < parts.length; i++) {
@@ -218,16 +260,17 @@ const openOf = (root) => { try { return JSON.parse(fs.readFileSync(path.join(cur
 // shortcut: "other sources" are the files the map has entries for; a quote moved into a document the map never
 // converted reads as changed. Upgrade when onboarding keeps its own list of converted files.
 export function deliver(root, entries, cap = CAP) {
-  const open = openOf(root);
+  const open = openOf(root)?.files;
   const docs = new Map();
   const doc = (f) => {
     if (!docs.has(f)) { let t = null; try { t = fs.readFileSync(path.join(root, f), 'utf8'); } catch { /* gone */ } docs.set(f, t === null ? null : { t, n: normOf(t) }); }
     return docs.get(f);
   };
+  const find = (e, d) => foundIn(e, d.t, d.n, () => ('w' in d ? d.w : (d.w = wordsAt(d.t))));
   let sources = null;
   const movedTo = (e) => {
     if (!sources) sources = walk(root).files.map((f) => rel(root, f).slice(MAP.length + 1, -3));
-    return sources.find((s) => { if (s === e.file) return false; const d = doc(s); return d && foundIn(e, d.t, d.n); });
+    return sources.find((s) => { if (s === e.file) return false; const d = doc(s); return d && find(e, d); });
   };
   const out = [];
   let used = 0;
@@ -240,7 +283,7 @@ export function deliver(root, entries, cap = CAP) {
     if (!e.verified) labels.push(`unverified quote${e.date ? `, captured ${e.date}` : ''}`);
     else {
       const d = doc(e.file);
-      if (!(d && foundIn(e, d.t, d.n))) {
+      if (!(d && find(e, d))) {
         const m = movedTo(e);
         if (m) file = m;
         else labels.push(`source changed since ${e.date}; check ${e.file}`);

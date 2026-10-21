@@ -1238,7 +1238,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Attempt 3, planned now:* if the added work cannot be cut, fewer hook calls per tool call. Drop the on-read hook,
     and deliver at the prompt and at writes only.
 - **Attempt 2 result (2026-10-22): fail, on session start**
-  ([load-a2.json](probes/V2-D18-runtime/results/load-a2.json), [checks.json](probes/V2-D18-runtime/results/checks.json)).
+  ([load-a2.json](probes/V2-D18-runtime/results/load-a2.json), [checks-a2.json](probes/V2-D18-runtime/results/checks-a2.json)).
   - *Load, 200 calls, p95 at 8 concurrent minus the floor timed just before:*
 
     | Script | p95 at 8 concurrent | Floor | Added | Errors |
@@ -1267,6 +1267,34 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
     The nested and missing-runtime results are platform behaviour, independent of the hook code, so they carry into
     attempt 3. Labels and boundary are free and run again.
+- **Attempt 3 check (pre-registered 2026-10-22, before its run; the last attempt before going up a level, rule 4):**
+  - *Found by measurement before it (no run of the check):*
+    - the 13 errors were `EPERM` on renaming the cached uncommitted set, with 8 session starts writing it at once;
+    - session start's added work was the `git status` it ran every time (about 35 ms alone);
+    - the guards' cost is the re-find of entries that carry a context. A long quote's case-insensitive Unicode
+      regular expression takes 5 to 15 ms each, so reading a document with many such entries cost 74 to 157 ms in
+      process. The 40 files the load reads are mostly code, so attempt 2 never saw it;
+    - after its run, the bench's nested check deleted the repo's own `.claude/` folder. Load and labels had already
+      run, so their results stand. Fixed.
+  - *Fixes:*
+    - the uncommitted set is read again only when git's index or HEAD log moved since the last read, and on every
+      hook within 2 s of a move. It uses `--no-optional-locks`, and its cached write tolerates a concurrent writer;
+    - the re-find locates a quote from the document's words, scanned once, instead of one regex per entry. It is
+      asserted equal to D16's re-find on all 14,119 entries at build;
+    - mtimes are compared in whole milliseconds, which removes one needless rebuild after the first build.
+  - *Measurement:*
+    - paired blocks: 8 empty Node processes at once, then 8 hooks at once, alternating until 200 of each; at 1
+      concurrent, alternating calls;
+    - every process reports its in-process time, from process start to exit;
+    - a fifth script, on read of a document, over 40 map sources in hash order.
+  - *The bar, same number:* at 8 concurrent, each script's added p95 is at most **100 ms both by wall clock and by
+    in-process time**, with no errors at 1 or at 8. Either measure alone can be moved by noise, so both must hold.
+  - *Labels, expectation re-registered:* a commit is clean at the next hook (attempt 2: at the next session start). A
+    soft reset that un-commits the entries labels them again at the next hook. The rest is as in attempt 2.
+  - *Carried over:* the nested converter and the missing runtime, which are platform behaviour (attempt 2's results).
+    Boundary and labels run again.
+  - *If it fails:* go up a level. The option named in advance is fewer hook calls per tool call: drop the on-read
+    hook, and deliver at the prompt and at writes only. The user decides.
 
   Attempts: 2.
 
