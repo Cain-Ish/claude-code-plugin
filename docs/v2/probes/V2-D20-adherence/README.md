@@ -24,8 +24,10 @@ write, D12); and the chain: followed, not in context, or in context but not appl
 ```
 node native.mjs checks  <config>                  every check against a correct and a wrong sample
 node native.mjs smoke   <config> <task>           one cheap session (a small model): plumbing only
-node native.mjs run     <config> <task> [runs] [first]
+node native.mjs run     <config> <task> [runs] [first] [arm]   arm a (default) is stage 1
 node native.mjs summary <config>                  writes results/summary.json (counts only)
+node native.mjs arrival  <config> <task> [runs]   stage 2: nonce smoke of three hook channels
+node native.mjs summary2 <config>                 stage 2: writes results/summary-stage2.json (counts only)
 ```
 
 ## Plumbing smoke (2026-10-21, before any task run)
@@ -84,3 +86,33 @@ Limits: one task per repo and five runs; Sonnet 5.5 only; Bash off, so the repos
 not run (P1 R2 and P2 R5 would be flagged later by them); regex checks; `followedAtFirstWrite` is blank where the
 first write holds no file a rule looks at (fixed after the pilot; it feeds no outcome). A few skills from outside
 the repo (bundled, or the user's) were listed in every run; they are the same for every task and arm.
+
+## Stage 2: delivery, then checks and an account (pre-registered 2026-10-21)
+
+Pass condition and decision rule: [DECISIONS.md](../../DECISIONS.md), V2-D20 "Stage 2 check". Each rule now has a
+card in the private config: its text quoted from the repo's own files, its source, the area it governs, its class
+(17 pattern-held, 10 judgment) and, for pattern-held rules, the feedback line. A card names the counter-pattern only
+where its source does (9 of 27). The config's hash before the pilot: `08a2dc047fb1`. Card bytes delivered at prompt
+arrival per task: P1-build 1,965, P2-build 2,146, R0-build 2,529, P2-plan 1,742.
+
+- `deliver.mjs` is the hook of both arms. Arm (b) adds the cards to the prompt (`UserPromptSubmit`), and before
+  the first write in each card's area it denies once, with the area's cards in the reason (`PreToolUse`). Arm (d)
+  adds, after each write, the failing pattern checks of that file (`PostToolUse` block reason). At the first `Stop`
+  it sends the failing checks plus a request for a `## Rule account` section. Each call is logged with its duration,
+  measured inside the hook process; process start-up is not counted.
+- `check.mjs` holds the check and the changed-file listing, shared by the harness and the hook.
+- `nonce.mjs` is the arrival smoke's hook.
+- The harness skips a denied write when it looks for the anchor and the first write. It keeps the denied content and
+  scores it (`atDeniedWrite`): what Claude wrote with the cards from prompt arrival alone.
+- Two checks were corrected before any stage 2 run (P3a, P5). On the stage 1 replies each reproduces the hand count
+  (5 of 5, 2 of 5). Stage 1's own scores stay in `results/summary.json`.
+
+**Arrival (2026-10-21, CLI 2.1.305, Haiku):** each of the three channels D12 did not probe carried its own nonce,
+taken from the environment and in no file. In all 3 of 3 runs, each nonce was quoted: the `PreToolUse` deny reason,
+the `PostToolUse` block reason and the `Stop` block reason (0.005 USD). Two earlier trials are reported in the
+decision. In both, Claude declined content the user had not asked for: an extra first line in a file it was asked to
+create, or an edit to that file. It said why, and asked the user.
+
+**Plumbing smoke (Haiku, P1-build, one run per arm):** both runs were valid. Each area was denied once, the component
+first and then the test. Arm (d) fed back nothing (no pattern check failed). Its `Stop` sent the account request, and
+the reply carried the `## Rule account` heading. Hook calls took 19 to 222 ms.

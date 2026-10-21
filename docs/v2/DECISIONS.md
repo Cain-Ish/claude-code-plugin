@@ -465,6 +465,60 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   share: every rule in a document nothing points to was missed (15 of 15); rules the neighbouring code already shows
   were followed without the rule in context, and rules it contradicts were missed, one of them in the always-on file;
   no run opened any of the v1 repo's 17 project skills. Not a failed attempt.
+- **Stage 2 check (pre-registered 2026-10-21, before any stage 2 Sonnet run):**
+  - *Question.* Given the rules that bind a task, does delivering their own text at the right moment make Claude
+    follow them (b), and which rules also need checks fed back and an account at `Stop` (c, d)? **Selection is an
+    oracle:** each task's hand-identified rules (27) are delivered, so stage 2 tests following, not finding. What
+    picks the right rules for a task stays with D13 and D18, and a lock here covers following only.
+  - *Setup.* Stage 1's harness, tasks, pinned commits and epoch (CLI 2.1.305, Sonnet 5.5; the runs switch the
+    auto-updater off; a run on another CLI version means arm (a) re-runs in that epoch before any comparison). Arm
+    (a) is stage 1's 20 runs. Each rule gets a card: its text quoted, trimmed, from the repo's own files, with its
+    source and the area it governs. A card names the counter-pattern only where its source does (9 of 27; recorded
+    per rule), and one fixed line heads every delivery: where existing code differs from a rule, follow the rule.
+    Cards and checks stay in the private config; its hash is recorded with every run.
+  - *Arm (b), delivery* ([probes/V2-D20-adherence/deliver.mjs](probes/V2-D20-adherence/)): the task's cards as
+    `UserPromptSubmit` context (D12: arrives 3 of 3), and once per area a `PreToolUse` deny before the first write
+    there, its reason carrying that area's cards. The two channels are not tested apart; each run records what the
+    denied first attempt held, which is what prompt delivery alone produced.
+  - *Arm (d), (b) plus checks and account:* after each write, the failing pattern checks of that file are fed back
+    (`PostToolUse` block reason); at the first `Stop`, the failing pattern checks plus a request to end the reply with
+    a section headed `## Rule account` naming every card as applied (where) or not applicable (why), with its
+    source. No separate arm (c).
+  - *Rule class, declared now.* Pattern-held, 17 rules: a data check holds them, and the check fed back is the
+    scoring regex itself, so for these arm (d) measures whether Claude fixes a named violation, not whether a check
+    written at onboarding would find it. Judgment, 10 rules (canon, design, the plan): no check, only the account.
+  - *Checks.* Two corrected before any stage 2 run; stage 1's scores stand (rule 2). P3a ignores a line that names
+    the excluded creature in order to reject it; P5 accepts the governing vision named by file name, and another
+    vision does not count. On the stage 1 replies each reproduces the hand count (5 of 5, 2 of 5), and arm (a) is
+    compared under the corrected checks. Under (d) the scored reply is the answer before the `Stop` block plus what
+    follows it, with the account section cut, so naming a source in the account cannot pass a reply check; with no
+    heading, only the answer before the block is scored.
+  - *Arrival first (D12's rule).* Three channels carry content here that D12 did not probe: a `PreToolUse` deny
+    reason, a `PostToolUse` block reason and a `Stop` block reason. Before any Sonnet run, three Haiku runs each give
+    every channel its own nonce, taken from the environment and in no file. A channel may carry cards only if its
+    nonce is quoted or written in 3 of 3 runs, counting only runs in which that channel's hook fired. Two trials
+    preceded this rule, and both are kept with the private run data. In the first, the post-write nonce was scored by
+    a file edit, which Claude declined as unrequested although its reply referred to the request. In the second, the
+    deny asked for an extra first line. In 2 of 3 runs Claude would not write a line the user had not asked for, so
+    the file was never written and the post-write hook never fired. Now each nonce only asks to be quoted. One Haiku
+    run per arm then checks the plumbing.
+  - *Runs.* Pilot: one P1-build run in each of (b) and (d), with its cost. Then (b), five runs per task. (d) runs, five
+    per task, only on tasks where (b) leaves a rule missed or regressed. If all of stage 2 projects above 25 USD, the
+    user is asked first. A run is valid under stage 1's criteria, plus every card delivered at prompt arrival (the
+    hook's log) and, under (d), a `Stop` hook call. An invalid run is replaced, at most two per task and arm, and
+    reported.
+  - *Outcome per rule, decided now.* Missed in (a): fails in 2 or more of 5 runs (8 rules: P1 R2 and R6, P2 R5, R6
+    and R7, R0 R4 and R6, P2-plan P5). Fixed by an arm: missed in (a) and fails in at most 1 of 5. Regressed: fails
+    in at most 1 of 5 in (a) and in 2 or more in the arm.
+  - *What locks.* (b) fixes every rule missed in (a) and regresses none: D20 locks (b), and (c) and (d) are rejected
+    for these repos. (b) leaves rules missed and (d) fixes them without regressions: D20 locks (c) if every rule
+    left is pattern-held (the account adds nothing proven), or (d) if a judgment rule is among them. A rule that no
+    arm fixes is a failed attempt (attempt 1, rule 4), recorded with its class and kind. Flagged to the user before
+    any lock, with no threshold: an arm whose median cost on a task exceeds 1.5 times arm (a)'s, and a hook p95 on
+    Windows above 1 s.
+  - *Not tested:* finding (the oracle above); subagents and compaction (0 of 20 stage 1 runs used either, so the
+    `SubagentStart` and post-compaction deliveries are not built); prompt-time and pre-write delivery apart; the
+    repos' own lint, tests and builds (Bash stays off).
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
