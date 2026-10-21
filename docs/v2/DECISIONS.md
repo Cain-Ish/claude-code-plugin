@@ -19,7 +19,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | CHECKING | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
@@ -27,10 +27,9 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D16** (freshness), then **D18** (runtime and surface budget). D14 locked on 2026-10-21: capture by
-Claude's own judgment under a SessionStart instruction, into a plain-file map outside `.claude/`, with every entry
-sourced. **D22 is BLOCKED** until the user ticks the essential entries Claude really needed (checklists in
-`research/raw/d22/validate/`), and its existing runs are then re-scored. D21 is next after D18.
+Frontier (rule 6): **D18** (runtime and surface budget). D16 locked on 2026-10-21: a deterministic re-find of each
+entry's quote at delivery (30 to 50 ms for 30 entries), with stale entries labelled. **D22 is BLOCKED** until the
+user ticks the checklists in `research/raw/d22/validate/`; its existing runs are then re-scored. D21 follows D18.
 
 ---
 
@@ -434,6 +433,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   of an investigation task was 25 to 45 entries, 8.2 to 17.9 KB, on five of six tasks. D13's 8 KB came from D20's
   build tasks with 5 to 8 hand-picked rules (1.7 to 2.5 KB). Even the platform's ceiling (about 9.7 KB of
   `additionalContext`) does not hold 11 to 18 KB. D22 is blocked on this; the user decides budget and route.
+- **From D16 (2026-10-21):** the anchor is the file, the quote and the heading path; block indices are a rebuildable
+  cache. Each entry carries `verified`, set at capture.
 - **From D15 (2026-10-21):** an entry also carries `context` (the table header or bold lead label its quote's
   meaning depends on) when the quote lacks it. This is an addition to the shape; the quote stays verbatim.
 - **Rejected:**
@@ -1034,8 +1035,39 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - edit seeds use only entries whose first stretch occurs once in its file;
     - the header seed edits the header of the table holding the quote.
   - *Bars:* unchanged. Unverified counts per repo are reported.
+- **Attempt 2 result (2026-10-21): pass** ([results/seeds.json](probes/V2-D16-freshness/results/seeds.json),
+  [results/drift.json](probes/V2-D16-freshness/results/drift.json)).
+  - *Seeds:* every drift seed was flagged (300 of 300: 5 types, 20 each, 3 repos), and no control was (0 of 240).
+  - *Unchanged tree:* 0 of 26,742 verified entries flagged. Unverifiable from birth: 93 (1.3%), 308 (2.2%) and 72
+    (1.2%), mostly quotes stitched without a cut mark. They are never treated as stale, and are delivered with their
+    date.
+  - *Timing:* checking one delivery of 30 entries takes 30 to 50 ms. A full sweep takes 11 to 25 s per repo, so it
+    cannot run per prompt (D18).
+  - *Real drift (disclosed extra):* the scratch clones sit at their pins, so the newest commits were fetched into
+    them. P1 moved 2 commits, P2 none, and R0 is the frozen v1 snapshot. On P1, 7 of 7,140 entries turned "changed",
+    all 7 in the 7 documents those commits touched. No false alarm.
+- **Choice (2026-10-21):**
+  - Every entry carries `verified`: its quote, and its context where it has one, re-found in its own file at the
+    capture commit.
+  - Freshness is that same re-find, run at delivery on the entries about to be pushed, plus an incremental sweep
+    of the files that changed. There is no model, no hash anchor and no git rename detection.
+  - States and labels: current and moved are delivered as current, moved ones re-anchored. Changed and gone are
+    delivered with "source changed since <date>; check <source>". Unverifiable is delivered with its date.
+  - The anchor is the file, the quote and the heading path (a line for D13). Block indices are a cache.
+  - Repair: re-convert the changed file's windows with D15's converter, at about 16 USD per MB, in the first slice.
+- **Rejected:**
+  - Hash anchors: they flag reformatting and miss moves.
+  - git rename detection: it misses moves in the working tree.
+  - Checking against the cited blocks: attempt 1's 76 false alarms.
+  - Withholding stale entries: a label keeps Claude pointed at the source.
+- **Reopen if:**
+  - Unverifiable entries exceed 5% of a repo.
+  - A drift kind outside the five seeds is missed in the first slice.
+  - A false alarm on a file nobody touched.
+  - The delivery check exceeds D18's hook budget.
+  - The converter or its prompt changes (D15).
 
-  Attempts: 1.
+  Attempts: 1 failed, 2 passed.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the

@@ -1,11 +1,11 @@
 {
  "date": "2026-10-21",
  "perType": 20,
- "pass": false,
+ "pass": true,
  "repos": {
   "P1": {
    "entries": 7140,
-   "verified": 7114,
+   "verified": 7047,
    "types": {
     "delete": {
      "drift": true,
@@ -19,12 +19,11 @@
     "wordChange": {
      "drift": true,
      "seeds": 20,
-     "flagged": 19,
+     "flagged": 20,
      "states": {
-      "changed": 19,
-      "current": 1
+      "changed": 20
      },
-     "pass": false
+     "pass": true
     },
     "number": {
      "drift": true,
@@ -38,22 +37,20 @@
     "renameEdit": {
      "drift": true,
      "seeds": 20,
-     "flagged": 19,
+     "flagged": 20,
      "states": {
-      "gone": 19,
-      "moved": 1
+      "gone": 20
      },
-     "pass": false
+     "pass": true
     },
     "headerChange": {
      "drift": true,
      "seeds": 20,
-     "flagged": 19,
+     "flagged": 20,
      "states": {
-      "changed": 19,
-      "current": 1
+      "changed": 20
      },
-     "pass": false
+     "pass": true
     },
     "rename": {
      "drift": false,
@@ -94,18 +91,17 @@
    },
    "unchanged": {
     "states": {
-     "current": 7100,
-     "unverifiable": 26,
-     "changed": 14
+     "current": 7047,
+     "unverifiable": 93
     },
-    "flagged": 14,
-    "sweepMs": 11651,
-    "deliveryCheckMs": 4.4
+    "flagged": 0,
+    "sweepMs": 24723,
+    "deliveryCheckMs": 48.8
    }
   },
   "P2": {
    "entries": 14119,
-   "verified": 14009,
+   "verified": 13811,
    "types": {
     "delete": {
      "drift": true,
@@ -146,12 +142,11 @@
     "headerChange": {
      "drift": true,
      "seeds": 20,
-     "flagged": 16,
+     "flagged": 20,
      "states": {
-      "changed": 16,
-      "current": 4
+      "changed": 20
      },
-     "pass": false
+     "pass": true
     },
     "rename": {
      "drift": false,
@@ -192,18 +187,17 @@
    },
    "unchanged": {
     "states": {
-     "current": 13947,
-     "changed": 62,
-     "unverifiable": 110
+     "current": 13811,
+     "unverifiable": 308
     },
-    "flagged": 62,
-    "sweepMs": 14360,
-    "deliveryCheckMs": 1.7
+    "flagged": 0,
+    "sweepMs": 16734,
+    "deliveryCheckMs": 29.7
    }
   },
   "R0": {
    "entries": 5956,
-   "verified": 5915,
+   "verified": 5884,
    "types": {
     "delete": {
      "drift": true,
@@ -244,12 +238,11 @@
     "headerChange": {
      "drift": true,
      "seeds": 20,
-     "flagged": 13,
+     "flagged": 20,
      "states": {
-      "changed": 13,
-      "current": 7
+      "changed": 20
      },
-     "pass": false
+     "pass": true
     },
     "rename": {
      "drift": false,
@@ -290,12 +283,12 @@
    },
    "unchanged": {
     "states": {
-     "current": 5915,
-     "unverifiable": 41
+     "current": 5884,
+     "unverifiable": 72
     },
     "flagged": 0,
-    "sweepMs": 4876,
-    "deliveryCheckMs": 4.4
+    "sweepMs": 10558,
+    "deliveryCheckMs": 49.4
    }
   }
  }
