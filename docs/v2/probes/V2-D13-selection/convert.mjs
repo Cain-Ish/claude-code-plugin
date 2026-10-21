@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const MODEL = 'claude-sonnet-5-5';
 const PART_MAX = 40 * 1024;
-const SYS = `You turn one documentation file of a software project into rule entries for a project map. The map later
+export const SYS = `You turn one documentation file of a software project into rule entries for a project map. The map later
 shows a coding assistant the rules that bind its current task, so each entry must say when it applies.
 
 Input: the file's path, then its blocks, each numbered [n] with its heading path.

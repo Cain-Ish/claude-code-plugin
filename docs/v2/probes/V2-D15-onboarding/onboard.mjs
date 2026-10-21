@@ -16,11 +16,14 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chunk } from '../V2-D13-selection/select.mjs';
-import { convert, parts } from '../V2-D13-selection/convert.mjs';
+import { convert, parts, SYS } from '../V2-D13-selection/convert.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SEED = 'd15-2026-10-21';
-const SECTION_MAX = 6 * 1024;
+// --a2: D15 attempt 2, the one change being converter inputs of one section window of at most 4 KB
+const A2 = process.argv.includes('--a2');
+const SEED_A = 'd15-2026-10-21';
+const SEED = A2 ? `${SEED_A}-b` : SEED_A;
+const SECTION_MAX = (A2 ? 4 : 6) * 1024;
 const STRATA = [['pointed', 9], ['unpointed', 6], ['none', 5]];
 const A1 = path.join(HERE, '..', 'V2-D17-eval', 'fixture');
 const RULE = 'A rule is anything that tells someone working on this project what to do, not do, or stay consistent '
@@ -28,7 +31,7 @@ const RULE = 'A rule is anything that tells someone working on this project what
   + 'contradict. Skip history, narrative and explanation that binds nothing.';
 
 const words = (s) => String(s).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-const order = (k) => crypto.createHash('sha256').update(SEED + k).digest('hex');
+const order = (k, seed = SEED) => crypto.createHash('sha256').update(seed + k).digest('hex');
 
 // The cited blocks in source order, each heading path written once, as the converter saw them.
 const sourceText = (all, ids) => {
@@ -49,7 +52,7 @@ export function verbatim(quote, source) {
 }
 
 // A section is a file's blocks under one h1/h2 pair; one over the cap is cut at block ends into windows (key #n).
-export function sections(all) {
+export function sections(all, max = SECTION_MAX) {
   const m = new Map();
   all.forEach((e, i) => {
     const key = [e.file, ...e.heads.slice(0, 2)].join(' › ');
@@ -61,7 +64,7 @@ export function sections(all) {
     const wins = [[]];
     let used = 0;
     for (const i of s.blocks) {
-      if (wins.at(-1).length && used + size(i) > SECTION_MAX) { wins.push([]); used = 0; }
+      if (wins.at(-1).length && used + size(i) > max) { wins.push([]); used = 0; }
       wins.at(-1).push(i);
       used += size(i);
     }
@@ -70,8 +73,8 @@ export function sections(all) {
 }
 
 // Seeded strata; a short stratum passes its remainder to the next, and the last one's to any eligible section.
-export function pick(secs, stratumOf) {
-  const left = secs.filter((s) => s.bytes <= SECTION_MAX).sort((a, b) => order(a.key).localeCompare(order(b.key)));
+export function pick(secs, stratumOf, seed = SEED, max = SECTION_MAX) {
+  const left = secs.filter((s) => s.bytes <= max).sort((a, b) => order(a.key, seed).localeCompare(order(b.key, seed)));
   const out = [];
   let carry = 0;
   for (const [name, n] of STRATA) {
@@ -121,19 +124,31 @@ async function convertBlocks(file, blocks, cwd) {
   return res;
 }
 
+async function convertWindows(all, wins, cwd, jobs = 6) {
+  const out = new Array(wins.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: jobs }, async () => {
+    while (next < wins.length) {
+      const k = next++;
+      out[k] = await convert({ file: wins[k].file, part: wins[k].blocks.map((i) => ({ i, e: all[i] })), k, bytes: wins[k].bytes }, cwd);
+    }
+  }));
+  return out;
+}
+
 const lastJson = (s) => {
   const t = String(s).trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
   return JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
 };
 
-const [mode, cfgArg, extra] = process.argv.slice(2);
+const [mode, cfgArg, extra] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const cfg = cfgArg ? JSON.parse(fs.readFileSync(cfgArg, 'utf8')) : null;
 const RAW = cfgArg ? path.dirname(path.resolve(cfgArg)) : null;
-const OUT = RAW ? path.join(RAW, 'd15') : null;
+const OUT = RAW ? path.join(RAW, 'd15', A2 ? 'a2' : '') : null;
 const LABELS = cfg ? [...new Set(cfg.tasks.map((t) => t.id.split('-')[0]))] : [];
 const writeResult = (name, obj) => {
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
-  fs.writeFileSync(path.join(HERE, 'results', name), `${JSON.stringify(obj, null, 1)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', A2 ? name.replace('.json', '-a2.json') : name), `${JSON.stringify(obj, null, 1)}\n`);
 };
 if (OUT) fs.mkdirSync(OUT, { recursive: true });
 
@@ -153,8 +168,17 @@ if (mode === 'selftest') {
 } else if (mode === 'fidelity') {
   const res = {};
   for (const label of LABELS) {
-    const { all, entries } = load(RAW, label);
-    const v = entries.map((e) => verbatim(e.quote, sourceText(all, e.blocks)));
+    let { all, entries } = load(RAW, label);
+    let v;
+    if (A2) {
+      // the new entries: the sampled windows' and the planted document's, each against its own blocks
+      const w = JSON.parse(fs.readFileSync(path.join(OUT, `${label}-windows.json`), 'utf8'));
+      const pl = JSON.parse(fs.readFileSync(path.join(OUT, `plant-${label}.json`), 'utf8'));
+      const ws = w.runs.flatMap((r) => r.entries.map((x) => ({ ...x, file: r.file })));
+      const ps = pl.runs.flatMap((r) => r.entries.map((x) => ({ ...x, file: r.file })));
+      v = [...ws.map((e) => verbatim(e.quote, sourceText(all, e.blocks))), ...ps.map((e) => verbatim(e.quote, sourceText(pl.blocks, e.blocks)))];
+      entries = [...ws, ...ps];
+    } else v = entries.map((e) => verbatim(e.quote, sourceText(all, e.blocks)));
     const ok = v.filter((x) => x.ok).length;
     res[label] = { entries: entries.length, verbatim: ok, share: +(ok / entries.length).toFixed(3), uncheckable: v.filter((x) => !x.checkable).length,
       over300: entries.filter((e) => e.quote.length > 300).length };
@@ -180,8 +204,21 @@ if (mode === 'selftest') {
     entries.forEach((e, k) => e.blocks.forEach((b) => { if (!cites.has(b)) cites.set(b, new Set()); cites.get(b).add(k); }));
     const of = (s) => [...new Set(s.blocks.flatMap((b) => [...(cites.get(b) ?? [])]))];
     const stratumOf = (s) => (!of(s).length ? 'none' : pointedFiles.has(s.file) ? 'pointed' : 'unpointed');
-    const chosen = pick(secs, stratumOf).map((s) => ({ s, all, entries, ids: of(s), stratum: stratumOf(s) }));
-    if (label === 'R0') {
+    let pool = secs;
+    if (A2) {
+      // attempt 1's sample, rebuilt, is excluded; strata still come from attempt 1's entries
+      const used = new Set(pick(sections(all, 6 * 1024), stratumOf, SEED_A, 6 * 1024).flatMap((s) => s.blocks));
+      pool = secs.filter((s) => !s.blocks.some((b) => used.has(b)));
+    }
+    let chosen = pick(pool, stratumOf).map((s) => ({ s, all, entries, ids: of(s), stratum: stratumOf(s) }));
+    if (A2) {
+      const runs = await convertWindows(all, chosen.map((c) => c.s), fs.mkdtempSync(path.join(os.tmpdir(), 'd15-a2-')));
+      fs.writeFileSync(path.join(OUT, `${label}-windows.json`), JSON.stringify({ runs }));
+      const es = runs.flatMap((r, k) => r.entries.map((x) => ({ ...x, file: r.file, win: k })));
+      chosen = chosen.map((c, k) => ({ ...c, entries: es, ids: es.flatMap((e, j) => (e.win === k ? [j] : [])) }));
+      meta[`${label}Converter`] = { calls: runs.length, failed: runs.filter((r) => r.error).length, entries: es.length, costUsd: +runs.reduce((t, r) => t + (r.cost ?? 0), 0).toFixed(2) };
+    }
+    if (label === 'R0' && !A2) {
       const a1 = JSON.parse(fs.readFileSync(path.join(OUT, 'a1.json'), 'utf8'));
       const a1Entries = a1.runs.flatMap((r) => r.entries.map((x) => ({ ...x, file: r.file, heads: a1.all[x.blocks[0]].heads })));
       for (const s of sections(a1.all)) chosen.push({ s, all: a1.all, entries: a1Entries, ids: a1Entries.flatMap((e, k) => (e.blocks.some((b) => s.blocks.includes(b)) ? [k] : [])), stratum: 'A1' });
@@ -222,7 +259,7 @@ if (mode === 'selftest') {
       sampled: Object.fromEntries(['pointed', 'unpointed', 'none', 'A1'].map((n) => [n, m.sections.filter((x) => x.stratum === n).length])), entriesSampled: eid,
       pasteKb: [Math.round(Buffer.byteLength(A) / 1024), Math.round(Buffer.byteLength(B) / 1024)] };
   }
-  writeResult('sample.json', { seed: SEED, sectionMaxBytes: SECTION_MAX, repos: meta });
+  writeResult('sample.json', { seed: SEED, sectionMaxBytes: SECTION_MAX, promptSha256: crypto.createHash('sha256').update(SYS).digest('hex').slice(0, 12), repos: meta });
   console.log(JSON.stringify(meta));
 } else if (mode === 'plant') {
   // planted: [{ label, file, rules: [8 strings] }]; each rule becomes its own block after a seeded block
@@ -244,10 +281,10 @@ if (mode === 'selftest') {
         blocks.push({ ...e, text: /^([-*+]|\d+[.)])\s/.test(e.text) ? `- ${p.rules[r++]}` : p.rules[r++] });
       }
     });
-    const runs = await convertBlocks(p.file, blocks.map((e, i) => ({ i, e })), cwd);
+    const runs = A2 ? await convertWindows(blocks, sections(blocks), cwd) : await convertBlocks(p.file, blocks.map((e, i) => ({ i, e })), cwd);
     const cited = new Set(runs.flatMap((x) => x.entries.flatMap((e) => e.blocks)));
     const found = plantedAt.filter((i) => cited.has(i)).length;
-    fs.writeFileSync(path.join(OUT, `plant-${p.label}.json`), JSON.stringify({ file: p.file, plantedAt, runs }));
+    fs.writeFileSync(path.join(OUT, `plant-${p.label}.json`), JSON.stringify({ file: p.file, plantedAt, blocks, runs }));
     res[p.label] = { docKb: Math.round(Buffer.byteLength(text) / 1024), planted: plantedAt.length, found, lost: plantedAt.length - found,
       calls: runs.length, failed: runs.filter((x) => x.error).length, costUsd: +runs.reduce((s, x) => s + (x.cost ?? 0), 0).toFixed(2) };
   }
@@ -281,7 +318,7 @@ if (mode === 'selftest') {
     const m = JSON.parse(fs.readFileSync(path.join(OUT, `${label}-meta.json`), 'utf8'));
     const A = lastJson(fs.readFileSync(path.join(OUT, `${label}-A.json`), 'utf8'));
     const B = lastJson(fs.readFileSync(path.join(OUT, `${label}-B.json`), 'utf8'));
-    for (const group of label === 'R0' ? ['R0', 'A1'] : [label]) {
+    for (const group of label === 'R0' && !A2 ? ['R0', 'A1'] : [label]) {
       const secs = m.sections.filter((s) => (group === 'A1') === (s.stratum === 'A1'));
       const ids = secs.flatMap((s) => s.entries);
       const v = ids.map((id) => B.entries?.[id]).filter(Boolean);

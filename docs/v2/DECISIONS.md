@@ -581,8 +581,32 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     | 15 to 30 KB | 1.0 to 1.3 |
     | 30 to 40 KB | 0.7 to 1.2 |
 
-    Two of P2's 30 to 40 KB inputs returned no entries at all. The planted rules, eight in a long document and each
-    phrased as an explicit rule, were all found. The rules that were lost are the plainer ones in long inputs.
+    The two P2 inputs that returned no entries were halves of a game-data text file, where none is right. The
+    gradient holds inside rule files alone (`CLAUDE.md` and `.claude/`): P1 3.5, 2.2, 1.4 and 1.1 rules per KB; R0
+    3.1, 1.7, 1.3 and 1.0. So input size, not the kind of document, drives the loss. The planted rules, eight per
+    document, were all phrased as explicit rules and were all found. That set could not detect the loss recall
+    found, which is the plainer rules in long inputs.
+- **Attempt 2 check (pre-registered 2026-10-21, before any re-run):**
+  - *The one change.* The converter's input is one section window of at most 4 KB, cut at block ends, instead of
+    up to 40 KB per file part. 4 KB is the best band in the table above; 5 to 15 KB already halves the yield. The
+    prompt is unchanged (sha256 `e95d64a29c59`). The planned attempt 2 was a prompt revision; the evidence, taken
+    from all 421 calls and not from the sampled misses, points at size, so prompt revision moves to attempt 3.
+    Changing one thing keeps a pass or a fail attributable.
+  - *Equivalence.* Parts are a deterministic function of the section windows. So converting a sampled window alone
+    gives exactly what a full conversion would give for it, and the check converts only the fresh sample and the
+    planted documents. The full re-conversion waits for D22.
+  - *Fresh sample.* Seed `d15-2026-10-21-b`, windows of at most 4 KB, 20 per repo in the same strata (9, 6, 5).
+    Windows overlapping attempt 1's sampled sections are excluded. The strata come from attempt 1's entries, as a
+    stratification device only. A1 is dropped: 9 of 9, nothing to learn.
+  - *Same parts and bars as attempt 1:*
+    - verbatim at least 95%, on the new entries;
+    - Gemini passes A and B with the same prompts, in fresh chats: precision and recall each at least 0.8 per
+      repo, with area-fits report-only;
+    - none of the planted rules lost;
+    - PM4 is not re-run, because the format is unchanged.
+  - *Fresh planted rules.* Eight per document, at seed-b positions. Each is a plain declarative sentence in the
+    body's register, with no "Rule:" lead and no imperative, so that this part can disagree with recall.
+  - *Cost:* about 5 USD. *If it fails:* attempt 3 revises the prompt, on seed `-c`.
 
   Attempts: 1.
 

@@ -1,6 +1,7 @@
 {
  "seed": "d15-2026-10-21",
  "sectionMaxBytes": 6144,
+ "promptSha256": "e95d64a29c59",
  "repos": {
   "P1": {
    "sections": 504,
