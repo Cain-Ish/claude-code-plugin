@@ -221,6 +221,7 @@ if (mode === 'selftest') {
     tasks: Object.fromEntries(Object.entries(res).map(([k, v], n) => [`${k.split('-')[0]}-task${(n % 2) + 1}`, v])),
     pass: Object.values(res).every((r) => r.pass) };
   fs.writeFileSync(path.join(HERE, 'results', ARM === 'r' ? 'reach.json' : `reach-${ARM}.json`), `${JSON.stringify(sum, null, 1)}\n`);
+  console.log(JSON.stringify(Object.fromEntries(Object.entries(sum.tasks).map(([k, v]) => [k, v.meanReach]))), 'pass', sum.pass);
 } else if (mode === 'simulate') {
   // run 3's free check: the files run 2's sessions actually read, replayed through the keyed hook offline
   for (const t of TASKS) {
@@ -244,7 +245,6 @@ if (mode === 'selftest') {
     });
     console.log(t.id, 'simulated reach on run 2 reads:', out.map((x) => x.toFixed(2)).join(', '));
   }
-  console.log(JSON.stringify(Object.fromEntries(Object.entries(sum.tasks).map(([k, v]) => [k, v.meanReach]))), 'pass', sum.pass);
 } else if (mode === 'native') {
   const d20 = JSON.parse(fs.readFileSync(path.join(RAW, 'd20-stage2.json'), 'utf8'));
   const repoOf = (label) => d20.tasks.find((x) => x.id.startsWith(`${label}-`));

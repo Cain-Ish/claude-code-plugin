@@ -1365,6 +1365,30 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Sessions, measure and pass:* as run 2, under arm `r3`, two Sonnet runs per task. The mean reach must be at least
     0.8 on every task. Same reports, plus the bytes delivered by keyed matches.
   - *If run 3 fails,* D22 stays blocked and the user decides again. Cost: about 5 USD.
+- **Run 3 result (2026-10-21): fail** ([results/reach-r3.json](probes/V2-D22-selection/results/reach-r3.json)).
+  - *Replay of run 2's reads, offline, not gating:* 0.76, 0.50, 0.29 to 0.36, 0.40, 0.38 to 0.49, and 0.23 to 0.38.
+  - *Live, two Sonnet sessions per task* (12 valid, 5.93 USD). Mean reach and context delivered per session:
+
+    | Task | Mean reach | Context per session |
+    | --- | --- | --- |
+    | R0 task 1 | 0.72 | 81 to 99 KB |
+    | R0 task 2 | 0.50 | 15 KB |
+    | P1 task 1 | 0.45 | 14 to 30 KB |
+    | P1 task 2 | 0.53 | 27 to 29 KB |
+    | P2 task 1 | 0.38 | 10 to 12 KB |
+    | P2 task 2 | 0.33 | 14 to 27 KB |
+
+    The bar is 0.8 on every task.
+  - *What changed:* keyed delivery fired on code reads, about 8 KB in about 13 ms each. Reach rose on four tasks
+    (R0 task 1 from 0.40 to 0.72, P1 task 2 from 0.27 to 0.53). The cost is context: up to 99 KB of entries in one
+    session, of which only 27% to 78% of the bytes were graded and, of those, 51% to 100% relevant.
+  - *Rule 4:* this is D22's third failed check (attempt 1, run 2, run 3), so it stops here. None of the tested
+    routes gets 80% of a judged essential set to Claude on these investigation tasks. The best one, a push plus
+    keyed on-read delivery, gets 33% to 72%, at 10 to 99 KB of context per session. For comparison, native sessions
+    touched the essential files at 0% to 39% by Read, and 39% to 100% counting search results.
+  - *Spend on D22:* about 119.50 USD.
+
+  Attempts: 3 checks failed (attempt 1, run 2, run 3). D22 is BLOCKED; the user decides.
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.
