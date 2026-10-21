@@ -308,7 +308,58 @@ if (mode === 'selftest') {
   fs.writeFileSync(path.join(HERE, 'results', 'summary.json'), `${JSON.stringify(sum, null, 1)}\n`);
   console.log(JSON.stringify(sum.pass), '\nheld by cap (all docs):',
     Object.entries(sum.tasks).map(([k, x]) => `${k} ${CAPS.map((c) => x.all.held[c]).join('/')}`).join(' | '));
+} else if (mode === 'score2') {
+  // attempt 2: rank the converter's entries (area, applies-when, quote); held is judged on the blocks they cite
+  const cfg = JSON.parse(fs.readFileSync(cfgArg, 'utf8'));
+  const cards = JSON.parse(fs.readFileSync(cardsArg, 'utf8'));
+  const dir = path.join(path.dirname(path.resolve(cfgArg)), 'd13');
+  const sum = { date: new Date().toISOString().slice(0, 10), config: sha(cfgArg), cards: sha(cardsArg), maps: {}, tasks: {} };
+  const loaded = {};
+  for (const t of cfg.tasks) {
+    const label = repoOf(t);
+    if (!loaded[label]) {
+      const map = JSON.parse(fs.readFileSync(path.join(dir, 'maps', `${label}.json`), 'utf8')).all;
+      const runs = fs.readdirSync(path.join(dir, 'entries', label)).map((f) => JSON.parse(fs.readFileSync(path.join(dir, 'entries', label, f), 'utf8')));
+      const compact = runs.flatMap((r) => r.entries.map((x) => ({ ...x, file: r.file, heads: map[x.blocks[0]].heads })));
+      loaded[label] = { map, compact, sets: map.map(entryGrams) };
+      const kb = (es) => Math.round(es.reduce((s, e) => s + Buffer.byteLength(shown(e)), 0) / 1024);
+      sum.maps[label] = { parts: runs.length, failedParts: runs.filter((r) => r.error).length, dropped: runs.reduce((s, r) => s + r.dropped, 0),
+        entries: compact.length, kb: kb(compact.map((c) => ({ ...c, text: c.quote }))), costUsd: +runs.reduce((s, r) => s + (r.cost ?? 0), 0).toFixed(2) };
+    }
+    const { map, compact, sets } = loaded[label];
+    const shownEs = compact.map((c) => ({ file: c.file, heads: c.heads, text: c.quote }));
+    const t0 = performance.now();
+    const ix = index(compact.map((c) => ({ file: c.file, heads: c.heads, text: `${c.area} ${c.when.join(' ')} ${c.quote}` })));
+    const t1 = performance.now();
+    const ranked = rank(ix, t.prompt);
+    const t2 = performance.now();
+    const want = Object.entries(cards[t.id]).map(([id, c]) => [id, cardGrams(c.text)]);
+    const res = { rules: want.length, buildMs: Math.round(t1 - t0), queryMs: Math.round(t2 - t1), scored: ranked.length, held: {}, bytes: {}, perRule: {} };
+    const cited = (i) => compact[i].blocks.map((b) => sets[b]);
+    const covered = new Set(compact.flatMap((c) => c.blocks));
+    for (const [id, g] of want) res.perRule[id] = { converted: +cover(g, [...covered].map((b) => sets[b])).toFixed(2), heldAt: [] };
+    for (const cap of CAPS) {
+      const d = deliver(shownEs, ranked, cap);
+      const got = d.out.flatMap(cited);
+      let held = 0;
+      for (const [id, g] of want) if (cover(g, got) >= 0.8) { held++; res.perRule[id].heldAt.push(cap); }
+      res.held[cap] = held;
+      res.bytes[cap] = d.used;
+    }
+    sum.tasks[t.id] = res;
+  }
+  const tasks = Object.values(sum.tasks);
+  const heldAll = tasks.reduce((s, x) => s + x.held[PASS_CAP], 0);
+  const total = tasks.reduce((s, x) => s + x.rules, 0);
+  sum.pass = {
+    cap: PASS_CAP,
+    perTask: Object.fromEntries(Object.entries(sum.tasks).map(([k, x]) => [k, `${x.held[PASS_CAP]}/${x.rules}`])),
+    share: +(heldAll / total).toFixed(2),
+    passed: tasks.every((x) => x.held[PASS_CAP] >= 0.8 * x.rules) && heldAll / total > 0.6,
+  };
+  fs.writeFileSync(path.join(HERE, 'results', 'summary-attempt2.json'), `${JSON.stringify(sum, null, 1)}\n`);
+  console.log(JSON.stringify(sum.pass), '\nheld by cap:', Object.entries(sum.tasks).map(([k, x]) => `${k} ${CAPS.map((c) => x.held[c]).join('/')}`).join(' | '));
 } else if (mode !== 'lib') {
-  console.error('usage: node select.mjs selftest | map <config> | score <config> <cards>');
+  console.error('usage: node select.mjs selftest | map <config> | score <config> <cards> | score2 <config> <cards>');
   process.exit(2);
 }

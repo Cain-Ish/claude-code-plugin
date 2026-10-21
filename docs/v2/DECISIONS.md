@@ -345,6 +345,39 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *What it shows about the format.* The h1 and h2 sections that hold a task's cards come to 14 to 32 KB per task,
     and the whole files 14 to 186 KB. So with the sources' own blocks as entries, any selector coarser than one block
     overflows 8 KB, and the 10,000-character `additionalContext` limit with it.
+  - *For the format.* Indexing the sources in place cannot replace onboarding's conversion: their blocks are too
+    coarse to select and too big to deliver. An entry is a trimmed quote with its source anchor, its area and a
+    selection key, written at onboarding (charter: the one standard format).
+- **Attempt 2 as planned is ruled out by a count, not run (2026-10-21).** Per-file trigger terms raise every entry of
+  a matched file alike, so inside the file the order is still attempt 1's text match. The holding files are 14, 82,
+  186 and 60 KB, so three of the four tasks would fail at 8 KB by construction (rule 5: a count that decides the
+  same thing beats a run). This is not a failed check, and the attempt count stays at 1. The plan was written before
+  the size count existed. One more count fixes what the key must do. The h1 and h2 sections that hold the cards
+  have 18, 61, 27 and 34 rule items, which as compact entries is about 5 to 10 KB per task, while their whole files
+  have 19 to 276. So the key has to find the right sections and tell rules apart inside them, per rule, not per
+  file.
+- **Attempt 2 check (pre-registered 2026-10-21, before any model call):**
+  - *Converter, blind.* For each doc file of the all-docs corpus, a fresh Sonnet 5.5 call (CLI 2.1.305, no tools,
+    no settings, its own system prompt) sees only the file's path and its map blocks, numbered with their heading
+    paths. It never sees the tasks or the cards, and its output is not edited. Files over 40 KB are sent in parts
+    split at block boundaries. For each rule it finds, it returns:
+    - the rule in the file's own words, trimmed, with cuts marked and at most 300 characters (verbatim, so D20's
+      first reopen trigger does not fire);
+    - the numbers of the blocks it came from;
+    - an area name;
+    - 3 to 8 applies-when terms.
+
+    A rule is anything that tells someone working on the project what to do, not do, or stay consistent with.
+  - *Ranker.* Attempt 1's BM25, unchanged, over each entry's area, applies-when terms, quote, file path and heading
+    path. A delivered entry costs its source line plus its quote.
+  - *Held.* Attempt 1's 80% trigram bar, judged on the source blocks the delivered entries cite. This measures
+    whether the right source is selected, not how faithful the quote is (D15's reviewer check).
+  - *Pass:* unchanged (all docs, 8 KB, every task at least 80% of its cards, the total above 0.60).
+  - *Cost first.* A pilot converts one file per repo and projects the cost from bytes. If the projection is above
+    25 USD, the user is asked first. Pilot (2026-10-21): 0.10 USD for three files, projecting 27.90 USD. The user
+    approved the Sonnet run as registered the same day.
+  - *For D15.* The converter's output is D15's prototype bootstrap. D15's reviewer check ("accepts at least 80% of
+    the generated entries") reuses it rather than building a second converter.
 
   Attempts: 1.
 
@@ -391,6 +424,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   (research 2026-10-20-scale-real-repos §3: v1 held 3 entries for a repo with about 600 rule items). Since
   2026-10-20: run on all three test-bed repos; a reviewer compares each entry with its source and finds its meaning
   unchanged; a repo with no rules gets a map from its code (stand-in: the A1 fixture, which has no rule files).
+- **From D13 (2026-10-21):** D13's attempt 2 converter, run blind on all three test-bed repos, is this decision's
+  prototype bootstrap; the reviewer check runs on its output. PM4's format half (a person reads and corrects an
+  entry with the plugin disabled) moved here from D13.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
