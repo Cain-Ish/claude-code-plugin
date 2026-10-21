@@ -46,3 +46,29 @@ gives the same picture (6 at 8 KB).
 - Sections (h1, h2) that hold a task's cards: 14 to 32 KB per task; whole files: 14 to 186 KB. A selector coarser
   than one block cannot fit the 10,000-character `additionalContext` limit with the sources' own blocks as entries.
 - Index build 100 to 300 ms, query 2 to 7 ms per prompt, in Node on Windows.
+
+## Attempt 2 (2026-10-21)
+
+`convert.mjs` sent each doc file's blocks, numbered, to a fresh Sonnet 5.5 call (no tools, no settings), which
+returned the file's rules as entries: a trimmed verbatim quote, the blocks it came from, an area and applies-when
+terms. It never saw the tasks or the cards. The ranker is attempt 1's, over area, applies-when, quote and source;
+held is judged on the blocks the delivered entries cite. Counts in `results/summary-attempt2.json`.
+
+| Repo | Calls | Entries | Compact entries | Cost |
+| --- | --- | --- | --- | --- |
+| P1 | 87 | 1,834 | 531 KB | 6.23 USD |
+| P2 | 201 | 2,756 | 765 KB | 10.51 USD |
+| R0 | 133 | 1,777 | 525 KB | 5.61 USD |
+
+| Task | Cards | 2 KB | 4 KB | 8 KB (pass cap) | 16 KB | 32 KB | Source converted (80% bar) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| P1 build | 6 | 2 | 2 | 3 | 4 | 5 | 5 |
+| P2 build | 8 | 0 | 0 | 0 | 0 | 0 | 1 |
+| R0 build | 8 | 0 | 0 | 0 | 1 | 1 | 4 |
+| P2 plan | 5 | 0 | 0 | 3 | 3 | 4 | 5 |
+| **All** | **27** | **2** | **2** | **6 (0.22)** | **8** | **10** | **15** |
+
+**Fail.** Of the 21 cards the corpus holds, the converter cited the source of 15. For P1 and the plan the best entry
+citing each converted card ranks within about 9 KB; for R0 and P2 build at 5 to 125 KB, among hundreds of entries on
+the same topics. Five P2 build cards stitch a heading to its body and cannot reach the 80% bar against any corpus, so
+that task could not pass under any selector; this is fixed before any further attempt and changes neither result.

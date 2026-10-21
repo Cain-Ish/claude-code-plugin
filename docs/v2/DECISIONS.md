@@ -378,8 +378,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     approved the Sonnet run as registered the same day.
   - *For D15.* The converter's output is D15's prototype bootstrap. D15's reviewer check ("accepts at least 80% of
     the generated entries") reuses it rather than building a second converter.
+- **Attempt 2 result (2026-10-21): fail.** Run as registered
+  ([probes/V2-D13-selection](probes/V2-D13-selection/README.md#attempt-2-2026-10-21)).
+  - *Converter:* 421 calls, none failed, 22.35 USD. It produced 6,367 entries (P1 1,834, P2 2,756, R0 1,777), 531 to
+    765 KB per repo as compact entries, against 1.6 to 3.6 MB of blocks.
+  - *Recall:* at 8 KB the ranker held 6 of 27 (0.22): P1 3 of 6, P2 build 0 of 8, R0 0 of 8, the plan 3 of 5. At
+    32 KB it held 10.
+  - *Where it was lost.*
+    - Conversion: of the 21 cards the corpus holds, the converter's entries cite the source of 15. It skipped two
+      P2 canon rules and four R0 rules.
+    - Ranking: for P1 and the plan, the best entry citing each converted card ranks within about 9 KB. For R0 and
+      P2 build it ranks at 5 to 125 KB: in R0, hundreds of entries concern hooks, JSONL files and sessions, and
+      the task's eight rules are among them.
+  - *A flaw in the check, found now.* Five P2 build cards stitch a heading to its body, so they cannot reach the 80%
+    bar against the whole corpus (attempt 1). The P2 build task could not reach 7 of 8 under any selector. This
+    changes neither result, because both attempts also fail on R0, but it is fixed before any further attempt. The
+    scores above stand as registered (rule 2).
 
-  Attempts: 1.
+  Attempts: 2.
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;

@@ -1,0 +1,278 @@
+{
+ "date": "2026-10-21",
+ "config": "08a2dc047fb1",
+ "cards": "a03235ffd65a",
+ "maps": {
+  "P1": {
+   "parts": 87,
+   "failedParts": 0,
+   "dropped": 0,
+   "entries": 1834,
+   "kb": 531,
+   "costUsd": 6.23
+  },
+  "P2": {
+   "parts": 201,
+   "failedParts": 0,
+   "dropped": 0,
+   "entries": 2756,
+   "kb": 765,
+   "costUsd": 10.51
+  },
+  "R0": {
+   "parts": 133,
+   "failedParts": 0,
+   "dropped": 0,
+   "entries": 1777,
+   "kb": 525,
+   "costUsd": 5.61
+  }
+ },
+ "tasks": {
+  "P1-build": {
+   "rules": 6,
+   "buildMs": 58,
+   "queryMs": 4,
+   "scored": 1383,
+   "held": {
+    "2": 2,
+    "4": 2,
+    "8": 3,
+    "16": 4,
+    "32": 5
+   },
+   "bytes": {
+    "2": 2046,
+    "4": 4078,
+    "8": 8179,
+    "16": 16377,
+    "32": 32744
+   },
+   "perRule": {
+    "R1": {
+     "converted": 0.07,
+     "heldAt": []
+    },
+    "R2": {
+     "converted": 0.88,
+     "heldAt": [
+      32
+     ]
+    },
+    "R3": {
+     "converted": 0.95,
+     "heldAt": [
+      16,
+      32
+     ]
+    },
+    "R4": {
+     "converted": 0.94,
+     "heldAt": [
+      2,
+      4,
+      8,
+      16,
+      32
+     ]
+    },
+    "R5": {
+     "converted": 1,
+     "heldAt": [
+      2,
+      4,
+      8,
+      16,
+      32
+     ]
+    },
+    "R6": {
+     "converted": 1,
+     "heldAt": [
+      8,
+      16,
+      32
+     ]
+    }
+   }
+  },
+  "P2-build": {
+   "rules": 8,
+   "buildMs": 87,
+   "queryMs": 3,
+   "scored": 405,
+   "held": {
+    "2": 0,
+    "4": 0,
+    "8": 0,
+    "16": 0,
+    "32": 0
+   },
+   "bytes": {
+    "2": 2026,
+    "4": 4081,
+    "8": 8132,
+    "16": 16347,
+    "32": 32699
+   },
+   "perRule": {
+    "R1": {
+     "converted": 0.6,
+     "heldAt": []
+    },
+    "R2": {
+     "converted": 0.71,
+     "heldAt": []
+    },
+    "R3a": {
+     "converted": 0,
+     "heldAt": []
+    },
+    "R3b": {
+     "converted": 0,
+     "heldAt": []
+    },
+    "R4": {
+     "converted": 0.82,
+     "heldAt": []
+    },
+    "R5": {
+     "converted": 0.73,
+     "heldAt": []
+    },
+    "R6": {
+     "converted": 0.78,
+     "heldAt": []
+    },
+    "R7": {
+     "converted": 0.66,
+     "heldAt": []
+    }
+   }
+  },
+  "R0-build": {
+   "rules": 8,
+   "buildMs": 61,
+   "queryMs": 2,
+   "scored": 1311,
+   "held": {
+    "2": 0,
+    "4": 0,
+    "8": 0,
+    "16": 1,
+    "32": 1
+   },
+   "bytes": {
+    "2": 2036,
+    "4": 4028,
+    "8": 8192,
+    "16": 16354,
+    "32": 32711
+   },
+   "perRule": {
+    "R1": {
+     "converted": 0.81,
+     "heldAt": []
+    },
+    "R2a": {
+     "converted": 0.4,
+     "heldAt": []
+    },
+    "R2b": {
+     "converted": 0.1,
+     "heldAt": []
+    },
+    "R3": {
+     "converted": 1,
+     "heldAt": [
+      16,
+      32
+     ]
+    },
+    "R4": {
+     "converted": 0.68,
+     "heldAt": []
+    },
+    "R5": {
+     "converted": 1,
+     "heldAt": []
+    },
+    "R6": {
+     "converted": 0.65,
+     "heldAt": []
+    },
+    "R7": {
+     "converted": 0.95,
+     "heldAt": []
+    }
+   }
+  },
+  "P2-plan": {
+   "rules": 5,
+   "buildMs": 84,
+   "queryMs": 4,
+   "scored": 1900,
+   "held": {
+    "2": 0,
+    "4": 0,
+    "8": 3,
+    "16": 3,
+    "32": 4
+   },
+   "bytes": {
+    "2": 2036,
+    "4": 4023,
+    "8": 8157,
+    "16": 16376,
+    "32": 32730
+   },
+   "perRule": {
+    "P1": {
+     "converted": 0.91,
+     "heldAt": [
+      8,
+      16,
+      32
+     ]
+    },
+    "P3a": {
+     "converted": 0.94,
+     "heldAt": []
+    },
+    "P3b": {
+     "converted": 1,
+     "heldAt": [
+      8,
+      16,
+      32
+     ]
+    },
+    "P4": {
+     "converted": 0.92,
+     "heldAt": [
+      8,
+      16,
+      32
+     ]
+    },
+    "P5": {
+     "converted": 0.86,
+     "heldAt": [
+      32
+     ]
+    }
+   }
+  }
+ },
+ "pass": {
+  "cap": 8,
+  "perTask": {
+   "P1-build": "3/6",
+   "P2-build": "0/8",
+   "R0-build": "0/8",
+   "P2-plan": "3/5"
+  },
+  "share": 0.22,
+  "passed": false
+ }
+}
