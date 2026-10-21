@@ -49,6 +49,17 @@ function loadMap(raw, label) {
 
 // ---- the model call ----
 
+// The first JSON array in a reply, matched bracket by bracket: a note after the array must not join it.
+export function firstArray(s) {
+  const i = s.indexOf('[');
+  let depth = 0;
+  for (let j = i; i >= 0 && j < s.length; j++) {
+    if (s[j] === '[') depth++;
+    else if (s[j] === ']' && --depth === 0) return s.slice(i, j + 1);
+  }
+  return '[]';
+}
+
 const claude = (sys, input) => new Promise((resolve) => {
   const env = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1' };
   for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete env[k];
@@ -60,8 +71,7 @@ const claude = (sys, input) => new Promise((resolve) => {
   p.on('close', () => {
     try {
       const o = JSON.parse(out);
-      const t = String(o.result).trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
-      const ids = JSON.parse(t.slice(t.indexOf('['), t.lastIndexOf(']') + 1)).map(Number).filter(Number.isInteger);
+      const ids = JSON.parse(firstArray(String(o.result))).map(Number).filter(Number.isInteger);
       resolve({ ids, ms: Date.now() - t0, cost: o.total_cost_usd, tokens: (o.usage?.input_tokens ?? 0) + (o.usage?.cache_read_input_tokens ?? 0) + (o.usage?.cache_creation_input_tokens ?? 0) + (o.usage?.output_tokens ?? 0) });
     } catch (e) {
       resolve({ ids: [], ms: Date.now() - t0, cost: null, tokens: null, error: String(e).slice(0, 200) });
@@ -77,7 +87,7 @@ const take = (entries, order) => {
   return deliver(entries.map((e) => ({ file: e.file, heads: e.heads, text: `${e.context ? `${e.context}\n` : ''}${e.quote}` })), valid.map((i) => ({ i })), CAP);
 };
 
-export async function arms(map, prompt) {
+export async function arms(map, prompt, only = null) {
   const { entries, keys } = map;
   const t0 = performance.now();
   const ix = index(entries.map((e) => ({ file: e.file, heads: e.heads, text: `${e.area} ${e.when.join(' ')} ${e.context ?? ''} ${e.quote}` })));
@@ -88,7 +98,8 @@ export async function arms(map, prompt) {
   const bMs = Math.round(performance.now() - t1);
 
   const cand = ranked.slice(0, N);
-  const p1 = await claude(PICK, `Task: ${prompt}\n\nCandidate entries:\n${cand.map((i) => compact(entries[i])).join('\n')}`);
+  // only = 'd2': rerun that arm alone after a harness failure (the other arms' saved results stand)
+  const p1 = only === 'd2' ? { ids: [], ms: 0 } : await claude(PICK, `Task: ${prompt}\n\nCandidate entries:\n${cand.map((i) => compact(entries[i])).join('\n')}`);
   const d1 = take(entries, p1.ids.filter((i) => cand.includes(i)));
 
   const s = await claude(SECT, `Task: ${prompt}\n\nSections:\n${keys.map((k, n) => `[${n}] ${k}`).join('\n')}`);
@@ -122,18 +133,25 @@ if (mode === 'selftest') {
   assert.equal(shown(es[1]), 'a.md\n| H |\nr\n');
   assert.deepEqual(take(es, [1, 1, 0, 9]).out, [1, 0]);
   assert.deepEqual(shuffle([1, 2, 3], 's'), shuffle([3, 2, 1], 's'));
+  assert.equal(firstArray('```json\n[1, [2], 3]\n```\nNote: see [4]'), '[1, [2], 3]');
   console.log('selftest ok', 'pick', sha(PICK), 'sect', sha(SECT));
 } else if (mode === 'arms') {
   fs.mkdirSync(path.join(D22, 'arms'), { recursive: true });
+  const only = process.argv[5] ?? null;
   for (const t of TASKS.filter((x) => !taskId || x.id === taskId)) {
-    const r = await arms(mapOf(t.repo), t.prompt);
-    fs.writeFileSync(path.join(D22, 'arms', `${t.id}.json`), JSON.stringify(r));
+    const file = path.join(D22, 'arms', `${t.id}.json`);
+    let r = await arms(mapOf(t.repo), t.prompt, only);
+    if (only) r = { ...JSON.parse(fs.readFileSync(file, 'utf8')), [only]: { ...r[only], rerun: 'after a harness parse failure' } };
+    fs.writeFileSync(file, JSON.stringify(r));
     console.log(t.id, ['b', 'd1', 'd2'].map((a) => `${a}: ${r[a].ids.length} entries ${Math.round(r[a].bytes / 1024)} KB ${r[a].ms} ms${r[a].error ? ' ERROR' : ''}`).join(' | '));
   }
 } else if (mode === 'index') {
+  // the index needs only the document blocks, not the converted entries
   for (const label of [...new Set(TASKS.map((t) => t.repo))]) {
-    fs.writeFileSync(path.join(D22, `index-${label}.txt`), mapOf(label).keys.map((k, n) => `[${n}] ${k}`).join('\n'));
-    console.log(label, mapOf(label).keys.length, 'sections');
+    const all = JSON.parse(fs.readFileSync(path.join(RAW, 'd13', 'maps', `${label}.json`), 'utf8')).all;
+    const keys = [...new Set(all.map((b) => sectionKey(b.file, b.heads)))];
+    fs.writeFileSync(path.join(D22, `index-${label}.txt`), keys.map((k, n) => `[${n}] ${k}`).join('\n'));
+    console.log(label, keys.length, 'sections');
   }
 } else if (mode === 'pool') {
   const t = TASKS.find((x) => x.id === taskId);
@@ -157,6 +175,7 @@ if (mode === 'selftest') {
 } else if (mode === 'score') {
   const res = {};
   for (const t of TASKS) {
+    if (!fs.existsSync(path.join(D22, 'judge', `${t.id}-grades.json`))) continue; // not graded yet: the summary says partial
     const { entries } = mapOf(t.repo);
     const bytes = (ids) => ids.reduce((s, i) => s + Buffer.byteLength(shown(entries[i])), 0);
     const { pool, deep } = JSON.parse(fs.readFileSync(path.join(D22, `pool-${t.id}.json`), 'utf8'));
@@ -181,7 +200,8 @@ if (mode === 'selftest') {
     // native: essential entries whose source file a run opened with Read
     const runsDir = path.join(D22, 'd20-stage1', `D22-${t.id}`);
     if (fs.existsSync(runsDir)) {
-      const cov = fs.readdirSync(runsDir).filter((d) => d.startsWith('run')).map((d) => {
+      // run0 is the Haiku plumbing smoke; the registered runs are run1 and run2
+      const cov = fs.readdirSync(runsDir).filter((d) => /^run[1-9]/.test(d)).map((d) => {
         const ev = fs.readFileSync(path.join(runsDir, d, 'stream.jsonl'), 'utf8').split('\n').flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
         const read = new Set(ev.flatMap((e) => (e.type === 'assistant' ? (e.message?.content ?? []) : [])).filter((c) => c.type === 'tool_use' && c.name === 'Read')
           .map((c) => String(c.input?.file_path ?? '').replace(/\\/g, '/').replace(/^.*?\/wt-D22-[^/]+\//, '')));
@@ -196,7 +216,7 @@ if (mode === 'selftest') {
     maps: Object.fromEntries(Object.keys(maps).map((l) => [l, { entries: maps[l].entries.length, kb: Math.round(maps[l].entries.reduce((s, e) => s + Buffer.byteLength(shown(e)), 0) / 1024),
       sections: maps[l].keys.length, failedWindows: maps[l].runs.filter((r) => r.error).length, costUsd: +maps[l].runs.reduce((s, r) => s + (r.cost ?? 0), 0).toFixed(2) }])),
     tasks: Object.fromEntries(Object.entries(res).map(([k, v], n) => [`${k.split('-')[0]}-task${(n % 2) + 1}`, v])),
-    pass: { b: passed('b'), d1: passed('d1'), d2: passed('d2') } };
+    graded: `${Object.keys(res).length} of ${TASKS.length}`, pass: { b: passed('b'), d1: passed('d1'), d2: passed('d2') } };
   sum.locks = ['b', 'd1', 'd2'].find((a) => sum.pass[a]) ?? null;
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
   fs.writeFileSync(path.join(HERE, 'results', 'summary.json'), `${JSON.stringify(sum, null, 1)}\n`);

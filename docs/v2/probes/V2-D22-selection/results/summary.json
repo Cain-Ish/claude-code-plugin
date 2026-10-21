@@ -1,0 +1,261 @@
+{
+ "date": "2026-10-21",
+ "cap": 8,
+ "prompts": {
+  "pick": "cf6d5633de72",
+  "sect": "b6737ed2712c"
+ },
+ "maps": {
+  "R0": {
+   "entries": 5956,
+   "kb": 1855,
+   "sections": 631,
+   "failedWindows": 0,
+   "costUsd": 22.15
+  },
+  "P1": {
+   "entries": 7140,
+   "kb": 2326,
+   "sections": 343,
+   "failedWindows": 0,
+   "costUsd": 25.52
+  }
+ },
+ "tasks": {
+  "R0-task1": {
+   "pooled": 486,
+   "deep": 456,
+   "essential": 25,
+   "useful": 146,
+   "essentialKb": 8.8,
+   "usefulKb": 53.3,
+   "buildMs": 231,
+   "arms": {
+    "b": {
+     "delivered": 28,
+     "kb": 8,
+     "recallEssential": 0.04,
+     "recallEssentialDeep": 0.04,
+     "essentialBytesShare": 0.04,
+     "relevantBytesShare": 0.12,
+     "pass": false,
+     "ms": 6,
+     "calls": 0,
+     "cost": 0,
+     "tokens": 0
+    },
+    "d1": {
+     "delivered": 12,
+     "kb": 4.2,
+     "recallEssential": 0.08,
+     "recallEssentialDeep": 0.08,
+     "essentialBytesShare": 0.17,
+     "relevantBytesShare": 0.87,
+     "pass": false,
+     "ms": 3906,
+     "calls": 1,
+     "cost": 0.20992,
+     "tokens": 52424
+    },
+    "d2": {
+     "delivered": 21,
+     "kb": 7.9,
+     "recallEssential": 0.48,
+     "recallEssentialDeep": 0.48,
+     "essentialBytesShare": 0.55,
+     "relevantBytesShare": 1,
+     "pass": false,
+     "ms": 16630,
+     "calls": 2,
+     "cost": 0.46513000000000004,
+     "tokens": 115494
+    }
+   },
+   "native": {
+    "runs": 2,
+    "coverage": [
+     0,
+     0
+    ]
+   }
+  },
+  "R0-task2": {
+   "pooled": 352,
+   "deep": 336,
+   "essential": 32,
+   "useful": 52,
+   "essentialKb": 10.9,
+   "usefulKb": 16.2,
+   "buildMs": 248,
+   "arms": {
+    "b": {
+     "delivered": 29,
+     "kb": 8,
+     "recallEssential": 0.38,
+     "recallEssentialDeep": 0.38,
+     "essentialBytesShare": 0.48,
+     "relevantBytesShare": 0.87,
+     "pass": false,
+     "ms": 6,
+     "calls": 0,
+     "cost": 0,
+     "tokens": 0
+    },
+    "d1": {
+     "delivered": 24,
+     "kb": 7.9,
+     "recallEssential": 0.63,
+     "recallEssentialDeep": 0.58,
+     "essentialBytesShare": 0.83,
+     "relevantBytesShare": 1,
+     "pass": true,
+     "ms": 6312,
+     "calls": 1,
+     "cost": 0.202172,
+     "tokens": 49962
+    },
+    "d2": {
+     "delivered": 22,
+     "kb": 8,
+     "recallEssential": 0.53,
+     "recallEssentialDeep": 0.65,
+     "essentialBytesShare": 0.71,
+     "relevantBytesShare": 1,
+     "pass": false,
+     "ms": 10984,
+     "calls": 2,
+     "cost": 0.381626,
+     "tokens": 94699
+    }
+   },
+   "native": {
+    "runs": 2,
+    "coverage": [
+     0,
+     0
+    ]
+   }
+  },
+  "P1-task1": {
+   "pooled": 642,
+   "deep": 614,
+   "essential": 28,
+   "useful": 72,
+   "essentialKb": 10,
+   "usefulKb": 22.6,
+   "buildMs": 315,
+   "arms": {
+    "b": {
+     "delivered": 23,
+     "kb": 8,
+     "recallEssential": 0,
+     "recallEssentialDeep": 0,
+     "essentialBytesShare": 0,
+     "relevantBytesShare": 0.15,
+     "pass": false,
+     "ms": 14,
+     "calls": 0,
+     "cost": 0,
+     "tokens": 0
+    },
+    "d1": {
+     "delivered": 11,
+     "kb": 3.9,
+     "recallEssential": 0.11,
+     "recallEssentialDeep": 0.07,
+     "essentialBytesShare": 0.33,
+     "relevantBytesShare": 0.8,
+     "pass": false,
+     "ms": 5930,
+     "calls": 1,
+     "cost": 0.217686,
+     "tokens": 53740
+    },
+    "d2": {
+     "delivered": 26,
+     "kb": 7.9,
+     "recallEssential": 0.29,
+     "recallEssentialDeep": 0.3,
+     "essentialBytesShare": 0.37,
+     "relevantBytesShare": 0.82,
+     "pass": false,
+     "ms": 14357,
+     "calls": 2,
+     "cost": 0.706654,
+     "tokens": 175248
+    }
+   },
+   "native": {
+    "runs": 2,
+    "coverage": [
+     0.39,
+     0.39
+    ]
+   }
+  },
+  "P1-task2": {
+   "pooled": 756,
+   "deep": 736,
+   "essential": 30,
+   "useful": 114,
+   "essentialKb": 11,
+   "usefulKb": 37.7,
+   "buildMs": 266,
+   "arms": {
+    "b": {
+     "delivered": 24,
+     "kb": 8,
+     "recallEssential": 0.07,
+     "recallEssentialDeep": 0.07,
+     "essentialBytesShare": 0.09,
+     "relevantBytesShare": 0.47,
+     "pass": false,
+     "ms": 20,
+     "calls": 0,
+     "cost": 0,
+     "tokens": 0
+    },
+    "d1": {
+     "delivered": 19,
+     "kb": 5.8,
+     "recallEssential": 0.2,
+     "recallEssentialDeep": 0.2,
+     "essentialBytesShare": 0.35,
+     "relevantBytesShare": 0.97,
+     "pass": false,
+     "ms": 6965,
+     "calls": 1,
+     "cost": 0.220962,
+     "tokens": 54544
+    },
+    "d2": {
+     "delivered": 13,
+     "kb": 4.2,
+     "recallEssential": 0.27,
+     "recallEssentialDeep": 0.27,
+     "essentialBytesShare": 0.69,
+     "relevantBytesShare": 1,
+     "pass": false,
+     "ms": 14800,
+     "calls": 2,
+     "cost": 0.59711,
+     "tokens": 148081
+    }
+   },
+   "native": {
+    "runs": 2,
+    "coverage": [
+     0.33,
+     0.33
+    ]
+   }
+  }
+ },
+ "graded": "4 of 6",
+ "pass": {
+  "b": false,
+  "d1": false,
+  "d2": false
+ },
+ "locks": null
+}

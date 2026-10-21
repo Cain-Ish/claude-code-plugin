@@ -1201,6 +1201,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
     The judge's grades do not feed back into any selector.
   - *Cost:* the conversion about 78 USD (approved); the arms 1 to 2 USD; native 10 to 20 USD.
+- **Run notes (2026-10-21):**
+  - *The first full maps,* from D15's converter:
+
+    | Repo | Windows | Entries | Quote text | Verify-pass share | With context | Cost |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | P1 | 635 | 7,140 | 1.3 MB | 14% | 3,044 | 25.52 USD |
+    | P2 | 1,615 | 14,119 | 1.8 MB | 8% | 4,389 | 48.39 USD |
+    | R0 | 717 | 5,956 | 1.0 MB | 10% | 2,186 | 22.15 USD |
+
+    No window failed. The total, **96.06 USD, overran the 78 USD estimate the user approved by 18 USD**, because the
+    estimate was low. The user is told.
+  - *Native:* 12 runs, all valid, 7.73 USD. The R0 sessions opened code files only, no documents, and searched the
+    documents with Grep, which a coverage counted by Read does not credit.
+  - *Harness fix, disclosed.* On P2-crafting, arm (d2)'s section pick failed to parse, because a note followed the
+    JSON array. The parser now takes the first array, bracket by bracket. Only (d2) was rerun for that task, before
+    its judge saw any pool. The other arms' saved results stand, and no other run had an error.
+  - *Smoke* on D20's P1 task (burned): (b) 21 entries, (d1) 22, (d2) 28; no errors.
 
   Attempts: 0.
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
