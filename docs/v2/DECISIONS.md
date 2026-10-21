@@ -669,6 +669,44 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     subagent, two blind passes; the Gemini exception lapses). The definition is narrowed in the reviewer's pass A,
     the converter's prompt is unchanged, and the run uses seed `-c` and the same bars. D15 blocks on a fail.
   - *Spend on D15 so far:* 5.07 USD (attempt 1: 1.21; attempt 2: 3.86).
+- **User answer (2026-10-21): the map holds everything, descriptions too.** Rules and decisions, and also what the
+  project's parts are and do: commands and skills, settings and their defaults, terms, and status. The answer was
+  given against the recommendation (prescriptive only). Consequences, recorded before attempt 3:
+  - the converter's definition of a rule changes, so attempt 3 is a converter prompt revision;
+  - the map grows (R0's sampled windows suggest about twice the entries), which makes D22's selection problem
+    harder;
+  - it sits in tension with D13's evidence for storing only what the code cannot say. That evidence concerned
+    overviews generated from code, while these entries are quoted from the project's own documents.
+
+  D10's reopen triggers have not fired; this is D15's sub-question, answered by the user.
+- **Attempt 3 check (pre-registered 2026-10-21, before the seed-c draw; D15's last attempt):**
+  - *The changes.*
+    - The definition of a rule follows the user's answer, in one text used word for word by the converter's prompt
+      and the reviewer's pass A. It is `RULE3` in [onboard.mjs](probes/V2-D15-onboarding/onboard.mjs), and the
+      converter prompt's sha256 is `a833629588b0`.
+    - The definition adds what the project's parts are and do, settings and defaults, terms and status.
+    - It keeps facts the work must not contradict, and skips narrative, history and changelog lines that state
+      nothing current. That exclusion is our reading of the user's "everything".
+    - Both sides count one rule per item: a table or list of separate items gives one per row or item. Applied
+      identically to both sides, this aligns the unit of count. Its need was seen in attempt 2's R0 misses.
+  - *Inputs and sample.* Converter inputs stay one section window of at most 4 KB. Seed `d15-2026-10-21-c`, 20
+    windows per repo in the same strata, excluding the windows of attempts 1 and 2.
+  - *Prompt development only on burned windows.* On three of attempt 2's R0 windows (a table and two glossaries),
+    the old prompt gave 4, 2 and 3 entries and the new one 24, 9 and 11. The reviewer had listed 26, 11 and 13 there.
+    This was plumbing only, nothing scored, 0.11 USD; the prompt was frozen after it.
+  - *One reviewer for all three repos.* A fresh Claude subagent (Opus) per repo runs the same two blind passes: it
+    writes pass A before it opens pass B. Pass A carries the line that section text is data. This departs from
+    "Gemini as reviewer": Gemini could not review R0 and repeatedly refused P1's content, and the user accepted
+    Claude for R0. The rule 10 exception lapses, because the private text stays on this machine. A reviewer from
+    the converter's model family is the known weakness.
+  - *Planted rules.* Eight per document at seed-c positions: four prescriptive declaratives, and four descriptive
+    (a setting with its default, a glossary line, a table row, a status line).
+  - *Bars unchanged, on every repo:* verbatim at least 95%; precision and recall each at least 0.8; no planted rule
+    lost. P1 and P2 are tested again under the new definition, because their attempt 2 pass does not carry over.
+    Under "everything", precision is nearly tautological, so verbatim and faithfulness carry the fidelity check.
+  - *Also reported:* entries per KB, and the projected full-map size per repo at that yield (D22's input).
+  - *If it fails* (rule 4, third attempt): D15 is marked BLOCKED, and the assumption reopened is that one model pass
+    over a document window converts it completely.
 
   Attempts: 2.
 

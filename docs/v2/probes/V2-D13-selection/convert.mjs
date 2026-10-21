@@ -61,10 +61,10 @@ export function parse(text, part) {
   };
 }
 
-const claude = (input, cwd) => new Promise((resolve) => {
+const claude = (input, cwd, sys = SYS) => new Promise((resolve) => {
   const env = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1' };
   for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete env[k];
-  const p = spawn('claude', ['-p', '--model', MODEL, '--output-format', 'json', '--system-prompt', SYS, '--tools', '',
+  const p = spawn('claude', ['-p', '--model', MODEL, '--output-format', 'json', '--system-prompt', sys, '--tools', '',
     '--setting-sources', 'project', '--strict-mcp-config', '--no-session-persistence'], { cwd, env, shell: false });
   let out = '';
   let err = '';
@@ -74,9 +74,9 @@ const claude = (input, cwd) => new Promise((resolve) => {
   p.stdin.end(input);
 });
 
-export async function convert(job, cwd) {
+export async function convert(job, cwd, sys = SYS) {
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const r = await claude(message(job.file, job.part), cwd);
+    const r = await claude(message(job.file, job.part), cwd, sys);
     try {
       const o = JSON.parse(r.out);
       const { entries, dropped } = parse(o.result, job.part);
