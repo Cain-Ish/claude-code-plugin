@@ -24,7 +24,7 @@ const STOP = new Set(('a an and are as at be but by can do does for from has hav
 
 // ---- the map: a repo's doc files split into blocks, each with its source ----
 
-function readDocs(repo, commit) {
+export function readDocs(repo, commit) {
   const git = (args, input) => spawnSync('git', ['-c', 'core.longpaths=true', '-C', repo, ...args], { input, maxBuffer: 1 << 30 });
   const paths = git(['ls-tree', '-r', '-z', '--name-only', commit]).stdout.toString('utf8').split('\0').filter((p) => DOC.test(p));
   const buf = git(['cat-file', '--batch'], paths.map((p) => `${commit}:${p}\n`).join('')).stdout;

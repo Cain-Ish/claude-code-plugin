@@ -51,7 +51,7 @@ const words = (s) => String(s).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 const order = (k, seed = SEED) => crypto.createHash('sha256').update(seed + k).digest('hex');
 
 // The cited blocks in source order, each heading path written once, as the converter saw them.
-const sourceText = (all, ids) => {
+export const sourceText = (all, ids) => {
   let last = null;
   return [...ids].sort((a, b) => a - b).map((i) => {
     const h = all[i].heads.join(' › ');
@@ -197,7 +197,9 @@ const lastJson = (s) => {
   return JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
 };
 
-const [mode, cfgArg, extra] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+// imported (by D16's probe) rather than run: no mode
+const DIRECT = path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url);
+const [mode, cfgArg, extra] = DIRECT ? process.argv.slice(2).filter((a) => !a.startsWith('--')) : ['lib'];
 const cfg = cfgArg ? JSON.parse(fs.readFileSync(cfgArg, 'utf8')) : null;
 const RAW = cfgArg ? path.dirname(path.resolve(cfgArg)) : null;
 const OUT = RAW ? path.join(RAW, 'd15', ATT > 1 ? `a${ATT}` : '') : null;
@@ -476,7 +478,7 @@ if (mode === 'selftest') {
   const reviewer = ATT >= 3 ? 'a fresh Claude (Opus) subagent per repo' : ATT === 2 ? 'Gemini Pro (browser); R0: a fresh Claude (Opus) subagent' : 'Gemini Pro (browser)';
   writeResult('review.json', { date: new Date().toISOString().slice(0, 10), reviewer, bars: { precision: 0.8, recall: 0.8 }, pass, groups: res });
   console.log(JSON.stringify(res, null, 1), '\npass', pass);
-} else {
+} else if (mode !== 'lib') {
   console.error('usage: node onboard.mjs selftest | fidelity|a1|sample|pm4|score <config> | plant <config> <planted>');
   process.exit(2);
 }

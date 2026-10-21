@@ -1,0 +1,302 @@
+{
+ "date": "2026-10-21",
+ "perType": 20,
+ "pass": false,
+ "repos": {
+  "P1": {
+   "entries": 7140,
+   "verified": 7114,
+   "types": {
+    "delete": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "gone": 20
+     },
+     "pass": true
+    },
+    "wordChange": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 19,
+     "states": {
+      "changed": 19,
+      "current": 1
+     },
+     "pass": false
+    },
+    "number": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "changed": 20
+     },
+     "pass": true
+    },
+    "renameEdit": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 19,
+     "states": {
+      "gone": 19,
+      "moved": 1
+     },
+     "pass": false
+    },
+    "headerChange": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 19,
+     "states": {
+      "changed": 19,
+      "current": 1
+     },
+     "pass": false
+    },
+    "rename": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "moved": 20
+     },
+     "pass": true
+    },
+    "otherEdit": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    },
+    "moveBlock": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    },
+    "reformat": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    }
+   },
+   "unchanged": {
+    "states": {
+     "current": 7100,
+     "unverifiable": 26,
+     "changed": 14
+    },
+    "flagged": 14,
+    "sweepMs": 11651,
+    "deliveryCheckMs": 4.4
+   }
+  },
+  "P2": {
+   "entries": 14119,
+   "verified": 14009,
+   "types": {
+    "delete": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "gone": 20
+     },
+     "pass": true
+    },
+    "wordChange": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "changed": 20
+     },
+     "pass": true
+    },
+    "number": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "changed": 20
+     },
+     "pass": true
+    },
+    "renameEdit": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "gone": 20
+     },
+     "pass": true
+    },
+    "headerChange": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 16,
+     "states": {
+      "changed": 16,
+      "current": 4
+     },
+     "pass": false
+    },
+    "rename": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "moved": 20
+     },
+     "pass": true
+    },
+    "otherEdit": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    },
+    "moveBlock": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    },
+    "reformat": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    }
+   },
+   "unchanged": {
+    "states": {
+     "current": 13947,
+     "changed": 62,
+     "unverifiable": 110
+    },
+    "flagged": 62,
+    "sweepMs": 14360,
+    "deliveryCheckMs": 1.7
+   }
+  },
+  "R0": {
+   "entries": 5956,
+   "verified": 5915,
+   "types": {
+    "delete": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "gone": 20
+     },
+     "pass": true
+    },
+    "wordChange": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "changed": 20
+     },
+     "pass": true
+    },
+    "number": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "changed": 20
+     },
+     "pass": true
+    },
+    "renameEdit": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 20,
+     "states": {
+      "gone": 20
+     },
+     "pass": true
+    },
+    "headerChange": {
+     "drift": true,
+     "seeds": 20,
+     "flagged": 13,
+     "states": {
+      "changed": 13,
+      "current": 7
+     },
+     "pass": false
+    },
+    "rename": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "moved": 20
+     },
+     "pass": true
+    },
+    "otherEdit": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    },
+    "moveBlock": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    },
+    "reformat": {
+     "drift": false,
+     "seeds": 20,
+     "flagged": 0,
+     "states": {
+      "current": 20
+     },
+     "pass": true
+    }
+   },
+   "unchanged": {
+    "states": {
+     "current": 5915,
+     "unverifiable": 41
+    },
+    "flagged": 0,
+    "sweepMs": 4876,
+    "deliveryCheckMs": 4.4
+   }
+  }
+ }
+}

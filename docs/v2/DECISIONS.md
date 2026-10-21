@@ -1007,8 +1007,35 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Repair, named and not built:* a changed or gone entry is fixed by re-converting the changed file's windows with
     D15's locked converter, at about 16 USD per MB of changed text. Building that is the first slice's work.
   - *Cost:* no model; 0 USD.
+- **Attempt 1 result (2026-10-21): fail** ([results/seeds.json](probes/V2-D16-freshness/results/seeds.json)).
+  - *Seeds flagged:*
+    - deletions 60 of 60 and numbers 60 of 60;
+    - one-word changes 59 of 60;
+    - rename-and-edit 59 of 60;
+    - header changes 48 of 60;
+    - no control flagged (0 of 240).
+  - *Unchanged tree:* 76 verified entries were flagged as changed (P1 14, P2 62). So the "tautology" was not one:
+    `verified` checked a quote against its cited blocks joined together, while re-find reads the file.
+  - *Causes, from a diagnosis on the pinned trees:*
+    - about 60 quotes stitch blocks that are not adjacent, without a cut mark;
+    - about 20 take in heading text;
+    - 10 carry a context line not found in the file.
+  - *Misses:* the seed edited the first occurrence of a stretch or a header line that occurs twice in the file. The
+    entry's own text was untouched, so "current" was right.
+  - *Timing:* a full sweep takes 5 to 14 s per repo; one delivery of 30 entries takes 2 to 4 ms.
+- **Attempt 2 check (pre-registered 2026-10-21, before rerunning):**
+  - *Mechanism:*
+    - `verified` is the re-find itself, run on the file's text at the capture commit, so verification and drift use
+      one rule. Stitched quotes become unverified from birth (unverifiable), never stale;
+    - a table context must equal the header of the table holding the quote's occurrence, its first line above the
+      quote's run of table rows;
+    - a lead-label context must sit in the same paragraph or list item as the quote.
+  - *Seeds, a disclosed correction:*
+    - edit seeds use only entries whose first stretch occurs once in its file;
+    - the header seed edits the header of the table holding the quote.
+  - *Bars:* unchanged. Unverified counts per repo are reported.
 
-  Attempts: 0.
+  Attempts: 1.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
