@@ -74,9 +74,10 @@ const claude = (input, cwd, sys = SYS) => new Promise((resolve) => {
   p.stdin.end(input);
 });
 
-export async function convert(job, cwd, sys = SYS) {
+// extra: appended to the user message (D15's verify pass); empty for D13's calls
+export async function convert(job, cwd, sys = SYS, extra = '') {
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const r = await claude(message(job.file, job.part), cwd, sys);
+    const r = await claude(message(job.file, job.part) + extra, cwd, sys);
     try {
       const o = JSON.parse(r.out);
       const { entries, dropped } = parse(o.result, job.part);

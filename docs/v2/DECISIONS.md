@@ -754,6 +754,34 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - the user's scope answer stands;
     - a bare repo gets no synthesised conventions (citation).
   - *Spend on D15:* 9.87 USD (attempt 1: 1.21; attempt 2: 3.86; attempt 3: 4.80, including the 0.11 USD smoke).
+- **Going up a level (2026-10-21, the user: "continue with the converter fix").** D15 stays BLOCKED on the old
+  assumption. It is replaced by a named one: *conversion is an extract pass plus a verify pass over the same window,
+  and an entry carries the context its quote's meaning depends on.* The re-check below is **run 4 overall**; the
+  counter is not reset.
+  - *Plumbing on burned data only, nothing scored (0.18 USD).*
+    - P2's lost planted rule: its attempt 3 window was converted again with the verify pass, twice. Both times the
+      first pass cited it, and the verify pass added one other entry each time. So attempt 3's loss looks like
+      run-to-run variance, not a blind spot. The verify pass is kept as a second chance against that variance.
+    - Of attempt 3's 21 unfaithful P2 entries: 11 are table rows cut from their header, 7 are "**Rejected:**" list
+      items whose quote dropped the label, which turns a rejected option into a rule, and 3 are other. All 21 get
+      context under the rule below; whether it repairs them is for the reviewer.
+  - *Context, deterministic, as an addition to D13's entry.* When the first cited block is a table, or a part of
+    one, the entry carries the table's header line; when the block is led by a bold label, it carries the label. In
+    both cases only when the quote lacks it. It is shown with the entry and is never folded into the quote. No D13
+    reopen trigger fires: the quote stays verbatim.
+  - *Verify pass.* Same system prompt (sha256 `a833629588b0`). The message is the same numbered blocks, plus the
+    entries already written with their block numbers, plus "list only the rules in these blocks that no entry above
+    states". Its entries are merged after deduplication on the normalised quote, and every entry is tagged pass 1 or
+    2.
+- **Run 4 check (pre-registered 2026-10-21, before the seed-d draw):**
+  - Same six parts and same bars, on every repo: verbatim at least 95%; precision and recall at least 0.8; none of
+    the planted rules lost; the PM4 round trip passes, run again because the entry gained `context`.
+  - Seed `d15-2026-10-21-d`, 20 windows of at most 4 KB per repo, excluding attempts 1 to 3. One fresh Opus reviewer
+    per repo, two blind passes. Pass B shows each entry's context. Fresh planted rules, four prescriptive and four
+    descriptive per document.
+  - *Reported to attribute the gain:* precision and recall counting first-pass entries only, the verify pass's
+    yield, the duplicates it dropped, and the cost per KB.
+  - *If run 4 fails, D15 stays BLOCKED and goes to the user.* A fifth run is not planned.
 
   Attempts: 3.
 
