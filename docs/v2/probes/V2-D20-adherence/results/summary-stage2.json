@@ -1,0 +1,746 @@
+{
+ "date": "2026-10-21",
+ "tasks": {
+  "P1-build": {
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 1,
+      "of": 1,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1
+     }
+    },
+    "R2": {
+     "kind": "convention",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 2,
+      "of": 5,
+      "atFirstWrite": 2,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "fixed"
+     },
+     "d": {
+      "followed": 1,
+      "of": 1,
+      "atFirstWrite": 1,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1
+     }
+    },
+    "R3": {
+     "kind": "convention",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 1,
+      "of": 1,
+      "atFirstWrite": 1,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1
+     }
+    },
+    "R4": {
+     "kind": "design",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 1,
+      "of": 1,
+      "atFirstWrite": 1,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1
+     }
+    },
+    "R5": {
+     "kind": "design",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 1,
+      "of": 1,
+      "atFirstWrite": 1,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1
+     }
+    },
+    "R6": {
+     "kind": "unloaded, counter-pattern",
+     "cls": "judgment",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 0,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 5
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "fixed"
+     },
+     "d": {
+      "followed": 1,
+      "of": 1,
+      "atFirstWrite": 1,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1
+     }
+    }
+   },
+   "median": {
+    "a": {
+     "costUsd": 0.24222269999999999,
+     "inputTokensAll": 478393,
+     "outputTokens": 5283,
+     "turns": 16
+    },
+    "b": {
+     "costUsd": 0.2467833,
+     "inputTokensAll": 763603,
+     "outputTokens": 8972,
+     "turns": 18
+    },
+    "d": {
+     "costUsd": 0.5181180999999999,
+     "inputTokensAll": 967509,
+     "outputTokens": 12442,
+     "turns": 21
+    }
+   }
+  },
+  "P2-build": {
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "held"
+     }
+    },
+    "R2": {
+     "kind": "convention",
+     "cls": "pattern",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "held"
+     }
+    },
+    "R3a": {
+     "kind": "canon",
+     "cls": "judgment",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "held"
+     }
+    },
+    "R3b": {
+     "kind": "canon",
+     "cls": "judgment",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "held"
+     }
+    },
+    "R4": {
+     "kind": "canon (language)",
+     "cls": "judgment",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "held"
+     }
+    },
+    "R5": {
+     "kind": "unloaded, counter-pattern",
+     "cls": "pattern",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 0,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 5
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "fixed"
+     }
+    },
+    "R6": {
+     "kind": "convention, counter-pattern",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 0,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "fixed"
+     }
+    },
+    "R7": {
+     "kind": "canon, unloaded, counter-pattern",
+     "cls": "judgment",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 0,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 5
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 1,
+      "deniedWrites": 1,
+      "outcome": "fixed"
+     }
+    }
+   },
+   "median": {
+    "a": {
+     "costUsd": 0.535654,
+     "inputTokensAll": 918137,
+     "outputTokens": 18155,
+     "turns": 42
+    },
+    "b": {
+     "costUsd": 0.6784536000000001,
+     "inputTokensAll": 1336704,
+     "outputTokens": 20450,
+     "turns": 44
+    }
+   }
+  },
+  "R0-build": {
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    },
+    "R2a": {
+     "kind": "counter-pattern (stale skill)",
+     "cls": "pattern",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 4,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 1
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    },
+    "R2b": {
+     "kind": "counter-pattern (stale skill)",
+     "cls": "pattern",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 4,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 1
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    },
+    "R3": {
+     "kind": "convention",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     }
+    },
+    "R4": {
+     "kind": "design",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 1,
+      "of": 5,
+      "atFirstWrite": 1,
+      "notInContext": 3
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "fixed"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "fixed"
+     }
+    },
+    "R5": {
+     "kind": "convention, counter-pattern",
+     "cls": "pattern",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 5,
+      "atDeniedWrite": 5,
+      "deniedWrites": 5,
+      "outcome": "held"
+     }
+    },
+    "R6": {
+     "kind": "design, counter-pattern",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 3,
+      "of": 5,
+      "atFirstWrite": 3,
+      "notInContext": 2
+     },
+     "b": {
+      "followed": 2,
+      "of": 5,
+      "atFirstWrite": 2,
+      "atDeniedWrite": 2,
+      "deniedWrites": 5,
+      "outcome": "still missed"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 3,
+      "atDeniedWrite": 3,
+      "deniedWrites": 5,
+      "outcome": "fixed"
+     }
+    },
+    "R7": {
+     "kind": "unloaded (skill body only)",
+     "cls": "pattern",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     },
+     "d": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    }
+   },
+   "median": {
+    "a": {
+     "costUsd": 0.3560429,
+     "inputTokensAll": 641297,
+     "outputTokens": 10059,
+     "turns": 28
+    },
+    "b": {
+     "costUsd": 0.4233638,
+     "inputTokensAll": 656442,
+     "outputTokens": 11812,
+     "turns": 29
+    },
+    "d": {
+     "costUsd": 0.44640150000000006,
+     "inputTokensAll": 689502,
+     "outputTokens": 11320,
+     "turns": 27
+    }
+   }
+  },
+  "P2-plan": {
+   "rules": {
+    "P1": {
+     "kind": "design (site model)",
+     "cls": "judgment",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 4,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    },
+    "P3a": {
+     "kind": "canon",
+     "cls": "judgment",
+     "namesCounterPattern": true,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 3
+     },
+     "b": {
+      "followed": 4,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    },
+    "P3b": {
+     "kind": "canon",
+     "cls": "judgment",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    },
+    "P4": {
+     "kind": "design (clearing)",
+     "cls": "judgment",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 5,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "held"
+     }
+    },
+    "P5": {
+     "kind": "process",
+     "cls": "judgment",
+     "namesCounterPattern": false,
+     "a": {
+      "followed": 2,
+      "of": 5,
+      "atFirstWrite": 0,
+      "notInContext": 0
+     },
+     "b": {
+      "followed": 4,
+      "of": 5,
+      "atFirstWrite": 0,
+      "atDeniedWrite": 0,
+      "deniedWrites": 0,
+      "outcome": "fixed"
+     }
+    }
+   },
+   "median": {
+    "a": {
+     "costUsd": 0.1288618,
+     "inputTokensAll": 130117,
+     "outputTokens": 3556,
+     "turns": 9
+    },
+    "b": {
+     "costUsd": 0.1260338,
+     "inputTokensAll": 111309,
+     "outputTokens": 2369,
+     "turns": 5
+    }
+   }
+  }
+ },
+ "arms": {
+  "a": {
+   "validRuns": 20,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "totalCostUsd": 6.3713432999999995,
+   "hookCalls": 0,
+   "hookMsP95": null,
+   "subagentRuns": 0,
+   "compactedRuns": 0,
+   "accountHeadingMissing": 0
+  },
+  "b": {
+   "validRuns": 20,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "totalCostUsd": 7.5226066,
+   "hookCalls": 115,
+   "hookMsP95": 24,
+   "subagentRuns": 0,
+   "compactedRuns": 0,
+   "accountHeadingMissing": 0
+  },
+  "d": {
+   "validRuns": 6,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "totalCostUsd": 2.8441743,
+   "hookCalls": 103,
+   "hookMsP95": 82,
+   "subagentRuns": 1,
+   "compactedRuns": 0,
+   "accountHeadingMissing": 0
+  }
+ }
+}

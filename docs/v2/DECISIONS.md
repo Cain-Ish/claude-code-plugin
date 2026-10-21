@@ -23,7 +23,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
-| V2-D20 | By what mechanism does v2 make Claude look for and follow the knowledge that binds a task? | OPEN | evidence | D12, D17 |
+| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D13, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 
 Frontier (rule 6): **D20 stage 2**: stage 1 (2026-10-21) found both kinds of miss in all three test-bed repos, so the
 delivery arm and the checks-and-accounting arm run on the same four tasks against stage 1's runs as arm (a). Then
@@ -262,6 +262,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   must carry what D20's mechanism needs. The paper map covers all three shapes of the test bed (charter): v1's repo,
   P1 and P2. Assumption to test (any stack, charter): an inventory of what exists is computed without a
   per-language parser, on shell, TypeScript and C# alike.
+- **From D20 (2026-10-21):** the format carries a rule's own text, its source and its area, and fits about 2 KB per
+  task: 1.7 to 2.5 KB for 5 to 8 rules in D20's stage 2, against 265 KB of P1 path rules. Two findings for the
+  format:
+  - A card that quotes its source's inline default handed Claude the counter-pattern (R0 R6: in 2 of 3 misses Claude
+    copied the quoted line as a fallback).
+  - Whether a card must name the code not to copy is still open: 9 of 27 cards did, where their source did.
+
+  D13's check adds selection: for each of D20's four tasks, the index or router must bring the same 27 rules D20
+  delivered by hand, and that share is measured before D18.
 - **Evidence so far:** store only what the code cannot say, and no generated overviews (arXiv 2602.11988: −0.5 to
   −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
   all from reaching the right file); compute structure such as the component inventory from code on demand
@@ -416,6 +425,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Question:** knowledge in the map is worth nothing unless Claude (a) has the part that binds the task before it
   acts and (b) applies it. By what mechanism does v2 achieve both? Asked by the user on 2026-10-20: in the past Claude
   either never looked for a rule or document, or had it and ignored it.
+- **Narrowed (2026-10-21):** the check that decided this answers the second half only, because stage 2's selection
+  was an oracle. The first half, which rules reach Claude for a task, moved to D13 (the format and its index) and
+  D18 (what runs where, and its surface budget), measured against the same 27 rules.
 - **Options:** (a) native only: an index in `CLAUDE.md` plus path rules and skills (how P1 runs today); (b) delivery:
   the rules' own text, few at a time, when the prompt arrives, before the first write in an area (a `PreToolUse` deny
   whose reason carries the rules), into subagents and again after compaction; (c) (b) plus deterministic checks fed
@@ -519,6 +531,43 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Not tested:* finding (the oracle above); subagents and compaction (0 of 20 stage 1 runs used either, so the
     `SubagentStart` and post-compaction deliveries are not built); prompt-time and pre-write delivery apart; the
     repos' own lint, tests and builds (Bash stays off).
+- **Stage 2 result (2026-10-21):** run as registered
+  ([probes/V2-D20-adherence](probes/V2-D20-adherence/README.md#stage-2-results-2026-10-21)). The config's hash was
+  `08a2dc047fb1` before the pilot and after the last run.
+  - *Arrival:* the three new channels arrived 3 of 3. The pilot cost 0.44 USD in (b) and 0.52 USD in (d).
+  - *Arm (b):* 20 runs, all valid, one epoch (CLI 2.1.305), 7.52 USD. Of the 8 rules missed in (a), it fixed 7: P1 R2
+    and R6, P2 R5, R6 and R7, R0 R4, and P2-plan P5. R0 R6 was still missed, followed in 2 of 5 runs. Nothing
+    regressed. P3a scores 4 of 5 as registered, and 5 of 5 by hand: "stays out" rejects the creature, but the check's
+    negation list lacks it.
+  - *Arm (d):* so it ran on R0-build only: 5 runs, all valid, 2.33 USD. R6 was followed 5 of 5, every other rule 5 of
+    5, and nothing regressed.
+  - *Where the effect came from, by first attempts.* With only the cards from prompt arrival, the first writes (the
+    ones the deny then stopped) already followed every P1 rule in 5 of 5 runs, and R0 R4 in 5 of 5. R6 was right at
+    the first attempt in 5 of 10 runs across (b) and (d). The re-delivery at the deny fixed none of the 3 R6 misses
+    left in (b). The fed-back check fixed both (d) runs that needed it. In 2 of the 3 (b) misses, the script sourced
+    `lib.sh` but added a fallback that is the very line the card quotes from the skill.
+  - *Cost:* median cost against (a) was 1.02, 1.27, 1.19 and 0.98 times for (b) on P1, P2 build, R0 and the plan,
+    and 1.25 times for (d) on R0. Hook p95 inside the hook process was 24 ms in (b) and 82 ms in (d). No flag fired.
+    The cards came to 1.7 to 2.5 KB per task. Two (b) plan runs read no file and passed every check at 0.03 USD.
+- **Choice (2026-10-21):** (c), for following. The rules that bind a task are delivered as their own text, quoted
+  with their source, when the prompt arrives. As tested, a one-time deny delivers them again before the first write
+  in their area. After writes and at `Stop`, the failing data checks of pattern-held rules are fed back. The deny was
+  tested only as part of this bundle. Whether it earns its cost goes to D18: it makes Claude rewrite each denied
+  file, which took P1's output from about 5.3k to 9k tokens. D18 may keep it only as a net for areas that prompt-time
+  selection missed. Which rules reach Claude for a task (selection) is not settled here; it belongs to D13 and D18.
+- **Rejected:**
+  - (a) native only: it missed rules in all three repos (stage 1).
+  - (d)'s account at `Stop`, as an adherence mechanism in this test bed: no judgment rule needed it, and all 10 held or
+    were fixed by delivery alone. Whether Claude names the rules it followed and their sources is A1 item (5),
+    measured by D17. It is not decided here.
+- **Reopen if:**
+  - D13's format changes what can be delivered verbatim.
+  - A judgment rule stays missed, failing in 2 or more of 5 runs, with its card delivered.
+  - A Claude Code release changes how a deny reason, a block reason or `UserPromptSubmit` context reaches the model.
+  - The pattern checks written at onboarding (D15) catch materially less than this probe's scoring regexes, which
+    were fed back as the checks.
+
+  Attempts: 0.
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
@@ -536,7 +585,6 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   these has a first write to gate. Their channels are prompt arrival, `SubagentStart` (Plan and Explore skip
   `CLAUDE.md`, D12) and accounting at `Stop`. The probe adds one such task (a plan or a review) in one test-bed repo,
   so the result is not read as covering work it did not test.
-- **Reopen if (to carry into the lock):** D13's format changes what can be delivered verbatim.
 - **Evidence so far:** both failures are measured and differ: agents opened a repo's policy file in 3.5% of runs and
   ignored 25-36% of policies they had read; v1's pointers were opened in 0-4% of cases and a protocol loaded every
   session was followed 0 times in 46-78; a deterministic check fed back raised compliance to 70.1% from 55.0% for the

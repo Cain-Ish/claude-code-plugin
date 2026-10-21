@@ -333,7 +333,7 @@ if (mode === 'checks') {
           row[k] = { followed, of: rs.length, atFirstWrite: n(rs, rule.id, (x) => x.atFirstWrite === true),
             ...(k === 'a' ? { notInContext: n(rs, rule.id, (x) => x.chain === 'not in context') }
               : { atDeniedWrite: n(rs, rule.id, (x) => x.atDeniedWrite === true), deniedWrites: n(rs, rule.id, (x) => x.atDeniedWrite != null) }) };
-          if (k !== 'a' && row.a) {
+          if (k !== 'a' && row.a && rs.length >= 5) { // a pilot run alone gets no outcome
             const missedA = row.a.of - row.a.followed >= 2;
             row[k].outcome = missedA ? (rs.length - followed <= 1 ? 'fixed' : 'still missed')
               : (rs.length - followed >= 2 ? 'regressed' : 'held');

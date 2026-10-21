@@ -116,3 +116,55 @@ create, or an edit to that file. It said why, and asked the user.
 **Plumbing smoke (Haiku, P1-build, one run per arm):** both runs were valid. Each area was denied once, the component
 first and then the test. Arm (d) fed back nothing (no pattern check failed). Its `Stop` sent the account request, and
 the reply carried the `## Rule account` heading. Hook calls took 19 to 222 ms.
+
+## Stage 2 results (2026-10-21)
+
+Run as registered: the config hash was `08a2dc047fb1` before the pilot and after the last run, on one epoch (CLI
+2.1.305, Sonnet 5.5).
+- Pilot: P1-build, one run per arm, 0.44 USD in (b) and 0.52 USD in (d).
+- Arm (b): all four tasks, 20 runs, all valid, 7.52 USD.
+- Arm (d): ran only where (b) left a rule missed, which was R0-build: 5 runs, all valid, 2.33 USD.
+- The smokes cost about 0.07 USD.
+
+Arm (a) is stage 1, re-scored with the two corrected checks. Full counts are in
+[results/summary-stage2.json](results/summary-stage2.json). Each cell is the number of 5 runs in which the rule was
+followed. "First attempt" is what the write the deny stopped already held, with only the cards from prompt arrival.
+
+| Task | Missed in (a) | (b) | First attempt in (b) | (d) |
+| --- | --- | --- | --- | --- |
+| P1-build | R2 2, R6 0 | all six rules 5 (R2, R6 fixed) | all six rules 5 | pilot only |
+| P2-build | R5 0, R6 0, R7 0 | all eight rules 5 (R5, R6, R7 fixed) | all eight rules (1 run with a denied Write) | not run |
+| R0-build | R4 1, R6 3 | R4 5 fixed; R6 2, still missed; the rest 5 | R4 5, R6 2 | all eight rules 5 (R6 fixed) |
+| P2-plan | P5 2 | P5 4 fixed; P3a 4 (5 by hand); the rest 5 | no write | not run |
+
+Median cost against (a):
+
+| Arm | P1-build | P2-build | R0-build | P2-plan |
+| --- | --- | --- | --- | --- |
+| (b) | 1.02 | 1.27 | 1.19 | 0.98 |
+| (d) | | | 1.25 | |
+
+Hook p95 was 24 ms in (b) and 82 ms in (d), measured inside the hook process. Nothing was flagged. Outcome: D20 locks
+(c), meaning delivery plus pattern checks fed back. The decision gives the reasons and the scope.
+
+What the runs show, beyond the counts:
+- **Delivery at prompt arrival did the work.** The write the deny stopped already followed every P1 rule in 5 of 5
+  runs, and R0 R4 in 5 of 5. Re-delivering the cards at the deny fixed none of the three R6 misses left in (b).
+  Each deny makes Claude rewrite the file it was writing: P1's output went from about 5.3k to 9k tokens.
+- **The fed-back check fixed the one rule delivery left.** R6 was right at the first attempt in 5 of 10 runs across
+  (b) and (d). In the two (d) runs where it was not, the post-write check named it, and Claude fixed it in both.
+- **A quoted source can carry the counter-pattern.** In 2 of 3 (b) R6 misses, the script sources `lib.sh` and then
+  adds, as a fallback, the very default line the card quotes from the skill.
+- **Delivery replaced reading on the plan.** Two (b) plan runs read no file, passed every check and cost 0.03 USD
+  each. The plan arm's median turns fell from 9 to 5.
+- **Hooks that ask for more than the task stall a headless session.** In the arrival trials, Claude would not write
+  content the user had not asked for. It said so and asked the user.
+
+Limits:
+- Selection was an oracle: the 27 rules were chosen by hand.
+- The check fed back for a pattern rule was its scoring regex.
+- Arm (d) is 5 runs on one task, and only 2 of them needed feedback.
+- The deny and prompt delivery were not tested apart.
+- The (d) pilot run on P1 spawned a subagent.
+- The regex checks are the same as in stage 1, plus the two corrections. P3a missed one rejection wording in (b).
+- Hook time excludes process start-up.
