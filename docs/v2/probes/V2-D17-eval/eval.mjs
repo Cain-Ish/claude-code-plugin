@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import * as S from './sessions.mjs';
+import { provenanceOf } from '../V2-D14-capture/provenance.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODEL = 'claude-sonnet-5-5';
@@ -143,9 +144,13 @@ function claude(cwd, prompt, raw, mem) {
   return parse(r.stdout ?? '');
 }
 
-function makeRepo(dir, mem) {
+// M2 (V2-D14): v2's capture instruction at every SessionStart, in place of auto memory
+const CAPTURE_HOOKS = { SessionStart: [{ hooks: [{ type: 'command',
+  command: `node "${path.join(HERE, '..', 'V2-D14-capture', 'instruction.mjs').replace(/\\/g, '/')}"` }] }] };
+
+function makeRepo(dir, mem, hooks = null) {
   fs.cpSync(FIXTURE, dir, { recursive: true });
-  const settings = mem ? { autoMemoryEnabled: true, autoMemoryDirectory: mem } : { autoMemoryEnabled: false };
+  const settings = mem ? { autoMemoryEnabled: true, autoMemoryDirectory: mem } : { autoMemoryEnabled: false, ...(hooks ? { hooks } : {}) };
   fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), `${JSON.stringify(settings, null, 2)}\n`);
   const git = (...a) => spawnSync('git', ['-c', 'user.name=eval', '-c', 'user.email=eval@example.invalid', ...a], { cwd: dir });
@@ -179,6 +184,23 @@ function runOnce(scratch, arm, i) {
     return facts;
   };
 
+  if (arm === 'M2') {
+    // V2-D14: capture is scored on the map files after H3. T and N are not run here: their value measure needs
+    // D22's delivery, and the first slice's eval runs them.
+    const repoH = path.join(dir, 'repo-H');
+    makeRepo(repoH, null, CAPTURE_HOOKS);
+    for (const [name, prompt] of S.HISTORY) session(name, prompt, repoH, null);
+    const map = walk(path.join(repoH, '.claude', 'map'));
+    rec.capture = scoreAll(C_ITEMS, Object.values(map).join('\n'));
+    rec.provenance = provenanceOf(map);
+    rec.map = Object.fromEntries(Object.entries(map).map(([p, t]) => [p, Buffer.byteLength(t)]));
+    const st = spawnSync('git', ['status', '--porcelain', '-uall'], { cwd: repoH, encoding: 'utf8' }).stdout.split('\n').filter(Boolean).map((l) => l.slice(3));
+    rec.changedOutsideMap = st.filter((p) => !p.startsWith('.claude/map/') && p !== '.claude/settings.local.json').length;
+    rec.commits = Number(spawnSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repoH, encoding: 'utf8' }).stdout.trim());
+    rec.costUsd = Object.values(rec.sessions).reduce((a, s) => a + (s.costUsd ?? 0), 0);
+    rec.valid = rec.invalid.length === 0;
+    return rec;
+  }
   let memH = null;
   if (arm === 'M1') {
     memH = path.join(dir, 'mem-H');
@@ -352,7 +374,7 @@ function summary() {
 if (process.argv[2] === '--smoke') process.exit(smoke() ? 0 : 1);
 if (process.argv[2] === '--summary') process.exit(summary() ?? 0);
 const [scratch, arm, runs = '1', first = '1'] = process.argv.slice(2);
-if (!scratch || !['M0', 'M1'].includes(arm)) throw new Error('usage: node eval.mjs <scratch-dir> <M0|M1> [runs] [first]  |  --smoke');
+if (!scratch || !['M0', 'M1', 'M2'].includes(arm)) throw new Error('usage: node eval.mjs <scratch-dir> <M0|M1|M2> [runs] [first]  |  --smoke');
 if (!smoke()) throw new Error('smoke check failed: no run before it passes');
 const ep = epoch();
 const file = path.join(HERE, 'results', `${arm}.json`);
