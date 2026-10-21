@@ -1282,6 +1282,48 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   and by what route, is a product question with a cost. It goes to the user with these numbers.
 - *Spend on D22:* about 108.50 USD. That is the conversion 96.06, native 7.73, the arms 4.15 and the smoke 0.47,
   against the approved 78 USD conversion and the 10 to 20 USD native estimate.
+- **User answer (2026-10-21): route.** "Pick + pointers, then on read", the recommended option.
+  - At a task's first prompt, one model pick pushes the top essential entries, at most 8 KB, together with a list of
+    the relevant sections.
+  - Whenever Claude then opens a file, that file's map entries are added, with no model call.
+
+  The other options shown were: raise the push to the platform's limit; pointers and on-read delivery with no model;
+  or a lookup Claude calls itself. D22 re-checks under this route.
+- **Run 2 check (pre-registered 2026-10-21, before the smoke; run 2 overall, after the block):**
+  - *The push* is (d2)'s saved output: its picked entries (at most 8 KB) and its picked sections as pointers (file ›
+    heading lines). (d1) is not used, because it yields no section list without a third call; that reason is
+    structural, not attempt 1's scores. The saved picks were made before any grade existed. The pick runs offline
+    here; running it inside a `UserPromptSubmit` hook (4 to 18 s against the hook timeout, and a nested `claude`) is
+    D18's test.
+  - *On read:* a `PostToolUse` hook matched to Read ([onread.mjs](probes/V2-D22-selection/onread.mjs)). For a Read
+    of a repo file, it delivers the map entries of that file in source order, with these limits:
+    - at most 8 KB per file, once per file per session;
+    - entries already pushed are not repeated;
+    - nothing for a file with no entries (code files).
+
+    No ranking inside the file, because that would be a selector, and selectors are what failed. Every delivery is
+    logged.
+  - *Arrival first* (D12's rule). The docs support `additionalContext` on `PostToolUse` (capped at 10,000
+    characters); a Read matcher is not documented. Three Haiku runs give the channel a nonce from the environment
+    ([arrival.mjs](probes/V2-D22-selection/arrival.mjs)), counting only runs where the hook fired. 3 of 3 is
+    required; otherwise the route needs another second channel, and that question goes to the user.
+  - *Sessions:* D20's harness, arm `r`, two Sonnet runs per task, Bash and the web off, at the same commits.
+  - *Measure:* reach, the share of the judge's essential entries (attempt 1's graded set) that reached Claude by
+    either channel. **Pass: the mean over the two runs is at least 0.8 on every task.**
+  - *Reported, with no bar:*
+    - KB delivered per session, split between push and on-read;
+    - files read and files delivered;
+    - hook time;
+    - cost per session;
+    - the graded share of delivered bytes, and the relevant share among them;
+    - native's coverage alongside.
+
+    The on-read channel is scoped by file, so its relevance will be lower than the push's; that is said before
+    the run.
+  - *Fresh and not fresh.* The push half is not fresh, because the tasks have been seen next to their grades.
+    The on-read half depends on what Claude reads in live sessions, which nobody has seen.
+  - *Cost:* about 10 to 20 USD for 12 Sonnet sessions, plus the Haiku smoke. *If run 2 fails,* the question goes
+    back to the user; no run 3 is planned.
 
   Attempts: 1 (attempts 2 and 3 ruled out by count).
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key

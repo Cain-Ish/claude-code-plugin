@@ -63,6 +63,11 @@ const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
   if (arm === 'a') return {};
+  if (arm === 'r') { // V2-D22, the user's route: a push at prompt arrival, then the map entries of each file read
+    fs.copyFileSync(task.route, path.join(base, 'route.json'));
+    const h = { hooks: [nodeHook(path.join('..', 'V2-D22-selection', 'onread.mjs'), base)] };
+    return { UserPromptSubmit: [h], PostToolUse: [{ matcher: 'Read', ...h }] };
+  }
   const d = { hooks: [nodeHook('deliver.mjs', base)] };
   const writes = { matcher: 'Write|Edit|MultiEdit', ...d };
   fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm,
