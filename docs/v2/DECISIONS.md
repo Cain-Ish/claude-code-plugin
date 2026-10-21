@@ -495,7 +495,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   on-disk form a person can correct (PM4), and the repo with no rules. Not settled here:
   - *How a project's areas are found.* The converter's `area` field is a per-entry topic: 1,398 (P1), 2,106 (P2)
     and 1,253 (R0) distinct labels, nearly one per entry. That does not answer D10's question, and no bar set today
-    could measure a consolidation not yet designed. It stays open, under this id, as a later sub-check.
+    could measure a consolidation not yet designed. It moved to D22 on 2026-10-21: whether selection needs areas at
+    all is D22's question, and if it does not, the per-entry label serves D10's area attribute as it is.
   - *The draft's "generated index under the D13 cap":* dropped, because D13 locked no always-on index.
 - **Reviewer (user, 2026-10-21):** Gemini Pro in the browser, in place of the human reviewer the draft named. The user
   allowed P1 and P2 text to go to Gemini for this check: an exception to process rule 10, for D15 only, with only
@@ -824,7 +825,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - the source stays the home, and an entry is a committed derivative anchored to its blocks (drift: D16);
   - the map is plain Markdown, one file per source file, which a person can correct with the plugin off (PM4);
   - a repo with no documents gets no synthesised conventions; its map starts from the inventory (D21) and from
-    captured work (D14).
+    captured work (D14). This rests on the citation. The A1 fixture's documents were converted and reviewed only in
+    attempt 1, with the 40 KB converter and the old definition.
+
+  Not settled here: how a project's areas are found. The converter's labels are per-entry topics (1,253 to 2,106
+  per repo); the question moved to D22.
 - **Rejected:**
   - One pass over inputs up to 40 KB (attempt 1: recall 0.48 to 0.79).
   - One pass at 4 KB under a prescriptive-only definition (attempt 2: R0 0.73; also the user's scope answer).
@@ -1141,6 +1146,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     declare scopes.
 - **Options still open:** (d) a model picks entries from candidates; (e) routing by the written path at the first
   write in an area, with prompt-time delivery for work that never writes; combinations of the two.
+- **From D15 (2026-10-21):**
+  - whether selection needs a project's areas, and if so how they are found (the converter's labels are per-entry
+    topics);
+  - the map under the user's scope is about as large as the documents;
+  - a full conversion of the test bed costs about 78 USD.
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.
