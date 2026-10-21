@@ -16,12 +16,12 @@ const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const ev = input.hook_event_name;
 const CAP = 8 * 1024;
 const show = (id) => route.entries[id].text;
-const fill = (ids) => {
+const fill = (ids, cap = CAP) => {
   const out = [];
   let used = 0;
   for (const id of ids) {
     const b = Buffer.byteLength(show(id));
-    if (!delivered.has(id) && used + b <= CAP) { out.push(id); used += b; }
+    if (!delivered.has(id) && used + b <= cap) { out.push(id); used += b; }
   }
   return { out, used };
 };
@@ -29,7 +29,10 @@ let ctx = null;
 const log = { ev };
 
 if (ev === 'UserPromptSubmit' && !past.some((l) => l.ev === 'UserPromptSubmit')) {
-  const { out, used } = fill(route.push);
+  // the whole push stays under the platform's 10,000-character cap (over it, Claude gets only a 2,000-character
+  // preview): entries fill what the pointers leave of 9,500 bytes, at most 8 KB
+  const pointersBytes = Buffer.byteLength(route.pointers.map((p) => `- ${p}`).join('\n')) + 300;
+  const { out, used } = fill(route.push, Math.min(CAP, 9500 - pointersBytes));
   ctx = '[d22-map] Project knowledge for this task, quoted from the project\'s own documents with their source.\n\n'
     + `${out.map(show).join('\n')}\nSections that hold more on this task; read them where the task needs them:\n`
     + route.pointers.map((p) => `- ${p}`).join('\n');
@@ -37,6 +40,7 @@ if (ev === 'UserPromptSubmit' && !past.some((l) => l.ev === 'UserPromptSubmit'))
 } else if (ev === 'PostToolUse' && input.tool_name === 'Read') {
   // Windows sends the path absolute with backslashes; the map is keyed by the repo-relative path
   const file = path.relative(input.cwd ?? '.', String(input.tool_input?.file_path ?? '')).replace(/\\/g, '/');
+  log.read = file;
   if (route.byFile[file] && !past.some((l) => l.file === file)) {
     const { out, used } = fill(route.byFile[file]);
     if (out.length) {

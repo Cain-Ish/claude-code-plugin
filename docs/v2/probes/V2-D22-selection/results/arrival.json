@@ -1,0 +1,7 @@
+{
+ "channel": "PostToolUse additionalContext after Read",
+ "fired": 3,
+ "quoted": 3,
+ "runs": 3,
+ "pass": true
+}

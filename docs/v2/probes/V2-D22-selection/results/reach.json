@@ -1,0 +1,193 @@
+{
+ "date": "2026-10-21",
+ "route": "pick + pointers, then on read",
+ "tasks": {
+  "R0-task1": {
+   "essential": 25,
+   "runs": [
+    {
+     "reach": 0.4,
+     "reachByPush": 0.4,
+     "kb": 5.4,
+     "pushKb": 5.4,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 12,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 167
+    },
+    {
+     "reach": 0.4,
+     "reachByPush": 0.4,
+     "kb": 5.4,
+     "pushKb": 5.4,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 16,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 163
+    }
+   ],
+   "meanReach": 0.4,
+   "pass": false
+  },
+  "R0-task2": {
+   "essential": 32,
+   "runs": [
+    {
+     "reach": 0.5,
+     "reachByPush": 0.5,
+     "kb": 6.5,
+     "pushKb": 6.5,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 1,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 163
+    },
+    {
+     "reach": 0.5,
+     "reachByPush": 0.5,
+     "kb": 6.5,
+     "pushKb": 6.5,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 1,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 168
+    }
+   ],
+   "meanReach": 0.5,
+   "pass": false
+  },
+  "P1-task1": {
+   "essential": 28,
+   "runs": [
+    {
+     "reach": 0.29,
+     "reachByPush": 0.29,
+     "kb": 6.1,
+     "pushKb": 6.1,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 1,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 0.97,
+     "hookMsMax": 118
+    },
+    {
+     "reach": 0.36,
+     "reachByPush": 0.29,
+     "kb": 14,
+     "pushKb": 6.1,
+     "readKb": 7.9,
+     "filesDelivered": 1,
+     "readCalls": 1,
+     "gradedBytesShare": 0.78,
+     "relevantShareOfGraded": 0.66,
+     "hookMsMax": 63
+    }
+   ],
+   "meanReach": 0.32,
+   "pass": false
+  },
+  "P1-task2": {
+   "essential": 30,
+   "runs": [
+    {
+     "reach": 0.27,
+     "reachByPush": 0.27,
+     "kb": 4.2,
+     "pushKb": 4.2,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 6,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 121
+    },
+    {
+     "reach": 0.27,
+     "reachByPush": 0.27,
+     "kb": 4.2,
+     "pushKb": 4.2,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 10,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 61
+    }
+   ],
+   "meanReach": 0.27,
+   "pass": false
+  },
+  "P2-task1": {
+   "essential": 45,
+   "runs": [
+    {
+     "reach": 0.31,
+     "reachByPush": 0.31,
+     "kb": 6,
+     "pushKb": 6,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 4,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 29
+    },
+    {
+     "reach": 0.31,
+     "reachByPush": 0.31,
+     "kb": 6,
+     "pushKb": 6,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 8,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 28
+    }
+   ],
+   "meanReach": 0.31,
+   "pass": false
+  },
+  "P2-task2": {
+   "essential": 26,
+   "runs": [
+    {
+     "reach": 0.23,
+     "reachByPush": 0.23,
+     "kb": 6.1,
+     "pushKb": 6.1,
+     "readKb": 0,
+     "filesDelivered": 0,
+     "readCalls": 0,
+     "gradedBytesShare": 1,
+     "relevantShareOfGraded": 1,
+     "hookMsMax": 26
+    },
+    {
+     "reach": 0.35,
+     "reachByPush": 0.23,
+     "kb": 10,
+     "pushKb": 6.1,
+     "readKb": 3.9,
+     "filesDelivered": 1,
+     "readCalls": 4,
+     "gradedBytesShare": 0.94,
+     "relevantShareOfGraded": 0.9,
+     "hookMsMax": 30
+    }
+   ],
+   "meanReach": 0.29,
+   "pass": false
+  }
+ },
+ "pass": false
+}

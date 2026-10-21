@@ -1324,6 +1324,27 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     The on-read half depends on what Claude reads in live sessions, which nobody has seen.
   - *Cost:* about 10 to 20 USD for 12 Sonnet sessions, plus the Haiku smoke. *If run 2 fails,* the question goes
     back to the user; no run 3 is planned.
+- **Run 2 result (2026-10-21): fail.** ([results/reach.json](probes/V2-D22-selection/results/reach.json),
+  [results/arrival.json](probes/V2-D22-selection/results/arrival.json))
+  - *Arrival:* `PostToolUse` `additionalContext` after a Read reached Haiku in 3 of 3 runs, so the channel carries
+    content.
+  - *Plumbing fix found by the Haiku smoke, before any Sonnet run (disclosed).* The push with its pointers came to
+    10.5 KB, over the platform's 10,000-character cap, above which Claude gets only a 2,000-character preview. The
+    push now fills what the pointers leave of 9,500 bytes.
+  - *Reach:* the mean of two Sonnet sessions was 0.40 and 0.50 on R0's tasks, 0.32 and 0.27 on P1's, and 0.31 and
+    0.29 on P2's. All 12 sessions were valid; they cost 4.97 USD.
+  - *Why.* The on-read channel delivered in 2 of 12 sessions. On these investigation tasks Claude read code files
+    (up to 16 reads per session) and opened almost none of the documents the map's entries come from, and it did
+    not follow the pointers. So reach came from the push alone: 4.2 to 6.5 KB of entries once the pointers took
+    their share, which is 23% to 50% of the essentials. Where a document was read, its delivery added 4 to 8 KB at
+    a relevant share of 0.66 to 0.90.
+  - *The assumption that failed this time:* that Claude opens the documents a task's knowledge lives in. In
+    investigation tasks it reads the code. Delivery keyed to a document read misses; delivery keyed to the code file
+    being read is not tested. The converter's applies-when terms name code paths, as D13 found.
+  - *Spend on D22:* about 113.50 USD.
+
+  Attempts: 1 (attempts 2 and 3 ruled out by count), then run 2 under the user's route: fail. Per the
+  pre-registration, the question goes back to the user.
 
   Attempts: 1 (attempts 2 and 3 ruled out by count).
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
