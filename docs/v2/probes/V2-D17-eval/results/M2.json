@@ -1,0 +1,64 @@
+{
+  "plan": "../../05-eval-plan.md",
+  "runs": [
+    {
+      "arm": "M2",
+      "run": 1,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.053982800000000004,
+          "inputTokens": 8,
+          "outputTokens": 2114,
+          "cacheReadTokens": 79628,
+          "cacheWriteTokens": 6216,
+          "turns": 11,
+          "durationMs": 19053
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0713039,
+          "inputTokens": 8,
+          "outputTokens": 3264,
+          "cacheReadTokens": 83479,
+          "cacheWriteTokens": 7575,
+          "turns": 13,
+          "durationMs": 23695
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.030788100000000002,
+          "inputTokens": 6,
+          "outputTokens": 1051,
+          "cacheReadTokens": 59101,
+          "cacheWriteTokens": 3589,
+          "turns": 5,
+          "durationMs": 8914
+        }
+      },
+      "capture": {
+        "C1": false,
+        "C2": false,
+        "C3": false,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 0,
+        "withSource": 0,
+        "leaks": 0
+      },
+      "map": {},
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.1560748,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    }
+  ]
+}

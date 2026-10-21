@@ -190,12 +190,12 @@ function runOnce(scratch, arm, i) {
     const repoH = path.join(dir, 'repo-H');
     makeRepo(repoH, null, CAPTURE_HOOKS);
     for (const [name, prompt] of S.HISTORY) session(name, prompt, repoH, null);
-    const map = walk(path.join(repoH, '.claude', 'map'));
+    const map = walk(path.join(repoH, '.project-map'));
     rec.capture = scoreAll(C_ITEMS, Object.values(map).join('\n'));
     rec.provenance = provenanceOf(map);
     rec.map = Object.fromEntries(Object.entries(map).map(([p, t]) => [p, Buffer.byteLength(t)]));
     const st = spawnSync('git', ['status', '--porcelain', '-uall'], { cwd: repoH, encoding: 'utf8' }).stdout.split('\n').filter(Boolean).map((l) => l.slice(3));
-    rec.changedOutsideMap = st.filter((p) => !p.startsWith('.claude/map/') && p !== '.claude/settings.local.json').length;
+    rec.changedOutsideMap = st.filter((p) => !p.startsWith('.project-map/') && p !== '.claude/settings.local.json').length;
     rec.commits = Number(spawnSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repoH, encoding: 'utf8' }).stdout.trim());
     rec.costUsd = Object.values(rec.sessions).reduce((a, s) => a + (s.costUsd ?? 0), 0);
     rec.valid = rec.invalid.length === 0;

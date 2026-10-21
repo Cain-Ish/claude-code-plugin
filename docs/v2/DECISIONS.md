@@ -523,6 +523,18 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     "unreviewed, not yet committed" label. That is how text captured from an untrusted source stays visible as
     unreviewed until a person commits it. It is not tested here, because delivery is D22's and D18's.
   - *Cost:* about 2 to 5 USD.
+- **Amended after one plumbing run, before the scored runs (2026-10-21, disclosed).** M2's run 1 showed that Claude
+  tried to write a map entry in each of H1, H2 and H3, and each write was refused. Claude Code protects `.claude/`,
+  so the headless `acceptEdits` mode asks before writing there, and in normal use every capture would prompt the
+  user. Two changes follow:
+  - *The map moves to `.project-map/`.* The instruction's text changes only in that path, and its sha256 becomes
+    `8aa72396af72`; it still holds no A1 answer token or cue word. The final path is D18's.
+  - *M2's git condition was wrong for A1.* The history sessions do real work, so code files change legitimately.
+    M2 is scored on "no commit" only, and files changed outside the map are reported. The probe, a read-only task,
+    keeps "nothing outside the map changes".
+
+  Run 1 is replaced and reported as plumbing. The capture result of that run (no entries, because every write was
+  refused) does not count.
 
   Attempts: 0.
 

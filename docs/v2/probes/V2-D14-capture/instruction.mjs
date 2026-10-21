@@ -8,9 +8,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-export const INSTRUCTION = `This project keeps a map of its knowledge in the folder .claude/map/. When, during your work, someone states a
+export const INSTRUCTION = `This project keeps a map of its knowledge in the folder .project-map/. When, during your work, someone states a
 decision or rule for this project, or you receive or read a document that states requirements, specifications or
-rules the project's work must follow, add each one to .claude/map/captured.md as its own entry, in the words used,
+rules the project's work must follow, add each one to .project-map/captured.md as its own entry, in the words used,
 with its source. Keep what will still matter in later sessions; leave out one-off details of the current task.
 Entry format:
 
