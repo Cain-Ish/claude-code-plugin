@@ -72,3 +72,26 @@ held is judged on the blocks the delivered entries cite. Counts in `results/summ
 citing each converted card ranks within about 9 KB; for R0 and P2 build at 5 to 125 KB, among hundreds of entries on
 the same topics. Five P2 build cards stitch a heading to its body and cannot reach the 80% bar against any corpus, so
 that task could not pass under any selector; this is fixed before any further attempt and changes neither result.
+
+## After attempt 2: corrected held rule, ceiling, R0 by hand (2026-10-21)
+
+The registered scores stand. Corrected rule (`corrected.mjs`, `results/held-corrected.json`): a card is holdable when
+the whole corpus covers at least half of its trigrams, and held when the delivered blocks cover at least 0.8 times
+that. 26 of 27 cards are holdable (not P1 R1, which is in a config file).
+
+| Task | Attempt 1 at 8 KB | Attempt 2 at 8 KB | Attempt 2 ceiling (every cited block) | Pass needs |
+| --- | --- | --- | --- | --- |
+| P1 build | 2 | 3 | 5 | 5 |
+| P2 build | 0 | 1 | 6 | 7 |
+| R0 build | 1 | 0 | 5 | 7 |
+| P2 plan | 3 | 3 | 5 | 4 |
+| **All** | **6** | **7 (0.26)** | **21** | |
+
+On attempt 2's entries no selector can pass: both build tasks have a ceiling below 7 of 8. A third attempt would mean
+converting again with a prompt changed after seeing which rules it missed (fitting), so D13 locks the entry's shape
+and selection moves to V2-D22, behind D15.
+
+By hand (R0 is public): of the 26 entries attempt 2 delivered at 8 KB for the R0 task, 5 bind it (where hooks are
+registered, the hook script conventions, line-oriented `jq`, the timing wrapper, the `_comment` convention) and 21
+are on the same topics without binding it. The task does not need more than 8 KB; the selector does not separate
+rules inside the repo's own topic.

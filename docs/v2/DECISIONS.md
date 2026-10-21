@@ -16,19 +16,21 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
-| V2-D13 | What does an entry hold, and how do a task's entries reach Claude without a hand list, within what budget? (narrowed 2026-10-21) | CHECKING | evidence | D10, D11, D12, D20 |
+| V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | OPEN | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
-| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D13, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
+| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
+| V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | OPEN | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D13**. D20 is locked for following (2026-10-21). D13's check now includes selection: its index
-or router has to bring the same 27 rules D20 delivered by hand. Then **D15**: the pipeline is convert, then format,
-then enforce. D14, D16 and D18 wait for D13. D19's v2 arm (map item 6b) also waits for D13.
+Frontier (rule 6): **D15**. D13 locked the entry's shape (2026-10-21). Selection moved to D22, which waits for D15,
+because a selector cannot find what onboarding did not convert: the blind converter's cited sources hold 21 of
+the 26 holdable rules (corrected held rule). D15's prototype exists (D13's attempt 2 output). Then **D22**, then
+D14, D16 and D18. D19's v2 arm (map item 6b) waits for D22.
 
 ---
 
@@ -394,8 +396,48 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     bar against the whole corpus (attempt 1). The P2 build task could not reach 7 of 8 under any selector. This
     changes neither result, because both attempts also fail on R0, but it is fixed before any further attempt. The
     scores above stand as registered (rule 2).
+- **Held rule corrected (2026-10-21, disclosed; the registered scores stand):** a card is holdable when the whole
+  corpus covers at least half of its trigrams, and held when the delivered blocks cover at least 0.8 times what the
+  corpus covers ([corrected.mjs](probes/V2-D13-selection/corrected.mjs),
+  [results/held-corrected.json](probes/V2-D13-selection/results/held-corrected.json)). 26 of 27 cards are holdable;
+  P1 R1, in a config file, is not. At 8 KB, attempt 1 holds 6 and attempt 2 holds 7 (0.26). Neither verdict changes.
+- **Attempt 3 is ruled out by a count, not run (2026-10-21).** Every block the converter cited, taken together,
+  holds P1 5 of 6, P2 build 6 of 8, R0 5 of 8 and the plan 5 of 5. So on attempt 2's entries no selector, (d)
+  included, can reach 7 of 8 on either build task. Lifting that ceiling means converting again with a prompt changed
+  after seeing which rules it missed, and that is fitting. Rule 4 applies: the framing is wrong, and a count showed
+  it before a third run. Selection recall is bounded by onboarding recall.
+- **By hand, R0 (public):** of the 26 entries attempt 2 delivered at 8 KB for the R0 task, 5 bind it and 21 are on
+  the same topics (JSONL files, other hooks, project slugs) without binding it. So the task does not need more than
+  8 KB, and the failure is the selector: lexical keys do not separate rules inside a repo's own topic.
+- **Split (2026-10-21):** as with D20, the question is split at what the checks settled. The entry's shape locks
+  here. Selection becomes V2-D22, behind D15, because its recall is bounded by onboarding's. This lock was not
+  pre-registered as such: the registered check tested selection, and that failed twice. The shape rests on what
+  those runs showed whatever the selection result. If the phase-gate review (rule 8) finds that insufficient, D13
+  returns to CHECKING.
+- **Choice (2026-10-21), the entry:**
+  - The rule in its source's own words, trimmed, with cuts marked and at most 300 characters.
+  - Its source anchor: the file, the heading path and the blocks it came from.
+  - The area it governs, and applies-when terms.
+  - Written at onboarding (D15) into the map's plain files (D11).
 
-  Attempts: 2.
+  The delivery budget stays at most 8 KB per task, below the 10,000-character `additionalContext` limit; the sets
+  D20 delivered and Claude followed were 1.7 to 2.5 KB. What this shape stands on:
+  - D20 stage 2: entries of this shape, written by hand, were followed (7 of 8 native misses fixed).
+  - Attempt 1: the alternative, the sources' own blocks, overflows the limit at section or file grain (14 to 186 KB
+    per task) and cannot be selected at block grain.
+  - Attempt 2: the shape can be built blind for all three repos, in 421 calls with none failing, for 22.35 USD. It
+    comes to about a third of the blocks' text.
+- **Rejected:**
+  - Indexing the sources in place, with no conversion (attempt 1).
+  - Per-file selection keys (ruled out by the size count).
+  - A paper map written by hand, which would repeat D20's oracle.
+  - Restated entries: they would fire D20's first reopen trigger.
+- **Reopen if:**
+  - A selector reaches D22's pass on the sources' own blocks.
+  - D15's reviewer finds converted quotes reworded, or rejects more entries than its bar allows.
+  - D20 reopens on what can be delivered verbatim.
+
+  Attempts: 2 (both on selection, which moved to D22).
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
@@ -551,7 +593,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   either never looked for a rule or document, or had it and ignored it.
 - **Narrowed (2026-10-21):** the check that decided this answers the second half only, because stage 2's selection
   was an oracle. The first half, which rules reach Claude for a task, moved to D13 (the format and its index) and
-  D18 (what runs where, and its surface budget), measured against the same 27 rules.
+  D18 (what runs where, and its surface budget), measured against the same 27 rules. On 2026-10-21 it moved on
+  from D13 to D22.
 - **Options:** (a) native only: an index in `CLAUDE.md` plus path rules and skills (how P1 runs today); (b) delivery:
   the rules' own text, few at a time, when the prompt arrives, before the first write in an area (a `PreToolUse` deny
   whose reason carries the rules), into subagents and again after compaction; (c) (b) plus deterministic checks fed
@@ -725,3 +768,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Evidence so far:** compute structure such as the component inventory from code on demand instead of storing it
   (prior-and-SOTA rules 1, 2, 7); P2's 6,740 scripts are found only by search (research
   2026-10-20-scale-real-repos).
+
+### V2-D22 — Selection
+- **Question (split from D13, 2026-10-21):** how do the entries that bind a task reach Claude, without a hand-made
+  list and within 8 KB per task (D13's budget)? It covers the work with a write (a build) and the work without one
+  (a plan, a review).
+- **What carries over from D13:**
+  - Lexical ranking at prompt time failed twice: over the sources' own blocks, and over blind-converted entries with
+    applies-when terms. It held 6 and 7 of D20's 27 rules at 8 KB under the corrected held rule, against native's
+    0.60 of rule-runs.
+  - In R0 it delivered 5 binding entries out of 26. The keys do not separate rules inside a repo's own topic.
+  - Recall is bounded by onboarding's: the converter's cited sources hold 21 of the 26 holdable rules (corrected held
+    rule; 15 of 21 at the registered bar). So this decision waits for D15.
+  - The converter's applies-when terms carry paths and file types in all three repos. So routing at the first
+    write by the written path (option (e), D20's first-write moment) is no longer limited to P1, whose sources alone
+    declare scopes.
+- **Options still open:** (d) a model picks entries from candidates; (e) routing by the written path at the first
+  write in an area, with prompt-time delivery for work that never writes; combinations of the two.
+- **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
+  designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
+  tasks in the same repos), with D13's corrected held rule.

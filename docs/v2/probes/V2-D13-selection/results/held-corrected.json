@@ -1,0 +1,78 @@
+{
+ "P1-build": {
+  "rules": 6,
+  "holdable": 5,
+  "attempt1": [
+   0,
+   1,
+   2,
+   2,
+   2
+  ],
+  "attempt2": [
+   2,
+   2,
+   3,
+   4,
+   5
+  ],
+  "attempt2Ceiling": 5
+ },
+ "P2-build": {
+  "rules": 8,
+  "holdable": 8,
+  "attempt1": [
+   0,
+   0,
+   0,
+   1,
+   2
+  ],
+  "attempt2": [
+   0,
+   0,
+   1,
+   1,
+   1
+  ],
+  "attempt2Ceiling": 6
+ },
+ "R0-build": {
+  "rules": 8,
+  "holdable": 8,
+  "attempt1": [
+   0,
+   0,
+   1,
+   1,
+   1
+  ],
+  "attempt2": [
+   0,
+   0,
+   0,
+   1,
+   1
+  ],
+  "attempt2Ceiling": 5
+ },
+ "P2-plan": {
+  "rules": 5,
+  "holdable": 5,
+  "attempt1": [
+   0,
+   0,
+   3,
+   3,
+   4
+  ],
+  "attempt2": [
+   0,
+   0,
+   3,
+   3,
+   4
+  ],
+  "attempt2Ceiling": 5
+ }
+}
