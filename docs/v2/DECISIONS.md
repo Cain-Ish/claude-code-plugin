@@ -707,6 +707,20 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Also reported:* entries per KB, and the projected full-map size per repo at that yield (D22's input).
   - *If it fails* (rule 4, third attempt): D15 is marked BLOCKED, and the assumption reopened is that one model pass
     over a document window converts it completely.
+- **Attempt 3, first parts (2026-10-21):**
+  - *Converter:* 60 windows, 1.16 USD; planted documents, 3.53 USD.
+  - *Verbatim:* 100%, 99.3% and 98.7%: pass.
+  - *Planted rules:* P1 8 of 8, **P2 7 of 8**, R0 8 of 8, so this part **fails** and with it attempt 3. The lost
+    rule was a prescriptive declarative placed between a list item and its indented continuation, in a dense 4 KB
+    window. The converter wrote about ten entries from that window and none for the planted line.
+  - *Sample:* P1's unpointed stratum had no eligible window left after attempts 1 and 2, so its six slots passed to
+    "none", as registered.
+  - *Yield and projected size under the user's definition.* The sampled windows gave 3.9, 6.0 and 5.9 entries per
+    KB, and the whole planted documents about 4.0. Over each repo's document text that projects to about 5,800
+    entries (1.4 MB) for P1, 8,800 to 13,500 (2.7 MB) for P2, and 4,600 to 6,700 (1.3 MB) for R0. That is 3 to 5
+    times D13's map, and about as large as the documents themselves. So the conversion does not compress; its
+    value is the anchors and keys. That is D22's input.
+  - The reviewers' passes are still running. They are reported when done, but cannot change the verdict.
 
   Attempts: 2.
 
