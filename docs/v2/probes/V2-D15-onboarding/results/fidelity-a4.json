@@ -1,0 +1,28 @@
+{
+ "date": "2026-10-21",
+ "bar": 0.95,
+ "pass": true,
+ "repos": {
+  "P1": {
+   "entries": 1020,
+   "verbatim": 1019,
+   "share": 0.999,
+   "uncheckable": 4,
+   "over300": 59
+  },
+  "P2": {
+   "entries": 806,
+   "verbatim": 801,
+   "share": 0.994,
+   "uncheckable": 1,
+   "over300": 48
+  },
+  "R0": {
+   "entries": 483,
+   "verbatim": 477,
+   "share": 0.988,
+   "uncheckable": 0,
+   "over300": 9
+  }
+ }
+}

@@ -782,6 +782,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Reported to attribute the gain:* precision and recall counting first-pass entries only, the verify pass's
     yield, the duplicates it dropped, and the cost per KB.
   - *If run 4 fails, D15 stays BLOCKED and goes to the user.* A fifth run is not planned.
+- **Run 4, automatic parts (2026-10-21):**
+  - *Verbatim:* 99.9%, 99.4% and 98.8%: pass.
+  - *Planted rules:* 8 of 8 in each repo, half of them descriptive: pass.
+  - *PM4 round trip with context:* pass.
+  - *Verify pass:* it added 24, 12 and 16 entries to the first pass's 163, 196 and 166 (6% to 13%). It dropped no
+    duplicates, and no verify call failed. Context was attached to 98, 57 and 59 of the sampled entries.
+  - *Cost:* 2.02 USD for the windows and 5.43 USD for the planted documents. Two passes cost about 1.6 times
+    attempt 3.
+  - *Sample:* P1's unpointed stratum is still empty, so its slots passed to "none", as in attempt 3.
+  - The three reviewers are running.
 
   Attempts: 3.
 

@@ -1,0 +1,73 @@
+{
+ "seed": "d15-2026-10-21-d",
+ "sectionMaxBytes": 4096,
+ "promptSha256": "a833629588b0",
+ "repos": {
+  "P1Converter": {
+   "calls": 20,
+   "failed": 0,
+   "entries": 187,
+   "costUsd": 0.75
+  },
+  "P1": {
+   "sections": 635,
+   "overCap": 9,
+   "entriesInOverCap": 36,
+   "sampled": {
+    "pointed": 9,
+    "unpointed": 0,
+    "none": 11,
+    "A1": 0
+   },
+   "entriesSampled": 187,
+   "pasteKb": [
+    47,
+    67
+   ]
+  },
+  "P2Converter": {
+   "calls": 20,
+   "failed": 0,
+   "entries": 208,
+   "costUsd": 0.62
+  },
+  "P2": {
+   "sections": 1615,
+   "overCap": 3,
+   "entriesInOverCap": 18,
+   "sampled": {
+    "pointed": 9,
+    "unpointed": 6,
+    "none": 5,
+    "A1": 0
+   },
+   "entriesSampled": 208,
+   "pasteKb": [
+    33,
+    56
+   ]
+  },
+  "R0Converter": {
+   "calls": 20,
+   "failed": 0,
+   "entries": 182,
+   "costUsd": 0.65
+  },
+  "R0": {
+   "sections": 717,
+   "overCap": 0,
+   "entriesInOverCap": 0,
+   "sampled": {
+    "pointed": 9,
+    "unpointed": 6,
+    "none": 5,
+    "A1": 0
+   },
+   "entriesSampled": 182,
+   "pasteKb": [
+    37,
+    58
+   ]
+  }
+ }
+}
