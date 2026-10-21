@@ -1,0 +1,62 @@
+{
+ "date": "2026-10-21",
+ "reviewer": "a fresh Claude (Opus) subagent per repo",
+ "bars": {
+  "precision": 0.8,
+  "recall": 0.8
+ },
+ "pass": true,
+ "groups": {
+  "P1": {
+   "sections": 20,
+   "entries": 187,
+   "judged": 187,
+   "precision": 0.98,
+   "binds": 186,
+   "faithful": 184,
+   "areaFits": 186,
+   "rulesListed": 214,
+   "covered": 208,
+   "recall": 0.97,
+   "firstPassOnly": {
+    "entries": 163,
+    "precision": 0.99,
+    "recall": 0.92
+   }
+  },
+  "P2": {
+   "sections": 20,
+   "entries": 208,
+   "judged": 208,
+   "precision": 0.95,
+   "binds": 207,
+   "faithful": 198,
+   "areaFits": 208,
+   "rulesListed": 240,
+   "covered": 233,
+   "recall": 0.97,
+   "firstPassOnly": {
+    "entries": 196,
+    "precision": 0.95,
+    "recall": 0.94
+   }
+  },
+  "R0": {
+   "sections": 20,
+   "entries": 182,
+   "judged": 182,
+   "precision": 0.97,
+   "binds": 181,
+   "faithful": 178,
+   "areaFits": 181,
+   "rulesListed": 265,
+   "covered": 260,
+   "recall": 0.98,
+   "firstPassOnly": {
+    "entries": 166,
+    "precision": 0.98,
+    "recall": 0.92
+   }
+  }
+ }
+}

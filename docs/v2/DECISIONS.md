@@ -18,7 +18,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
-| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | BLOCKED 2026-10-21 (3 attempts) | evidence | D13 |
+| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
@@ -27,11 +27,10 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | OPEN | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D15 is BLOCKED** (2026-10-21, three attempts). Its last attempt passed everything except one
-planted rule. The next step goes up a level, to the assumption all three attempts rested on: that one model pass
-over a 4 KB document window converts it completely. A second, checking pass, with table headers kept on their
-rows, is the first candidate. D22 waits for D15, then come D14, D16 and D18. D19's v2 arm (map item 6b) waits for
-D22.
+Frontier (rule 6): **D22** (selection). D15 locked on 2026-10-21, on run 4 after a block: two passes per 4 KB
+window, entries with context, and the user's scope. D22's check needs tasks no design step has seen (the user's), and
+a full conversion of the test bed (about 78 USD, so the user is asked first). Then D14, D16 and D18. D19's v2 arm
+(map item 6b) waits for D22.
 
 ---
 
@@ -431,6 +430,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     per task) and cannot be selected at block grain.
   - Attempt 2: the shape can be built blind for all three repos, in 421 calls with none failing, for 22.35 USD. It
     comes to about a third of the blocks' text.
+- **From D15 (2026-10-21):** an entry also carries `context` (the table header or bold lead label its quote's
+  meaning depends on) when the quote lacks it. This is an addition to the shape; the quote stays verbatim.
 - **Rejected:**
   - Indexing the sources in place, with no conversion (attempt 1).
   - Per-file selection keys (ruled out by the size count).
@@ -791,9 +792,55 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Cost:* 2.02 USD for the windows and 5.43 USD for the planted documents. Two passes cost about 1.6 times
     attempt 3.
   - *Sample:* P1's unpointed stratum is still empty, so its slots passed to "none", as in attempt 3.
-  - The three reviewers are running.
+- **Run 4 result (2026-10-21): pass, on all six parts.** One fresh Opus reviewer per repo, two blind passes each
+  ([results/*-a4.json](probes/V2-D15-onboarding/results/)):
 
-  Attempts: 3.
+  | Part | P1 | P2 | R0 | Bar |
+  | --- | --- | --- | --- | --- |
+  | Verbatim | 99.9% | 99.4% | 98.8% | 95% |
+  | Precision | 0.98 (187) | 0.95 (208) | 0.97 (182) | 0.8 |
+  | Recall | 0.97 (214) | 0.97 (240) | 0.98 (265) | 0.8 |
+  | Planted rules, half descriptive | 8 of 8 | 8 of 8 | 8 of 8 | none lost |
+  | PM4 round trip with context | | | pass | pass |
+
+  - *Where the gain came from.* With first-pass entries only, recall is 0.92, 0.94 and 0.92 and precision 0.99,
+    0.95 and 0.98. The first pass alone would have lost 3 of the 24 planted rules (P1 one, R0 two), and the verify
+    pass found all three. So the verify pass is what holds the "none lost" bar.
+  - *What remains.*
+    - P2 has 10 unfaithful entries, mostly items under a heading that frames them ("Deliberately Rejected",
+      "Anti-Patterns"), quoted as neutral statements. Context covers bold labels and table headers, not headings.
+    - Reviewer changes after a first write: P2 set one entry from faithful to not faithful and one from non-binding
+      to binding; R0 set one area label to not fitting. Where one listed rule spanned two entries, reviewers
+      credited one.
+  - *Cost:* about 16 USD per MB of document text for the two passes on Sonnet. A full conversion of the test bed
+    (4.9 MB of documents) projects to about 78 USD.
+  - *Spend on D15:* 17.50 USD (attempts 1 to 3: 9.87; plumbing after the block: 0.18; run 4: 7.45).
+- **Choice (2026-10-21):** onboarding converts every document file of a repo blind:
+  - one section window of at most 4 KB per model call, with an extract pass and then a verify pass over the same
+    window;
+  - entries of D13's shape, the quote verbatim, plus `context` (the table header or bold lead label the quote's
+    meaning depends on) when the quote lacks it;
+  - the scope is the user's: rules, decisions, and what the project's parts are and do, settings, terms and status;
+  - the source stays the home, and an entry is a committed derivative anchored to its blocks (drift: D16);
+  - the map is plain Markdown, one file per source file, which a person can correct with the plugin off (PM4);
+  - a repo with no documents gets no synthesised conventions; its map starts from the inventory (D21) and from
+    captured work (D14).
+- **Rejected:**
+  - One pass over inputs up to 40 KB (attempt 1: recall 0.48 to 0.79).
+  - One pass at 4 KB under a prescriptive-only definition (attempt 2: R0 0.73; also the user's scope answer).
+  - One pass at 4 KB under the user's scope (attempt 3: a planted rule lost, and table rows and labels cut from
+    their context).
+  - Indexing sources in place (D13).
+- **Reopen if:**
+  - A person reviewing a sample rejects more than 20% of entries. The reviewer here was a model, of the
+    converter's family for P1, P2 and R0 in run 4.
+  - Heading-framed entries, quoted without the heading that changes their meaning, exceed 5% of a repo's sampled
+    entries.
+  - A project keeps its rules in documents outside `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`.
+  - The converter's model or prompt (sha256 `a833629588b0`) changes.
+  - The onboarding cost per MB is ruled out by D18's budget.
+
+  Attempts: 3 failed, then run 4 passed after going up a level (rule 4).
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
