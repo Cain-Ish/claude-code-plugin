@@ -24,3 +24,18 @@ node onboard.mjs selftest
 node onboard.mjs fidelity|a1|sample|pm4|score <config>
 node onboard.mjs plant <config> <planted>
 ```
+
+## Results (2026-10-21): BLOCKED after three attempts
+
+The pass condition, the attempts and the full tables are in [DECISIONS.md, V2-D15](../../DECISIONS.md). Counts per
+attempt are in `results/` (`-a2` and `-a3` suffixes for attempts 2 and 3).
+
+| Attempt | The change | Verbatim | Precision | Recall (P1 / P2 / R0) | Planted | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | D13's converter as is (inputs up to 40 KB) | 96.6-99.1% | 0.92-0.98 | 0.79 / 0.48 / 0.73 | 24 of 24 | fail: recall |
+| 2 | inputs of one 4 KB section window | 98.5-99.7% | 0.81-0.97 | 0.86 / 0.96 / 0.73 | 24 of 24 | fail: R0 recall |
+| 3 | plus the user's rule scope, one rule per item, one reviewer | 98.7-100% | 0.85-0.96 | 0.82 / 0.98 / 0.94 | 23 of 24 | fail: one planted rule |
+
+The reviewer was Gemini Pro in attempts 1 and 2, except R0 in attempt 2 and every repo in attempt 3, which were
+reviewed by a fresh Claude (Opus) subagent. The yield per KB falls with input size, inside rule files too. In attempt
+3 a table row quoted without its header lost its meaning. The PM4 round trip (`results/pm4.json`) passed.
