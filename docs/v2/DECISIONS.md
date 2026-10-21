@@ -1224,6 +1224,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       delivered as "unverified quote" and never as stale. The prototype labelled seven such entries "source changed",
       which was a bug against D16's lock.
   - *The other four parts* (labels, boundary, nested converter, missing runtime) run in the same attempt, unchanged.
+  - *How the run is made, fixed after the fixes and before the run (2026-10-22):*
+    - the floor is timed just before each script, at the same concurrency and call count;
+    - reported, with no bar: one map file touched, then 8 on-read hooks at once that all find the cache stale;
+    - labels are also checked on the unchanged tree: no entry stale, exactly the unverified ones (308) labelled so,
+      none unreviewed. The new entry is placed both in a committed file and in a new file. Across a commit, entries
+      stay labelled until the next session start and are clean after it;
+    - the nested check counts only if hooks ran at all in the nested session. The converter loads project settings
+      only, so the logging hook goes there; otherwise the check would pass without hooks;
+    - the missing runtime is tested in exec form, which decides the pass, and in shell form, which is reported;
+    - the hook library's copies equal their originals, asserted at build: the instruction's hash, the re-find on
+      14,119 entries, the Markdown on 189 files and 389 key lookups.
   - *Attempt 3, planned now:* if the added work cannot be cut, fewer hook calls per tool call. Drop the on-read hook,
     and deliver at the prompt and at writes only.
 
