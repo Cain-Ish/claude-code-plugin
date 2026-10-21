@@ -407,15 +407,18 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   after seeing which rules it missed, and that is fitting. Rule 4 applies: the framing is wrong, and a count showed
   it before a third run. Selection recall is bounded by onboarding recall.
 - **By hand, R0 (public):** of the 26 entries attempt 2 delivered at 8 KB for the R0 task, 5 bind it and 21 are on
-  the same topics (JSONL files, other hooks, project slugs) without binding it. So the task does not need more than
-  8 KB, and the failure is the selector: lexical keys do not separate rules inside a repo's own topic.
+  the same topics (JSONL files, other hooks, project slugs) without binding it. The 8 KB delivered was mostly
+  non-binding, so the cap was not what failed here; the selector was: lexical keys do not separate rules inside a
+  repo's own topic. How large a task's whole binding set is stays unmeasured (the sections holding the cards came
+  to about 5 to 10 KB as compact entries).
 - **Split (2026-10-21):** as with D20, the question is split at what the checks settled. The entry's shape locks
   here. Selection becomes V2-D22, behind D15, because its recall is bounded by onboarding's. This lock was not
   pre-registered as such: the registered check tested selection, and that failed twice. The shape rests on what
   those runs showed whatever the selection result. If the phase-gate review (rule 8) finds that insufficient, D13
   returns to CHECKING.
 - **Choice (2026-10-21), the entry:**
-  - The rule in its source's own words, trimmed, with cuts marked and at most 300 characters.
+  - The rule in its source's own words, trimmed, with cuts marked. The converter's 300-character limit is an
+    unverified default (one card Claude followed in D20 was 353); D15's reviewer settles it.
   - Its source anchor: the file, the heading path and the blocks it came from.
   - The area it governs, and applies-when terms.
   - Written at onboarding (D15) into the map's plain files (D11).

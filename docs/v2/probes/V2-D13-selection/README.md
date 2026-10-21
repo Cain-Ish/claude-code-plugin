@@ -93,5 +93,5 @@ and selection moves to V2-D22, behind D15.
 
 By hand (R0 is public): of the 26 entries attempt 2 delivered at 8 KB for the R0 task, 5 bind it (where hooks are
 registered, the hook script conventions, line-oriented `jq`, the timing wrapper, the `_comment` convention) and 21
-are on the same topics without binding it. The task does not need more than 8 KB; the selector does not separate
-rules inside the repo's own topic.
+are on the same topics without binding it. The 8 KB delivered was mostly non-binding, so the cap was not what failed
+here; the selector does not separate rules inside the repo's own topic.
