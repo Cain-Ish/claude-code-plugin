@@ -25,7 +25,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
-| V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | OPEN | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | CHECKING | evidence | D12, D13, D15, D20 |
 
 Frontier (rule 6): **D22** (selection). D15 locked on 2026-10-21, on run 4 after a block: two passes per 4 KB
 window, entries with context, and the user's scope. D22's check needs tasks no design step has seen (the user's), and
@@ -1151,6 +1151,58 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     topics);
   - the map under the user's scope is about as large as the documents;
   - a full conversion of the test bed costs about 78 USD.
+- **Inputs (user, 2026-10-21):**
+  - Six tasks the user wrote, two per repo, which no design step has seen. The text of P1's and P2's tasks stays
+    private. All six are investigations ("find why", "check whether"), not builds.
+  - Approval of the full conversion (about 78 USD).
+- **Check (pre-registered 2026-10-21, before any arm runs on the six tasks;
+  probe [probes/V2-D22-selection](probes/V2-D22-selection/)):**
+  - *Corpus.* The three repos' full maps from D15's locked converter (sha256 `a833629588b0`, two passes, context).
+    Their sizes are reported as the first real map numbers.
+  - *Arms,* all at prompt time, each delivering at most 8 KB (D13). An entry costs its source line, context and
+    quote.
+    - (b) D13's BM25 scorer, unchanged, over each entry's file, heading path, area, applies-when terms, context and
+      quote; delivered in score order.
+    - (d1) BM25's top 300 entries as compact lines, then one Sonnet call (no tools) that picks the entries someone
+      doing the task must follow or know, ordered by importance; delivered in that order.
+    - (d2) A section index (file › h1 › h2, one line each), then one Sonnet call that picks up to 20 sections, then
+      their entries, then a second call that picks and orders entries. This arm does not depend on shared words,
+      and its result answers D15's carried question: whether sections serve as a project's areas.
+
+    Prompt hashes: pick `cf6d5633de72`, sections `b6737ed2712c` (sha256, 12 characters). Nothing is tuned on the
+    six tasks.
+    *(e)*, routing at the first write, is not an arm: these tasks have no write to gate, and it stays D18's net.
+  - *Judge.* For each task, a fresh Opus subagent, local, in two steps:
+    - First, from the section index alone, it names up to 25 sections a competent person would read for the task.
+      This is the deep pool, independent of the arms, and is written before step 2.
+    - Then it grades every pooled entry: the union of the three arms' deliveries and every entry of its step 1
+      sections, shuffled, with no provenance. Grades: *essential* (needed to do this task right), *useful*, or
+      *no*. "Binds this task" means what someone doing it must follow or must know to do it right.
+  - *Native.* The repo as it is run today, in D20's harness (Bash and the web off, Sonnet 5.5): two runs per task.
+    Native coverage is the share of essential entries whose source file the session opened with Read.
+  - *Pass, per arm, on every task:*
+    - the 8 KB delivery holds at least 80% of the judge's essential entries; where the essential entries exceed
+      8 KB, at least 80% of the delivered bytes are essential instead;
+    - at least 60% of the delivered bytes are essential or useful.
+
+    D22 locks the passing arm with the fewest model calls per prompt, in the order (b), (d1), (d2). A task whose
+    essential set exceeds 8 KB is a finding about D13's budget, not an arm's failure.
+  - *Reported:*
+    - recall of the essential entries against the deep pool alone (the honest number);
+    - essential and useful set sizes in KB per task;
+    - native coverage;
+    - per arm: time per prompt, model calls, tokens and cost;
+    - index build time;
+    - the full map sizes.
+  - *Smoke first* on one of D20's four tasks, already burned, counting entries only.
+  - *Attempts, planned now:*
+    - attempt 2 is (d1) with 600 candidates, drawn from BM25 together with (d2)'s sections;
+    - attempt 3 is (d2) with up to 40 sections.
+
+    The judge's grades do not feed back into any selector.
+  - *Cost:* the conversion about 78 USD (approved); the arms 1 to 2 USD; native 10 to 20 USD.
+
+  Attempts: 0.
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.

@@ -349,6 +349,30 @@ if (mode === 'selftest') {
   const runs = await convertWindows(all, wins, fs.mkdtempSync(path.join(os.tmpdir(), 'd15-smoke-')));
   console.log(`prompt ${crypto.createHash('sha256').update(CONVERTER).digest('hex').slice(0, 12)}:`, runs.map((r) => `${r.entries.length} entries${r.error ? ' (failed)' : ''}`).join(', '),
     `${runs.reduce((t, r) => t + (r.cost ?? 0), 0).toFixed(2)} USD`);
+} else if (mode === 'full') {
+  // onboarding a whole repo with D15's locked converter (run with --a4): every 4 KB window, both passes, context;
+  // resumable, one file per window in d15/full/<repo>/
+  if (ATT !== 4) throw new Error('full needs --a4 (the locked converter)');
+  const dir = path.join(RAW, 'd15', 'full');
+  for (const label of LABELS) {
+    const { all } = load(RAW, label);
+    const wins = sections(all);
+    const out = path.join(dir, label);
+    fs.mkdirSync(out, { recursive: true });
+    const key = (w) => crypto.createHash('sha256').update(`${w.file}#${w.blocks[0]}`).digest('hex').slice(0, 16);
+    const todo = wins.filter((w) => !fs.existsSync(path.join(out, `${key(w)}.json`)));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'd15-full-'));
+    let done = 0;
+    for (let i = 0; i < todo.length; i += 48) {
+      const batch = todo.slice(i, i + 48);
+      const runs = await convertWindows(all, batch, cwd, 8);
+      runs.forEach((r, k) => fs.writeFileSync(path.join(out, `${key(batch[k])}.json`), JSON.stringify({ ...r, windowKey: batch[k].key, blocksIn: batch[k].blocks })));
+      done += batch.length;
+      console.log(`${label}: ${done}/${todo.length}`);
+    }
+    const res = fs.readdirSync(out).map((f) => JSON.parse(fs.readFileSync(path.join(out, f), 'utf8')));
+    console.log(`${label}: ${res.length} windows, ${res.reduce((s, r) => s + r.entries.length, 0)} entries, ${res.filter((r) => r.error).length} failed, ${res.reduce((s, r) => s + (r.cost ?? 0), 0).toFixed(2)} USD`);
+  }
 } else if (mode === 'recheck') {
   // plumbing on burned data, nothing scored (run with --a4): attempt 3's lost planted rule in P2, converted again
   // with the verify pass, twice; and how many of attempt 3's unfaithful P2 entries now carry a table header
