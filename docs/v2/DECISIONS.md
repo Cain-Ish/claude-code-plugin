@@ -25,9 +25,9 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D13, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 
-Frontier (rule 6): **D20 stage 2**: stage 1 (2026-10-21) found both kinds of miss in all three test-bed repos, so the
-delivery arm and the checks-and-accounting arm run on the same four tasks against stage 1's runs as arm (a). Then
-**D13**, **D15** (the pipeline is convert, then format, then enforce). D14, D16 and D18 wait for D13.
+Frontier (rule 6): **D13**. D20 is locked for following (2026-10-21). D13's check now includes selection: its index
+or router has to bring the same 27 rules D20 delivered by hand. Then **D15**: the pipeline is convert, then format,
+then enforce. D14, D16 and D18 wait for D13. D19's v2 arm (map item 6b) also waits for D13.
 
 ---
 
