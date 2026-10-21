@@ -1389,6 +1389,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Spend on D22:* about 119.50 USD.
 
   Attempts: 3 checks failed (attempt 1, run 2, run 3). D22 is BLOCKED; the user decides.
+- **Going up a level: the target (2026-10-21).** All three checks measured reach against one Opus judge's essential
+  set: 25 to 45 entries per task, graded as "must follow or must know" under the user's "everything" scope. Nobody
+  checked whether that set is what Claude needed. The judge stood in for the user, who wrote the tasks and owns the
+  repos.
+  - *Validation, pre-registered before the user sees the lists.* Each task's judged essential entries are written,
+    numbered, to a private checklist (`research/raw/d22/validate/<task>.md`). The user ticks the ones Claude had to
+    have to do the task right, and the ticked set becomes the target.
+  - *Re-scoring, with no new sessions.* The logged deliveries of attempt 1's arms, run 2, run 3 and native's Read
+    logs are scored again against the user's set, with the same bars. The judge-scored results stand as
+    registered. A route that reaches 0.8 of the user's set on every task the user marked may lock, on evidence
+    against the user's target.
+  - *Both outcomes, stated now.* If the user's sets are small, the selection problem for investigation tasks is
+    smaller than the three checks made it look, and the routes may already deliver what matters. If they confirm the
+    judge's sets, the finding stands: investigation tasks need 9 to 18 KB, and no tested route delivers it cheaply.
+    The choice is then between accepting the keyed route for the first slice as a user decision, with its limit
+    recorded, and parking D22 so that the first slice is built around build tasks, where D20 showed delivery works.
+  - *Limit:* the user can only tick from the judge's essential set. Something the judge missed cannot be added
+    here.
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.
