@@ -434,7 +434,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   build tasks with 5 to 8 hand-picked rules (1.7 to 2.5 KB). Even the platform's ceiling (about 9.7 KB of
   `additionalContext`) does not hold 11 to 18 KB. D22 is blocked on this; the user decides budget and route.
 - **From D16 (2026-10-21):** the anchor is the file, the quote and the heading path; block indices are a rebuildable
-  cache. Each entry carries `verified`, set at capture.
+  cache. Each entry carries `verified`, set at capture. In the Markdown it is a `- verified:` line (D18).
 - **From D15 (2026-10-21):** an entry also carries `context` (the table header or bold lead label its quote's
   meaning depends on) when the quote lacks it. This is an addition to the shape; the quote stays verbatim.
 - **Rejected:**
@@ -1195,8 +1195,39 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - 0 agents and 0 MCP servers;
     - always on: 904 bytes (auto memory in D17: 313).
   - *Cost:* about 0.10 USD of Haiku, plus one converter window.
+- **Attempt 1 result (2026-10-22): fail, on the floor, not on the hooks.**
+  - *Prototype hooks,* 40 calls per setting. The p95 at 8 concurrent was 133 ms at session start, 397 ms on read,
+    214 ms on write and 176 ms for the delivery check of 30 entries.
+  - *Floor:* an empty `node -e ""` has p95 146 ms at 8 concurrent (p50 94) and 86 ms alone; `git --version` has 83
+    and 60 ms.
+  - *The failed assumption:* the 100 ms bar came from the post-mortem's proposal for v1's shell guards. The user
+    chose Node afterwards, and the floor was never measured. **On this machine no Node hook can meet it**, an empty
+    one included. Changing the bar counts as this failed attempt (rule 2).
+- **Finding, whatever attempt 2 shows:** every hooked tool call costs at least one Node spawn, 40 to 90 ms in a
+  single session, before the plugin does anything. A session with 100 Reads pays 4 to 9 s for a `PostToolUse(Read)`
+  hook.
+- **Attempt 2 check (pre-registered 2026-10-22, before the fixes and before any run of them):**
+  - *The bar, re-based from the floor alone, with the same number:* each script's **added work**, its p95 minus the
+    p95 of an empty Node process, both at 8 concurrent in the same run, is at most **100 ms**. The post-mortem's 100
+    ms was meant to bound the plugin's work.
+  - *Reported, with no bar:*
+    - the absolute p95 alone, which is what one developer feels per tool call;
+    - the floor;
+    - the extra cost of a shell-form launch (`bash -c "node -e ''"`).
+  - *Hooks use the exec form* (`command: node`, `args`), which the docs say skips the shell.
+  - *Implementation fixes before the run, none of which touch the bar:*
+    - the hook library is self-contained, with no import of the probe modules (production bundles it);
+    - the uncommitted set is cached at session start and refreshed when a map file is newer than the stamp: a new
+      uncommitted entry changes its file, so the next hook re-runs `git status` once. A commit mid-session leaves
+      entries labelled until the next refresh, which is the safe direction;
+    - entries carry D16's `verified`, a line in the Markdown computed at the capture commit. An unverified entry is
+      delivered as "unverified quote" and never as stale. The prototype labelled seven such entries "source changed",
+      which was a bug against D16's lock.
+  - *The other four parts* (labels, boundary, nested converter, missing runtime) run in the same attempt, unchanged.
+  - *Attempt 3, planned now:* if the added work cannot be cut, fewer hook calls per tool call. Drop the on-read hook,
+    and deliver at the prompt and at writes only.
 
-  Attempts: 0.
+  Attempts: 1.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
