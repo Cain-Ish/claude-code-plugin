@@ -1345,8 +1345,6 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
   Attempts: 1 (attempts 2 and 3 ruled out by count), then run 2 under the user's route: fail. Per the
   pre-registration, the question goes back to the user.
-
-  Attempts: 1 (attempts 2 and 3 ruled out by count).
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.
