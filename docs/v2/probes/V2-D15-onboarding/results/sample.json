@@ -1,0 +1,54 @@
+{
+ "seed": "d15-2026-10-21",
+ "sectionMaxBytes": 6144,
+ "repos": {
+  "P1": {
+   "sections": 504,
+   "overCap": 0,
+   "entriesInOverCap": 0,
+   "sampled": {
+    "pointed": 9,
+    "unpointed": 6,
+    "none": 5,
+    "A1": 0
+   },
+   "entriesSampled": 53,
+   "pasteKb": [
+    46,
+    17
+   ]
+  },
+  "P2": {
+   "sections": 1501,
+   "overCap": 0,
+   "entriesInOverCap": 0,
+   "sampled": {
+    "pointed": 9,
+    "unpointed": 6,
+    "none": 5,
+    "A1": 0
+   },
+   "entriesSampled": 50,
+   "pasteKb": [
+    43,
+    15
+   ]
+  },
+  "R0": {
+   "sections": 669,
+   "overCap": 0,
+   "entriesInOverCap": 0,
+   "sampled": {
+    "pointed": 9,
+    "unpointed": 6,
+    "none": 5,
+    "A1": 2
+   },
+   "entriesSampled": 62,
+   "pasteKb": [
+    37,
+    19
+   ]
+  }
+ }
+}

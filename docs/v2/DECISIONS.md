@@ -18,7 +18,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
-| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | OPEN | evidence | D13 |
+| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | CHECKING | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
@@ -488,6 +488,70 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **From D13 (2026-10-21):** D13's attempt 2 converter, run blind on all three test-bed repos, is this decision's
   prototype bootstrap; the reviewer check runs on its output. PM4's format half (a person reads and corrects an
   entry with the plugin disabled) moved here from D13.
+- **Narrowed (2026-10-21):** does the blind converter, run unchanged, turn a repo's documents into entries that are
+  faithful, binding and complete enough to build on? Settled with it: whether the source stays the home, the
+  on-disk form a person can correct (PM4), and the repo with no rules. Not settled here:
+  - *How a project's areas are found.* The converter's `area` field is a per-entry topic: 1,398 (P1), 2,106 (P2)
+    and 1,253 (R0) distinct labels, nearly one per entry. That does not answer D10's question, and no bar set today
+    could measure a consolidation not yet designed. It stays open, under this id, as a later sub-check.
+  - *The draft's "generated index under the D13 cap":* dropped, because D13 locked no always-on index.
+- **Reviewer (user, 2026-10-21):** Gemini Pro in the browser, in place of the human reviewer the draft named. The user
+  allowed P1 and P2 text to go to Gemini for this check: an exception to process rule 10, for D15 only, with only
+  counts in this repo. A model reviewer is weaker than a person. D13's reopen trigger ("D15's reviewer finds
+  converted quotes reworded, or rejects more entries than its bar allows") fires on this reviewer's verdicts as
+  written.
+- **Check (pre-registered 2026-10-21, before the fidelity script, the sample or any paste;
+  probe [probes/V2-D15-onboarding](probes/V2-D15-onboarding/)):**
+  - *Input.* D13 attempt 2's converter output, unchanged: 6,367 entries from 421 calls, made blind to every task.
+  - *1. Verbatim, every entry, no model.* Each stretch of an entry's quote between cut marks that has three or more
+    words must appear as a contiguous word sequence in the blocks the entry cites. Words are letters and digits,
+    lowercased, so whitespace, case and markdown marks do not count. **Bar: at least 95% of entries per repo.**
+    Also counted: quotes over 300 characters, and entries with no stretch of three words.
+  - *2. Sample.* A section is a source file's blocks under one h1 and h2 heading pair. A section over 6 KB of block
+    text is cut at block ends into windows of at most 6 KB, and each window counts as a section. Per repo, 20
+    sections, in three strata: 9 with entries in pointed files (D13's pointed corpus), 6 with entries in unpointed
+    files, and 5 with no entries. If a stratum is short, the remainder comes from the next. *Amended before any
+    paste:* the first draw excluded sections over 6 KB and took 14 per repo, and the excluded sections held 1,215 of
+    P1's 1,834 entries. That draw's counts were the only thing seen; no review had run. The order is
+    sha256 of `d15-2026-10-21` plus the section key, lowest first. The A1 fixture's two docs (style guide and
+    README) are converted with the same converter and added whole to R0's pastes. Both are public, and A1 is
+    reported separately.
+  - *3. Gemini, pass A (sections only).* Gemini lists every rule in each section. It gets the converter's
+    definition of a rule word for word, and it does not see the entries.
+  - *4. Gemini, pass B (same chat, now with the entries).* For each entry, Gemini gives three verdicts:
+    - *binds:* is it a rule by that definition?
+    - *faithful:* does the trimmed quote still say what the source says in context? Trimming that drops a
+      condition, exception or scope is a failure. D20's R6 showed a quote out of context handing over the
+      counter-pattern.
+    - *area fits:* report-only.
+
+    For each rule from pass A, Gemini names the entry that covers it, or none.
+  - *Bars, per repo:*
+    - *Precision:* at least 80% of reviewed entries both bind and are faithful.
+    - *Recall:* at least 80% of pass A's rules are covered by an entry.
+  - *5. Planted rules.* Eight rules per document are written in the document's own style. Each is inserted as its
+    own block at seeded positions, after blocks chosen by the same seed rule. The documents are P1's 169 KB
+    document, P2's 134 KB document, and R0's largest (it has none over 100 KB). Each document is converted again
+    with the converter unchanged. A planted rule is found when an entry cites its block. **Bar: none of the 24
+    lost.** The planted text stays private.
+  - *6. PM4 round trip.* R0's entries are rendered as one Markdown file per source file (entries grouped by heading,
+    each with its quote, source and applies-when terms; not per area, which is unsettled). One quote is changed by a
+    plain text edit, with the plugin's code out of the loop, and the files are parsed back. **Pass:** exactly that
+    entry differs.
+  - *Pass:* all six parts.
+  - *Attempts, planned now.* If precision, recall or the planted rules fail, attempt 2 revises the converter's prompt
+    and is re-tested only on a fresh seed (`d15-2026-10-21-b`), fresh sections and fresh planted rules, never on the
+    sections or rules that produced the misses (D13: tuning against seen misses is fitting).
+  - *Reported, not counted:* converter recall against D20's 27 rules (already inspected in D13: the cited blocks
+    hold 21 of 26 holdable); cost per MB of docs; Gemini's area verdicts.
+  - *Settled by citation, no run (rule 5).* A repo with no rules gets no synthesised conventions. Generated overviews
+    of code score lower and cost more (arXiv 2602.11988, in D13's evidence). Its map starts from the inventory (D21)
+    and from captured work (D14). The charter's "maps what the code shows" is read as that inventory, not as
+    invented rules.
+  - *Settled by part 1's result.* If quotes are verbatim, the source stays the home: an entry is a committed
+    derivative of its source, anchored to its blocks, and drift goes to D16.
+
+  Attempts: 0.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags

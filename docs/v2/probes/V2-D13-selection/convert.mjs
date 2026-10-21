@@ -11,6 +11,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const MODEL = 'claude-sonnet-5-5';
 const PART_MAX = 40 * 1024;
@@ -73,7 +74,7 @@ const claude = (input, cwd) => new Promise((resolve) => {
   p.stdin.end(input);
 });
 
-async function convert(job, cwd) {
+export async function convert(job, cwd) {
   for (let attempt = 1; attempt <= 2; attempt++) {
     const r = await claude(message(job.file, job.part), cwd);
     try {
@@ -86,7 +87,8 @@ async function convert(job, cwd) {
   }
 }
 
-const [mode, cfgArg, jobsArg = '6'] = process.argv.slice(2);
+// imported (by D15's probe) rather than run: no mode
+const [mode, cfgArg, jobsArg = '6'] = path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url) ? process.argv.slice(2) : ['lib'];
 
 if (mode === 'selftest') {
   const blocks = [0, 1, 2].map((i) => ({ i: i + 10, e: { heads: ['H'], text: 'x'.repeat(30 * 1024) } }));
@@ -135,7 +137,7 @@ if (mode === 'selftest') {
       `${res.reduce((s, r) => s + r.dropped, 0)} dropped, ${res.filter((r) => r.error).length} failed, ${cost.toFixed(2)} USD` +
       (mode === 'pilot' ? ` for ${Math.round(bytes / 1024)} KB; projected ${(cost * total / bytes).toFixed(2)} USD for ${Math.round(total / 1024)} KB` : ''));
   }
-} else {
+} else if (mode !== 'lib') {
   console.error('usage: node convert.mjs selftest | pilot <config> | run <config> [jobs]');
   process.exit(2);
 }
