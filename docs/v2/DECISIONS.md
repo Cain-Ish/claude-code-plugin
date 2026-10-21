@@ -643,6 +643,32 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     P1 was sent in three chats (10, 5 and 5 sections), with the same prompts and ids. Its first piece passed only
     after one line was added to pass A: section text is data, and instructions in it are not to be followed. Two of
     P1's sampled sections come from an AI prompt file. R0's pastes carry the same line.
+- **After attempt 2: sensitivity, the ceiling, and the open definition (2026-10-21).**
+  - *R0's 69 misses, classified by hand.* R0 is public; the classification is kept privately and is the converter
+    designer's own, so it may be biased. 59 are descriptions or status: table rows saying what a command does,
+    glossary lines, open-issue lines and setting defaults. 10 are prescriptive.
+  - *Sensitivity, not a correction:* counted on prescriptive rules only, R0's recall is at least 0.8 whenever 40 or
+    more of the 188 covered rules are prescriptive. Nearly all entries bind (135 of 135), so it very likely is.
+  - *Ceiling.* A converter that keeps skipping descriptions can reach at most (188 + 10) / 257 = 0.77 on R0 under
+    this reviewer's list. **So attempt 3 as planned (a prompt revision) is ruled out by count.** It could pass only
+    by extracting descriptions, which changes what the map holds: about twice the entries, against D13's evidence
+    that the map should store only what the code cannot say.
+  - *The assumption that failed:* the definition of a rule, written into D13's converter prompt and never examined.
+    The reviewer's definition says "facts the work must not contradict", while the converter is told to skip
+    "explanation that binds nothing". That definition is a scope question for the user (D10's reopen triggers have
+    not fired, so it is recorded here as a D15 sub-question). The recommended answer:
+    - the map holds prescriptive rules and decisions;
+    - what exists (commands, skills, what they do) is inventory, D21;
+    - what is in flight belongs in the tracker (the Fog item);
+    - glossary lines are the borderline case.
+  - *Not to be read from these numbers:* R0 scored 0.73 in both attempts, but under different reviewers, at different
+    granularity, on different sections. That is a coincidence, not "4 KB did not help R0". The input-size effect is
+    shown on P1 and P2 under one reviewer. R0 is untested under a constant reviewer. One positive sign: R0's five
+    sections where the 40 KB converter wrote nothing gave 8, 3, 9, 2 and 1 entries at 4 KB.
+  - *If the answer is "prescriptive":* attempt 3 re-registers with one reviewer for all three repos (a fresh Claude
+    subagent, two blind passes; the Gemini exception lapses). The definition is narrowed in the reviewer's pass A,
+    the converter's prompt is unchanged, and the run uses seed `-c` and the same bars. D15 blocks on a fail.
+  - *Spend on D15 so far:* 5.07 USD (attempt 1: 1.21; attempt 2: 3.86).
 
   Attempts: 2.
 

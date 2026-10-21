@@ -1,0 +1,4 @@
+{"note": "hand classification of the 69 R0 rules attempt 2 left uncovered (numbering = order printed by the listing script); P = prescriptive, D = descriptive or status",
+ "P": [3, 5, 6, 7, 35, 36, 39, 42, 46, "S19 'measure, don't eyeball'"],
+ "D_count": 59, "P_count": 10,
+ "S6_S17_S19": {"descriptive": 36, "prescriptive": 1}}
