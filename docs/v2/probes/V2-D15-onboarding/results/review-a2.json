@@ -1,0 +1,36 @@
+{
+ "date": "2026-10-21",
+ "reviewer": "Gemini Pro (browser)",
+ "bars": {
+  "precision": 0.8,
+  "recall": 0.8
+ },
+ "pass": null,
+ "groups": {
+  "P1": {
+   "sections": 20,
+   "entries": 142,
+   "judged": 142,
+   "precision": 0.92,
+   "binds": 134,
+   "faithful": 138,
+   "areaFits": 142,
+   "rulesListed": 116,
+   "covered": 100,
+   "recall": 0.86
+  },
+  "P2": {
+   "sections": 20,
+   "entries": 88,
+   "judged": 88,
+   "precision": 0.81,
+   "binds": 71,
+   "faithful": 88,
+   "areaFits": 88,
+   "rulesListed": 57,
+   "covered": 55,
+   "recall": 0.96
+  },
+  "R0": null
+ }
+}

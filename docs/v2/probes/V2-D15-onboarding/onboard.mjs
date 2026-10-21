@@ -315,6 +315,7 @@ if (mode === 'selftest') {
 } else if (mode === 'score') {
   const res = {};
   for (const label of LABELS) {
+    if (!fs.existsSync(path.join(OUT, `${label}-B.json`))) { res[label] = null; continue; } // review not finished
     const m = JSON.parse(fs.readFileSync(path.join(OUT, `${label}-meta.json`), 'utf8'));
     const A = lastJson(fs.readFileSync(path.join(OUT, `${label}-A.json`), 'utf8'));
     const B = lastJson(fs.readFileSync(path.join(OUT, `${label}-B.json`), 'utf8'));
@@ -331,7 +332,7 @@ if (mode === 'selftest') {
       };
     }
   }
-  const pass = ['P1', 'P2', 'R0'].every((l) => res[l].precision >= 0.8 && res[l].recall >= 0.8 && res[l].judged === res[l].entries);
+  const pass = ['P1', 'P2', 'R0'].some((l) => !res[l]) ? null : ['P1', 'P2', 'R0'].every((l) => res[l].precision >= 0.8 && res[l].recall >= 0.8 && res[l].judged === res[l].entries);
   writeResult('review.json', { date: new Date().toISOString().slice(0, 10), reviewer: 'Gemini Pro (browser)', bars: { precision: 0.8, recall: 0.8 }, pass, groups: res });
   console.log(JSON.stringify(res, null, 1), '\npass', pass);
 } else {
