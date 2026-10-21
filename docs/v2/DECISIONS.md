@@ -16,7 +16,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
-| V2-D13 | What is the shape of the project map, and its token budget? | OPEN | evidence | D10, D11, D12, D20 |
+| V2-D13 | What does an entry hold, and how do a task's entries reach Claude without a hand list, within what budget? (narrowed 2026-10-21) | CHECKING | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | OPEN | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
@@ -24,6 +24,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D13, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
+| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
 
 Frontier (rule 6): **D13**. D20 is locked for following (2026-10-21). D13's check now includes selection: its index
 or router has to bring the same 27 rules D20 delivered by hand. Then **D15**: the pipeline is convert, then format,
@@ -275,6 +276,64 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   −2 points, +20-23% cost); the always-on layer is a routing index under ~3,000 chars (arXiv 2606.20512: +4.7 points,
   all from reaching the right file); compute structure such as the component inventory from code on demand
   instead of storing it (prior-and-SOTA rules 1, 2, 7).
+- **Narrowed (2026-10-21):** one question that one check can answer (rule 1 of the record). What does an entry
+  hold, and how do the entries that bind a task reach Claude without a hand-made list, within what byte budget?
+  The rest of the draft moves out:
+  - The inventory of what exists, computed without a per-language parser, becomes V2-D21.
+  - A person reading and correcting an entry with the plugin disabled (PM4's format half) moves to D15, where real
+    entries exist.
+  - The hand-made paper map and its navigation tasks are dropped as over-built: a map written by someone who knows
+    the tasks would repeat D20's oracle. The blind map below replaces it, and P2 is the canon-led sample.
+  - Node kinds are left to the result: it shows whether rules and references need different handling.
+- **Options:**
+  - (a) Native: the repo as it is run today (path rules on touch, pointers, skills). Its recall is already
+    measured by D20 stage 1.
+  - (b) A prompt-time ranker. On `UserPromptSubmit` (D12: arrives 3 of 3), a lexical scorer ranks the map's entries
+    against the prompt and delivers the best until a byte cap. No model call.
+  - (c) An always-on index Claude chooses from. Not run: must-choose retrieval is the failure D20 stage 1 measured
+    (no run opened any of the v1 repo's 17 skills; every rule in a document nothing points to was missed, 15 of 15),
+    and a skill the model had to invoke went uninvoked in 56% of runs ([VERCEL] in research
+    2026-10-19-prior-research-and-sota).
+  - (d) A model in the hook picks entries from an index: seconds per prompt and a model dependency in a hook.
+    Attempt 3 only.
+  - (e) Scope routing at the first write (D20's deny). A plan never writes, and of the three repos only P1's sources
+    declare a scope, so it stays D18's net, not the selector.
+- **Check (pre-registered 2026-10-21, before the script exists; probe
+  [probes/V2-D13-selection](probes/V2-D13-selection/)):**
+  - *Blind map.* A script builds each repo's map from its files at D20's pinned commits. It never reads the tasks or
+    the cards. Every tracked doc file (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`) is split into entries, one per
+    block. A block is a paragraph, a top-level list item with what is indented under it, a table, or a code fence.
+    Each entry keeps its source (path and heading path) and, where its file's frontmatter has `paths:`, that scope.
+    Blocks over 1,200 bytes are split at line ends, and identical blocks are kept once.
+  - *Two corpora.* *Pointed:* the instruction files (`CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` anywhere, and
+    doc files under `.claude/rules`, `skills`, `commands` and `agents`), plus every doc file they name by path,
+    transitively. *All docs:* every tracked doc file.
+  - *Ranker (b).* BM25 (k1 1.2, b 0.75) of the task prompt against each entry's file path, heading path and text.
+    Tokens are lowercase letters and digits, with camelCase split (the whole word kept too), a fixed English
+    stopword list, and a trailing `s` dropped from words over three letters. Each distinct prompt term counts once.
+    Entries are taken in score order, each one that still fits under the cap (one that does not is skipped), and an
+    entry that scores 0 is never delivered. An entry costs the UTF-8 bytes of its source line plus its text (1 KB = 1,024 bytes).
+  - *Held.* A card is held when the delivered entries, source lines included, cover at least 80% of its word
+    trigrams. Cards are quoted and trimmed, so exact containment would fail; trigrams are taken within each
+    stretch between elisions. P1 R1's source is a config file, so only a doc that repeats it can hold it.
+  - *Native (a), from stage 1, no new runs:* a rule-run counts when the rule was in context before the first write
+    (for the plan, at all). That was 0.60 of rule-runs, and 13 of 27 rules in all five runs.
+  - *Pass:* on the all-docs corpus at 8 KB per task (under the 10,000-character `additionalContext` limit), every
+    task holds at least 80% of its cards (P1 5 of 6, P2 build 7 of 8, R0 7 of 8, the plan 4 of 5), and the share
+    held across all 27 is above native's 0.60.
+  - *Reported, with no threshold:* recall at 2, 4, 16 and 32 KB; the pointed corpus; each card's coverage against
+    the whole corpus, which tells a corpus miss from a ranking miss; bytes delivered per task; the share of
+    delivered bytes that hold a card; ranking time per prompt; map size per repo (entries and KB).
+  - *Attempts, planned now.* If attempt 1 fails, attempt 2 adds a selection key written blind: an agent that sees
+    the repo but not the tasks writes trigger terms per source file, and the ranker scores them with the entry.
+    The scorer is not tuned against the 27, because that would be fitting. If attempt 2 fails, attempt 3 is (d).
+  - *If it passes:* entries are the sources' own blocks with their anchors, so D15 inherits a mechanical first pass,
+    and v2 adds no always-on bytes for selection.
+  - *Not tested:* whether Claude follows a ranker's noisier set, since D20 delivered exactly the binding rules
+    (D18's first slice); follow-up prompts, where a ranker should stay silent; subagents and compaction; the hook's
+    runtime (D18); whether an entry should quote its source or state the rule and point to it (Fog, D15).
+
+  Attempts: 0.
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
@@ -591,3 +650,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   same rules as text, and verification to 90-100%; the docs call `CLAUDE.md` "context, not enforced configuration"
   and only hooks apply "regardless of what Claude decides"; no study measures delivery at tool time
   ([research/2026-10-20-adherence.md](research/2026-10-20-adherence.md)).
+
+### V2-D21 — Inventory of what exists
+- **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,
+  content entries), so Claude reuses instead of duplicating, without a per-language parser (any stack, charter)?
+- **Draft check:** on shell, TypeScript and C# alike (the test bed), an inventory computed from file names and
+  paths, or from the repo's own tools, answers "does X exist, and where" for a task's nouns; duplicates created are
+  counted against it (D19's draft measure).
+- **Evidence so far:** compute structure such as the component inventory from code on demand instead of storing it
+  (prior-and-SOTA rules 1, 2, 7); P2's 6,740 scripts are found only by search (research
+  2026-10-20-scale-real-repos).
