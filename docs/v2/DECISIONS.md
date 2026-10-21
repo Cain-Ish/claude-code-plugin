@@ -21,7 +21,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | CHECKING | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
@@ -1129,6 +1129,74 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Boundary to verify (2026-10-20, public plugin):** a map entry is never turned into a command the plugin runs.
   Only the project's own hooks and tools run, under Claude Code's workspace trust; a plugin that ran checks defined in
   a cloned repo's map would open a new way to execute untrusted code.
+
+- **Narrowed (2026-10-22):** the hook contract. That is:
+  - which events the plugin uses, one script per event;
+  - each script's budget on Windows under load;
+  - the runtime;
+  - the guards every delivery carries;
+  - the machine-local cache;
+  - how onboarding runs;
+  - the surface counts.
+
+  What the `UserPromptSubmit` and after-Read deliveries contain is D22's, which is blocked, and nothing here rests
+  on it. Those two are slots, each with a constraint: deterministic work stays within the per-hook budget. A model
+  pick, if D22 ends on one, runs once per task within the 30 s `UserPromptSubmit` timeout and the user accepts the
+  wait; otherwise it does not run in a hook.
+- **Facts (2026-10-22):**
+  - `PostToolUse` `additionalContext` after a Write reaches the model in 3 of 3 Haiku runs
+    ([arrival-write.json](probes/V2-D22-selection/results/arrival-write.json)).
+  - Node is guaranteed only by the npm install, not by the native installer, Homebrew, WinGet or the Linux packages
+    (setup and hooks docs).
+  - A hook command times out after 600 s by default, `UserPromptSubmit` after 30 s.
+  - `PreToolUse` fails open unless it sets `onFailure: "block"`.
+- **User answer (2026-10-22): the runtime is Node 20 or later.** A `SessionStart` check tells the user once if Node is
+  missing, and the plugin then stays quiet instead of failing.
+- **The events, to be checked below:**
+  - `SessionStart` (every source, compact included): D14's capture instruction (904 bytes), the Node check and a
+    refresh of the cache;
+  - `UserPromptSubmit`: the push slot (D22);
+  - `PostToolUse` Read: the on-read slot (D22);
+  - `PostToolUse` Write and Edit: the write-time net, with the written file's keyed entries and the failing pattern
+    checks (D20);
+  - `Stop`: the failing checks (D20).
+- **Rejected:** D20's one-time `PreToolUse` deny. It fixed nothing that prompt-time delivery had not (D20 stage 2),
+  forced a rewrite that took P1's output from about 5.3k to 9k tokens, and fails open on timeout. The write-time net
+  replaces it.
+- **Deferred:** `SubagentStart`. D12 proved its arrival, but no subagent appeared in D20's 20 runs. The trigger: the
+  first slice logs subagent use.
+- **Check (pre-registered 2026-10-22, before the probe's code; probe [V2-D18-runtime](probes/V2-D18-runtime/)):**
+  1. *Load.* P2's full map (14,119 entries) is rendered to Markdown map files in a scratch repo, and a per-file cache
+     is built from the Markdown. The cache lives gitignored under the map folder; it is rebuilt from the Markdown,
+     never the reverse.
+
+     Four hook scripts run as separate processes with realistic stdin, at 1 and at 8 concurrent, 200 calls each,
+     on Windows, timed wall-clock including the process spawn:
+     - session start;
+     - on read, from the cache;
+     - on write;
+     - a delivery check of 30 entries, with D16's re-find and the `git status` that D14's label needs.
+
+     **Pass: every script's p95 is at most 100 ms at 8 concurrent** (the post-mortem's rule).
+  2. *Labels.* A deterministic check on a scratch repo with one committed and one uncommitted entry. The delivery
+     function must label exactly the uncommitted one "unreviewed, not yet committed", and every delivery path in
+     the scripts must call it. That closes D14's reopen trigger by construction.
+  3. *Boundary.* A static assertion over the hook scripts. They spawn only `git`; only the onboarding command
+     spawns `claude`. No map text reaches `exec`, `spawn` arguments, `eval` or `Function`.
+  4. *Nested converter.* The prototype hooks are active, with a `V2_NESTED` guard on which every hook exits at once.
+     One window is converted by D15's converter, spawned with `V2_NESTED=1`.
+     **Pass:** the window is converted, no plugin hook fires in the nested session (hook log), and the cost is shown
+     first. A full conversion is approved by the user per repo.
+  5. *Node missing.* A Haiku session whose hook command names a binary that does not exist.
+     **Pass:** the session completes. What the user sees is recorded, and it decides the check's wrapper.
+  - *Surface, reported against D17:*
+    - 5 events, one script each;
+    - 1 command (onboarding, plus whatever D22 needs);
+    - 0 agents and 0 MCP servers;
+    - always on: 904 bytes (auto memory in D17: 313).
+  - *Cost:* about 0.10 USD of Haiku, plus one converter window.
+
+  Attempts: 0.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
