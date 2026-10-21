@@ -19,7 +19,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | CHECKING | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
@@ -568,8 +568,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - An injected entry is ever delivered without the unreviewed label.
   - D18 cannot label uncommitted entries.
 - **Limits:**
-  - One scenario, A1, in which the document came pasted in a prompt. Documents read from files are covered by D15's
-    converter when they sit in the repo.
+  - One scenario, A1, in which the document came pasted in a prompt. Documents in the repo are covered by D15's
+    converter at onboarding, not when Claude reads them. A document added after onboarding is captured only by
+    Claude's judgment until re-conversion runs (D16's repair path).
   - Compaction mid-session and multi-day sessions are not tested.
   - Noise was measured by one item.
 
@@ -962,6 +963,52 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Evidence so far:** every record carries code anchors, provenance and a verified-at commit, checked before
   delivery (prior-and-SOTA rule 6: GitHub Copilot Memory). v1 delivered a lesson citing line numbers that had moved
   (concept §2).
+- **Narrowed (2026-10-21):** does a map entry still say what its source says? This is checked deterministically,
+  with no model. Whether the source itself is still true of the code is out of scope: it needs judgment.
+- **Check (pre-registered 2026-10-21, before any code; probe [V2-D16-freshness](probes/V2-D16-freshness/)):**
+  - *Field.* Every entry carries `verified`: D15's verbatim check against its cited blocks, at the capture commit.
+    Drift means "verbatim at capture, not verbatim now". Entries unverified from birth (0.1% to 1.5%, D15) are their
+    own state and never count as stale.
+  - *Re-find.* By quote, not by git. Each stretch of three or more words between cut marks must appear as a word
+    sequence first in the entry's own file, then in any doc file of the current tree, working tree included. An
+    entry with `context` (a table header or lead label) also needs its context in the same file. Block indices are
+    a cache; the anchor is the file, the quote and the heading path (a line for D13).
+  - *States:*
+    - **current:** the quote is found in its own file;
+    - **moved:** found only in another doc file, so the entry is re-anchored and not stale;
+    - **changed:** the file exists, but the quote or its context is gone;
+    - **gone:** the file is deleted and the quote is found nowhere;
+    - **unverifiable:** no repo file as source (D14's spoken decisions and pasted documents), or unverified from
+      birth.
+  - *Delivery (the choice if the check passes):* current and moved are delivered as current. Changed and gone are
+    delivered with "source changed since <date>; check <source>". Unverifiable is delivered with its date.
+  - *Seeds,* on the three repos' full maps at the pinned commits: 20 per type per repo, drawn by seed `d16` from
+    entries that are verified and whose quote occurs in exactly one file. Edits act on the source text, in memory.
+    - Drift, each of which must end changed or gone:
+      1. the source file is deleted;
+      2. a negation flip or one-word change inside the quote (never/always, must/may, not dropped, otherwise "not"
+         inserted);
+      3. a number in the quote changed (entries with a digit);
+      4. the file renamed and the quote edited;
+      5. a word of the table header renamed (entries with a table header as context).
+    - Controls, each of which must end current or moved:
+      1. the file renamed, unchanged;
+      2. another block of the same file edited;
+      3. the quoted block moved to the end of its file under a new heading;
+      4. the quoted text reformatted (line breaks between words, a word made bold).
+  - *Pass:*
+    - all drift seeds flagged;
+    - no control flagged;
+    - on the unchanged tree, no verified entry flagged. That last part is a tautology given the field, so the
+      controls carry the false-alarm half.
+  - *Reported, no bar:*
+    - the sweep time over all verified entries, and the check time for one delivery of about 30 entries (D18);
+    - real drift: verified entries re-found in each scratch clone's current HEAD against its pinned commit, by state.
+  - *Repair, named and not built:* a changed or gone entry is fixed by re-converting the changed file's windows with
+    D15's locked converter, at about 16 USD per MB of changed text. Building that is the first slice's work.
+  - *Cost:* no model; 0 USD.
+
+  Attempts: 0.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
