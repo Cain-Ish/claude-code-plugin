@@ -18,7 +18,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | OPEN | user + evidence | D11, D13 |
-| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | CHECKING | evidence | D13 |
+| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | BLOCKED 2026-10-21 (3 attempts) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | OPEN | evidence | D12, D13, 02-v1-postmortem.md |
@@ -27,10 +27,11 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | OPEN | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D15**. D13 locked the entry's shape (2026-10-21). Selection moved to D22, which waits for D15,
-because a selector cannot find what onboarding did not convert: the blind converter's cited sources hold 21 of
-the 26 holdable rules (corrected held rule). D15's prototype exists (D13's attempt 2 output). Then **D22**, then
-D14, D16 and D18. D19's v2 arm (map item 6b) waits for D22.
+Frontier (rule 6): **D15 is BLOCKED** (2026-10-21, three attempts). Its last attempt passed everything except one
+planted rule. The next step goes up a level, to the assumption all three attempts rested on: that one model pass
+over a 4 KB document window converts it completely. A second, checking pass, with table headers kept on their
+rows, is the first candidate. D22 waits for D15, then come D14, D16 and D18. D19's v2 arm (map item 6b) waits for
+D22.
 
 ---
 
@@ -721,8 +722,40 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     times D13's map, and about as large as the documents themselves. So the conversion does not compress; its
     value is the anchors and keys. That is D22's input.
   - The reviewers' passes are still running. They are reported when done, but cannot change the verdict.
+- **Attempt 3 result (2026-10-21): fail, on one planted rule. D15 is BLOCKED (rule 4, third attempt).** One reviewer
+  (Opus) for all three repos, two blind passes each
+  ([results/*-a3.json](probes/V2-D15-onboarding/results/)):
 
-  Attempts: 2.
+  | Part | P1 | P2 | R0 | Bar |
+  | --- | --- | --- | --- | --- |
+  | Verbatim | 100% | 99.3% | 98.7% | 95%: pass |
+  | Precision | 0.95 (161) | 0.85 (142) | 0.96 (166) | 0.8: pass |
+  | Recall | 0.82 (282) | 0.98 (239) | 0.94 (254) | 0.8: pass |
+  | Planted rules (half descriptive) | 8 of 8 | **7 of 8** | 8 of 8 | none lost: **fail** |
+
+  - *A new failure in the faithfulness data.* 19 of P2's 21 unfaithful entries are table rows quoted without their
+    header row. One rule per row left the numbers without the columns that give them meaning.
+  - *Reviewer note.* After its first write, P1's reviewer set two coverage cells to null, because it had judged
+    those entries non-binding. That makes the score stricter.
+  - *A near miss.* Every other part passed. Rule 4 allows a fourth attempt after a near miss with a known cause, but
+    the pre-registration named BLOCKED as the outcome of a third fail, so that stands.
+  - *The reopened assumption:* one model pass over a document window converts it completely. Two failures of it were
+    seen:
+    - a plain line skipped in a dense window;
+    - table rows cut off from their header.
+
+    What replaces it is the next step's question. The obvious candidate is a second pass that checks each window's
+    blocks against the entries written and keeps a table's header with its rows. It is not designed here.
+  - *What the runs showed, not locked while D15 is BLOCKED:*
+    - quotes are verbatim in every attempt (96.6% to 100%), so the source can stay the home, with the entry an
+      anchored derivative;
+    - the PM4 round trip passed;
+    - 4 KB inputs recover what long inputs lose;
+    - the user's scope answer stands;
+    - a bare repo gets no synthesised conventions (citation).
+  - *Spend on D15:* 9.87 USD (attempt 1: 1.21; attempt 2: 3.86; attempt 3: 4.80, including the 0.11 USD smoke).
+
+  Attempts: 3.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
