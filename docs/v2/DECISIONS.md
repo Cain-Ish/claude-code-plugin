@@ -1345,6 +1345,26 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
   Attempts: 1 (attempts 2 and 3 ruled out by count), then run 2 under the user's route: fail. Per the
   pre-registration, the question goes back to the user.
+- **User answer (2026-10-21): key on-read delivery to code paths** (the recommended option). The others shown were
+  locking the push alone, or parking D22.
+- **Run 3 check (pre-registered 2026-10-21, before the keyed route files, the replay or any session):**
+  - *The one change.* After a Read of any repo file, the hook delivers:
+    - that file's own entries, if it is a document (as in run 2);
+    - then the entries whose applies-when terms name the file.
+
+    A name is a path token taken from the terms: something with a slash, a glob star, or a file extension. Tokens
+    match most specific first: the file itself, its folder, a glob with a folder, then a glob on the file type
+    alone. Within each level, the order is the map's.
+  - *Unchanged limits:* at most 8 KB per file read, once per file per session, no entry delivered twice. The push
+    from run 2 is unchanged (9,500 bytes with its pointers).
+  - *Code:* [keys.mjs](probes/V2-D22-selection/keys.mjs) holds the rule, and `onread.mjs` reads it from the
+    route.
+  - *Free check first:* the files run 2's sessions read, replayed through the new hook offline, give a reach
+    estimate. It is reported, and it does not gate the run, because delivered content changes what Claude reads
+    next.
+  - *Sessions, measure and pass:* as run 2, under arm `r3`, two Sonnet runs per task. The mean reach must be at least
+    0.8 on every task. Same reports, plus the bytes delivered by keyed matches.
+  - *If run 3 fails,* D22 stays blocked and the user decides again. Cost: about 5 USD.
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.

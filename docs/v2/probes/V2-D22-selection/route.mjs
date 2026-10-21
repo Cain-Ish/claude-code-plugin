@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { index, rank, deliver } from '../V2-D13-selection/select.mjs';
+import { tokensOf, keyedFor } from './keys.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CAP = 8;
@@ -120,6 +121,7 @@ export async function arms(map, prompt, only = null) {
 // ---- modes ----
 
 const [mode, tasksArg, taskId] = process.argv.slice(2);
+const ARM = process.argv.find((a) => /^--arm=/.test(a))?.slice(6) ?? 'r';
 const TASKS = tasksArg ? JSON.parse(fs.readFileSync(tasksArg, 'utf8')).tasks : [];
 const D22 = tasksArg ? path.dirname(path.resolve(tasksArg)) : null;
 const RAW = D22 ? path.dirname(D22) : null;
@@ -168,18 +170,23 @@ if (mode === 'selftest') {
 } else if (mode === 'prep') {
   // the user's route per task: (d2)'s saved pick as the push, its sections as pointers, every file's entries in
   // source order for on-read delivery; and the harness config for arm r
-  fs.mkdirSync(path.join(D22, 'route'), { recursive: true });
+  // --keyed (run 3): also every entry's path tokens from its applies-when terms, written to route3/
+  const keyedRun = process.argv.includes('--keyed');
+  const rdir = keyedRun ? 'route3' : 'route';
+  fs.mkdirSync(path.join(D22, rdir), { recursive: true });
   for (const t of TASKS) {
     const { entries } = mapOf(t.repo);
     const a = JSON.parse(fs.readFileSync(path.join(D22, 'arms', `${t.id}.json`), 'utf8'));
     const byFile = {};
     for (const e of [...entries].sort((x, y) => x.blocks[0] - y.blocks[0])) (byFile[e.file] ??= []).push(e.n);
-    fs.writeFileSync(path.join(D22, 'route', `${t.id}.json`), JSON.stringify({ push: a.d2.ids, pointers: a.d2.sections,
-      entries: Object.fromEntries(entries.map((e) => [e.n, { text: shown(e) }])), byFile }));
+    const keyed = keyedRun ? entries.flatMap((e) => [...new Set(e.when.flatMap(tokensOf))].map((tk) => [e.n, tk])) : undefined;
+    fs.writeFileSync(path.join(D22, rdir, `${t.id}.json`), JSON.stringify({ push: a.d2.ids, pointers: a.d2.sections,
+      entries: Object.fromEntries(entries.map((e) => [e.n, { text: shown(e) }])), byFile, keyed }));
+    if (keyedRun) console.log(t.id, 'path tokens', keyed.length, 'on', new Set(keyed.map(([n]) => n)).size, 'entries');
   }
   const nat = JSON.parse(fs.readFileSync(path.join(D22, 'native.json'), 'utf8'));
-  for (const x of nat.tasks) x.route = path.join(D22, 'route', `${x.id.replace(/^D22-/, '')}.json`);
-  fs.writeFileSync(path.join(D22, 'route-native.json'), JSON.stringify(nat, null, 1));
+  for (const x of nat.tasks) x.route = path.join(D22, rdir, `${x.id.replace(/^D22-/, '')}.json`);
+  fs.writeFileSync(path.join(D22, `${rdir}-native.json`), JSON.stringify(nat, null, 1));
   console.log('route prepared for', TASKS.length, 'tasks');
 } else if (mode === 'reach') {
   // run 2: essential entries (attempt 1's judged set) that reached Claude by either channel, per session
@@ -191,7 +198,7 @@ if (mode === 'selftest') {
     const grades = JSON.parse(fs.readFileSync(path.join(D22, 'judge', `${t.id}-grades.json`), 'utf8'));
     const gradeOf = new Map(Object.entries(pool).map(([p, i]) => [i, grades[p]]));
     const E = [...gradeOf].filter(([, g]) => g === 'essential').map(([i]) => i);
-    const runsDir = path.join(D22, 'd20-stage2', 'r', `D22-${t.id}`);
+    const runsDir = path.join(D22, 'd20-stage2', ARM, `D22-${t.id}`);
     const runs = fs.existsSync(runsDir) ? fs.readdirSync(runsDir).filter((d) => /^run[1-9]/.test(d)) : [];
     const per = runs.map((d) => {
       const log = fs.readFileSync(path.join(runsDir, d, 'deliveries.jsonl'), 'utf8').trim().split('\n').flatMap((l) => (l ? [JSON.parse(l)] : []));
@@ -210,10 +217,33 @@ if (mode === 'selftest') {
     const mean = per.length ? per.reduce((s, r) => s + r.reach, 0) / per.length : null;
     res[t.id] = { essential: E.length, runs: per, meanReach: mean === null ? null : +mean.toFixed(2), pass: mean !== null && mean >= 0.8 };
   }
-  const sum = { date: new Date().toISOString().slice(0, 10), route: 'pick + pointers, then on read',
+  const sum = { date: new Date().toISOString().slice(0, 10), route: ARM === 'r' ? 'pick + pointers, then on read' : 'pick + pointers, then on read keyed to the file read',
     tasks: Object.fromEntries(Object.entries(res).map(([k, v], n) => [`${k.split('-')[0]}-task${(n % 2) + 1}`, v])),
     pass: Object.values(res).every((r) => r.pass) };
-  fs.writeFileSync(path.join(HERE, 'results', 'reach.json'), `${JSON.stringify(sum, null, 1)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', ARM === 'r' ? 'reach.json' : `reach-${ARM}.json`), `${JSON.stringify(sum, null, 1)}\n`);
+} else if (mode === 'simulate') {
+  // run 3's free check: the files run 2's sessions actually read, replayed through the keyed hook offline
+  for (const t of TASKS) {
+    const { entries } = mapOf(t.repo);
+    const route = JSON.parse(fs.readFileSync(path.join(D22, 'route3', `${t.id}.json`), 'utf8'));
+    const { pool } = JSON.parse(fs.readFileSync(path.join(D22, `pool-${t.id}.json`), 'utf8'));
+    const grades = JSON.parse(fs.readFileSync(path.join(D22, 'judge', `${t.id}-grades.json`), 'utf8'));
+    const E = Object.entries(pool).filter(([p]) => grades[p] === 'essential').map(([, i]) => i);
+    const runsDir = path.join(D22, 'd20-stage2', 'r', `D22-${t.id}`);
+    const out = fs.readdirSync(runsDir).filter((d) => /^run[1-9]/.test(d)).map((d) => {
+      const log = fs.readFileSync(path.join(runsDir, d, 'deliveries.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+      const got = new Set(log.filter((l) => l.ev === 'UserPromptSubmit').flatMap((l) => l.ids ?? []));
+      for (const f of [...new Set(log.filter((l) => l.read).map((l) => l.read))]) {
+        let used = 0;
+        for (const id of [...new Set([...(route.byFile[f] ?? []), ...keyedFor(route.keyed, f)])]) {
+          const b = Buffer.byteLength(shown(entries[id]));
+          if (!got.has(id) && used + b <= CAP * 1024) { got.add(id); used += b; }
+        }
+      }
+      return E.length ? E.filter((i) => got.has(i)).length / E.length : 1;
+    });
+    console.log(t.id, 'simulated reach on run 2 reads:', out.map((x) => x.toFixed(2)).join(', '));
+  }
   console.log(JSON.stringify(Object.fromEntries(Object.entries(sum.tasks).map(([k, v]) => [k, v.meanReach]))), 'pass', sum.pass);
 } else if (mode === 'native') {
   const d20 = JSON.parse(fs.readFileSync(path.join(RAW, 'd20-stage2.json'), 'utf8'));

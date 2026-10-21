@@ -5,6 +5,7 @@
 //   node onread.mjs <run dir>
 import fs from 'node:fs';
 import path from 'node:path';
+import { keyedFor } from './keys.mjs';
 
 const t0 = Date.now();
 const dir = process.argv[2];
@@ -41,8 +42,11 @@ if (ev === 'UserPromptSubmit' && !past.some((l) => l.ev === 'UserPromptSubmit'))
   // Windows sends the path absolute with backslashes; the map is keyed by the repo-relative path
   const file = path.relative(input.cwd ?? '.', String(input.tool_input?.file_path ?? '')).replace(/\\/g, '/');
   log.read = file;
-  if (route.byFile[file] && !past.some((l) => l.file === file)) {
-    const { out, used } = fill(route.byFile[file]);
+  // run 3 (route.keyed): a document's own entries first, then entries whose applies-when terms name this file's
+  // path, folder or type, most specific first
+  const ids = [...(route.byFile[file] ?? []), ...(route.keyed ? keyedFor(route.keyed, file) : [])];
+  if (ids.length && !past.some((l) => l.file === file)) {
+    const { out, used } = fill([...new Set(ids)]);
     if (out.length) {
       ctx = `[d22-map] Project knowledge recorded for ${file}:\n\n${out.map(show).join('\n')}`;
       Object.assign(log, { file, ids: out, bytes: used });
