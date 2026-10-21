@@ -1,0 +1,191 @@
+{
+ "attempt": 3,
+ "date": "2026-10-21",
+ "os": "win32 10.0.26300",
+ "node": "v24.19.0",
+ "calls": 200,
+ "entries": 14119,
+ "bar": "at 8 concurrent, both p95(hook) - p95(empty node) by wall clock and by in-process time at most 100 ms; no errors at 1 or 8",
+ "pass": true,
+ "scripts": {
+  "session-start": {
+   "1": {
+    "p50": 63,
+    "p95": 107,
+    "max": 218,
+    "inprocP95": 50,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 0,
+    "floorP95": 88,
+    "floorInprocP95": 22,
+    "floorErrors": 0,
+    "addedP95": 19,
+    "addedInprocP95": 28
+   },
+   "8": {
+    "p50": 81,
+    "p95": 125,
+    "max": 162,
+    "inprocP95": 92,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 0,
+    "floorP95": 104,
+    "floorInprocP95": 22,
+    "floorErrors": 0,
+    "addedP95": 21,
+    "addedInprocP95": 70
+   }
+  },
+  "on-read": {
+   "1": {
+    "p50": 68,
+    "p95": 106,
+    "max": 126,
+    "inprocP95": 58,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 5,
+    "floorP95": 82,
+    "floorInprocP95": 19,
+    "floorErrors": 0,
+    "addedP95": 24,
+    "addedInprocP95": 39
+   },
+   "8": {
+    "p50": 94,
+    "p95": 134,
+    "max": 164,
+    "inprocP95": 103,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 5,
+    "floorP95": 100,
+    "floorInprocP95": 23,
+    "floorErrors": 0,
+    "addedP95": 34,
+    "addedInprocP95": 80
+   }
+  },
+  "on-read-doc": {
+   "1": {
+    "p50": 67,
+    "p95": 75,
+    "max": 120,
+    "inprocP95": 52,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 0,
+    "floorP95": 80,
+    "floorInprocP95": 17,
+    "floorErrors": 0,
+    "addedP95": -5,
+    "addedInprocP95": 35
+   },
+   "8": {
+    "p50": 93,
+    "p95": 154,
+    "max": 270,
+    "inprocP95": 122,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 0,
+    "floorP95": 100,
+    "floorInprocP95": 22,
+    "floorErrors": 0,
+    "addedP95": 54,
+    "addedInprocP95": 100
+   }
+  },
+  "on-write": {
+   "1": {
+    "p50": 63,
+    "p95": 83,
+    "max": 118,
+    "inprocP95": 56,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 5,
+    "floorP95": 80,
+    "floorInprocP95": 17,
+    "floorErrors": 0,
+    "addedP95": 3,
+    "addedInprocP95": 39
+   },
+   "8": {
+    "p50": 87,
+    "p95": 134,
+    "max": 144,
+    "inprocP95": 106,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 5,
+    "floorP95": 92,
+    "floorInprocP95": 21,
+    "floorErrors": 0,
+    "addedP95": 42,
+    "addedInprocP95": 85
+   }
+  },
+  "deliver30": {
+   "1": {
+    "p50": 57,
+    "p95": 103,
+    "max": 136,
+    "inprocP95": 40,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 0,
+    "floorP95": 79,
+    "floorInprocP95": 18,
+    "floorErrors": 0,
+    "addedP95": 24,
+    "addedInprocP95": 22
+   },
+   "8": {
+    "p50": 73,
+    "p95": 117,
+    "max": 156,
+    "inprocP95": 88,
+    "errors": 0,
+    "errorText": [],
+    "emptyOutputs": 0,
+    "floorP95": 88,
+    "floorInprocP95": 20,
+    "floorErrors": 0,
+    "addedP95": 29,
+    "addedInprocP95": 68
+   }
+  }
+ },
+ "shellFormFloor": {
+  "1": {
+   "p50": 65,
+   "p95": 116,
+   "max": 184,
+   "inprocP95": null,
+   "errors": 0,
+   "errorText": [],
+   "emptyOutputs": 200
+  },
+  "8": {
+   "p50": 85,
+   "p95": 190,
+   "max": 248,
+   "inprocP95": null,
+   "errors": 0,
+   "errorText": [],
+   "emptyOutputs": 200
+  }
+ },
+ "staleUnder8": {
+  "p50": 829,
+  "p95": 839,
+  "max": 839,
+  "inprocP95": 809,
+  "errors": 0,
+  "errorText": [],
+  "emptyOutputs": 0
+ }
+}

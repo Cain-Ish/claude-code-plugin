@@ -1295,8 +1295,34 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     Boundary and labels run again.
   - *If it fails:* go up a level. The option named in advance is fewer hook calls per tool call: drop the on-read
     hook, and deliver at the prompt and at writes only. The user decides.
+- **Attempt 3 result (2026-10-22): pass**
+  ([load-a3.json](probes/V2-D18-runtime/results/load-a3.json), [checks-a3.json](probes/V2-D18-runtime/results/checks-a3.json)).
+  - *Load, 200 calls each, at 8 concurrent, paired with the floor:*
 
-  Attempts: 2.
+    | Script | p95 | Added (wall clock) | Added (in process) | Errors at 1 / at 8 |
+    |---|---|---|---|---|
+    | session start | 125 ms | 21 ms | 70 ms | 0 / 0 |
+    | on read | 134 ms | 34 ms | 80 ms | 0 / 0 |
+    | on read of a document | 154 ms | 54 ms | **100 ms** | 0 / 0 |
+    | on write | 134 ms | 42 ms | 85 ms | 0 / 0 |
+    | delivery check of 30 | 117 ms | 29 ms | 68 ms | 0 / 0 |
+
+    **On read of a document meets the in-process bar exactly, with no margin.** Alone, the hooks' in-process p95 is
+    40 to 58 ms against a floor of 17 to 22 ms. At 8 concurrent it roughly doubles from CPU contention, while the
+    empty process's does not.
+  - *Floor in paired blocks:* p95 79 to 88 ms alone and 88 to 104 ms at 8 concurrent, steadier than attempt 2's
+    sequential batches.
+  - *Shell form:* p95 190 ms at 8 concurrent against 88 to 104 ms for exec form, so a shell launch alone adds about
+    90 ms.
+  - *A stale cache rebuilt by 8 hooks at once:* 839 ms p95, with 0 errors (reported).
+  - *Labels (pass):*
+    - on the unchanged tree, 0 of 14,119 stale and exactly the 308 unverified labelled so;
+    - the new entry is labelled in a committed file and in a new file, and committed entries stay clean;
+    - a commit is clean at the next hook, and a soft reset labels the entries again at the next hook.
+  - *Boundary (pass):* `spawnSync` only, and `git` only.
+  - *Carried over from attempt 2 (pass):* the nested converter and the missing runtime.
+
+  Attempts: 3.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

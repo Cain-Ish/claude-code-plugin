@@ -1,0 +1,47 @@
+{
+ "attempt": 3,
+ "date": "2026-10-21",
+ "labels": {
+  "unchangedTree": {
+   "delivered": 14119,
+   "stale": 0,
+   "unverified": 308,
+   "expectedUnverified": 308,
+   "unreviewed": 0
+  },
+  "sameFile": {
+   "entries": 58,
+   "newSeen": true,
+   "newLabelled": true,
+   "committedUnlabelled": true,
+   "newNotStale": true
+  },
+  "otherFileUnlabelled": true,
+  "newFileLabelled": true,
+  "afterCommitCleanAtNextHook": true,
+  "afterSoftResetLabelledAtNextHook": true,
+  "restored": true,
+  "allPathsGuarded": true,
+  "pass": true
+ },
+ "boundary": {
+  "childProcess": [
+   "spawnSync"
+  ],
+  "spawns": [
+   {
+    "cmd": "git",
+    "args": "['--no-optional-locks', 'status', '--porcelain=v1', '-z', '-uall', '--', MAP]"
+   },
+   {
+    "cmd": "git",
+    "args": "['show', `HEAD:${p}`]"
+   }
+  ],
+  "noEval": true,
+  "noOtherProcessApi": true,
+  "pass": true
+ },
+ "carried": "nested and noRuntime: checks-a2.json",
+ "pass": true
+}
