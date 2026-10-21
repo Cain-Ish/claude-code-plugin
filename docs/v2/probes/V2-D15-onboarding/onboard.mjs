@@ -220,13 +220,13 @@ if (mode === 'selftest') {
   const es = [{ file: 'a.md', heads: ['A', 'B'], area: 'paths', quote: 'line one\nline two', when: ['x', 'y; z'], blocks: [3, 4] },
     { file: 'a.md', heads: [], area: 'top', quote: 'q', when: [], blocks: [0] }];
   assert.deepEqual(parseMap('a.md', render('a.md', es)), es);
-  const ctx = [{ file: 't.md', heads: ['T'], text: '| Skill | STR |\n|---|---|\n| Mining | .35 |' }, { file: 't.md', heads: ['T'], text: '| Fishing | .20 |' },
-    { file: 't.md', heads: ['T'], text: '- **Rejected:** Mace as a sword.' }];
-  assert.equal(contextOf(ctx, 1), '| Skill | STR |');
+  const ctx = [{ file: 't.md', heads: ['T'], text: '| Item | Size |\n|---|---|\n| Box | 3 |' }, { file: 't.md', heads: ['T'], text: '| Bag | 1 |' },
+    { file: 't.md', heads: ['T'], text: '- **Rejected:** Tabs for indentation.' }];
+  assert.equal(contextOf(ctx, 1), '| Item | Size |');
   assert.equal(contextOf(ctx, 2), 'Rejected:');
-  assert.equal(withContext(ctx, { quote: 'Mace as a sword.', blocks: [2] }).context, 'Rejected:');
-  assert.equal(withContext(ctx, { quote: 'Rejected: Mace as a sword.', blocks: [2] }).context, undefined);
-  const withCtx = [{ ...es[0], context: '| Skill | STR |' }];
+  assert.equal(withContext(ctx, { quote: 'Tabs for indentation.', blocks: [2] }).context, 'Rejected:');
+  assert.equal(withContext(ctx, { quote: 'Rejected: Tabs for indentation.', blocks: [2] }).context, undefined);
+  const withCtx = [{ ...es[0], context: '| Item | Size |' }];
   assert.deepEqual(parseMap('a.md', render('a.md', withCtx)), withCtx);
   console.log('selftest ok');
 } else if (mode === 'fidelity') {
