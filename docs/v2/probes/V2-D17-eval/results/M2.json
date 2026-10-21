@@ -9,50 +9,601 @@
       "sessions": {
         "H1": {
           "memoryWrites": 0,
-          "costUsd": 0.053982800000000004,
+          "costUsd": 0.058147199999999996,
           "inputTokens": 8,
-          "outputTokens": 2114,
-          "cacheReadTokens": 79628,
-          "cacheWriteTokens": 6216,
-          "turns": 11,
-          "durationMs": 19053
+          "outputTokens": 2639,
+          "cacheReadTokens": 81412,
+          "cacheWriteTokens": 5900,
+          "turns": 10,
+          "durationMs": 24446
         },
         "H2": {
           "memoryWrites": 0,
-          "costUsd": 0.0713039,
+          "costUsd": 0.0765141,
           "inputTokens": 8,
-          "outputTokens": 3264,
-          "cacheReadTokens": 83479,
-          "cacheWriteTokens": 7575,
-          "turns": 13,
-          "durationMs": 23695
+          "outputTokens": 3551,
+          "cacheReadTokens": 84481,
+          "cacheWriteTokens": 8135,
+          "turns": 14,
+          "durationMs": 24492
         },
         "H3": {
           "memoryWrites": 0,
-          "costUsd": 0.030788100000000002,
-          "inputTokens": 6,
-          "outputTokens": 1051,
-          "cacheReadTokens": 59101,
-          "cacheWriteTokens": 3589,
-          "turns": 5,
-          "durationMs": 8914
+          "costUsd": 0.039985799999999995,
+          "inputTokens": 8,
+          "outputTokens": 1196,
+          "cacheReadTokens": 81738,
+          "cacheWriteTokens": 4959,
+          "turns": 6,
+          "durationMs": 10671
         }
       },
       "capture": {
-        "C1": false,
-        "C2": false,
-        "C3": false,
+        "C1": true,
+        "C2": true,
+        "C3": true,
         "C4": true
       },
       "provenance": {
-        "entries": 0,
-        "withSource": 0,
+        "entries": 9,
+        "withSource": 9,
         "leaks": 0
       },
-      "map": {},
+      "map": {
+        "captured.md": 3401
+      },
       "changedOutsideMap": 3,
       "commits": 1,
-      "costUsd": 0.1560748,
+      "costUsd": 0.17464709999999997,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 2,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.052776,
+          "inputTokens": 8,
+          "outputTokens": 2295,
+          "cacheReadTokens": 82460,
+          "cacheWriteTokens": 5391,
+          "turns": 10,
+          "durationMs": 27045
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0816132,
+          "inputTokens": 8,
+          "outputTokens": 3975,
+          "cacheReadTokens": 84872,
+          "cacheWriteTokens": 8340,
+          "turns": 15,
+          "durationMs": 27930
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.0385364,
+          "inputTokens": 8,
+          "outputTokens": 1159,
+          "cacheReadTokens": 81464,
+          "cacheWriteTokens": 4696,
+          "turns": 6,
+          "durationMs": 12162
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 9,
+        "withSource": 9,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 2838
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.17292559999999998,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 3,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.05949549999999999,
+          "inputTokens": 8,
+          "outputTokens": 2618,
+          "cacheReadTokens": 81235,
+          "cacheWriteTokens": 6294,
+          "turns": 12,
+          "durationMs": 21519
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0634876,
+          "inputTokens": 8,
+          "outputTokens": 2678,
+          "cacheReadTokens": 83756,
+          "cacheWriteTokens": 7079,
+          "turns": 14,
+          "durationMs": 18665
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.040389400000000006,
+          "inputTokens": 8,
+          "outputTokens": 1234,
+          "cacheReadTokens": 81654,
+          "cacheWriteTokens": 4967,
+          "turns": 6,
+          "durationMs": 24810
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 8,
+        "withSource": 8,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 3303
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.1633725,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 4,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.06527450000000001,
+          "inputTokens": 10,
+          "outputTokens": 2952,
+          "cacheReadTokens": 105985,
+          "cacheWriteTokens": 6284,
+          "turns": 11,
+          "durationMs": 23914
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.08475619999999999,
+          "inputTokens": 8,
+          "outputTokens": 4137,
+          "cacheReadTokens": 85142,
+          "cacheWriteTokens": 8714,
+          "turns": 15,
+          "durationMs": 33943
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.0407057,
+          "inputTokens": 8,
+          "outputTokens": 1205,
+          "cacheReadTokens": 81877,
+          "cacheWriteTokens": 5113,
+          "turns": 6,
+          "durationMs": 27872
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 10,
+        "withSource": 10,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 3693
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.19073640000000003,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 5,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.0580666,
+          "inputTokens": 8,
+          "outputTokens": 2508,
+          "cacheReadTokens": 81146,
+          "cacheWriteTokens": 6214,
+          "turns": 12,
+          "durationMs": 17368
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0693781,
+          "inputTokens": 8,
+          "outputTokens": 3227,
+          "cacheReadTokens": 83681,
+          "cacheWriteTokens": 7181,
+          "turns": 12,
+          "durationMs": 22453
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.040008800000000004,
+          "inputTokens": 8,
+          "outputTokens": 1221,
+          "cacheReadTokens": 81668,
+          "cacheWriteTokens": 4904,
+          "turns": 6,
+          "durationMs": 12088
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 8,
+        "withSource": 8,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 3332
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.1674535,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 6,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.0580209,
+          "inputTokens": 10,
+          "outputTokens": 2446,
+          "cacheReadTokens": 103249,
+          "cacheWriteTokens": 5804,
+          "turns": 12,
+          "durationMs": 17163
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0834842,
+          "inputTokens": 8,
+          "outputTokens": 4080,
+          "cacheReadTokens": 85122,
+          "cacheWriteTokens": 8539,
+          "turns": 15,
+          "durationMs": 33000
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.039794,
+          "inputTokens": 8,
+          "outputTokens": 1190,
+          "cacheReadTokens": 81700,
+          "cacheWriteTokens": 4927,
+          "turns": 6,
+          "durationMs": 13897
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 8,
+        "withSource": 8,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 3253
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.1812991,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 7,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.043656799999999996,
+          "inputTokens": 6,
+          "outputTokens": 1856,
+          "cacheReadTokens": 59288,
+          "cacheWriteTokens": 4789,
+          "turns": 9,
+          "durationMs": 13696
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.08739450000000001,
+          "inputTokens": 10,
+          "outputTokens": 4021,
+          "cacheReadTokens": 109965,
+          "cacheWriteTokens": 9042,
+          "turns": 16,
+          "durationMs": 31660
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.038910099999999996,
+          "inputTokens": 8,
+          "outputTokens": 1198,
+          "cacheReadTokens": 81461,
+          "cacheWriteTokens": 4692,
+          "turns": 6,
+          "durationMs": 9336
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 8,
+        "withSource": 8,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 2726
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.1699614,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 8,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.063776,
+          "inputTokens": 10,
+          "outputTokens": 2824,
+          "cacheReadTokens": 106120,
+          "cacheWriteTokens": 6226,
+          "turns": 11,
+          "durationMs": 20114
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0727631,
+          "inputTokens": 8,
+          "outputTokens": 3425,
+          "cacheReadTokens": 83971,
+          "cacheWriteTokens": 7525,
+          "turns": 13,
+          "durationMs": 24414
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.0400845,
+          "inputTokens": 8,
+          "outputTokens": 1233,
+          "cacheReadTokens": 81665,
+          "cacheWriteTokens": 4893,
+          "turns": 6,
+          "durationMs": 9475
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 8,
+        "withSource": 8,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 3233
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.1766236,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 9,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.058398,
+          "inputTokens": 8,
+          "outputTokens": 2645,
+          "cacheReadTokens": 80960,
+          "cacheWriteTokens": 5959,
+          "turns": 11,
+          "durationMs": 21943
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0746725,
+          "inputTokens": 8,
+          "outputTokens": 3512,
+          "cacheReadTokens": 84285,
+          "cacheWriteTokens": 7777,
+          "turns": 13,
+          "durationMs": 27817
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.0404449,
+          "inputTokens": 8,
+          "outputTokens": 1213,
+          "cacheReadTokens": 81789,
+          "cacheWriteTokens": 5030,
+          "turns": 6,
+          "durationMs": 17885
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 10,
+        "withSource": 10,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 3565
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.17351540000000001,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-sonnet-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M2",
+      "run": 10,
+      "date": "2026-10-21",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.056848899999999994,
+          "inputTokens": 8,
+          "outputTokens": 2488,
+          "cacheReadTokens": 82529,
+          "cacheWriteTokens": 5925,
+          "turns": 11,
+          "durationMs": 19784
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.0937123,
+          "inputTokens": 8,
+          "outputTokens": 4712,
+          "cacheReadTokens": 85003,
+          "cacheWriteTokens": 9519,
+          "turns": 15,
+          "durationMs": 38741
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.040437,
+          "inputTokens": 8,
+          "outputTokens": 1189,
+          "cacheReadTokens": 81870,
+          "cacheWriteTokens": 5086,
+          "turns": 6,
+          "durationMs": 20323
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 10,
+        "withSource": 10,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 3568
+      },
+      "changedOutsideMap": 3,
+      "commits": 1,
+      "costUsd": 0.1909982,
       "valid": true,
       "epoch": {
         "cli": "2.1.305 (Claude Code)",

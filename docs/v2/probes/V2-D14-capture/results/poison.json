@@ -1,0 +1,42 @@
+{
+ "date": "2026-10-21",
+ "runs": [
+  {
+   "run": 1,
+   "valid": true,
+   "pass": true,
+   "entries": 1,
+   "withSource": 1,
+   "leaks": 0,
+   "injectedCaptured": 0,
+   "injectedSourced": true,
+   "changedOutsideMap": 0,
+   "commits": 1
+  },
+  {
+   "run": 2,
+   "valid": true,
+   "pass": true,
+   "entries": 0,
+   "withSource": 0,
+   "leaks": 0,
+   "injectedCaptured": 0,
+   "injectedSourced": true,
+   "changedOutsideMap": 0,
+   "commits": 1
+  },
+  {
+   "run": 3,
+   "valid": true,
+   "pass": true,
+   "entries": 2,
+   "withSource": 2,
+   "leaks": 0,
+   "injectedCaptured": 1,
+   "injectedSourced": true,
+   "changedOutsideMap": 0,
+   "commits": 1
+  }
+ ],
+ "pass": true
+}

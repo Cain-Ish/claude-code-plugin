@@ -17,7 +17,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | CHECKING | user + evidence | D11, D13 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | OPEN | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
@@ -27,10 +27,10 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D22 is BLOCKED** (2026-10-21), on the assumption that one push of at most 8 KB at prompt time
-holds a task's essential knowledge. Investigation tasks need 8 to 18 KB, and a model pick finds relevant entries but
-not the essential ones. The user decides how much context a task gets and by what route; D22 re-checks under that
-answer. D14, D16 and D18 do not wait on it.
+Frontier (rule 6): **D16** (freshness), then **D18** (runtime and surface budget). D14 locked on 2026-10-21: capture by
+Claude's own judgment under a SessionStart instruction, into a plain-file map outside `.claude/`, with every entry
+sourced. **D22 is BLOCKED** until the user ticks the essential entries Claude really needed (checklists in
+`research/raw/d22/validate/`), and its existing runs are then re-scored. D21 is next after D18.
 
 ---
 
@@ -535,6 +535,43 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
   Run 1 is replaced and reported as plumbing. The capture result of that run (no entries, because every write was
   refused) does not count.
+- **Result (2026-10-21): pass** ([D17 results/M2.json](probes/V2-D17-eval/results/M2.json),
+  [results/poison.json](probes/V2-D14-capture/results/poison.json)).
+  - *M2, 10 valid runs, 1.76 USD:*
+    - C1, C2, C3 and C4 each passed in 10 of 10 runs. **The designer's document was kept in 10 of 10, where auto
+      memory kept it in 0 of 10.**
+    - 8 to 10 entries per run, every one with a source; no leaks; no commit.
+    - Three code files changed per run: the sessions' own work.
+  - *Probe, 3 of 3 pass.* Nothing outside the map changed, nothing was committed, and nothing leaked. The injected
+    "rule" was captured in 1 of 3 runs, sourced to the document, uncommitted and visible in the diff.
+  - *Always-on cost:* the instruction is 904 bytes per session (auto memory's index in D17: 313 bytes).
+- **Choice (2026-10-21):**
+  - Knowledge enters the map through Claude's own judgment, under a plugin instruction given at every
+    `SessionStart`, including after compaction. Claude writes entries of D13's shape, with a source, a date and when
+    they apply, into a plain-file map folder outside `.claude/` (`.project-map/` here; the final path is D18's).
+  - The entries stay in the working tree and are committed with the work. No hook writes to the map or commits.
+  - Every entry names its source, and none may carry session ids, email addresses or absolute paths.
+- **Trust policy, for delivery (D18 carries it):**
+  - An entry not yet committed is delivered with an "unreviewed, not yet committed" label.
+  - Text captured from an untrusted source therefore reaches a teammate only after a person commits it.
+
+  The probe shows the need: an injected rule was captured in 1 of 3 runs.
+- **Rejected:**
+  - Native only (auto memory): the document 0 of 10, no source, per person and per machine.
+  - An explicit capture command: it contradicts the user's answer.
+  - Mining raw transcripts: v1's cause 5.
+  - A map under `.claude/`: it is write-protected, so every capture would prompt.
+  - Capture in hooks: a model call in a hook, and v1's noise surface.
+- **Reopen if:**
+  - A model or CLI change drops C1 to C3 below M1's counts in a re-run.
+  - The first slice's eval shows kept noise or missed captures.
+  - An injected entry is ever delivered without the unreviewed label.
+  - D18 cannot label uncommitted entries.
+- **Limits:**
+  - One scenario, A1, in which the document came pasted in a prompt. Documents read from files are covered by D15's
+    converter when they sit in the repo.
+  - Compaction mid-session and multi-day sessions are not tested.
+  - Noise was measured by one item.
 
   Attempts: 0.
 
