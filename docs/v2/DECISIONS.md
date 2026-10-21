@@ -25,12 +25,12 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
-| V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | CHECKING | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D22** (selection). D15 locked on 2026-10-21, on run 4 after a block: two passes per 4 KB
-window, entries with context, and the user's scope. D22's check needs tasks no design step has seen (the user's), and
-a full conversion of the test bed (about 78 USD, so the user is asked first). Then D14, D16 and D18. D19's v2 arm
-(map item 6b) waits for D22.
+Frontier (rule 6): **D22 is BLOCKED** (2026-10-21), on the assumption that one push of at most 8 KB at prompt time
+holds a task's essential knowledge. Investigation tasks need 8 to 18 KB, and a model pick finds relevant entries but
+not the essential ones. The user decides how much context a task gets and by what route; D22 re-checks under that
+answer. D14, D16 and D18 do not wait on it.
 
 ---
 
@@ -430,6 +430,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     per task) and cannot be selected at block grain.
   - Attempt 2: the shape can be built blind for all three repos, in 421 calls with none failing, for 22.35 USD. It
     comes to about a third of the blocks' text.
+- **From D22 (2026-10-21), a budget finding declared before D22 ran:** under the user's scope, the essential knowledge
+  of an investigation task was 25 to 45 entries, 8.2 to 17.9 KB, on five of six tasks. D13's 8 KB came from D20's
+  build tasks with 5 to 8 hand-picked rules (1.7 to 2.5 KB). Even the platform's ceiling (about 9.7 KB of
+  `additionalContext`) does not hold 11 to 18 KB. D22 is blocked on this; the user decides budget and route.
 - **From D15 (2026-10-21):** an entry also carries `context` (the table header or bold lead label its quote's
   meaning depends on) when the quote lacks it. This is an addition to the shape; the quote stays verbatim.
 - **Rejected:**
@@ -910,6 +914,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   217 guard runs failed open (post-mortem cause 3, proposing at most one non-shell hook per event, p95 ≤ 100 ms at 8
   concurrent sessions). A PreToolUse timeout fails open unless the hook sets `"onFailure": "block"` (CLI ≥ 2.1.295;
   platform note §7).
+- **From D22 (2026-10-21):** a prompt-time model pick over a map costs 4 to 18 s and 0.20 to 0.71 USD per call (Sonnet).
+  It cannot run on every prompt; once per task it might. A lexical pick costs 6 to 20 ms after a 0.1 to 0.3 s index
+  build.
 - **Boundary to verify (2026-10-20, public plugin):** a map entry is never turned into a command the plugin runs.
   Only the project's own hooks and tools run, under Claude Code's workspace trust; a plugin that ran checks defined in
   a cloned repo's map would open a new way to execute untrusted code.
@@ -1242,8 +1249,41 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       code, so Grep-based reading is not credited.
   - *Runtime:* (b) 6 to 20 ms per prompt after a 0.1 to 0.3 s index build; (d1) 4 to 10 s and about 0.21 USD;
     (d2) 10 to 18 s and 0.25 to 0.71 USD.
+  - *Native, both bounds.* Counting files the sessions also met in search results (Grep), native sessions touched the
+    files of 39% to 100% of the essential entries, against 0% to 39% by Read. Read understates exposure; a search hit
+    on another line of the same file overstates it. R0 task 1's two runs scored 1.00 and 0.00, so single native runs
+    vary as much as the arms do.
+  - *Limits.* Each arm picked once per task, so pick variance is unmeasured, and "pass on all six" with single shots
+    is stricter than it reads. One judge per task graded 350 to 750 entries in one pass, so the line between
+    essential and useful is one reading.
+- **The bar, corrected (2026-10-21, disclosed; the registered scores stand).** Where the essential set exceeds 8 KB,
+  the registered condition, "80% of the delivered bytes are essential", rewards a tiny delivery that is all
+  essential. The correction: such an arm must deliver at least 6.4 KB of essential entries, 0.8 of the budget. It
+  flips no attempt 1 verdict: the three passes were 7.9 KB deliveries at 0.83 to 0.92, and a stricter bar cannot turn
+  a fail into a pass. The stage count below ran before this rule was written into the ledger. The rule came from the
+  review; the count is descriptive, and nothing was tuned.
+- **Attempts 2 and 3 are ruled out by count, not run (2026-10-21).** Essentials outside the pool are ungraded, so
+  these counts are lower bounds.
+  - *Attempt 2* (600 candidates together with (d2)'s sections): P2's task 2 candidate set holds 5.9 KB of graded
+    essentials, under the 6.4 KB needed. R0's task 1 holds exactly 6.4 KB, so it would need a pick that takes every
+    essential and nothing else. No arm did that on any task: essentials delivered of those among the candidates were
+    2/4, 3/3, 6/12, 11/16, 20/31 and 16/19.
+  - *Attempt 3* (40 sections): on P1's two tasks, (d2)'s 20 sections already held 25 and 27 of the 28 and 30
+    essentials, and the pick delivered 8 of each. The loss is the pick, not the candidates, so more sections do not
+    reach it.
+- **Status: BLOCKED (2026-10-21) on an assumption; rule 4 sends it up.** The assumption: *a single push of at most
+  8 KB at prompt time, chosen by one model pick, holds a task's essential knowledge.* Two measured breaks:
+  - the essential set is 8.2 to 17.9 KB on five of six tasks;
+  - the pick separates relevant from irrelevant (0.80 to 1.00 of its bytes) but not essential from useful (an
+    essential share of 0.17 to 0.37 on the failed tasks).
 
-  Attempts: 1.
+  Both passes came where BM25's candidates were already rich in essentials (R0's task 2: 31 of 32 in the top 300;
+  P2's task 1: 19), so shared words between the task and the rules predicted success. How much context a task gets,
+  and by what route, is a product question with a cost. It goes to the user with these numbers.
+- *Spend on D22:* about 108.50 USD. That is the conversion 96.06, native 7.73, the arms 4.15 and the smoke 0.47,
+  against the approved 78 USD conversion and the 10 to 20 USD native estimate.
+
+  Attempts: 1 (attempts 2 and 3 ruled out by count).
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.
