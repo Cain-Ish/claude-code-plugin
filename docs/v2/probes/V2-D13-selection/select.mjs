@@ -210,7 +210,7 @@ if (mode === 'selftest') {
   assert.deepEqual(e[0].scope, ['src/**']);
   assert.equal(chunk('a.txt', '# not a heading\nx')[0].heads.length, 0);
   assert.ok(chunk('b.md', Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(40)}`).join('\n')).length > 1);
-  assert.deepEqual(tokens('HeroChipList hooks the'), ['herochiplist', 'hero', 'chip', 'list', 'hook']);
+  assert.deepEqual(tokens('UserAvatar hooks the'), ['useravatar', 'user', 'avatar', 'hook']);
   const files = { 'CLAUDE.md': 'see @docs/x.md', 'docs/x.md': 'and [y](./y.md#top)', 'docs/y.md': 'end', 'z.md': 'alone' };
   assert.deepEqual([...pointed(files)].sort(), ['CLAUDE.md', 'docs/x.md', 'docs/y.md']);
   const es = [{ file: 'a.md', heads: [], text: 'brain dir must come from lib sh' }, { file: 'b.md', heads: [], text: 'unrelated words' }];
