@@ -1218,8 +1218,32 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     JSON array. The parser now takes the first array, bracket by bracket. Only (d2) was rerun for that task, before
     its judge saw any pool. The other arms' saved results stand, and no other run had an error.
   - *Smoke* on D20's P1 task (burned): (b) 21 entries, (d1) 22, (d2) 28; no errors.
+- **Attempt 1 result (2026-10-21): fail. No arm passes on all six tasks**
+  ([results/summary.json](probes/V2-D22-selection/results/summary.json)). One fresh Opus judge per task graded pools
+  of 352 to 756 entries. The tasks below are named by repo and number. "Essential" is the share of the judge's
+  essential entries delivered; "relevant" is the share of delivered bytes graded essential or useful.
 
-  Attempts: 0.
+  | Task | Essential set | (b) essential / relevant | (d1) essential / relevant | (d2) essential / relevant | Native (Read) |
+  | --- | --- | --- | --- | --- | --- |
+  | R0 task 1 | 25, 8.8 KB | 0.04 / 0.12 | 0.08 / 0.87 | 0.48 / 1.00 | 0 |
+  | R0 task 2 | 32, 10.9 KB | 0.38 / 0.87 | 0.63 / 1.00 **pass** | 0.53 / 1.00 | 0 |
+  | P1 task 1 | 28, 10.0 KB | 0.00 / 0.15 | 0.11 / 0.80 | 0.29 / 0.82 | 0.39 |
+  | P1 task 2 | 30, 11.0 KB | 0.07 / 0.47 | 0.20 / 0.97 | 0.27 / 1.00 | 0.33 |
+  | P2 task 1 | 45, 17.9 KB | 0.13 / 0.40 | 0.36 / 1.00 **pass** | 0.38 / 1.00 **pass** | 0 |
+  | P2 task 2 | 26, 8.2 KB | 0.15 / 0.84 | 0.42 / 1.00 | 0.23 / 0.88 | 0.27 |
+
+  - *What it shows:*
+    - The model arms deliver almost only relevant entries: 0.80 to 1.00 of their bytes.
+    - They deliver only 8% to 63% of the essential entries.
+    - Every essential set but one exceeds 8 KB: 8.2 to 17.9 KB, 25 to 45 entries per task. That is the
+      pre-declared D13 budget finding.
+    - Plain BM25 fails everywhere.
+    - Native sessions opened, with Read, the files of 0 to 39% of the essential entries. The R0 sessions read only
+      code, so Grep-based reading is not credited.
+  - *Runtime:* (b) 6 to 20 ms per prompt after a 0.1 to 0.3 s index build; (d1) 4 to 10 s and about 0.21 USD;
+    (d2) 10 to 18 s and 0.25 to 0.71 USD.
+
+  Attempts: 1.
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.
