@@ -1,0 +1,85 @@
+{
+ "attempt": 2,
+ "date": "2026-10-21",
+ "labels": {
+  "unchangedTree": {
+   "delivered": 14119,
+   "stale": 0,
+   "unverified": 308,
+   "expectedUnverified": 308,
+   "unreviewed": 0
+  },
+  "sameFile": {
+   "entries": 58,
+   "newSeen": true,
+   "newLabelled": true,
+   "committedUnlabelled": true,
+   "newNotStale": true
+  },
+  "otherFileUnlabelled": true,
+  "newFileLabelled": true,
+  "afterCommitStillLabelled": true,
+  "afterSessionStartClean": true,
+  "allPathsGuarded": true,
+  "pass": true
+ },
+ "boundary": {
+  "childProcess": [
+   "spawnSync"
+  ],
+  "spawns": [
+   {
+    "cmd": "git",
+    "args": "['status', '--porcelain=v1', '-z', '-uall', '--', MAP]"
+   },
+   {
+    "cmd": "git",
+    "args": "['show', `HEAD:${p}`]"
+   }
+  ],
+  "noEval": true,
+  "noOtherProcessApi": true,
+  "pass": true
+ },
+ "nested": {
+  "converted": true,
+  "entries": 5,
+  "costUsd": 0.039786,
+  "hookCalls": 3,
+  "events": [
+   "SessionStart",
+   "UserPromptSubmit",
+   "Stop"
+  ],
+  "outerCalls": 0,
+  "pass": true
+ },
+ "noRuntime": {
+  "exec": {
+   "completed": true,
+   "costUsd": 0.00161622,
+   "hookEvents": 2,
+   "outcomes": [
+    "hook_started",
+    "error"
+   ],
+   "shown": [
+    "Error occurred while executing hook command: Executable not found in $PATH: \"nodex-missing-runtime\""
+   ]
+  },
+  "shell": {
+   "completed": true,
+   "costUsd": 0.00161622,
+   "hookEvents": 2,
+   "outcomes": [
+    "hook_started",
+    "error"
+   ],
+   "shown": [
+    "/usr/bin/bash: line 1: nodex-missing-runtime: command not found\n"
+   ]
+  },
+  "pass": true
+ },
+ "pass": true
+}

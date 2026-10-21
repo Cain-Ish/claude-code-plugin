@@ -123,7 +123,7 @@ if (mode === 'build') {
   const stale = await batch('on-read', 8, 8);
   console.log('stale cache under 8 concurrent', JSON.stringify(stale));
   const pass = Object.values(res).every((r) => r[8].addedP95 <= 100 && r[8].errors === 0 && r[1].errors === 0);
-  write('load.json', { attempt: 2, date: new Date().toISOString().slice(0, 10), os: `${os.platform()} ${os.release()}`, node: process.version, calls, entries: 14119,
+  write('load-a2.json', { attempt: 2, date: new Date().toISOString().slice(0, 10), os: `${os.platform()} ${os.release()}`, node: process.version, calls, entries: 14119,
     bar: 'p95(hook) - p95(empty node), both at 8 concurrent, at most 100 ms', pass, scripts: res, shellFormFloor: shell, staleUnder8: stale });
   console.log('pass', pass);
 } else if (mode === 'checks') {

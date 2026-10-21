@@ -1237,8 +1237,38 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       14,119 entries, the Markdown on 189 files and 389 key lookups.
   - *Attempt 3, planned now:* if the added work cannot be cut, fewer hook calls per tool call. Drop the on-read hook,
     and deliver at the prompt and at writes only.
+- **Attempt 2 result (2026-10-22): fail, on session start**
+  ([load-a2.json](probes/V2-D18-runtime/results/load-a2.json), [checks.json](probes/V2-D18-runtime/results/checks.json)).
+  - *Load, 200 calls, p95 at 8 concurrent minus the floor timed just before:*
 
-  Attempts: 1.
+    | Script | p95 at 8 concurrent | Floor | Added | Errors |
+    |---|---|---|---|---|
+    | session start | 301 ms | 162 ms | 139 ms | 13 of 200 |
+    | on read | 287 ms | 192 ms | 95 ms | 0 |
+    | on write | 228 ms | 162 ms | 66 ms | 0 |
+    | delivery check of 30 | 237 ms | 204 ms | 33 ms | 0 |
+
+    Session start fails the bar twice: 13 calls ended in an error, so those sessions would have started without the
+    capture instruction, and its added work is 139 ms.
+  - *The measurement cannot carry a verdict as built.* The floor swung from 49 to 102 ms alone and from 162 to 204 ms
+    at 8 concurrent between batches minutes apart. On read's added 33 ms alone is below its own in-process work
+    (about 100 ms: map walk 15, lookup 8, guards 76), so its 95 ms "pass" at 8 concurrent is partly noise too.
+  - *Reported:* the shell-form floor is 341 ms at 8 concurrent, against 162 to 204 ms for exec form, so **the exec form
+    is required**, not just preferred. A stale cache rebuilt by 8 hooks at once costs 1.3 s per hook (p95), with 0
+    errors.
+  - *The four other parts pass,* for 0.04 USD:
+    - labels: on the unchanged tree 0 of 14,119 stale and exactly the 308 unverified labelled so; the new entry
+      labelled in a committed file and in a new file, committed entries clean; still labelled after a mid-session
+      commit, clean after the next session start;
+    - boundary: `spawnSync` only, `git` only, no `eval` or `Function`;
+    - nested converter: 3 hooks ran in the nested session (session start, prompt, stop), all exited on the guard;
+    - missing runtime: the session completes in exec and shell form. The user sees "Executable not found in $PATH"
+      or "command not found", as a hook error.
+
+    The nested and missing-runtime results are platform behaviour, independent of the hook code, so they carry into
+    attempt 3. Labels and boundary are free and run again.
+
+  Attempts: 2.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
