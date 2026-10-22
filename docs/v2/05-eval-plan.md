@@ -344,3 +344,11 @@ runs.
     grades. It reports that it opened only those. That is its own report, not a check.
   - `native.mjs checks` passes all 32 correct samples and fails all 32 wrong ones.
   - Every assertion has a `must`, so none passes on an empty reply.
+- **Pilot gate (2026-10-22): all 12 pilots valid** (CLI 2.1.305, Opus 5.5), 40.34 USD.
+  - A1: M0 0.26, M1 0.77 (one chain each).
+  - A2 three-turn: P1 build with memory 1.81, P2 build 7.94, R0 build 2.87.
+  - P2 plan 0.30.
+  - Investigation: R0-knowledge 3.75, R0-buddy 0.45, P1-skills 5.25, P1-weekly 4.75, P2-crafting 1.43, P2-systems
+    10.76.
+  - *Projected at 10 runs per task:* about 400 USD-equivalent, inside the registered range. P2-systems is about a
+    quarter of it, and the investigation tasks vary the most. The remaining runs (2 to 10) go in six resumable chains.
