@@ -600,7 +600,8 @@ if (mode === 'checks') {
     const rs = load(t.m1Arm, t.id);
     if (!rs.length) continue;
     out.tasks[t.id] = {
-      m1Arm: t.m1Arm, validRuns: rs.length, epochs: [...new Set(rs.map((r) => r.epoch?.cli))], stopped: rs.filter((r) => !r.changed?.length).length,
+      m1Arm: t.m1Arm, validRuns: rs.length, epochs: [...new Set(rs.map((r) => r.epoch?.cli))], // a task scored on its reply writes nothing by design, so stopping is not counted for it
+      stopped: t.rules.some((r) => r.check.where !== 'reply') ? rs.filter((r) => !r.changed?.length).length : null,
       rules: Object.fromEntries(t.rules.map((rule) => {
         const n = rs.filter((r) => r.rules[rule.id].final).length;
         return [rule.id, { kind: rule.kind, m1: n, target: n === 0 ? 8 : n }];
