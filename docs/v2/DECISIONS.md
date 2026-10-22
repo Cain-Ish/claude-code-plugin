@@ -2596,3 +2596,42 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Attempt 3* stays ruled out by count, now as a comparison that failed rather than a third failed attempt.
   - *Next:* D22's route is reconsidered with these results (a rethink with a second opinion, under the user's
     instruction of 2026-10-22 that decisions are settled by rethinking and checking, without waiting on the user).
+- **Route rethink (2026-10-22; [research/2026-10-22-d22-route.md](research/2026-10-22-d22-route.md)).** Under the
+  user's instruction of 2026-10-22, decisions are settled by rethinking and a second opinion, without waiting on the
+  user. Gemini reviewed the pull results, given as counts.
+  - *Retired:* the reach-against-the-judge measure as D22's gate. It scored recall against a set nobody validated,
+    on investigation tasks. The user's checklist ticks are no longer needed for the route. End-to-end checks replace
+    it: rule checks on written files, task success and tokens, and, for tasks that write nothing, assertions on the
+    answer.
+  - *Taken from the review:* push from a selector was never tested end to end on the build tasks. The volume check
+    shows that 32 KB of near-topic text costs no following, so a high-recall pick may be enough, and it would cost
+    less than the forced route. The saved picks stop short on their own (4 to 8 KB), so high recall needs a pick
+    told to include more.
+  - *Weighed against:* the forced route's P2 cost is mostly subagent research, not the documents in the main context
+    (main thread +40% over push, subagents most of the gap). A pick inside a prompt hook takes seconds, against
+    D18's 100 ms per hook, so a pick route fires D18's trigger. Its latency is a cost to report.
+- **High-recall push check (pre-registered 2026-10-22, before the pick prompt's first call): arm `ph`.**
+  - *The pick.* One Sonnet 5.5 call, no tools, over the repo's section index (file › h1 › h2, as (d2) used), with
+    this prompt, fixed now: "You choose where in a project's documentation the rules for a task live. Input: the
+    task, then the documentation's sections, one per line: [n] file › heading › subheading. Output: only a JSON array
+    of section numbers, most likely to bind the task first, no prose, no code fence. Err on the side of inclusion:
+    list every section that might hold a rule or fact someone doing the task must follow or know, up to 60
+    sections."
+  - *The delivery.* The map entries (D15's full maps) of the picked sections, in pick order and then source order,
+    up to 32 KB, the volume check's level. They are delivered as the volume arms delivered: at the first prompt, in
+    chunks under the hook cap, with the same header as `o0`.
+  - *Count first (free), on D20's four tasks, 5 picks each.* These are the picks the sessions will use.
+    - A card is holdable if all of the map's entries cover at least half its word trigrams.
+    - It is held if the delivered entries cover at least 0.8 of that. This is D13's corrected rule, on the entries'
+      text.
+  - *Pass, so the sessions run:* on P1's and P2's build tasks, in at least 4 of 5 picks, the delivery holds every
+    holdable card. R0's build task and P2's plan are reported.
+  - *Sessions.* `ph` on P1 (web off) and P2 (web on), 5 each, session i using pick i. Valid as the volume arms
+    (every chunk logged at the first prompt).
+  - *Decision.* `ph` works if it holds every rule `o0` holds. Reported against `o0` and `pf`: tokens and USD, and the
+    pick's time and cost.
+  - *Consequences, written now:*
+    - `ph` works at about push's tokens: the pick-and-push route leads, with D18's latency to settle.
+    - `ph` fails on following: the forced route leads.
+    - Both work: cost and latency decide, and the vague-first-prompt check comes next for the leader.
+    - The count fails: no session runs, and the forced route leads.
