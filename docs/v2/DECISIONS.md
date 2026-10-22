@@ -32,9 +32,10 @@ Frontier (rule 6): **D22** stays BLOCKED until the user ticks the checklists in 
   decision per area, and path-keyed delivery at the action.
 - Its volume check (2026-10-22) found no rule lost with 32 KB pushed at the prompt, against D13's 8 KB, in two tasks
   on Opus. That number goes to the user's budget decision.
-- Its pull check (2026-10-22): an always-on index alone reached none of the rules native misses. Adding a forced
-  decision reached P1's (read first, 5 of 5). In P2, 3 of 5 sessions stopped on a rule needing the web, which the
-  harness turns off. Attempt 3 (path-keyed delivery at the action) waits on the user's call about that.
+- Its pull check (2026-10-22): an always-on index alone reached none of the rules native misses. With a forced
+  decision at the first prompt, Claude read and followed them in both tasks (P2 re-run with the web on, which its
+  rules need), at up to three times push's tokens. Path-keyed pointers were ruled out by count. D22's route is
+  reconsidered next.
 - D20 and D12 were re-locked on 2026-10-22: rules delivered at the prompt held across a forced compaction on Opus
   (an upper bound).
 - D19 stays LOCKED, but its context measure is reset; D20's stage 3 supplies the session-level numbers.
@@ -2569,3 +2570,29 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     delivery is a map feature, not a way to pull from the documents.
   - *Rule 4 waits on the web re-run.* If `pf` works on P2 with the web on, attempt 2 passes, and this count is a
     comparison that failed. If not, this is the pull track's third failed attempt, and it goes up a level.
+- **P2 re-run with the web on, result (2026-10-22; [summary-web.json](probes/V2-D20-adherence/results/summary-web.json)):
+  `pf` works on P2, so attempt 2 passes on both tasks.**
+  - *Runs:* 15 sessions, all valid, one epoch (CLI 2.1.305, Opus 5.5), 81.96 USD. Every session used the web, and
+    none stopped.
+  - *Following.*
+    - Native (`n0`) misses R5 (1 of 5) and R7 (0 of 5), as with the web off. Every other rule held.
+    - Push (`o0`) holds all 8 (R4 4 of 5).
+    - `pf` holds all 8 (R4 and R7 4 of 5). It reaches R5 (5 of 5) and R7 (4 of 5), and in every session that
+      followed them their source was read before the first write. By the asymmetry clause, that is pull.
+  - *So the web-off failure was the harness's.* P2's sessions stopped on a rule that needs the web.
+  - *Cost against `o0` (D17's form).*
+    - P2: `pf` 7.33 USD against 3.19 (spread 1.72), and 16.1M tokens against 5.0M. **More by the rule**, about three
+      times the tokens; one session cost 14.29 USD. The largest request was 229k tokens against 187k.
+    - P1 (web off): 1.25 against 1.01 USD (spread 0.46), not more by the rule.
+  - *What it means.*
+    - An always-on index of the repo's documents, plus a forced decision at the first prompt, gets Claude to read
+      and follow the rules native misses, in both tasks. It needs no selector and pushes no rule text. It is the
+      first route in this ledger that reaches them without an oracle set.
+    - Its price grows with the documents. In P2 (189 document files) it tripled the tokens of the oracle push.
+      Push of the exact set stays the cheapest, but no tested selector provides that set.
+  - *Limits:* two tasks, 5 sessions each; P1 with the web off and P2 with it on; one two-turn shape with no
+    compaction; Opus only; build tasks only. Whether what Claude read survives a compaction is untested; stage 3
+    tested pushed text only.
+  - *Attempt 3* stays ruled out by count, now as a comparison that failed rather than a third failed attempt.
+  - *Next:* D22's route is reconsidered with these results (a rethink with a second opinion, under the user's
+    instruction of 2026-10-22 that decisions are settled by rethinking and checking, without waiting on the user).

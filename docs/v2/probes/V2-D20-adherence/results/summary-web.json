@@ -1,0 +1,387 @@
+{
+ "date": "2026-10-22",
+ "model": "claude-opus-5-5",
+ "tasks": {
+  "P2-build": {
+   "runs": {
+    "o0": 5,
+    "n0": 5,
+    "pf": 5
+   },
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "cls": "pattern",
+     "o0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    },
+    "R2": {
+     "kind": "convention",
+     "cls": "pattern",
+     "o0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    },
+    "R3a": {
+     "kind": "canon",
+     "cls": "judgment",
+     "o0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    },
+    "R3b": {
+     "kind": "canon",
+     "cls": "judgment",
+     "o0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    },
+    "R4": {
+     "kind": "canon (language)",
+     "cls": "judgment",
+     "o0": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    },
+    "R5": {
+     "kind": "unloaded, counter-pattern",
+     "cls": "pattern",
+     "o0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 1,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 1
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      true,
+      true
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    },
+    "R6": {
+     "kind": "convention, counter-pattern",
+     "cls": "pattern",
+     "o0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    },
+    "R7": {
+     "kind": "canon, unloaded, counter-pattern",
+     "cls": "judgment",
+     "o0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 0,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 2
+     },
+     "pf": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "lost": false,
+     "lostWithoutStopped": false,
+     "reachedBy_pf": [
+      true,
+      true
+     ],
+     "holds_pf": [
+      true,
+      true
+     ]
+    }
+   },
+   "sessions": {
+    "o0": {
+     "maxContextPerRequest": 187217,
+     "requests": 45,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 2402,
+     "costUsd": 3.1871540100000004,
+     "costSpread": 1.7213643550000022,
+     "tokensAll": 5001018,
+     "stopped": 0,
+     "webSessions": 5,
+     "totalCostUsd": 15.783511670000001
+    },
+    "n0": {
+     "maxContextPerRequest": 206617,
+     "requests": 77,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 0,
+     "costUsd": 4.762478199999999,
+     "costSpread": 3.4786227949999984,
+     "tokensAll": 8432214,
+     "stopped": 0,
+     "webSessions": 5,
+     "totalCostUsd": 25.071128405000003
+    },
+    "pf": {
+     "maxContextPerRequest": 228790,
+     "requests": 109,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 6308,
+     "costUsd": 7.331868965000001,
+     "costSpread": 10.564078050000003,
+     "tokensAll": 16068868,
+     "stopped": 0,
+     "webSessions": 5,
+     "totalCostUsd": 41.110728949999995
+    }
+   }
+  }
+ }
+}

@@ -60,3 +60,15 @@ Counts are in [`../V2-D20-adherence/results/summary-stage3.json`](../V2-D20-adhe
 
 In P2, the stopped `pf` sessions asked about a canon fact. P2's rules require checking that kind of fact against an
 outside source, and the harness turns the web off.
+
+P2 re-run with the web on (counts in [`../V2-D20-adherence/results/summary-web.json`](../V2-D20-adherence/results/summary-web.json)):
+
+| Followed of 5, web on | `n0` | `o0` (push) | `pf` |
+| --- | --- | --- | --- |
+| P2 R5 | 1 | 5 | 5, source read first in 5 |
+| P2 R7 | 0 | 5 | 4, read first in 4 |
+| Stopped sessions | 0 | 0 | 0 |
+| Median tokens (all turns and subagents) | 8.4M | 5.0M | 16.1M |
+| Median USD | 4.76 | 3.19 | 7.33 |
+
+With the web on, `pf` holds every rule push holds, in both tasks. In P2 it costs about three times push's tokens.
