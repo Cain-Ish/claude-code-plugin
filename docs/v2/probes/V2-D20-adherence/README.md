@@ -168,3 +168,28 @@ Limits:
 - The (d) pilot run on P1 spawned a subagent.
 - The regex checks are the same as in stage 1, plus the two corrections. P3a missed one rejection wording in (b).
 - Hook time excludes process start-up.
+
+## Stage 3: rules across a compaction (pre-registered 2026-10-22, D20 reopened)
+
+One session in three turns on the user's model (Opus 5.5): the task's prompt plus "investigate and report, do not
+write yet", then `/compact`, then "Now make the change." Arms: `n` native with the compaction; `o0` the task's cards
+once, at the first prompt, no compaction; `oc` the same with the compaction. P1's and P2's build tasks, 5 sessions
+per arm. The check and its result are in [`DECISIONS.md`](../../DECISIONS.md) under V2-D20, stage 3; counts are in
+[`results/summary-stage3.json`](results/summary-stage3.json).
+
+| Rule (native never follows it) | `n` | `o0` | `oc` |
+| --- | --- | --- | --- |
+| P1 R6, judgment | 0/5 | 5/5 | 5/5 |
+| P2 R5, pattern | 2/5 | 4/5 | 5/5 |
+| P2 R6, pattern | 2/5 | 4/5 | 5/5 |
+| P2 R7, judgment | 0/5 | 4/5 | 5/5 |
+
+- No rule was lost to the compaction, so stage 2 (re-delivery on compact, the checks, the deny) was not run.
+- The 4 of 5 in `o0` is one P2 session that stopped to ask: it wrote nothing because P2's canon rule needed a source
+  it could not reach. One native session did the same.
+- P1 R2, a pattern rule, was missed on Opus in every arm (1, 2 and 2 of 5), though stage 2 fixed it on Sonnet.
+- 30 sessions, 75.10 USD; 1.0 to 1.8 USD a session in P1, 3.6 to 3.9 in P2.
+- The compaction here took about 100k tokens to 13k, gentler than real ones. So this is an upper bound.
+
+Run: `node native.mjs run <config> <task> 5 1 <n|o0|oc>`, then `revalidate` per task and arm after the turn-count
+correction, then `summary3`.

@@ -15,7 +15,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
-| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED 2026-10-22 (its trigger: interactive sessions; cell in D20 stage 3) | evidence | — |
+| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3) | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
@@ -23,16 +23,18 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
-| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED 2026-10-22 (rule 9, rethink 2; stage 3) | evidence | D12, D17 |
+| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D20 stage 3**, the session check (pre-registered 2026-10-22). D20 and D12 were reopened on
-2026-10-22 after rethink 2 ([research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md)): the probes
-measured single tasks, while the user's real sessions fill most of the window and compacted in 7 of 11. D19 stays
-LOCKED, but its context measure is reset; this check supplies the session-level numbers its re-lock needs. **D22 is
-BLOCKED** until the user ticks the checklists in `research/raw/d22/validate/`; rethink 2 adds untested options to
-it. Step 14 waits on D20 and D22. Targets for the gaps of D17's rule in A1 and A2 are the user's call.
+Frontier (rule 6): **D22** stays BLOCKED until the user ticks the checklists in `research/raw/d22/validate/`.
+Rethink 2 adds three untested options to it: an always-on index with a retrieval-led instruction, a forced decision
+per area, and path-keyed delivery at the action. D20 and D12 were re-locked on 2026-10-22 by D20's stage 3: rules
+delivered at the prompt held across a forced compaction on Opus 5.5 (an upper bound; real compactions are harsher).
+D19 stays LOCKED, but its context measure is reset; stage 3 supplies the session-level numbers. Runnable now, without
+the user: rethink 2's volume check (task success and cost against how many rules are delivered, and how long they
+are), which bears on D13, D15 and D22. Step 14 waits on D22. Targets for the gaps of D17's rule in A1 and A2 are
+the user's call.
 
 ---
 
@@ -248,6 +250,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   Opus 5.5 and Fable 5.1, and compacted in 7 of 11 ([research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md)).
   The interactive-session cell is measured by D20's stage 3: prompt-time delivery across a compaction, on the user's
   model, and re-delivery by the session-start hook on `compact`. The arrival results above stand.
+- **Re-locked 2026-10-22 (D20 stage 3).** In a three-turn session on Opus 5.5, text delivered by `UserPromptSubmit`
+  at the first prompt was still followed after a forced compaction (medians 87k to 102k tokens before, 12k to 14k
+  after). Every rule that held without the compaction also held with it (10 sessions). Re-delivery on `compact` was not needed, so it was not run. The cell is an upper
+  bound: real compactions are harsher. D20's new trigger watches for a rule lost after a compaction.
 - **Evidence so far (documented, not yet probed):** research/2026-10-19-platform-memory-channels.md (Explore and Plan
   skip `CLAUDE.md`; path rules reach every agent type on file touch but are not re-injected after compaction; hook
   context above 10,000 chars becomes a file preview). Path rules may arrive after planning has started (Ultimate
@@ -1797,6 +1803,41 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
         also reported as *stopped*, and each rule's outcome is shown both ways: as registered, and without the
         stopped sessions. Where the two readings disagree, the registered one stands and the disagreement is
         reported.
+- **Stage 3 result (2026-10-22; [results/summary-stage3.json](probes/V2-D20-adherence/results/summary-stage3.json)):
+  no rule lost, in either reading. Stage 2 not run.**
+  - *Runs:* 30 sessions, all valid, one epoch (CLI 2.1.305, Opus 5.5), 75.10 USD. The pilots and the smokes add
+    about 8.1 USD, so about 83 USD in all.
+  - *Compaction (medians):* 72k to 102k tokens before, 11k to 14k after.
+  - *The rules native never follows*, followed in sessions of 5, as native with the compaction / once without it /
+    once with it:
+    - P1 R6 (judgment): 0 / 5 / 5;
+    - P2 R5: 2 / 4 / 5;
+    - P2 R6: 2 / 4 / 5;
+    - P2 R7 (judgment): 0 / 4 / 5.
+
+    Every other rule held in both delivery arms, except P1 R2.
+  - *P1 R2, a pattern rule, was missed in every arm on Opus:* 1 of 5 native, 2 of 5 in each delivery arm. Stage 2
+    fixed it on Sonnet (5 of 5). It is left out of the comparison as registered. D20's trigger names judgment rules
+    only, so it fires nothing. The design's net for a pattern rule, the check fed back after the write, was not
+    run on Opus.
+  - *Stopped sessions:* two of the 15 P2 sessions wrote nothing and stopped to ask, one native and one in `o0`. Both
+    followed P2's canon rule, which needs a source the session could not reach without the web. The two readings
+    agree.
+  - *What the summary kept (reported only; a lower bound by id, source or mark):* every P1 rule in 5 of 5 `oc`
+    summaries. In P2, 1 to 5 of 5 per rule, R5 in 2 and R6 in 3. Yet both were followed in 5 of 5. Following did
+    not need the summary to name the rule in a form this detector finds.
+  - *Session measures (medians, P1 and P2):*
+    - requests per session: 18 to 21 in P1, 52 to 70 in P2, where Opus also ran subagents;
+    - the largest context of any request: 73k to 86k in P1, 142k to 194k in P2;
+    - delivered bytes: 2.2 to 2.4 KB, once;
+    - USD per session: 1.0 to 1.8 in P1, 3.6 to 3.9 in P2.
+
+    These are the session-level numbers D19's reset measure needs.
+  - *As registered, this is an upper bound.* The compaction here took about 100k tokens down to 13k. The user's real
+    ones take 220k to 840k down to 11k to 29k, and a filled context (dilution) was not tested.
+- **Re-locked 2026-10-22 (stage 3).** (c) stands. The rules' text, delivered when the task's prompt arrives, was
+  still followed after a forced compaction between that prompt and the writes, in a three-turn session on Opus 5.5.
+  Added to "reopen if": a rule lost after a compaction in real use or in the first slice's eval. Attempts: 0.
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and

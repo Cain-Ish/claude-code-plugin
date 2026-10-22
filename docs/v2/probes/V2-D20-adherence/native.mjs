@@ -533,10 +533,16 @@ if (mode === 'checks') {
       epochs: [...new Set(Object.values(arms).flat().map((r) => r.epoch?.cli))],
       rules: Object.fromEntries(t.rules.map((rule) => {
         const row = { kind: rule.kind, cls: rule.card.cls };
-        for (const [a, rs] of Object.entries(arms)) row[a] = { followed: rs.filter((r) => r.rules[rule.id].final).length, of: rs.length,
-          status: status(rs, rule.id), keptInSummary: rs.filter((r) => r.session?.keptInSummary?.[rule.id]).length };
+        for (const [a, rs] of Object.entries(arms)) {
+          // stopped: the session wrote no file (it stopped to ask); the second reading leaves those out (DECISIONS.md)
+          const wrote = rs.filter((r) => r.changed?.length);
+          row[a] = { followed: rs.filter((r) => r.rules[rule.id].final).length, of: rs.length, status: status(rs, rule.id),
+            stopped: rs.length - wrote.length, statusWithoutStopped: wrote.length && wrote.filter((r) => !r.rules[rule.id].final).length >= 2 ? 'missed' : wrote.length ? 'held' : null,
+            keptInSummary: rs.filter((r) => r.session?.keptInSummary?.[rule.id]).length };
+        }
         row.lost = row.o0?.status === 'held' && row.oc?.status === 'missed';
-        if (row.lost) row.restoredBy = ['or', 'od', 'ow'].filter((a) => row[a]?.status === 'held');
+        row.lostWithoutStopped = row.o0?.statusWithoutStopped === 'held' && row.oc?.statusWithoutStopped === 'missed';
+        if (row.lost || row.lostWithoutStopped) row.restoredBy = ['or', 'od', 'ow'].filter((a) => row[a]?.status === 'held');
         return [rule.id, row];
       })),
       sessions: Object.fromEntries(Object.entries(arms).map(([a, rs]) => [a, {
