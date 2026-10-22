@@ -19,7 +19,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
@@ -1150,6 +1150,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - The converter or its prompt changes (D15).
 
   Attempts: 1 failed, 2 passed.
+- **REOPENED and re-LOCKED 2026-10-22, by reasoning on existing evidence; no session.**
+  - *Fired:* "the converter or its prompt changes (D15)". D15 no longer converts. D22's lock also moved what Claude
+    gets from pushed entries to files it reads.
+  - *What stays:* the re-find is the same, and was tested in attempt 2: the quote and its context re-found in the
+    entry's own file, then any document file, with no model. So are its states and labels.
+  - *What moves:*
+    - **When it runs.** At `PostToolUse` after a Read of a `.project-map/` file, D18's existing slot. The labels for
+      changed and gone entries are added to what Claude just read, next to D14's unreviewed label. The incremental
+      sweep stays.
+    - **What it covers.** Captured entries only (D13 as re-locked). The project's own documents are the source, read as
+      they are, so they have nothing to drift from. Whether a document is still true of the code stays out of scope,
+      as before.
+    - **Repair.** No re-conversion. A changed or gone entry is shown with "source changed since <date>; check
+      <source>", and Claude updates it under D14's capture instruction, committed with the work.
+  - *Reopen if:* the triggers above, except the converter's; and the read hook's added p95 exceeds D18's budget.
+    D18 measured "on read of a document" at the bar.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
