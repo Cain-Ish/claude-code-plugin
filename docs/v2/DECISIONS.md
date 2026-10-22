@@ -2427,3 +2427,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     so chains run per task and arm, and runs resume from their index.
   - *Smoke (Haiku, P1, `p`):* valid. The index (1,961 bytes) was logged at session start, and the session quoted
     its first sentence without a tool.
+  - *Attempt 2 triggered (2026-10-22, P1 complete, P2 under way).* In P1, `p` missed R6 (1 of 5; its source was
+    never read in 4), which `o0` holds 5 of 5. So `p` does not work, and the registered sequel runs.
+    - *Arm `pf`:* the same index from session start as `p`, plus a fixed text delivered once at the first prompt
+      by a `UserPromptSubmit` hook, written now: "Before you start: for each directory in this project's document
+      index, state in one line whether its documents bear on this task (yes or no). Then read the documents in
+      every directory you marked yes before you change anything."
+    - It runs on both tasks, 5 sessions each, with the same validity as `p`. The forced text must also be logged
+      once, at the first prompt.
+    - Same decision: `pf` works if it holds every rule `o0` holds.
+    - If it does not, attempt 3 is path-keyed delivery at the action, registered before it runs.
