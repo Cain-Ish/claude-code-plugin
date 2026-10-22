@@ -8,7 +8,9 @@ import path from 'node:path';
 import { check, changedFiles, slash } from './check.mjs';
 
 const dir = process.argv[2];
-const { arm, cards } = JSON.parse(fs.readFileSync(path.join(dir, 'cards.json'), 'utf8'));
+const { arm, cards, chunks } = JSON.parse(fs.readFileSync(path.join(dir, 'cards.json'), 'utf8'));
+// V2-D22 volume (arms v*): one hook command per chunk, argv[3] its index; each chunk once, at the first prompt
+const chunk = process.argv[3] === undefined ? null : Number(process.argv[3]);
 const logPath = path.join(dir, 'deliveries.jsonl');
 // the log is the state: a card already denied-and-delivered before a write is not delivered there again
 const logged = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').trim().split('\n') : []).flatMap((l) => (l ? [JSON.parse(l)] : []));
@@ -22,7 +24,14 @@ const file = slash(path.relative(input.cwd ?? '.', input.tool_input?.file_path ?
 const log = { ev };
 let out = null;
 
-if ((ev === 'UserPromptSubmit' && !prompted) || (ev === 'SessionStart' && arm === 'or')) { // or: again after compaction
+if (chunk !== null) {
+  if (ev === 'UserPromptSubmit' && !logged.some((l) => l.ev === ev && l.chunk === chunk)) {
+    out = { hookSpecificOutput: { hookEventName: ev, additionalContext: (chunk === 0 ? '[d20-rules] Rules of this project '
+      + 'that bind this task, quoted from its own files with their source. Where existing code differs from a rule, '
+      + 'follow the rule.\n' : '[d20-rules, continued]\n') + chunks[chunk].map(line).join('\n') } };
+    Object.assign(log, { chunk, cards: chunks[chunk].filter((c) => c.rule).map((c) => c.rule), ids: chunks[chunk].length });
+  }
+} else if ((ev === 'UserPromptSubmit' && !prompted) || (ev === 'SessionStart' && arm === 'or')) { // or: again after compaction
   out = { hookSpecificOutput: { hookEventName: ev, additionalContext: '[d20-rules] Rules of this project that bind this '
     + 'task, quoted from its own files with their source. Where existing code differs from a rule, follow the rule.\n'
     + cards.map(line).join('\n') } };

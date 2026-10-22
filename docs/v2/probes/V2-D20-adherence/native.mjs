@@ -79,6 +79,25 @@ function armHooks(base) {
   const writes = { matcher: 'Write|Edit|MultiEdit', ...d };
   fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm,
     cards: task.rules.map((r) => ({ id: r.id, ...r.card, check: r.check })) }, null, 1));
+  if (arm.startsWith('v')) { // V2-D22 volume: binding cards plus the task's filler to ~N KB, neutral ids, seeded order
+    const kb = Number(arm.slice(1)) * 1000;
+    const line = (c) => `- E000 (${c.area}): ${c.text} [source: ${c.source}]\n`;
+    let bytes = task.rules.reduce((a, r) => a + Buffer.byteLength(line(r.card)), 0);
+    const fill = [];
+    for (const c of task.fill) { if (bytes + Buffer.byteLength(line(c)) > kb) break; bytes += Buffer.byteLength(line(c)); fill.push(c); }
+    const seed = path.basename(base);
+    const all = [...task.rules.map((r) => ({ ...r.card, rule: r.id })), ...fill]
+      .map((c) => ({ c, k: crypto.createHash('sha256').update(`${seed}|${c.rule ?? c.key}`).digest('hex') })).sort((a, b) => a.k.localeCompare(b.k))
+      .map(({ c }, n) => ({ id: `E${String(n + 1).padStart(3, '0')}`, area: c.area, text: c.text, source: c.source, ...(c.rule ? { rule: c.rule } : {}) }));
+    const chunks = [];
+    for (const c of all) { // each hook output stays under the 10,000-character additionalContext cap
+      if (!chunks.length || chunks.at(-1).reduce((a, x) => a + line(x).length, 0) + line(c).length > 8500) chunks.push([]);
+      chunks.at(-1).push(c);
+    }
+    fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm, cards: [], chunks,
+      positions: Object.fromEntries(all.flatMap((c, n) => (c.rule ? [[c.rule, n + 1]] : []))), delivered: all.length }, null, 1));
+    return { UserPromptSubmit: [{ hooks: chunks.map((_, k) => nodeHook('deliver.mjs', base, String(k))) }] };
+  }
   // stage 3: the cards once, at the first prompt (deliver.mjs); stage 2 of it adds one path to oc
   if (arm.startsWith('o')) return { UserPromptSubmit: [d], ...({ or: { SessionStart: [{ matcher: 'compact', ...d }] },
     od: { PostToolUse: [writes], Stop: [d] }, ow: { PreToolUse: [writes] } }[arm] ?? {}) };
@@ -98,7 +117,7 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 }
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
-const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true };
+const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false };
 const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, investigate what this task needs and `
   + 'report what you found. Do not create or edit any file yet.', ...(compact ? ['/compact'] : []), 'Now make the change.'];
 function claudeTurns(cwd, turns, model, raw) {
@@ -236,7 +255,8 @@ async function runOnce(i, model = cfg.model) {
     if (refused) rec.invalid.push(`${refused} memory write(s) refused`);
     if (!rec.memory.pathIsRunCopy) rec.invalid.push('auto memory not the run copy');
   }
-  if (compact !== undefined) rec.session = sessionFacts(ev, f, model, compact, rec.invalid);
+  if (compact !== undefined) rec.session = sessionFacts(ev, f, model, compact, rec.invalid, chunksOf(base));
+  if (arm.startsWith('v')) ({ positions: rec.positions, delivered: rec.delivered } = JSON.parse(fs.readFileSync(path.join(base, 'cards.json'), 'utf8')));
   if (!['a', 'i', 'm', 'n'].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
   if (arm === 'd' && !byEv('Stop').length) rec.invalid.push('no Stop hook call');
   rec.delivery = { denies: byEv('PreToolUse').filter((d) => d.cards).length, checkFeedback: byEv('PostToolUse').filter((d) => d.cards).length,
@@ -275,7 +295,9 @@ async function runOnce(i, model = cfg.model) {
 
 // Stage 3: a session's validity (pushed onto invalid) and measures. Kept rules are read from the compaction summary
 // in the session's transcript (local only), by rule id, source path or mark: a lower bound.
-function sessionFacts(ev, f, model, compact, invalid) {
+// prompt deliveries a session must log: one per chunk in the volume arms (V2-D22), one otherwise
+const chunksOf = (base) => { const p = path.join(base, 'cards.json'); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')).chunks?.length ?? 1 : 1; };
+function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   const results = ev.filter((e) => e.type === 'result');
   const first = ev.findIndex((e) => e.type === 'result');
   const isWrite = (c) => c.type === 'tool_use' && ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(c.name);
@@ -288,7 +310,7 @@ function sessionFacts(ev, f, model, compact, invalid) {
   if (results.length < (compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
   if (ev.slice(0, first).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
   if (!!boundary !== compact) invalid.push(compact ? 'no compaction' : 'compacted');
-  if (arm !== 'n' && prompts !== 1) invalid.push(`${prompts} prompt deliveries`);
+  if (arm !== 'n' && prompts !== expected) invalid.push(`${prompts} prompt deliveries`);
   if (models.some((m) => !m.startsWith(model))) invalid.push(`ran on ${models}`);
   const ctx = (u) => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
   const seen = new Map();
@@ -337,6 +359,8 @@ if (mode === 'checks') {
   // arm b/d keep the task's prompt: their hooks only act on a write in a card's area
   if (arm === 'a') task.prompt = 'Create a file named smoke-note.md in the repository root containing the single word ok.';
   // arm m: the memory index arrived if Claude quotes its first line without opening it (V2-D19's pre-registered smoke)
+  // arms v*: every chunk arrived if Claude names the last card of the last chunk without a tool (V2-D22 volume smoke)
+  if (arm.startsWith('v')) task.prompt = 'Without using any tool, reply with only the id of the last project rule listed in your context, then stop.';
   if (arm === 'm') task.prompt = 'Without using any tool, quote the first line of your auto memory index verbatim. Then create a file named smoke-note.md in the repository root containing the single word ok.';
   const { rec, f } = await runOnce(0, cfg.smokeModel ?? 'claude-haiku-5-5');
   task.prompt = saved;
@@ -346,7 +370,9 @@ if (mode === 'checks') {
   console.log(JSON.stringify({ valid: rec.valid, invalid: rec.invalid, skillsListed: f.init?.skills, plugins: f.init?.plugins,
     mcp: f.init?.mcp_servers, loads: rec.instructionsLoaded, logFields: Object.keys(f.loads[0] ?? {}),
     changed: rec.changed, usage: rec.usage, delivery: rec.delivery, rules: rec.rules, eventKinds: kinds, memory: rec.memory, session: rec.session,
-    memoryQuoted: arm === 'm' ? blocks(ev, 'assistant', 'text').map((c) => c.text).join('\n').includes(fs.readFileSync(path.join(task.memory, 'MEMORY.md'), 'utf8').split('\n')[0].trim()) : undefined }, null, 1));
+    memoryQuoted: arm === 'm' ? blocks(ev, 'assistant', 'text').map((c) => c.text).join('\n').includes(fs.readFileSync(path.join(task.memory, 'MEMORY.md'), 'utf8').split('\n')[0].trim()) : undefined,
+    lastCard: arm.startsWith('v') ? { delivered: rec.delivered, chunks: chunksOf(path.join(OUT, task.id, 'run0')),
+      named: blocks(ev, 'assistant', 'text').map((c) => c.text).join('\n').match(/E\d{3}/g) } : undefined }, null, 1));
 } else if (mode === 'run') {
   const ep = epoch();
   const file = path.join(OUT, `${task.id}.json`);
@@ -511,7 +537,7 @@ if (mode === 'checks') {
     const base = path.join(OUT, task.id, `run${rec.run}`);
     const ev = parse(fs.readFileSync(path.join(base, 'stream.jsonl'), 'utf8'));
     rec.invalid = rec.invalid.filter((x) => !mine.test(x));
-    rec.session = sessionFacts(ev, facts(ev, dir, path.join(base, 'instructions.jsonl'), base), cfg.model, SESSION[arm], rec.invalid);
+    rec.session = sessionFacts(ev, facts(ev, dir, path.join(base, 'instructions.jsonl'), base), cfg.model, SESSION[arm], rec.invalid, chunksOf(base));
     rec.valid = rec.invalid.length === 0;
     console.log(`${task.id} ${arm} run ${rec.run}: ${rec.valid ? 'valid' : `INVALID ${rec.invalid}`}`);
   }

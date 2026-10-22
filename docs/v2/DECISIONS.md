@@ -2347,3 +2347,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Not measured:* task success (Bash is off and no tests run; completion and stopped sessions stand in); form (an
     imperative rule against a quote with its rationale) is a second variable, cut here; Opus only; two tasks; one
     filler kind.
+  - *Before the counted runs (2026-10-22):*
+    - *Smoke (Haiku, P1, `v32`):* valid. Four hook chunks delivered 32.7 KB at the first prompt and nothing at the
+      second. Asked without tools for the last card it was given, Haiku named the 84th, the last card of the last
+      chunk. So several hook outputs on one event all arrive, and `v32` runs as registered.
+    - *The filler, checked:* one agent pass and two passes over the replacements, every flag verified by hand. The
+      final sets are 79 entries for P1 (32.0 KB with the cards) and 107 for P2 (31.8 KB).
+      - P1: 1 entry removed; it stated R4.
+      - P2: 23 entries removed. 10 contradicted R5: they describe the renamed item system as current, in stale
+        documents a word-matching selector ranks highly. 13 restated R1, R2, R4, R6 or R7.
+      - Kept: entries that only point at a rule's source file or share its topic.
+    - *Finding, reported:* in P2, a word-matching selector's realistic picks include stale entries that contradict a
+      binding rule. This check removes them, so it measures volume. Contradiction in the delivered set is not tested
+      here. D16's re-find does not flag such entries, because their quotes are still in their files.
