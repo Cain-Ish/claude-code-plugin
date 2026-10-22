@@ -1,0 +1,43 @@
+{
+ "date": "2026-10-22",
+ "rule": "K (DECISIONS.md, V2-D22 attempt 3); pass: the source named in at least 80% of covering sessions, for every rule",
+ "tasks": {
+  "P1-build": {
+   "documents": 75,
+   "rules": {
+    "R6": {
+     "sessions": 34,
+     "named": 0,
+     "share": 0
+    }
+   },
+   "pass": false,
+   "namedPerFirstWrite": {
+    "median": 10,
+    "zero": 0,
+    "of": 102
+   }
+  },
+  "P2-build": {
+   "documents": 189,
+   "rules": {
+    "R5": {
+     "sessions": 30,
+     "named": 2,
+     "share": 0.07
+    },
+    "R7": {
+     "sessions": 30,
+     "named": 2,
+     "share": 0.07
+    }
+   },
+   "pass": false,
+   "namedPerFirstWrite": {
+    "median": 6,
+    "zero": 6,
+    "of": 174
+   }
+  }
+ }
+}

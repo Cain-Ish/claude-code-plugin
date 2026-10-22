@@ -2549,3 +2549,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Decision (as before).* `pk` works on a task if it holds every rule `o0` holds there.
     - Mechanism: the rule's source read before the first write that went through.
     - Also reported: the denies per session, the documents named, and tokens and cost against `o0` and `pf`.
+- **Attempt 3 count (2026-10-22, before any `pk` session; [pathkey-count.json](probes/V2-D22-selection/results/pathkey-count.json),
+  hook and count in [pathkey.mjs](probes/V2-D22-selection/pathkey.mjs), which self-tests K): fail, so `pk` is
+  ruled out by count and not run.**
+  - *The count.* Across the saved two-turn sessions, the rule's source was among the documents K names at the
+    first write in the covered file's directory:
+    - P1 R6: 0 of 34 sessions;
+    - P2 R5: 2 of 30;
+    - P2 R7: 2 of 30.
+
+    The bar was 80% for each.
+  - *Why (a diagnostic, not part of the check).* Without the 10-document cap, the three sources are still not keyed
+    for the task's main file. They mention the folder's last name as a word, but never the path or any two-segment
+    part of it. P2's 2 hits come from writes in other folders. The cap is not the cause: the documents state rules
+    by topic, not by path.
+  - *What it means.* Path-keyed pull from the repo's own documents reaches a rule only if someone wrote the path
+    into it. Claude Code's own path rules (`paths:`) work the same way. A path key has to come from onboarding: the
+    converter's applies-when terms name code paths (D13), and D22's run 3 keyed entries that way. So path-keyed
+    delivery is a map feature, not a way to pull from the documents.
+  - *Rule 4 waits on the web re-run.* If `pf` works on P2 with the web on, attempt 2 passes, and this count is a
+    comparison that failed. If not, this is the pull track's third failed attempt, and it goes up a level.
