@@ -22,7 +22,8 @@ const [mode, cfgArg, taskId, runs = '1', first = '1', arm = 'a'] = process.argv.
 const cfgPath = path.resolve(cfgArg);
 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
-const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), 'd20-stage2', arm);
+// cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
+const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
 const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3'].includes(mode) ? null : process.exit(2));
 
 const env = (extra = {}) => {
@@ -118,8 +119,10 @@ function armHooks(base) {
 }
 
 // Skills stay on (they are how these repos hold knowledge); Bash and the web are off: no installs, static scoring.
-const claudeArgs = (model, deny = 'Bash,WebFetch,WebSearch', addDir = null) => ['-p', '--model', model,
+// cfg.web turns the web on, pre-approved, since a headless session cannot answer a permission prompt.
+const claudeArgs = (model, deny = cfg.web ? 'Bash' : 'Bash,WebFetch,WebSearch', addDir = null) => ['-p', '--model', model,
   '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', deny, '--permission-mode', 'acceptEdits',
+  ...(cfg.web ? ['--allowedTools', 'WebSearch,WebFetch'] : []),
   '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(addDir ? ['--add-dir', addDir] : [])];
 
 function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir = null) {
@@ -332,6 +335,8 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   if (['p', 'pf'].includes(arm) && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory)) invalid.push('index not delivered at session start');
   if (arm === 'pf' && f.deliveries.filter((d) => d.ev === 'UserPromptSubmit' && d.text).length !== 1) invalid.push('forced text not delivered once at the first prompt');
   if (models.some((m) => !m.startsWith(model))) invalid.push(`ran on ${models}`);
+  // the web smoke: WebSearch is listed in the main session; WebFetch is reached through a fetch subagent on this CLI
+  if (cfg.web && !f.init?.tools?.includes('WebSearch')) invalid.push('web search not listed');
   const ctx = (u) => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
   const seen = new Map();
   for (const e of ev) if (e.type === 'assistant' && e.message?.usage && !seen.has(e.message.id)) {
@@ -344,6 +349,7 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return {
     turns: results.length, models, subagentModels: [...new Set(ev.filter((e) => e.type === 'assistant' && e.parent_tool_use_id).map((e) => e.message?.model))], compaction: boundary ? (boundary.compact_metadata ?? boundary.compactMetadata ?? {}) : null,
+    webCalls: ev.filter((e) => e.type === 'assistant').flatMap((e) => e.message?.content ?? []).filter((c) => c.type === 'tool_use' && ['WebSearch', 'WebFetch'].includes(c.name)).length,
     requests: seen.size, contextPerRequest: [...seen.values()], resultCostsUsd: results.map((r) => r.total_cost_usd),
     // a result's usage is its own turn only; its modelUsage, like total_cost_usd, sums the session and its subagents
     tokensAll: Object.values(results.at(-1)?.modelUsage ?? {})
@@ -570,7 +576,7 @@ if (mode === 'checks') {
 } else if (mode === 'summary3') {
   // Stage 3, public: per task and rule, followed counts per session arm, held or missed by D20's rule, the rules lost
   // to the compaction (held in o0, missed in oc) and which stage 2 path restored them; per arm, the session measures.
-  const S = path.join(path.dirname(cfgPath), 'd20-stage2');
+  const S = path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2');
   const load = (a, id) => {
     const f = path.join(S, a, `${id}.json`);
     return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).runs.filter((r) => r.valid) : [];
@@ -611,11 +617,11 @@ if (mode === 'checks') {
         deliveredBytes: median(rs.map((r) => r.session.deliveredBytes)), costUsd: median(rs.map((r) => r.usage.costUsd)),
         costSpread: Math.max(...rs.map((r) => r.usage.costUsd)) - Math.min(...rs.map((r) => r.usage.costUsd)),
         tokensAll: median(rs.map((r) => r.session.tokensAll)),
-        stopped: rs.filter((r) => !r.changed?.length).length, totalCostUsd: rs.reduce((x, r) => x + (r.usage.costUsd ?? 0), 0) }])),
+        stopped: rs.filter((r) => !r.changed?.length).length, webSessions: rs.filter((r) => r.session.webCalls).length, totalCostUsd: rs.reduce((x, r) => x + (r.usage.costUsd ?? 0), 0) }])),
     };
   }
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
-  fs.writeFileSync(path.join(HERE, 'results', 'summary-stage3.json'), `${JSON.stringify(out, null, 1)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', `summary-${cfg.summaryName ?? 'stage3'}.json`), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
 } else {
   console.error('usage: node native.mjs checks|smoke|run|summary|arrival|summary2|scale|summary3 <config> [task] [runs] [first] [arm]');

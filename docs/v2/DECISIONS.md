@@ -2491,3 +2491,28 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - attempt 3 runs as is, and P2 measures stopping as much as pull;
     - P2's arms are re-run with the web on;
     - P2 is read without stopped sessions, topped up to 5 writing sessions per arm.
+- **P2 re-run with the web on (pre-registered 2026-10-22, before any run; the user's call on the open question
+  above).**
+  - *Why.* In P2, `pf` failed through stopped sessions: P2's own rule asks for an outside check, and the harness
+    forbade the web. Real sessions have the web, so P2's comparison is run again with it.
+  - *Setup.* As the pull check, with WebSearch and WebFetch allowed and pre-approved (a headless session cannot
+    answer a permission prompt). Bash stays off.
+    - Arms `n0`, `o0` and `pf` on P2's build task, 5 sessions each, in their own output directory, so no earlier run
+      is overwritten.
+    - `p` is not re-run: it already fails on P1 (R6 1 of 5), where nothing needed the web, so it cannot work.
+    - P1 is not re-run: none of its sessions stopped, and none of its sources asks for the web. Its pull result
+      stands. This is a limit: P1 ran with the web off, P2 with it on.
+  - *Web smoke (Haiku, not counted):* a headless session with these flags ran a web search and fetched a page.
+    WebSearch is in the session's tool list. WebFetch is not, and the session reached it through a fetch subagent.
+  - *Valid session:* the pull check's checks, plus WebSearch in the session's tool list.
+  - *Measures:* the pull check's, plus web calls per session (main session and subagents) and stopped sessions per
+    arm.
+  - *Decision (unchanged):* in scope are the rules `o0` holds here. `pf` works on P2 if it holds every one of them.
+    Stopped sessions are read both ways, and the registered reading stands.
+  - *Consequences, written now:*
+    - If `pf` works on P2, attempt 2 passes on both tasks, and an always-on index with a forced decision is a
+      working pull route. Attempt 3 then runs as a comparison, not a rescue (the user asked for it), since `pf`'s
+      token cost is a finding of its own.
+    - If `pf` fails on P2 with the web on, the failure is not the harness's. Attempt 3 then runs as the third
+      attempt (rule 4).
+    - If sessions still stop with the web on, they stop for another reason, and that reason is reported.
