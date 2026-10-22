@@ -6,7 +6,8 @@
 
 ## Order (PM1: outcome before input)
 
-0. **Two probes the phase gate found missing.** Neither needs v2 code.
+0. **Two probes the phase gate found missing. Done 2026-10-22:** `clear` and `resume` arrive (3 of 3 each); the
+   read hook does not reach subagents, so the labels hold for main-session reads only. Neither needed v2 code.
    - D12's nonce probe for `SessionStart` on `clear` and `resume` (3 runs each). The matcher then includes every
      source that arrives.
    - A plugin `PostToolUse` hook on a Read made inside an Explore and a general-purpose subagent: what reaches the

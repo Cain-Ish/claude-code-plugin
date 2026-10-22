@@ -1,0 +1,113 @@
+{
+ "date": "2026-10-22",
+ "runs": 3,
+ "cells": {
+  "CL": [
+   {
+    "run": 1,
+    "arrived": true,
+    "startupAfterClear": false,
+    "positive": true,
+    "negative": false,
+    "clearSource": true
+   },
+   {
+    "run": 2,
+    "arrived": true,
+    "startupAfterClear": false,
+    "positive": true,
+    "negative": false,
+    "clearSource": true
+   },
+   {
+    "run": 3,
+    "arrived": true,
+    "startupAfterClear": false,
+    "positive": true,
+    "negative": false,
+    "clearSource": true
+   }
+  ],
+  "RE": [
+   {
+    "run": 1,
+    "sessionId": true,
+    "arrived": true,
+    "positive": true,
+    "negative": false
+   },
+   {
+    "run": 2,
+    "sessionId": true,
+    "arrived": true,
+    "positive": true,
+    "negative": false
+   },
+   {
+    "run": 3,
+    "sessionId": true,
+    "arrived": true,
+    "positive": true,
+    "negative": false
+   }
+  ],
+  "PT-sub:Explore": [
+   {
+    "run": 1,
+    "subRead": true,
+    "inSubagent": true,
+    "rawInSubagentInput": false,
+    "inMainText": false,
+    "negative": false
+   },
+   {
+    "run": 2,
+    "subRead": true,
+    "inSubagent": false,
+    "rawInSubagentInput": false,
+    "inMainText": false,
+    "negative": false
+   },
+   {
+    "run": 3,
+    "subRead": true,
+    "inSubagent": false,
+    "rawInSubagentInput": false,
+    "inMainText": false,
+    "negative": false
+   }
+  ],
+  "PT-sub:general-purpose": [
+   {
+    "run": 1,
+    "subRead": true,
+    "inSubagent": false,
+    "rawInSubagentInput": false,
+    "inMainText": false,
+    "negative": false
+   },
+   {
+    "run": 2,
+    "subRead": true,
+    "inSubagent": false,
+    "rawInSubagentInput": false,
+    "inMainText": false,
+    "negative": false
+   },
+   {
+    "run": 3,
+    "subRead": true,
+    "inSubagent": false,
+    "rawInSubagentInput": false,
+    "inMainText": false,
+    "negative": false
+   }
+  ]
+ },
+ "verdicts": {
+  "CL": "arrives",
+  "RE": "arrives",
+  "PT-sub:Explore": "unreliable",
+  "PT-sub:general-purpose": "does not arrive"
+ }
+}

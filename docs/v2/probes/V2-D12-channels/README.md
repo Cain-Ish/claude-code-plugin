@@ -96,3 +96,15 @@ Notes:
 - Auto memory was redirected into the repo; its default location under the user's home was not probed.
 - A listing is the model's own report of its context, so a miss can be a false negative. The positive control and
   the 3-of-3 bar bound this; a hit cannot be guessed (random nonce, no search tools, no direct read).
+
+## Build step 0 (2026-10-22): `clear`, `resume`, and the read hook in subagents
+
+[`step0.mjs`](step0.mjs) uses the same method on cells the phase gate found unprobed. Results are in
+[`results-step0.json`](results-step0.json), 3 runs on Haiku:
+
+| Cell | Result |
+| --- | --- |
+| plugin `SessionStart`, matcher `clear`, after `/clear` | arrives (3 of 3); the startup nonce is gone |
+| plugin `SessionStart`, matcher `resume`, on `--resume` | arrives (3 of 3) |
+| plugin `PostToolUse` after a Read made by an Explore subagent | unreliable (1 of 3): not arriving |
+| plugin `PostToolUse` after a Read made by a general-purpose subagent | does not arrive (0 of 3) |

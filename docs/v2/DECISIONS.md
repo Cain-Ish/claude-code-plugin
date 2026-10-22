@@ -15,7 +15,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
-| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); the `clear` and `resume` cells DEFERRED to the first slice's step 0 (phase gate) | evidence | — |
+| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
@@ -28,8 +28,8 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
-- Every spine decision is LOCKED, or DEFERRED with a trigger: D20's write-time net, and D12's `clear` and `resume`
-  cells.
+- Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
+  cells were probed at build step 0: both arrive.
 - The gate ran the devils-advocate workflow and Gemini. 24 findings survived refutation. Each is corrected, fires a
   named trigger, or is recorded as an accepted risk.
 - **The build phase starts with `06-first-slice.md`'s step 0 and step 1**, not with plugin code:
@@ -283,6 +283,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - A source that arrives joins the route's `SessionStart` matcher.
     - If the read hook arrives in subagents, the labels are claimed there too. If not, a subagent's read of a map
       file stays unlabelled, an accepted risk (the phase gate).
+- **Step 0 result (2026-10-22; [results-step0.json](probes/V2-D12-channels/results-step0.json), 3 runs, all controls
+  correct).**
+  - *CL:* arrives (3 of 3). After `/clear`, the startup nonce was gone and the clear nonce was quoted.
+  - *RE:* arrives (3 of 3).
+  - *PT-sub, Explore:* unreliable (1 of 3), which counts as not arriving. *PT-sub, general-purpose:* does not arrive
+    (0 of 3). Every subagent made its Read, and the nonce never showed in the main session's text.
+  - *Consequences (registered):*
+    - D22's route matches `startup`, `clear`, `resume` and `compact`. Each starts a new forced-decision epoch.
+    - The read hook's labels hold for main-session reads only. A subagent's read of a map file arrives unlabelled,
+      which is the phase gate's accepted risk, confirmed.
+  - The two deferred cells are settled: arrives and arrives.
 
 ### V2-D13 — Shape of the project map
 - **Question:** node kinds (decision, convention, inventory, goal, design rule, …), file format, the always-on
