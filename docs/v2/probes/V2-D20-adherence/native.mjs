@@ -284,7 +284,8 @@ function sessionFacts(ev, f, model, compact, invalid) {
   // the session's own model: subagents (parent_tool_use_id set) run on theirs, which the pilot showed for Opus
   const main = ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id && e.message?.model && e.message.model !== '<synthetic>');
   const models = [...new Set(main.map((e) => e.message.model))];
-  if (results.length !== (compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
+  // at least one result per turn sent: a background task Claude started wakes the session again, with its own result
+  if (results.length < (compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
   if (ev.slice(0, first).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
   if (!!boundary !== compact) invalid.push(compact ? 'no compaction' : 'compacted');
   if (arm !== 'n' && prompts !== 1) invalid.push(`${prompts} prompt deliveries`);
@@ -499,6 +500,22 @@ if (mode === 'checks') {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'a2.json'), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
+} else if (mode === 'revalidate') {
+  // Stage 3: re-apply the session checks to a task and arm's saved logs after a correction to them (recorded in
+  // DECISIONS.md); everything else in the record stays as run.
+  const file = path.join(OUT, `${task.id}.json`);
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const dir = path.join(path.dirname(task.repo), `wt-${task.id}-${arm}`);
+  const mine = /^(turn results|wrote in the investigation turn|no compaction|compacted|\d+ prompt deliveries|ran on)/;
+  for (const rec of saved.runs) {
+    const base = path.join(OUT, task.id, `run${rec.run}`);
+    const ev = parse(fs.readFileSync(path.join(base, 'stream.jsonl'), 'utf8'));
+    rec.invalid = rec.invalid.filter((x) => !mine.test(x));
+    rec.session = sessionFacts(ev, facts(ev, dir, path.join(base, 'instructions.jsonl'), base), cfg.model, SESSION[arm], rec.invalid);
+    rec.valid = rec.invalid.length === 0;
+    console.log(`${task.id} ${arm} run ${rec.run}: ${rec.valid ? 'valid' : `INVALID ${rec.invalid}`}`);
+  }
+  fs.writeFileSync(file, `${JSON.stringify(saved, null, 1)}\n`);
 } else if (mode === 'summary3') {
   // Stage 3, public: per task and rule, followed counts per session arm, held or missed by D20's rule, the rules lost
   // to the compaction (held in o0, missed in oc) and which stage 2 path restored them; per arm, the session measures.

@@ -1787,6 +1787,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       - P2's pilot was flagged invalid because its subagents ran on Haiku and Sonnet. "On the pinned model" now
         checks the session's own messages, and subagent models are recorded.
       - Each arm gets its own worktree, so the six task-and-arm chains run side by side, at the same time.
+    - *During the counted runs (2026-10-22, with 11 of 30 sessions in; P1 complete, P2 under way):*
+      - *Turn count.* Opus starts background agents. When one finishes, the session wakes once more and adds a
+        result. "Every turn ends in success" now means at least one successful result per turn sent. The saved logs
+        were re-checked (`revalidate`); no run was re-run.
+      - *A session that writes nothing.* In one P2 session, Opus investigated, then wrote no file. It stopped to ask
+        the user to choose, because a delivered rule needed a fact it could not check without the web. Neither the
+        registration nor D20 covers this. Such a session stays valid, and its file checks fail, as registered. It is
+        also reported as *stopped*, and each rule's outcome is shown both ways: as registered, and without the
+        stopped sessions. Where the two readings disagree, the registered one stands and the disagreement is
+        reported.
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
