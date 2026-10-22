@@ -16,30 +16,30 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3) | evidence | — |
-| V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
+| V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED 2026-10-22 (rule 9: under D22's route, entries are not what Claude is given) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
-| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
+| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED 2026-10-22 (rule 9: D22's route reads the documents and builds its index without a model) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D22** stays BLOCKED until the user ticks the checklists in `research/raw/d22/validate/`.
-- Rethink 2 adds three untested options to it: an always-on index with a retrieval-led instruction, a forced
-  decision per area, and path-keyed delivery at the action.
-- Its volume check (2026-10-22) found no rule lost with 32 KB pushed at the prompt, against D13's 8 KB, in two tasks
-  on Opus. That number goes to the user's budget decision.
-- Its pull check (2026-10-22): an always-on index alone reached none of the rules native misses. With a forced
-  decision at the first prompt, Claude read and followed them in both tasks (P2 re-run with the web on, which its
-  rules need), at up to three times push's tokens. Path-keyed pointers were ruled out by count. D22's route is
-  reconsidered next.
-- D20 and D12 were re-locked on 2026-10-22: rules delivered at the prompt held across a forced compaction on Opus
-  (an upper bound).
-- D19 stays LOCKED, but its context measure is reset; D20's stage 3 supplies the session-level numbers.
-- Step 14 waits on D22. Targets for the gaps of D17's rule in A1 and A2 are the user's call.
+Frontier (rule 6): **D13 and D15**, reopened on 2026-10-22 by rule 9 when D22 locked.
+- **D22 is LOCKED** (2026-10-22). Claude sees an index of the repo's documents from session start. At the first
+  prompt, and again at the first prompt after each compaction, it is made to decide which directories bear on the
+  task and to read them. It followed every in-scope rule in both test-bed tasks. Its known weakness is cost: about
+  three times push's tokens in the larger repo.
+- D13 (what an entry is for) and D15 (what onboarding produces) are decided next. Nothing may build on them until
+  they re-lock (rule 1).
+- Then step 14: the architecture, the eval plan (D22's investigation tasks join A2, per D19's trigger), the first
+  slice, and the phase gate.
+- D17 and D19 gained targets for their rule's gaps (2026-10-22): 8 of 10 where M1 is at 0, and a no-worse ceiling
+  where the spread swamps the median.
+- D20 and D12 were re-locked on 2026-10-22 (pushed rules held across a compaction). D19's context measure is
+  reset.
 
 ---
 
@@ -466,6 +466,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - D20 reopens on what can be delivered verbatim.
 
   Attempts: 2 (both on selection, which moved to D22).
+- **REOPENED 2026-10-22 (rule 9, from D22's lock).** D22's route gives Claude the repo's documents to read, not
+  entries. So the premise of this record's delivery budget is gone, and so is the entry as the thing delivered. The
+  question now: what is an entry for (captured knowledge, the source of checks, anything else), and does any delivery
+  budget remain? The nearest trigger ("a selector reaches D22's pass on the sources' own blocks") is not claimed,
+  because it was written against a pass D22 retired.
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
@@ -974,6 +979,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - The onboarding cost per MB is ruled out by D18's budget.
 
   Attempts: 3 failed, then run 4 passed after going up a level (rule 4).
+- **REOPENED 2026-10-22 (rule 9, from D22's lock).** Rethink 2 had already marked this record "worth depends on D22's
+  route". D22's route reads the documents themselves and builds its index from git's file list, with no model. The
+  question now: what does onboarding produce (the index, checks for D20's net, entries, or a subset), and is the
+  charter's sentence on converting into one standard format still the user's intent? None of this record's own
+  triggers fired.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
@@ -1577,6 +1587,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - P1's shared value reused: not a v2 target. D21 makes it v2's only through a rule the project states, and none
     does.
   - Attempts: 1 (a change to the threshold set, per the trigger; no check failed).
+- **Trigger fired (2026-10-22): D22 locked.** D22's six investigation tasks join A2. Their measure is end-to-end
+  (assertions on the answer, not reach against a judge) and is written in the eval plan's update at step 14.
 
 ### V2-D20 — Adherence: how v2 makes Claude look for and follow the knowledge
 - **Question:** knowledge in the map is worth nothing unless Claude (a) has the part that binds the task before it
@@ -2728,3 +2740,77 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - `pfc` cost 7.12 USD in P2.
   - *Consequence (registered):* only `pfr` works, so the route forces the decision again at the first prompt after
     each compaction, and its tokens are the price. In P1 that price is nothing; in P2 it is about three times push.
+- **LOCKED 2026-10-22: the forced route, forced again after each compaction.** Settled under the user's
+  instruction of 2026-10-22 (rethinking, checks and a second opinion, without waiting on the user).
+  - *From BLOCKED to LOCKED (rule 4).*
+    - D22 was BLOCKED after three failed checks (attempt 1, runs 2 and 3), each scoring reach against one judge's
+      essential set.
+    - Going up a level, the route rethink found the measure wrong, not the options. That set was never validated,
+      and the real outcome is rules followed.
+    - Under end-to-end checks, the pull track then ran:
+      - `p`: fail;
+      - `pf`: pass, once P2's rules could be met (web on);
+      - `pk` and `ph`: ruled out by count;
+      - `pfc`: fail across a compaction;
+      - `pfr`: pass.
+  - *Choice.*
+    - **The index.** The repo's tracked document files (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`, any case), names
+      only, grouped by directory, with Vercel's retrieval-led line first. It is delivered by `SessionStart` on
+      `startup` and on `compact`. Measured sizes: P1 10 directories (2 KB), P2 45 directories (6 KB).
+    - **The forced decision.** Delivered at the session's first `UserPromptSubmit`, and again at the first one after
+      each compaction. The text is fixed (as registered for attempt 2): "Before you start: for each directory in
+      this project's document index, state in one line whether its documents bear on this task (yes or no). Then
+      read the documents in every directory you marked yes before you change anything."
+    - The web stays available: a project's rules may require it (P2).
+    - No selector, no pushed rule text, no `PreToolUse`.
+  - *Rejected:*
+    - push from a model pick: attempt 1, and the high-recall count (its sections far exceed what a hook carries);
+    - a pick plus on-read delivery: runs 2 and 3;
+    - the index without a forced decision (`p`);
+    - the forced decision only once, across a compaction (`pfc`: P2's R7 lost);
+    - a path-keyed pointer at the write (`pk`: the documents never name the code paths);
+    - reach against an unvalidated judge as the measure.
+  - *Measured on:* Opus 5.5, CLI 2.1.305, two build tasks, 5 sessions per arm, P1 with the web off and P2 with it
+    on. Two-turn and three-turn shapes, with one forced compaction.
+  - *Its known weakness is cost, and it is not settled.*
+    - P1: about push's cost.
+    - P2: about three times push's tokens, mostly subagent research, with a largest request of 316k tokens.
+    - Against the no-worse ceiling just set for D17 and D19, `pfr` in P2 (12.69 USD) is above native's two-turn
+      median plus spread (4.76 plus 3.48). That is another shape and epoch than A2's, so no trigger fires, but the
+      route may fail its own eval on cost.
+    - The first variant to try if it does: forced text that asks for the documents to be read in the session
+      itself, since subagents drive the gap. It is untested, and not part of this choice.
+  - *Reopen if:*
+    - the first slice's eval puts v2 above M1's no-worse ceiling on a task;
+    - a rule in scope is missed in the eval on an investigation task, on a vague first prompt that only later turns
+      into the change, or in a session with more than one compaction;
+    - a repo's index exceeds P2's (45 directories, 6 KB) and its forced decision or reads are not measured there;
+    - another model or CLI epoch becomes the baseline;
+    - Claude Code changes how `SessionStart` on `compact` or `UserPromptSubmit` text reaches the model.
+  - *Consequences for other decisions:*
+    - **D13 and D15: REOPENED by rule 9.** Both rest on an assumption this lock finds false: that converted entries
+      are what Claude is given.
+      - D13 must now answer what an entry is for (captured knowledge, checks), and whether any delivery budget
+        remains.
+      - D15 must answer what onboarding produces. The route builds its index mechanically, with no model. The 96 USD
+        conversion bought nothing the route uses.
+      - D13's nearest trigger ("a selector reaches D22's pass on the sources' own blocks") was written against the
+        retired pass, so it is not claimed.
+    - **The charter's onboarding sentence (the user's, 2026-10-20) is implied to change.** Proposed, pending D15's
+      re-decision: "The plugin's first act in a repo indexes the project's own documents, so Claude reads them
+      where they are; captured knowledge joins them in the same plain files."
+    - **D18, recorded change, no trigger.** `SessionStart` carries the index beside the 904-byte capture
+      instruction, on `startup` and `compact`. `UserPromptSubmit` carries the forced text (227 bytes). The index
+      hook ran in 16 to 45 ms. `PostToolUse` after a Read stays free for the guards.
+    - **D14 and D16.** Their guard sat on pushed entries. Under the route Claude reads files directly. Marking an
+      uncommitted captured file as unreviewed moves to `PostToolUse` after a Read of a map file (Gemini's
+      suggestion, in D18's existing slot). That is for the architecture step.
+    - **D19: its trigger "D22 locks" fires.** The six investigation tasks join A2. Their measure is end-to-end
+      (assertions on the answer), written in the eval plan's update.
+    - **D21 stands.** It ruled out an inventory of what exists, for reuse. The index lists where knowledge lives:
+      a routing aid D21 did not rule on.
+    - **D20 is not reopened.** Its rules were followed under pull, and no trigger fired. For document rules,
+      Claude's read under the forced decision replaces the push. D20's write-time net is still unbuilt, and where
+      its checks come from moves with D15.
+  - *Attempts:* 3 failed against the judge (BLOCKED), then on the pull track: 2 failed (`p`, `pfc`), 2 ruled out by
+    count (`pk`, `ph`), and 2 passed (`pf`, `pfr`).

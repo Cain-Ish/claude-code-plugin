@@ -72,3 +72,18 @@ P2 re-run with the web on (counts in [`../V2-D20-adherence/results/summary-web.j
 | Median USD | 4.76 | 3.19 | 7.33 |
 
 With the web on, `pf` holds every rule push holds, in both tasks. In P2 it costs about three times push's tokens.
+
+## Forced route across a compaction (2026-10-22)
+
+Stage 3's three turns (investigate, `/compact`, make the change), Opus 5.5. Comparator: push with the same compaction
+(`oc`). Counts are in [`summary-stage3.json`](../V2-D20-adherence/results/summary-stage3.json) (P1) and
+[`summary-web.json`](../V2-D20-adherence/results/summary-web.json) (P2, web on). Misses are split by
+[`split.mjs`](../V2-D20-adherence/split.mjs).
+
+| | P1 | P2 |
+| --- | --- | --- |
+| `pfc`: index re-sent on compact, forced decision once | every in-scope rule held | R7 2 of 5 (missed) |
+| `pfr`: forced decision again after the compaction | every in-scope rule held | every in-scope rule held |
+| Median tokens, `oc` / `pfr` | 1.41M / 1.20M | 7.35M / 21.3M |
+
+D22 locked on `pfr` (DECISIONS.md, V2-D22).

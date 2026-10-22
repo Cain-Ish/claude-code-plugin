@@ -50,19 +50,40 @@ P1 and P2 are private repos, named by count only.
 - **Checks (D20's net).** Still needed to *hold* Claude to a rule after the write. Nothing builds them yet.
   Onboarding's job could shrink to: build the index, and write checks for the rules that can be checked.
 
-## 4. The open point that the compaction check decides
+## 4. The compaction check decided the open point
 
-- If `pfc` holds the rules across a compaction, re-reading is unnecessary, and converted entries have no delivery
-  role.
-- If only `pfr` holds, the forced decision is repeated after each compaction. Still no entries are needed.
-- If neither holds, what Claude read must be re-pinned by push. Converted entries of the documents it read are then
-  the natural unit (stage 3 showed pushed text survives a compaction).
+- **Result:** `pfc` (the index re-sent after `/compact`, the forced decision once) lost P2's R7 in 2 of 5 sessions.
+  `pfr` (the forced decision again at the first prompt after the compaction) held every in-scope rule on both tasks
+  ([DECISIONS.md](../DECISIONS.md), V2-D22).
+- **So re-reading is needed, and it is done by re-forcing, not by re-pinning entries.** Converted entries still have
+  no delivery role.
+- **The price** is tokens in the document-heavy repo: about three times push's, mostly subagent research. In P1 it
+  is nothing.
 
-## 5. Proposed next steps, after D22 locks
+## 5. Second opinion (Gemini, 2026-10-22)
 
-1. Reopen D13 on its trigger: the entry shape stays for captured knowledge and checks, and the per-task delivery
-   budget gives way to the index's always-on bytes.
-2. Send D15 back by rule 9: decide what onboarding produces under pull (the index, checks, entries, or a subset).
+Two attempts on Gemini's top model (Argon, high thinking) errored, once on this note in full and once in a fresh
+chat. The answer below is from 3.1 Pro, on a short version of the brief (counts only). It is short, and it is
+weighed as such.
+
+- **Drop the verbatim conversion; keep at most a one-line description per directory.** The first half matches section
+  3. Gemini's own falsifier for the second half has already run: the index that worked was raw directory and file
+  names, with no descriptions. So descriptions are not needed at the measured scale.
+- **Make the index hierarchical, with recursive lookup.** Not taken. The literature in rethink 2 found that a second
+  routing level never helped, and a flat index worked at 45 directories. Scale is a reopen trigger on D22 instead.
+- **Mark unreviewed captured files when Claude reads them.** Use the read hook (`PostToolUse` after a Read) to check
+  the file's git status and add the label. Taken for the architecture step. It fits D18's existing slot.
+- **Post-write checks by an LLM judge on the diff, with the rules Claude read.** Not taken now. A model call per write
+  breaks D18's hook budget, and D20 chose data patterns and the project's own linters. It stays an option for
+  `Stop`, where one call per session might fit, as a D20 question.
+
+## 6. Next steps, after D22's lock (2026-10-22)
+
+1. D13, reopened by rule 9 (its own trigger was written against the retired pass, so it is not claimed). Decide what
+   an entry is for: captured knowledge and checks are the candidates. Decide whether the per-task delivery budget
+   gives way to the index's always-on bytes.
+2. D15, reopened by rule 9. Decide what onboarding produces under pull: the index, checks, entries, or a subset. Then
+   the charter's onboarding sentence (the user's) is settled with it.
 3. Close the guard gap (D14, D16) in the architecture: how an unreviewed captured entry is marked when Claude reads
    it.
 4. Then write `04-architecture.md` from the locked set, and take the whole concept to the phase gate (devils-advocate
