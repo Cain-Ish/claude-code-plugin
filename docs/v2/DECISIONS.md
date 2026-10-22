@@ -2385,3 +2385,43 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       with room for a selector's false positives, as long as none of them contradicts a binding rule.
   - *Limits:* the contradicting entries were removed (10 in P2), so a contradiction in the delivered set is
     untested; two tasks; one session shape; no compaction; Opus only; the filler is one selector's.
+- **Pull check (pre-registered 2026-10-22, before any harness change or run; rethink 2's first option for D22).**
+  - *Question.* With an always-on index of the repo's own documents and Vercel's instruction, does Claude read the
+    documents that bind its task and follow them, without the rules' text being pushed?
+    - This is the user's second-brain model (knowledge in Markdown files Claude can always reach), and the ledger
+      has never run it.
+    - It tests pull on the sources. The map's role under pull is D15's question, later.
+    - It needs no ticks, because D20's checks score following directly.
+  - *The index, mechanical and fixed now.*
+    - `inventory.mjs` over the task's pinned commit, document files only (`.md`, `.mdx`, `.markdown`, `.txt`,
+      `.rst`, any case), grouped by directory: P1 75 files (about 2 KB), P2 189 (about 6 KB).
+    - Its first line is fixed now, Vercel's instruction verbatim with its scope adapted: "IMPORTANT: Prefer
+      retrieval-led reasoning over pre-training-led reasoning for any task in this project. This project's documents,
+      by directory:". Rewording it after a result is attempt 2 (rule 2).
+    - It is delivered by a `SessionStart` hook on `startup`, which D12 showed arrives in the main session. That is
+      the always-on position of an `AGENTS.md`, and no rule card goes with it.
+  - *Shape and arms.* D20 stage 3's two turns (investigate and report, then make the change), no compaction, Opus
+    5.5, P1's and P2's build tasks, 5 sessions per arm and task:
+    - `n0`: native, two turns, no compaction. This is the floor; stage 3's `n` compacted.
+    - `p`: native plus the index.
+    - `o0` (stage 3, already seen): the pushed cards, the ceiling.
+  - *Smoke (Haiku, not counted):* without tools, the session quotes the index's first sentence.
+  - *Valid session:* stage 3's checks (results per turn, the session's own model, no write in the investigation
+    turn, no compaction). In `p`, the index is also logged as delivered at session start.
+  - *Measures.* D20's rule checks, plus the mechanism: whether the rule's source document was read (or loaded)
+    before the first write (`inContextBeforeFirstWrite`). For a rule `p` follows, this separates opened-and-followed
+    from followed-without-opening. Tokens and requests are recorded. Stopped sessions are read both ways.
+  - *Decision:*
+    - In scope: the rules `o0` holds.
+    - Pull *reaches* a rule if `p` holds it where `n0` misses it.
+    - The arm *works* if `p` holds every rule `o0` holds.
+  - *Sequel, written now:*
+    - If `p` does not work, attempt 2 is a forced decision on the same shape and index. The first prompt also tells
+      Claude to state, for each directory of the index, whether it bears on the task, then to read the documents that
+      do (Spence's forced evaluation).
+    - Path-keyed delivery at the action follows only if that fails too.
+  - *Asymmetry.* Pointers failed three times in this ledger (v1, D22 run 2, D21 part 2). So a pass is the surprise:
+    in every following session, the rule's source must have been read before the first write. A pass where it was
+    not counts as following without pull, and is reported as such.
+  - *Not gated on USD.* The user runs on a subscription (2026-10-22). Usage limits and restarts are the constraints,
+    so chains run per task and arm, and runs resume from their index.
