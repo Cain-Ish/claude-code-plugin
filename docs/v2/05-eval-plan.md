@@ -336,3 +336,11 @@ runs.
 - **Estimate:** 300 to 450 USD-equivalent. The pilots correct it.
 - **Not in this step:** the added shapes (a vague first prompt, two compactions, a task switch). They feed D22's
   triggers and run with the v2 arm.
+- **Assertions frozen (2026-10-22, before any Opus run).**
+  - 32 assertions on the six investigation tasks: 3 to 6 per task, 11 of them traps.
+  - In the private config's `a2inv/assertions.json`, sha256 `f6bde3ba39ec` (12 characters).
+  - *Written by a fresh agent*, given only the six task prompts and the three repos at their pinned commits, and told
+    not to open `DECISIONS.md`, `docs/v2/research/` beyond its input, probe results, or D22's pools, deliveries and
+    grades. It reports that it opened only those. That is its own report, not a check.
+  - `native.mjs checks` passes all 32 correct samples and fails all 32 wrong ones.
+  - Every assertion has a `must`, so none passes on an empty reply.
