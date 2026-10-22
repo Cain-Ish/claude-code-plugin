@@ -67,7 +67,9 @@ if (chunk !== null) {
 } else if (ev === 'Stop' && arm === 'pfro' && !input.stop_hook_active) {
   // V2-D20 net, the ceiling for option (b): the failing checks only, without the rule account
   const { files, fresh } = changedFiles(input.cwd);
-  const bad = cards.filter((c) => c.cls === 'pattern' && c.check.where !== 'reply' && !check(c.check, files, '', fresh));
+  // only checks on files that exist: at the investigation turn's Stop nothing is written yet
+  const bad = cards.filter((c) => c.cls === 'pattern' && c.check.where !== 'reply'
+    && Object.keys(files).some((p) => new RegExp(c.check.path ?? '.').test(p)) && !check(c.check, files, '', fresh));
   if (bad.length) {
     out = { decision: 'block', reason: `[d20-stop] Before you finish, these checks fail; fix them first:\n${bad.map((c) => `- ${c.id}: ${c.msg} [source: ${c.source}]`).join('\n')}` };
     log.cards = bad.map((c) => c.id);

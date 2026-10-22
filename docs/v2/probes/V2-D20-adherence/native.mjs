@@ -81,7 +81,7 @@ function armHooks(base) {
     // pfrs, pfro (V2-D20 net): pfr plus a self-review at Stop, or the pattern checks fed back; their cards are the
     // task's pattern rules, for logging (pfrs) or feedback (pfro), never shown at a prompt
     const net = ['pfrs', 'pfro'].includes(arm);
-    if (net) fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm, cards: task.rules.filter((r) => r.card.cls === 'pattern').map((r) => ({ id: r.id, ...r.card, check: r.check })) }, null, 1));
+    if (net) fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm, cards: task.rules.filter((r) => r.card.cls === 'pattern' && (arm !== 'pfro' || (task.netRules ?? []).includes(r.id))).map((r) => ({ id: r.id, ...r.card, check: r.check })) }, null, 1));
     const d = { hooks: [nodeHook('deliver.mjs', base)] };
     return { SessionStart: [{ matcher: SESSION[arm] ? 'startup|compact' : 'startup', hooks: [nodeHook(hook, base)] }],
       ...(arm !== 'p' ? { UserPromptSubmit: [{ hooks: [nodeHook(hook, base, 'force.txt', ...(['pfr', 'pfrs', 'pfro'].includes(arm) ? ['epoch'] : []))] }] } : {}),

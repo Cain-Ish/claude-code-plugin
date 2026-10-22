@@ -2002,6 +2002,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *A limit, named:* in interactive use a `Stop` block fires each time Claude finishes after a change. That friction
     is a first-slice trigger, not part of this check.
   - This is the last check before step 14. If both arms fail, no attempt 2 runs here.
+  - *Plumbing fix found by the Haiku smoke, before any `pfro` session (disclosed).* `pfro`'s `Stop` check first
+    fired at the end of the investigation turn, when no file existed yet. It fed back every P1 pattern rule's message
+    and source, which is a push before the change. Now the feedback covers only checks on files that exist, and only
+    R2's check, as registered. The re-smoke was valid, with no block at the investigation turn. `pfrs` was not
+    affected: its review fires only once files have changed.
 
 ### V2-D21 — Inventory of what exists
 - **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,
