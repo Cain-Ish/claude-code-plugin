@@ -147,6 +147,42 @@ if (mode === 'build') {
     bar: 'at 8 concurrent, both p95(hook) - p95(empty node) by wall clock and by in-process time at most 100 ms; no errors at 1 or 8',
     pass, scripts: res, shellFormFloor: shell, staleUnder8: stale });
   console.log('pass', pass);
+} else if (mode === 'nonode') {
+  // the user's answer: session start in shell form says once that Node is missing; the other hooks stay in exec form
+  const MSG = 'The project map needs Node 20 or later; install it, or disable the plugin.';
+  const script = path.join(HERE, 'hooks.mjs').replace(/\\/g, '/');
+  const hooks = {
+    SessionStart: [{ hooks: [{ type: 'command', shell: 'bash', command: `command -v node >/dev/null 2>&1 && exec node "${script}" session-start || echo '{"systemMessage":"${MSG}"}'` }] }],
+    PostToolUse: [{ matcher: 'Read', hooks: [{ type: 'command', command: 'node', args: [script, 'on-read'] }] }],
+  };
+  const session = (withNode) => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'd18-nonode-'));
+    spawnSync('git', ['init', '-q', tmp]);
+    fs.writeFileSync(path.join(tmp, 'NOTES.md'), '# Notes\n\nThe build uses a single config file.\n');
+    fs.mkdirSync(path.join(tmp, '.claude'));
+    fs.writeFileSync(path.join(tmp, '.claude', 'settings.local.json'), JSON.stringify({ hooks }));
+    const env = { ...process.env, DISABLE_AUTOUPDATER: '1', MSYS_NO_PATHCONV: '1' };
+    for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete env[k];
+    const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH');
+    if (!withNode) env[pathKey] = env[pathKey].split(path.delimiter).filter((d) => !fs.existsSync(path.join(d, process.platform === 'win32' ? 'node.exe' : 'node'))).join(path.delimiter);
+    const r = spawnSync('claude', ['-p', '--model', 'claude-haiku-5-5', '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', 'Bash,WebFetch,WebSearch',
+      '--output-format', 'stream-json', '--verbose', '--include-hook-events'], { cwd: tmp, input: 'Read NOTES.md and tell me in one line what it says.', encoding: 'utf8', env, timeout: 300_000 });
+    const evs = (r.stdout ?? '').split('\n').flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+    const result = evs.findLast((e) => e.type === 'result');
+    const hookEv = evs.filter((e) => /hook/i.test(`${e.type ?? ''} ${e.subtype ?? ''}`));
+    const ofEvent = (name) => hookEv.filter((e) => JSON.stringify(e).includes(name));
+    const summary = (name) => ({ events: ofEvent(name).length, errors: ofEvent(name).filter((e) => (e.outcome ?? e.subtype) === 'error' || /"outcome":"error"/.test(JSON.stringify(e))).length,
+      shown: [...new Set(ofEvent(name).map((e) => scrub(e.stderr ?? e.error ?? '')).filter(Boolean))].slice(0, 2) });
+    // shown = hook outputs carrying the message (started events carry no output); other events that echo it are counted apart
+    return { completed: result?.subtype === 'success', costUsd: result?.total_cost_usd, messageShown: hookEv.filter((e) => JSON.stringify(e).includes('needs Node 20')).length,
+      messageEchoes: evs.filter((e) => !hookEv.includes(e) && JSON.stringify(e).includes('needs Node 20')).length,
+      sessionStart: summary('SessionStart'), afterRead: summary('PostToolUse'), outcomes: [...new Set(hookEv.map((e) => `${e.subtype ?? e.type}:${e.outcome ?? ''}`))] };
+  };
+  const res = { noNode: session(false), withNode: session(true) };
+  res.pass = res.noNode.completed && res.noNode.messageShown === 1 && res.noNode.sessionStart.errors === 0
+    && res.withNode.completed && res.withNode.messageShown === 0 && res.withNode.sessionStart.errors === 0 && res.withNode.afterRead.errors === 0;
+  write('nonode-a3.json', { date: new Date().toISOString().slice(0, 10), ...res });
+  console.log(JSON.stringify(res, null, 1));
 } else if (mode === 'checks') {
   const res = {};
   const files = mapFiles();

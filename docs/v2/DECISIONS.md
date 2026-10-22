@@ -1321,6 +1321,20 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - a commit is clean at the next hook, and a soft reset labels the entries again at the next hook.
   - *Boundary (pass):* `spawnSync` only, and `git` only.
   - *Carried over from attempt 2 (pass):* the nested converter and the missing runtime.
+- **Missing Node, user answer (2026-10-22): say it once, then let the hooks fail.**
+  - *Why it needed asking:* the docs offer no way to silence an exec-form hook whose executable is missing (`onFailure`
+    is only `continue` or `block`; `suppressOutput` has no effect). Staying quiet would need a shell wrapper on every
+    hook, at about 90 ms per call.
+  - *The answer:* session start runs in shell form (bash) once per session. If `node` is missing, it shows "The project
+    map needs Node 20 or later" and exits 0. Every other hook stays in exec form, so each hooked call shows a hook
+    error until Node is installed or the plugin is disabled.
+  - *Check (pre-registered before its run):* two Haiku sessions in a scratch repo, with the session-start wrapper and
+    an exec-form after-Read hook, each asked to read a file:
+    - with `node` taken off `PATH`, the session completes, the message is shown exactly once, and the session start
+      shows no error. The after-Read error is recorded;
+    - with `node` present, the session completes, with no message and no hook error.
+
+    Cost about 0.01 USD.
 
   Attempts: 3.
 
