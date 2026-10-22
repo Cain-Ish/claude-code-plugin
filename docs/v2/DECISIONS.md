@@ -1132,6 +1132,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Reopen if:** the CLI, the model or the fixture changes before the v2 arm runs (a new epoch: the baselines run
   again, the rule stays); the user sets targets for C2, T3 or T5 or changes the rule (a new attempt, rule 2); a native
   team memory ships (M1 would then reach a second person). Attempts: 0.
+- **Targets for the rule's gaps (2026-10-22).** Set under the user's instruction that decisions are settled by
+  rethinking, without waiting on them. The trigger counts this as an attempt. Rule 2 is kept: the rule is unchanged,
+  and these fill only the cells it cannot reach.
+  - *An item M1 never passes* (C2, T3, T5): v2 passes it in at least 8 of 10 runs. This is D20's held rule (at most 1
+    failure in 5), scaled to 10 runs. A floor of 0 would let v2 claim A1's items (3) and (5) on a single pass.
+  - *A count or token cell whose spread is at least its median:* no gain is claimed there. v2 must not cost more: its
+    median is at most M1's median plus M1's spread (D17's form, as the pull checks used it).
+  - These are forms, not numbers. They apply in whatever epoch the baselines are run, so a re-baseline on another
+    model keeps them.
+  - Attempts: 1 (a change to the threshold set, per the trigger; no check failed).
 
 ### V2-D18 — Runtime and surface budget
 - **Question:** which code runs where, which hook events (if any) v2 uses, the latency budget per hook, whether an
@@ -1559,6 +1569,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - the user sets targets for the rule's gaps or changes the rule (a new attempt, rule 2);
   - a model with a smaller window becomes the baseline model (context fill then needs a measure);
   - D22 locks (its investigation tasks join A2).
+- **Targets for the rule's gaps (2026-10-22).** Set under the same instruction, and counted as an attempt by the
+  trigger. D17's forms, applied to A2:
+  - The four rules M1 never follows (P1 R6; P2 R5, R6, R7): v2 follows each in at least 8 of 10 runs.
+  - The five cells where M1's spread is at least its median, and R0's "below 1" tool call (which would mean writing
+    before any look): no gain is claimed. v2's median must be at most M1's median plus M1's spread.
+  - P1's shared value reused: not a v2 target. D21 makes it v2's only through a rule the project states, and none
+    does.
+  - Attempts: 1 (a change to the threshold set, per the trigger; no check failed).
 
 ### V2-D20 — Adherence: how v2 makes Claude look for and follow the knowledge
 - **Question:** knowledge in the map is worth nothing unless Claude (a) has the part that binds the task before it

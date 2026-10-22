@@ -202,8 +202,7 @@ Set on 2026-10-20 from the baseline results above, by the rule below, unchanged 
   T3 0, T4 7, T5 0 (the same at the first Write); N1, N2, N3 10.
 - **What the rule does not cover:** where M1 passes in no run (C2, T3, T5) its floor is 0, so the rule alone cannot
   show v2's value there, yet those are A1's items (3) and (5) in the charter. The v2 arm reports them as its own
-  result. Whether they also need a target (for example 8 of 10) is the user's call; any change to the rule counts as a
-  new attempt (01-process rule 2).
+  result. *Target (2026-10-22, V2-D17): v2 passes each in at least 8 of 10 runs, D20's held rule scaled to 10 runs.*
 - **If M1 passes every item in every run:** native auto memory already does A1 for one person on one machine. D17
   then records that v2's case rests on team sharing, on the contexts auto memory does not reach (Explore and Plan,
   D12) and on cost, and the user sees that result before any threshold is set.
@@ -258,4 +257,6 @@ P1 64.0 KB (plus a 2.6 KB memory index in M1), P2 9.9 KB, R0 0 (it has no instru
 - *Thresholds at or below 0.* On five cells ("none" above), M1's spread is at least its median, so no median can
   meet the rule. R0's "below 1" tool call means writing before any look. At this run count, the rule cannot show a
   cost or orientation gain there.
-- Targets for either group are the user's call. Any change to the rule counts as a new attempt (01-process rule 2).
+- *Targets (2026-10-22, V2-D19):* each rule at 0 needs at least 8 of 10 v2 runs. On the "none" cells and R0's "below
+  1", no gain is claimed: v2's median must be at most M1's median plus M1's spread. P1's shared value is not a v2
+  target (D21).
