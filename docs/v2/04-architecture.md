@@ -41,7 +41,7 @@ Node and git are present. A repo with no documents gets an empty index and an em
 
 - Always on, per session: 904 B plus the index (2 KB in P1, 6 KB in P2), plus 227 B per forced decision.
 - Hooks: added p95 at most 100 ms at 8 concurrent, on Windows (V2-D18).
-- Surface: 4 or 5 events, 1 command, 0 agents, 0 MCP servers.
+- Surface: 3 hook events, 1 command, 0 agents, 0 MCP servers, 0 skills.
 
 ## Known weaknesses, each with its trigger
 
@@ -50,7 +50,8 @@ Node and git are present. A repo with no documents gets an empty index and an em
 - **Untested shapes.** Investigation tasks, a vague first prompt, several compactions, and an index past 45
   directories. These are D22's triggers.
 - **Subagents** do not see the index, since `SessionStart` reaches only the main session (D12).
-- **Friction.** A forced decision on every new task and after each compaction. This is measured in the first slice.
+- **Friction.** A forced decision at the session's first prompt and after each compaction. A new task in the same
+  session gets none, which is untested. Both are measured in the first slice.
 - **Pattern rules on Opus.** P1 R2 was missed under every pull arm and under a self-review; only a hand-written check
   fed back held it. It is an expected miss until D20's net reopens. P2 R4, a judgment rule, was missed by push and
   pull alike once the session compacted.
