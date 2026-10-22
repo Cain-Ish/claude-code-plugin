@@ -2654,3 +2654,38 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     147 KB of documents in P2 and followed the rules. A push that fits the hook channel cannot carry that.
   - *Consequence (registered).* The forced route leads. The next check tests the session shapes that threaten it,
     which rethink 2 and the review both raised: a vague first prompt, and a compaction.
+- **Forced route across a compaction (pre-registered 2026-10-22, before any harness change or run).**
+  - *Question.* The forced route works in two turns. Does what Claude read survive a compaction between reading and
+    writing? If not, does forcing the decision again after the compaction restore it, and at what cost? Rethink 2
+    named compaction as the first threat to delivery in long sessions, and push survived it (stage 3).
+  - *Shape:* stage 3's three turns (investigate and report, `/compact`, make the change), Opus 5.5. P1 runs with the
+    web off, P2 with it on, as the comparators below.
+  - *Plumbing, checked in stage 3's logs:* `/compact` does not fire `UserPromptSubmit`. A third prompt-hook call in
+    some sessions comes from a background agent waking the session after the last turn. So "the first prompt after
+    a compaction" is the make-the-change turn.
+  - *Arms, 5 sessions per task, run side by side:*
+    - `pfc`: the index from `SessionStart` on `startup` and again on `compact` (without the compact matcher the
+      index is gone after `/compact`; D12). The forced text at the first prompt only. This answers whether what was
+      read survives on its own.
+    - `pfr`: as `pfc`, plus the forced text again at the first prompt after each compaction. This answers whether
+      re-forcing restores it, and at what token cost.
+    - `oc` on P2 with the web on, as the comparator. P1's `oc` (stage 3, web off) stands.
+  - *Valid session:* stage 3's checks, plus the index logged at startup and after the compaction. The forced text is
+    logged once in `pfc` and twice in `pfr`, once in each epoch.
+  - *Decision:*
+    - In scope: the rules `oc` holds on that task.
+    - An arm works if it holds every one of them.
+    - Stopped sessions are read both ways, and the registered reading stands.
+  - *Diagnostic split, written now, from fields already logged.* For a rule an arm misses:
+    - its source read in the main thread before the compaction, but not followed after it: compaction loss;
+    - its source never read: the forced decision did not reach it.
+
+    Whether the compaction summary named the rule (`keptInSummary`) is reported beside it. The split is computed by
+    a script over the saved streams.
+  - *Consequences, written now:*
+    - `pfc` works: the forced decision at the first prompt is enough across a compaction.
+    - Only `pfr` works: the route re-forces after each compaction, and its tokens are the price.
+    - Neither works: the forced route does not survive a compaction. D22 then combines it with stage 3's re-pinning
+      of what was read, which is its own check.
+  - *Not tested here, named as a trigger for the lock:* a vague first prompt that only later turns into the build
+    (Gemini's second check). It belongs in the first slice's eval, on symptom-style tasks.
