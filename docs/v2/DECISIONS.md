@@ -984,6 +984,20 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   question now: what does onboarding produce (the index, checks for D20's net, entries, or a subset), and is the
   charter's sentence on converting into one standard format still the user's intent? None of this record's own
   triggers fired.
+- **Re-decision check (pre-registered 2026-10-22, before the count).**
+  - *Options:*
+    - (a) onboarding produces the index only, which is mechanical and needs no model;
+    - (b) the index plus checks for D20's write-time net;
+    - (c) the index plus the full conversion, its branches indexed in place of the raw documents.
+  - *(c)'s only candidate delivery role is cheaper reads under D22's route.* This record already says that under the
+    user's scope the conversion does not compress, so a count comes first (rule 5).
+  - *The count.* Take the documents that the main thread of P2's `pf` and `pfr` sessions (web on) read. Compare
+    their raw bytes against their D15 branches, meaning each entry's context and quote plus one heading line per
+    section.
+  - *Bar:* the branches must be at most half the raw bytes (median over sessions). Only then is a reading-cost
+    session test worth running. That test would also record which thread read a branch or a raw document, and would
+    split a miss whose branch covers less than 0.8 of the card as conversion recall, not a route failure.
+  - *Otherwise:* (c) is ruled out by count, and D15 re-locks on (a) or (b) by reasoning on the existing evidence.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
