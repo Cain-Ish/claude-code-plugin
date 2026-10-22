@@ -2296,3 +2296,54 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Constraint for its check:** everything seen so far was diagnosed per card against D20's 27 rules, so a key
   designed now is fitted to them. The check needs tasks, or binding rules, that no design step has inspected (new
   tasks in the same repos), with D13's corrected held rule.
+- **Volume check (pre-registered 2026-10-22, before any harness change, distractor set or run; rethink 2, item 3).**
+  It is input to the user's blocked decision on how much context a task gets. It also bears on D13's 8 KB, which
+  rethink 2 found unverified as a budget. D13 is not edited here.
+  - *Question.* Does pushing more text at prompt arrival cost Claude its following of the binding rules, or only
+    tokens? The extra text is the binding rules plus entries that a word-matching selector would wrongly pick.
+  - *Shape and baseline.* Identical to D20 stage 3's `o0`: two turns (investigate and report, then make the change),
+    no compaction, delivered once at the first prompt, Opus 5.5, Bash and the web off, P1's and P2's build tasks.
+    Stage 3's `o0` sessions (10, already seen) are the baseline arm.
+  - *What fills the volume.*
+    - D13's word-matching ranker (`index` and `rank` in `probes/V2-D13-selection/select.mjs`) ranks the repo's full
+      map (D15's entries) against the task's prompt. Entries from the binding rules' own source files are skipped.
+    - The top-ranked entries are taken until the binding cards plus these reach about 32 KB, covering D22's
+      essential sets of 8 to 18 KB plus noise.
+    - Before any run, each task's fixed set is checked for an entry that states or contradicts a binding rule. A
+      model reads the set with the binding cards and flags candidates; each flag is verified by hand against the
+      card. Confirmed entries are removed and replaced by the next-ranked.
+    - Random entries are not used: they would test dilution only, a lower bound on interference.
+  - *Delivery.*
+    - All cards, binding and filler, get neutral ids in one seeded order per session, logged privately, so the
+      binding cards are not marked. The literature finds earlier rules favoured.
+    - `additionalContext` is capped at 10,000 characters per hook output, so 32 KB goes out as several hook
+      commands on `UserPromptSubmit`, each under 9,000 characters.
+    - That several outputs on one event all arrive is unmeasured (D12 probed one hook per event). A Haiku smoke
+      comes first: the session is asked, without tools, for the id of the last card it was given, which sits in
+      the last chunk.
+    - If the smoke fails, the arm falls back to `v8` only (one chunk), and 32 KB is named untestable by this
+      channel.
+  - *Runs, sequential.*
+    - `v32` first: one Opus pilot per task with its cost, then 5 sessions per task. Above 25 USD projected, the user
+      is asked first.
+    - `v8` (about 8 KB, one chunk) runs only if `v32` loses a rule, on the task that lost it, to locate the edge.
+  - *Valid session:*
+    - stage 3's checks: every turn's result a success, the session's own model, no write in the investigation
+      turn, no compaction;
+    - every chunk delivered at the first prompt and none later;
+    - every binding card among them.
+  - *Outcome.*
+    - In scope: the rules `o0` holds (D20's rule: missed if it fails in 2 or more of 5).
+    - Lost at a level: held in `o0`, missed there.
+    - Stopped sessions are read both ways, as in stage 3.
+    - Cost: a level costs more if its median USD (and median tokens) exceeds `o0`'s median by more than `o0`'s
+      spread (D17's form).
+  - *Consequences, written now:*
+    - **No rule lost at `v32`:** following did not pay for 32 KB of realistic false positives in this shape; the
+      price is tokens, which are reported. D13's 8 KB then reads as the hook channel's cap, not a following budget.
+      This goes to the user's D22 decision as its number.
+    - **A rule lost at `v32`:** `v8` runs. If `v8` holds, the edge lies between 8 and 32 KB. If `v8` loses too, even
+      8 KB of near-topic false positives costs following, and selection must be precise.
+  - *Not measured:* task success (Bash is off and no tests run; completion and stopped sessions stand in); form (an
+    imperative rule against a quote with its rationale) is a second variable, cut here; Opus only; two tasks; one
+    filler kind.
