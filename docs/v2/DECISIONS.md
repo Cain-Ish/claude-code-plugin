@@ -264,6 +264,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Trigger fired, for two cells (phase gate, 2026-10-22).** D22's route needs `SessionStart` after `/clear` and on
   `resume`, and neither source was probed. Before the first slice, this record's nonce probe runs for both sources
   (3 runs each), in the main session. The cells it already holds stand.
+- **Step 0 cells (pre-registered 2026-10-22, before the probe is written; [step0.mjs](probes/V2-D12-channels/step0.mjs)).**
+  Same method: a fresh git repo, a probe plugin with a new random nonce per channel and per run, Haiku, user settings
+  excluded, Bash, Grep, Glob and the web denied. Three runs per cell.
+  - *CL:* plugin `SessionStart` with matcher `clear`. One process sends "reply OK", then `/clear` (with
+    `MSYS_NO_PATHCONV`, as for `/compact`), then asks for every `PRB-` token in context. It arrives if the clear
+    nonce is quoted. Also reported: whether the startup nonce is still quoted after `/clear`.
+  - *RE:* plugin `SessionStart` with matcher `resume`. Process one replies OK. Process two runs `--resume` on its session
+    and asks for the tokens. The resume nonce is emitted only on resume, so it cannot come from startup.
+  - *PT-sub:* plugin `PostToolUse` after a Read emits a nonce. The main session launches an Explore subagent, and in
+    another session a general-purpose one, to read `src/a.ts` and list the tokens. It is scored in the subagent's
+    reply, and separately in the main session's.
+  - *Controls:* the root `CLAUDE.md` nonce is quoted (positive, main session), and a file nothing loads is never
+    quoted (negative).
+  - *Pass, per cell:* 3 of 3 valid runs quote the nonce. 0 of 3 means it does not arrive. 1 or 2 is unreliable, which
+    counts as not arriving.
+  - *Consequences:*
+    - A source that arrives joins the route's `SessionStart` matcher.
+    - If the read hook arrives in subagents, the labels are claimed there too. If not, a subagent's read of a map
+      file stays unlabelled, an accepted risk (the phase gate).
 
 ### V2-D13 — Shape of the project map
 - **Question:** node kinds (decision, convention, inventory, goal, design rule, …), file format, the always-on
