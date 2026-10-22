@@ -21,3 +21,21 @@ node route.mjs selftest
 node route.mjs arms|index|native|score <tasks>
 node route.mjs pool <tasks> <task-id>
 ```
+
+## Volume check (2026-10-22): does a bigger push cost following?
+
+Input to the user's budget decision; the check and result are in [`DECISIONS.md`](../../DECISIONS.md) under V2-D22,
+"Volume check". The harness is D20's ([`native.mjs`](../V2-D20-adherence/native.mjs), arms `v8` and `v32`, which
+deliver the binding cards plus a word-matching selector's false positives at the first prompt, in several hook outputs
+under the 10,000-character cap). Counts:
+[`../V2-D20-adherence/results/summary-volume.json`](../V2-D20-adherence/results/summary-volume.json).
+
+| | P1 build | P2 build |
+| --- | --- | --- |
+| Delivered | 32.7 KB (6 binding cards among 79 others) | 32.5 KB (8 among 107) |
+| Rules lost against the 2 KB baseline | none | none |
+| Median USD, baseline then 32 KB | 1.01 then 1.28 | 3.63 then 3.05 |
+| Median tokens, baseline then 32 KB | 624k then 779k | 6.0M then 3.4M |
+
+The filler was checked before any run. In P2 it held 10 stale entries contradicting a binding rule and 13 restating
+one; all were removed, so contradiction in the delivered set is untested.

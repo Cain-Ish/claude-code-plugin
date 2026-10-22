@@ -28,13 +28,14 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
 Frontier (rule 6): **D22** stays BLOCKED until the user ticks the checklists in `research/raw/d22/validate/`.
-Rethink 2 adds three untested options to it: an always-on index with a retrieval-led instruction, a forced decision
-per area, and path-keyed delivery at the action. D20 and D12 were re-locked on 2026-10-22 by D20's stage 3: rules
-delivered at the prompt held across a forced compaction on Opus 5.5 (an upper bound; real compactions are harsher).
-D19 stays LOCKED, but its context measure is reset; stage 3 supplies the session-level numbers. Runnable now, without
-the user: rethink 2's volume check (task success and cost against how many rules are delivered, and how long they
-are), which bears on D13, D15 and D22. Step 14 waits on D22. Targets for the gaps of D17's rule in A1 and A2 are
-the user's call.
+- Rethink 2 adds three untested options to it: an always-on index with a retrieval-led instruction, a forced
+  decision per area, and path-keyed delivery at the action.
+- Its volume check (2026-10-22) found no rule lost with 32 KB pushed at the prompt, against D13's 8 KB, in two tasks
+  on Opus. That number goes to the user's budget decision.
+- D20 and D12 were re-locked on 2026-10-22: rules delivered at the prompt held across a forced compaction on Opus
+  (an upper bound).
+- D19 stays LOCKED, but its context measure is reset; D20's stage 3 supplies the session-level numbers.
+- Step 14 waits on D22. Targets for the gaps of D17's rule in A1 and A2 are the user's call.
 
 ---
 
@@ -2362,3 +2363,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       here. D16's re-find does not flag such entries, because their quotes are still in their files.
     - *Pilots (Opus, `v32`, not counted):* P1 1.17 USD, P2 4.98 USD. Both followed every binding rule. The projection
       came to about 31 USD for the 10 counted sessions. *The user chose to run as registered (2026-10-22).*
+- **Volume check result (2026-10-22; [summary-volume.json](probes/V2-D20-adherence/results/summary-volume.json)):
+  no rule lost at 32 KB, in either reading. `v8` not run.**
+  - *Runs:* 10 sessions, all valid, one epoch (CLI 2.1.305, Opus 5.5), 24.35 USD. The two pilots add 6.15.
+  - *Following.*
+    - P1: every rule `o0` holds stayed at 5 of 5, R6 included. R2 went from 2 of 5 to 3 of 5; it is out of scope,
+      since `o0` already misses it.
+    - P2: every rule held. R7 was 4 of 5 in both arms: in `o0` the miss is the session that stopped to ask, in `v32`
+      a written file that missed it. The rest went from 4 of 5 to 5 of 5, since no `v32` session stopped.
+  - *Cost against `o0` (D17's form: median against median plus spread):*
+    - P1: 1.28 against 1.01 USD (spread 0.46), and median tokens 779k against 624k (+25%);
+    - P2: 3.05 against 3.63 USD, and 3.4M against 6.0M tokens, both lower.
+
+    Neither costs more by the rule. The largest context of a request rose by about the delivered size in P1, 104k
+    against 86k tokens.
+  - *What it means (registered consequence):* in this shape, following did not pay for 32 KB of realistic false
+    positives. The price is tokens, about a quarter more on the cheaper task.
+    - D13's 8 KB reads as the hook channel's cap per output, not a following budget. Several outputs carry 32 KB, as
+      the smoke showed.
+    - For the user's D22 decision: a task can be given its whole essential set (8 to 18 KB by the unvalidated judge)
+      with room for a selector's false positives, as long as none of them contradicts a binding rule.
+  - *Limits:* the contradicting entries were removed (10 in P2), so a contradiction in the delivered set is
+    untested; two tasks; one session shape; no compaction; Opus only; the filler is one selector's.
