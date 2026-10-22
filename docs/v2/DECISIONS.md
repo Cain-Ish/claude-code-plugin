@@ -24,13 +24,14 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
-| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | CHECKING 2026-10-22 | evidence | D10, D13 |
+| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | BLOCKED 2026-10-22 (attempt 2; up a level to the user) | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D21** (inventory). D18 locked on 2026-10-22, on attempt 3: five events with one Node script each
-(exec form; session start in shell form says once when Node is missing). Each hook's added p95 is at most 100 ms at 8
-concurrent; on read of a document sits exactly at the bar. **D22 is BLOCKED** until the user ticks the checklists in
-`research/raw/d22/validate/`; its existing runs are then re-scored.
+Frontier (rule 6): no OPEN decision has all its parents LOCKED except D19, which waits on D22. **D21 is BLOCKED**
+(2026-10-22, attempt 2) and goes up a level to the user. Claude duplicated no file in 36 runs, and a path inventory
+did not stop the duplication that did occur, below file level. The user places that duplication (a project rule or
+code review) and decides what onboarding maps in a repo with no documents. **D22 is BLOCKED** until the user ticks the
+checklists in `research/raw/d22/validate/`; its existing runs are then re-scored. D18 locked on 2026-10-22.
 
 ---
 
@@ -1723,6 +1724,30 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       duplicated in 36 runs on three stacks. The kind that occurred lies below file level, driven by a number in the
       task and a sibling that re-declares it: a fact about where a value lives. That is map-shaped (D13, D15, D14)
       or check-shaped (D20), and the reopened question is named, not chosen.
+- **Result, part 2 (2026-10-22; [results/part2.json](probes/V2-D21-inventory/results/part2.json)): both fail.**
+  - *(b):* 5 of 5 runs valid, the inventory delivered at prompt in all 5. All 5 duplicated the value, against
+    native's 4 of 5. None opened the file the inventory names before its first write, and none searched for the
+    name. 1.24 USD.
+  - *(c):* the repo's configured checks are three post-write hooks, reminders that never block and inspect no
+    constant; a lint config with neither a number rule nor any rule that compares a constant with another module's
+    export; and two lint-based tests about UI style and one component's props. None would report the duplicate.
+- **Status: BLOCKED 2026-10-22, after attempt 2.** Attempts: 1 failed ((a)), 2 failed ((b) and (c)). Every option
+  of the record is used up, so no third attempt is made (rule 4).
+- **The assumption that failed:** that an inventory of what exists (files, components, scripts) is what stops
+  Claude from duplicating. On three stacks and in 36 runs, Claude duplicated no file: its own search found what
+  existed at file level. The duplication that did occur lies below file level. A value the task states as a number
+  was re-declared beside a sibling that re-declares it too, while a shared module exports it under a name. An
+  inventory of names did not change that, and the repo's own tools do not look.
+- **Up a level, for the user (named, not chosen):**
+  - *Where the duplication found here belongs.* Either a project rule ("shared values come from the shared
+    module"), which the map holds when the project's documents state it or someone captures it (D15, D14), and
+    which D20 delivers and checks; or general code review, which the charter excludes. No option is preferred
+    here.
+  - *What onboarding maps in a repo with no documents* (the half D15 pointed here). With (a)'s file-level result,
+    an inventory has no measured use for reuse. The charter's "maps what the code shows" then either means Claude's
+    own search plus captured work (D14), or the charter line changes.
+- **Reopen if:** a duplicate at file level is counted in D19's runs or in the first slice's eval; or a Claude Code
+  release adds a native index of what exists.
 
 ### V2-D22 — Selection
 - **Question (split from D13, 2026-10-21):** how do the entries that bind a task reach Claude, without a hand-made

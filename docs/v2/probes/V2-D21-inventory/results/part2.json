@@ -1,0 +1,45 @@
+{
+ "date": "2026-10-22",
+ "b": {
+  "arm": "i",
+  "model": "claude-sonnet-5-5",
+  "runs": 5,
+  "valid": 5,
+  "inventoryDeliveredAtPrompt": 5,
+  "inventory": {
+   "files": 342,
+   "directories": 32,
+   "bytes": 5737
+  },
+  "duplicates": 5,
+  "reused": 0,
+  "constantsFileOpenedBeforeFirstWrite": 0,
+  "toolCallsBeforeFirstWrite": [
+   8,
+   10,
+   11,
+   8,
+   9
+  ],
+  "costUsd": 1.24,
+  "pass": false
+ },
+ "c": {
+  "read": "hook settings and their scripts, lint config, lint-based tests",
+  "hooks": {
+   "postToolUse": 3,
+   "kind": "reminders that never block",
+   "inspectConstants": false
+  },
+  "lint": {
+   "numberRule": false,
+   "crossModuleConstantRule": false
+  },
+  "lintTests": {
+   "count": 2,
+   "inspectConstants": false
+  },
+  "holds": false
+ },
+ "verdict": "both fail: BLOCKED, up a level (rule 4)"
+}
