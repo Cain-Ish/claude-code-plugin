@@ -1,6 +1,7 @@
 # v2 eval plan
 
-**Status:** baselines run and thresholds set on 2026-10-20 (V2-D17 LOCKED); see Baseline results and Thresholds.
+**Status:** A1's baselines run and thresholds set on 2026-10-20 (V2-D17 LOCKED); see Baseline results and
+Thresholds. Scenario A2, at scale, added on 2026-10-22 (V2-D19 LOCKED); see the last section.
 Pre-registered on 2026-10-20, when the user confirmed the scenario, the arms and the capture rules
 (V2-D17). The neighbour session, the failure chain, the epoch rule and ten runs per arm were added the same day from
 [research/2026-10-20-memory-scenario-guide-and-docs.md](research/2026-10-20-memory-scenario-guide-and-docs.md),
@@ -206,3 +207,53 @@ Set on 2026-10-20 from the baseline results above, by the rule below, unchanged 
 - **If M1 passes every item in every run:** native auto memory already does A1 for one person on one machine. D17
   then records that v2's case rests on team sharing, on the contexts auto memory does not reach (Explore and Plan,
   D12) and on cost, and the user sees that result before any threshold is set.
+
+## Scenario A2: at scale (V2-D19)
+
+A1 runs on a 16-file fixture. A2 measures the user's three test-bed repos as they are run today: v1's own repo (R0),
+and two private repos (P1 and P2, published as counts only). The check and its premise count are in
+[DECISIONS.md](DECISIONS.md) under V2-D19; the per-task counts are in
+[probes/V2-D19-scale/results/a2.json](probes/V2-D19-scale/results/a2.json).
+
+- **Tasks:** D20's four, at pinned commits: a build task in each repo, and a plan task in P2. Their 27 rules have
+  deterministic checks. D22's six investigation tasks join when D22 locks.
+- **Arms:**
+  - **M1, the repo as it is run today:** its instruction files, rules, hooks and skills, plus the user's own auto
+    memory where the user has one. Only P1 has one (14 notes), copied fresh into each run (arm `m`). In P2 and R0,
+    M1 is the native arm.
+  - **v2:** the first slice, in the build phase.
+- **Protocol:** as A1, by D20's harness: Sonnet 5.5, CLI 2.1.305, Bash and the web off, 10 valid runs per task. The
+  epoch rule holds: another CLI or model is another baseline.
+- **Context:** recorded, with no threshold. In 57 runs (A2's and D22's native runs) the largest context of any turn
+  was at most 17% of the 1,000,000-token window. No run compacted and none used a subagent.
+
+### Thresholds (2026-10-22, D17's rule, against M1)
+
+**Pass items:** v2 follows each rule in at least as many of its 10 runs as M1.
+
+| Task | Rules (M1's count of 10) |
+| --- | --- |
+| P1 build | R1 10, R2 4, R3 10, R4 10, R5 10, R6 0; the shared value reused 0 |
+| P2 build | R1 10, R2 10, R3a 10, R3b 10, R4 10, R5 0, R6 0, R7 0 |
+| R0 build | R1 10, R2a 9, R2b 9, R3 10, R4 4, R5 10, R6 7, R7 10 |
+| P2 plan | P1 9, P3a 10, P3b 10, P4 9, P5 5 |
+
+**Counts and tokens:** v2's median must fall below the threshold, which is M1's median minus M1's spread.
+
+| Task | Tool calls before the first write | Files read before it | Tokens, all kinds | Output tokens | USD |
+| --- | --- | --- | --- | --- | --- |
+| P1 build | below 4 (10, 6) | below 5 (7, 2) | below 261,937 (558,356, 296,419) | below 4,075 (5,633, 1,558) | below 0.220 (0.321, 0.101) |
+| P2 build | below 6 (33, 27) | below 3 (10, 7) | none (1,023,126, 1,455,037) | below 6,345 (17,973, 11,628) | below 0.094 (0.537, 0.443) |
+| R0 build | below 1 (21, 20) | none (7, 8) | below 194,464 (674,946, 480,482) | below 1,739 (10,059, 8,320) | below 0.120 (0.356, 0.236) |
+| P2 plan | no write | none (2, 2) | none (133,615, 186,306) | below 1,694 (3,498, 1,804) | none (0.129, 0.147) |
+
+In brackets: M1's median and spread. Instruction bytes loaded per run (median) are recorded with no threshold:
+P1 64.0 KB (plus a 2.6 KB memory index in M1), P2 9.9 KB, R0 0 (it has no instruction file).
+
+**What the rule does not cover:**
+- *Floors at 0.* M1 never follows four rules (P1 R6; P2 R5, R6, R7). Their floor is 0, so the rule alone cannot
+  show v2's value there. D20 stage 2's delivery arm fixed all four.
+- *Thresholds at or below 0.* On five cells ("none" above), M1's spread is at least its median, so no median can
+  meet the rule. R0's "below 1" tool call means writing before any look. At this run count, the rule cannot show a
+  cost or orientation gain there.
+- Targets for either group are the user's call. Any change to the rule counts as a new attempt (01-process rule 2).

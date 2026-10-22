@@ -22,16 +22,15 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
-| V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | CHECKING 2026-10-22 | user + evidence | D10, D17 |
+| V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D19** (measurement at scale; parents D10 and D17 LOCKED). Its native arm already ran (D20 stage
-1). The auto-memory arm, a pilot and the thresholds remain, and only its v2 arm waits on D22. Its draft measure
-"duplicates checked against an inventory" now takes D21's judge method, since v2 builds no inventory (D21, locked
-2026-10-22 on the user's answers after a block). **D22 is BLOCKED** until the user ticks the checklists in
-`research/raw/d22/validate/`; its existing runs are then re-scored. D18 locked on 2026-10-22.
+Frontier (rule 6): every decision but **D22** is LOCKED (D19 on 2026-10-22: scenario A2 and its thresholds in
+`05-eval-plan.md`). **D22 is BLOCKED** until the user ticks the checklists in `research/raw/d22/validate/`; its
+existing runs are then re-scored. Step 14 (architecture, eval plan, first slice) waits on D22, since selection is
+part of the architecture. Targets for the gaps of D17's rule in A1 and A2 are the user's call.
 
 ---
 
@@ -1502,6 +1501,47 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     up a level (rule 4).
   - *Reported, no threshold:* arm m against native in P1 (does the user's own memory change anything), and what the
     memory holds: any of the task's rules, or the value.
+- **Result (2026-10-22; [probes/V2-D19-scale](probes/V2-D19-scale/README.md),
+  [results/a2.json](probes/V2-D19-scale/results/a2.json)): run as registered; every lock condition met.**
+  - *Smoke:* the Haiku session quoted the memory index's first line verbatim without opening it. The
+    `InstructionsLoaded` hook does not report auto memory. So each run's validity also checks that the session's
+    start event names the run's own copy as its auto-memory folder (it did in all 10).
+  - *Runs:* 25 runs, all valid (the pilot, 0.33 USD, among them), one epoch (CLI 2.1.305, Sonnet 5.5), 9.16 USD with the smoke.
+    Every task has 10 valid M1 runs. The thresholds, computed by D17's rule, are in `05-eval-plan.md` (scenario A2).
+  - *Context:* in the 25 new runs the largest context of any turn was 34k to 129k tokens, at most 13% of the window.
+    None compacted or used a subagent.
+  - *File-level duplicates:* every run created only its task's own files (the component and its test, the content
+    file, the script and its test). D21's trigger did not fire.
+  - *The rule's gaps* (recorded in the eval plan):
+    - four rules M1 never follows (floor 0);
+    - five count or token cells where M1's spread is at least its median, so no threshold can be met: P2's build
+      tokens, R0's files read, and P2's plan files read, tokens and cost. P2's build runs cost 0.45 to 0.90 USD.
+    - At 10 runs, the rule cannot show a cost gain on those cells. Targets for both groups are the user's call, as
+      in A1.
+  - *Reported, not counted:*
+    - *The user's own auto memory in P1 (arm m, 10 runs) against native (5 runs).* It changed nothing that was
+      measured: R2 was followed in 4 of 10 runs against 2 of 5, R6 in 0 against 0, and the shared value was reused in
+      0 against 1. The median cost was higher (0.32 against 0.24 USD, inside native's spread). One of the 10 runs
+      opened memory notes (two).
+    - *What the memory holds* (read after the runs): 14 notes, mostly workflow habits. None states a task rule or
+      the value. Two touch the task in general terms: a UI note that new fields look alike and carry an explanation
+      (close to R2), and a principle that each fact has one owning file, never held twice (close to the value). That
+      principle stood in the index loaded at start in all 10 runs, and all 10 still re-declared the value.
+- **Status: LOCKED 2026-10-22.** Attempts: 0 failed.
+- **Choice:** A2 = D20's four test-bed tasks at pinned commits, 10 runs per arm. The arms are M1, the repo as it is
+  run today with the user's own auto memory where the user has one, and v2. The measures are each rule's check,
+  P1's value reused, tool calls and files read before the first write, tokens and USD. Instruction bytes and context
+  are recorded only. Thresholds come from D17's rule against M1.
+- **Rejected:**
+  - A history written for the auto-memory arm: the history chosen decides the result.
+  - No auto-memory run at scale: P1's memory was real, and the run settled what it does.
+  - Context fill as a measure with a threshold: at most 17% of the window in 57 runs.
+  - Research cost by import parsing: it needs a parser per language (charter).
+- **Reopen if:**
+  - the CLI or the model changes before the v2 arm runs (a new epoch: the baselines re-run, the rule stays);
+  - the user sets targets for the rule's gaps or changes the rule (a new attempt, rule 2);
+  - a model with a smaller window becomes the baseline model (context fill then needs a measure);
+  - D22 locks (its investigation tasks join A2).
 
 ### V2-D20 — Adherence: how v2 makes Claude look for and follow the knowledge
 - **Question:** knowledge in the map is worth nothing unless Claude (a) has the part that binds the task before it

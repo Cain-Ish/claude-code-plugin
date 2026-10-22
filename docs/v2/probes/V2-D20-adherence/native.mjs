@@ -21,7 +21,7 @@ const cfgPath = path.resolve(cfgArg);
 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), 'd20-stage2', arm);
-const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2'].includes(mode) ? null : process.exit(2));
+const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale'].includes(mode) ? null : process.exit(2));
 
 const env = (extra = {}) => {
   const e = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1', ...extra };
@@ -42,7 +42,7 @@ const median = (a) => { const s = a.filter((x) => x != null).sort((x, y) => x - 
 // ---------- one session in a fresh worktree ----------
 
 // hooks: extra hook groups by event, merged into the run's settings beside the InstructionsLoaded logger
-function makeRun(dir, log, hooks = {}) {
+function makeRun(dir, log, hooks = {}, mem = null) {
   git(task.repo, 'worktree', 'remove', '--force', dir);
   fs.rmSync(dir, { recursive: true, force: true });
   const r = git(task.repo, 'worktree', 'add', '-q', '--detach', dir, task.commit);
@@ -55,14 +55,14 @@ function makeRun(dir, log, hooks = {}) {
     fs.writeFileSync(f, s.find ? t.replace(s.find, s.replace) : s.content);
   }
   fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), `${JSON.stringify({ autoMemoryEnabled: false,
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), `${JSON.stringify({ autoMemoryEnabled: !!mem, ...(mem && { autoMemoryDirectory: mem }),
     hooks: { InstructionsLoaded: [{ hooks: [nodeHook('log.mjs', log)] }], ...hooks } }, null, 2)}\n`);
 }
 const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path.join(HERE, script), ...args].map((x) => (x === 'node' ? x : `"${slash(x)}"`)).join(' ') });
 
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
-  if (arm === 'a') return {};
+  if (['a', 'm'].includes(arm)) return {};
   if (arm.startsWith('r')) { // V2-D22, the user's route (r: run 2, r3: keyed to the file read): push, then on read
     fs.copyFileSync(task.route, path.join(base, 'route.json'));
     const h = { hooks: [nodeHook(path.join('..', 'V2-D22-selection', 'onread.mjs'), base)] };
@@ -79,11 +79,11 @@ function armHooks(base) {
   return { UserPromptSubmit: [d], PreToolUse: [writes], ...(arm === 'd' ? { PostToolUse: [writes], Stop: [d] } : {}) };
 }
 
-function claude(cwd, prompt, model, raw, extraEnv = {}, deny = 'Bash,WebFetch,WebSearch') {
+function claude(cwd, prompt, model, raw, extraEnv = {}, deny = 'Bash,WebFetch,WebSearch', addDir = null) {
   // Skills stay on (they are how these repos hold knowledge); Bash and the web are off: no installs, static scoring.
   const r = spawnSync('claude', ['-p', '--model', model, '--setting-sources', 'project,local', '--strict-mcp-config',
     '--disallowedTools', deny, '--permission-mode', 'acceptEdits',
-    '--output-format', 'stream-json', '--verbose', '--include-hook-events'],
+    '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(addDir ? ['--add-dir', addDir] : [])],
   { cwd, input: prompt, timeout: 1_800_000, encoding: 'utf8', env: env(extraEnv), maxBuffer: 256 << 20 });
   fs.writeFileSync(raw, (r.stdout ?? '') + (r.stderr ? `\n#stderr ${r.stderr}` : ''));
   return parse(r.stdout ?? '');
@@ -168,8 +168,11 @@ function runOnce(i, model = cfg.model) {
   fs.mkdirSync(base, { recursive: true });
   const dir = path.join(path.dirname(task.repo), `wt-${task.id}`);
   const log = path.join(base, 'instructions.jsonl');
-  makeRun(dir, log, armHooks(base));
-  const ev = claude(dir, task.prompt, model, path.join(base, 'stream.jsonl'));
+  // V2-D19 arm m: the user's own auto memory, a fresh copy per run, writable (as D17's M1)
+  const mem = arm === 'm' ? path.join(base, 'memory') : null;
+  if (mem) fs.cpSync(task.memory, mem, { recursive: true });
+  makeRun(dir, log, armHooks(base), mem);
+  const ev = claude(dir, task.prompt, model, path.join(base, 'stream.jsonl'), {}, undefined, mem);
   const f = facts(ev, dir, log, base);
   const { files, fresh } = changedFiles(dir);
   fs.writeFileSync(path.join(base, 'files.json'), JSON.stringify(files, null, 1));
@@ -180,7 +183,18 @@ function runOnce(i, model = cfg.model) {
   if (f.init?.model && !f.init.model.startsWith(model)) rec.invalid.push(`ran on ${f.init.model}`);
   const byEv = (e) => f.deliveries.filter((d) => d.ev === e);
   if (arm === 'i' && !byEv('UserPromptSubmit').some((d) => d.inventory)) rec.invalid.push('inventory not delivered at prompt');
-  if (!['a', 'i'].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
+  if (mem) {
+    const inMem = (p) => slash(p ?? '').toLowerCase().startsWith(`${slash(mem).toLowerCase()}/`);
+    const res = new Map(blocks(ev, 'user', 'tool_result').map((c) => [c.tool_use_id, c]));
+    const writes = f.uses.filter((u) => ['Write', 'Edit', 'MultiEdit'].includes(u.name) && inMem(u.input?.file_path));
+    const refused = writes.filter((u) => res.get(u.id)?.is_error && /permission|denied|granted|not allowed|blocked/i.test(JSON.stringify(res.get(u.id).content))).length;
+    // InstructionsLoaded does not report auto memory (the smoke); the init event names the folder the session reads
+    rec.memory = { indexBytes: fs.statSync(path.join(task.memory, 'MEMORY.md')).size, pathIsRunCopy: inMem(`${f.init?.memory_paths?.auto ?? ''}/`),
+      reads: f.uses.filter((u) => u.name === 'Read' && inMem(u.input?.file_path)).length, writes: writes.length, refused };
+    if (refused) rec.invalid.push(`${refused} memory write(s) refused`);
+    if (!rec.memory.pathIsRunCopy) rec.invalid.push('auto memory not the run copy');
+  }
+  if (!['a', 'i', 'm'].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
   if (arm === 'd' && !byEv('Stop').length) rec.invalid.push('no Stop hook call');
   rec.delivery = { denies: byEv('PreToolUse').filter((d) => d.cards).length, checkFeedback: byEv('PostToolUse').filter((d) => d.cards).length,
     stopFailing: byEv('Stop')[0]?.cards ?? null, accountHeading, hookMs: f.deliveries.map((d) => d.ms),
@@ -242,6 +256,8 @@ if (mode === 'checks') {
   const saved = task.prompt;
   // arm b/d keep the task's prompt: their hooks only act on a write in a card's area
   if (arm === 'a') task.prompt = 'Create a file named smoke-note.md in the repository root containing the single word ok.';
+  // arm m: the memory index arrived if Claude quotes its first line without opening it (V2-D19's pre-registered smoke)
+  if (arm === 'm') task.prompt = 'Without using any tool, quote the first line of your auto memory index verbatim. Then create a file named smoke-note.md in the repository root containing the single word ok.';
   const { rec, f } = runOnce(0, cfg.smokeModel ?? 'claude-haiku-5-5');
   task.prompt = saved;
   const ev = parse(fs.readFileSync(path.join(OUT, task.id, 'run0', 'stream.jsonl'), 'utf8'));
@@ -249,7 +265,8 @@ if (mode === 'checks') {
   for (const e of ev) kinds[`${e.type}/${e.subtype ?? ''}`] = (kinds[`${e.type}/${e.subtype ?? ''}`] ?? 0) + 1;
   console.log(JSON.stringify({ valid: rec.valid, invalid: rec.invalid, skillsListed: f.init?.skills, plugins: f.init?.plugins,
     mcp: f.init?.mcp_servers, loads: rec.instructionsLoaded, logFields: Object.keys(f.loads[0] ?? {}),
-    changed: rec.changed, usage: rec.usage, delivery: rec.delivery, rules: rec.rules, eventKinds: kinds }, null, 1));
+    changed: rec.changed, usage: rec.usage, delivery: rec.delivery, rules: rec.rules, eventKinds: kinds, memory: rec.memory,
+    memoryQuoted: arm === 'm' ? blocks(ev, 'assistant', 'text').map((c) => c.text).join('\n').includes(fs.readFileSync(path.join(task.memory, 'MEMORY.md'), 'utf8').split('\n')[0].trim()) : undefined }, null, 1));
 } else if (mode === 'run') {
   const ep = epoch();
   const file = path.join(OUT, `${task.id}.json`);
@@ -363,7 +380,47 @@ if (mode === 'checks') {
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
   fs.writeFileSync(path.join(HERE, 'results', 'summary-stage2.json'), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
+} else if (mode === 'scale') {
+  // V2-D19 (A2): per task, M1 (arm m where the task has the user's memory, else native: stage 1's runs 1-5 plus D19's
+  // 6-10, reply rules re-scored with this config) and the thresholds by D17's rule. Counts only, no rule text.
+  const load = (d, id) => {
+    const f = path.join(d, `${id}.json`);
+    return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).runs.filter((r) => r.valid).map((r) => ({ ...r, dir: path.join(d, id, `run${r.run}`) })) : [];
+  };
+  const spread = (a) => { const s = a.filter((x) => x != null); return s.length ? Math.max(...s) - Math.min(...s) : null; };
+  const measures = { toolCallsBeforeFirstWrite: (r) => r.orientation.toolCallsBeforeFirstWrite, filesReadBeforeFirstWrite: (r) => r.orientation.filesReadBeforeFirstWrite,
+    tokensAll: (r) => r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens,
+    outputTokens: (r) => r.usage.outputTokens, costUsd: (r) => r.usage.costUsd };
+  const out = { date: new Date().toISOString().slice(0, 10), rule: 'D17: counts and tokens, v2 median below M1 median minus M1 spread; pass items, v2 in no fewer runs than M1', tasks: {} };
+  for (const t of cfg.tasks) {
+    const arms = { native: [...load(path.join(path.dirname(cfgPath), '..', 'd20-stage1'), t.id), ...load(STAGE1, t.id)], m: t.memory ? load(path.join(path.dirname(cfgPath), 'd20-stage2', 'm'), t.id) : [] };
+    for (const r of [...arms.native, ...arms.m]) {
+      const ev = parse(fs.readFileSync(path.join(r.dir, 'stream.jsonl'), 'utf8'));
+      for (const rule of t.rules) if (rule.check.where === 'reply') r.rules[rule.id].final = check(rule.check, {}, replyOf(ev).reply);
+    }
+    const m1 = t.memory ? 'm' : 'native';
+    const got = Object.entries(arms).filter(([, rs]) => rs.length);
+    out.tasks[t.id] = {
+      m1, runs: Object.fromEntries(got.map(([k, rs]) => [k, rs.length])), epochs: [...new Set(got.flatMap(([, rs]) => rs.map((r) => r.epoch?.cli)))],
+      rules: Object.fromEntries(t.rules.map((rule) => [rule.id, { kind: rule.kind, ...Object.fromEntries(got.map(([k, rs]) => [k,
+        { followed: rs.filter((r) => r.rules[rule.id].final).length, atFirstWrite: rs.filter((r) => r.rules[rule.id].atFirstWrite === true).length }])),
+      threshold: arms[m1].filter((r) => r.rules[rule.id].final).length }])),
+      measures: Object.fromEntries(Object.entries(measures).map(([k, f]) => {
+        const row = Object.fromEntries(got.map(([a, rs]) => [a, { median: median(rs.map(f)), spread: spread(rs.map(f)) }]));
+        const b = row[m1];
+        return [k, { ...row, threshold: b.median == null ? null : b.median - b.spread }];
+      })),
+      recorded: Object.fromEntries(got.map(([k, rs]) => [k, { instructionBytes: median(rs.map((r) => r.instructionBytes)), memoryIndexBytes: rs[0].memory?.indexBytes ?? 0,
+        subagentRuns: rs.filter((r) => r.delivery?.subagents).length, compactedRuns: rs.filter((r) => r.delivery?.compacted).length,
+        memoryReads: rs.reduce((a, r) => a + (r.memory?.reads ?? 0), 0), memoryWrites: rs.reduce((a, r) => a + (r.memory?.writes ?? 0), 0),
+        costUsd: rs.reduce((a, r) => a + (r.usage.costUsd ?? 0), 0) }])),
+    };
+  }
+  const dir = path.join(HERE, '..', 'V2-D19-scale', 'results');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a2.json'), `${JSON.stringify(out, null, 1)}\n`);
+  console.log(JSON.stringify(out, null, 1));
 } else {
-  console.error('usage: node native.mjs checks|smoke|run|summary|arrival|summary2 <config> [task] [runs] [first] [arm]');
+  console.error('usage: node native.mjs checks|smoke|run|summary|arrival|summary2|scale <config> [task] [runs] [first] [arm]');
   process.exit(2);
 }

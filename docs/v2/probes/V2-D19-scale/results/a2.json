@@ -1,0 +1,512 @@
+{
+ "date": "2026-10-22",
+ "rule": "D17: counts and tokens, v2 median below M1 median minus M1 spread; pass items, v2 in no fewer runs than M1",
+ "tasks": {
+  "P1-build": {
+   "m1": "m",
+   "runs": {
+    "native": 5,
+    "m": 10
+   },
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "native": {
+      "followed": 5,
+      "atFirstWrite": 0
+     },
+     "m": {
+      "followed": 10,
+      "atFirstWrite": 0
+     },
+     "threshold": 10
+    },
+    "R2": {
+     "kind": "convention",
+     "native": {
+      "followed": 2,
+      "atFirstWrite": 2
+     },
+     "m": {
+      "followed": 4,
+      "atFirstWrite": 4
+     },
+     "threshold": 4
+    },
+    "R3": {
+     "kind": "convention",
+     "native": {
+      "followed": 5,
+      "atFirstWrite": 5
+     },
+     "m": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R4": {
+     "kind": "design",
+     "native": {
+      "followed": 5,
+      "atFirstWrite": 5
+     },
+     "m": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R5": {
+     "kind": "design",
+     "native": {
+      "followed": 5,
+      "atFirstWrite": 5
+     },
+     "m": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R6": {
+     "kind": "unloaded, counter-pattern",
+     "native": {
+      "followed": 0,
+      "atFirstWrite": 0
+     },
+     "m": {
+      "followed": 0,
+      "atFirstWrite": 0
+     },
+     "threshold": 0
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "native": {
+      "median": 11,
+      "spread": 5
+     },
+     "m": {
+      "median": 10,
+      "spread": 6
+     },
+     "threshold": 4
+    },
+    "filesReadBeforeFirstWrite": {
+     "native": {
+      "median": 7,
+      "spread": 1
+     },
+     "m": {
+      "median": 7,
+      "spread": 2
+     },
+     "threshold": 5
+    },
+    "tokensAll": {
+     "native": {
+      "median": 483665,
+      "spread": 376397
+     },
+     "m": {
+      "median": 558356,
+      "spread": 296419
+     },
+     "threshold": 261937
+    },
+    "outputTokens": {
+     "native": {
+      "median": 5283,
+      "spread": 2440
+     },
+     "m": {
+      "median": 5633,
+      "spread": 1558
+     },
+     "threshold": 4075
+    },
+    "costUsd": {
+     "native": {
+      "median": 0.24222269999999999,
+      "spread": 0.14573110000000003
+     },
+     "m": {
+      "median": 0.321171,
+      "spread": 0.10106199999999993
+     },
+     "threshold": 0.22010900000000005
+    }
+   },
+   "recorded": {
+    "native": {
+     "instructionBytes": 63996,
+     "memoryIndexBytes": 0,
+     "subagentRuns": 0,
+     "compactedRuns": 0,
+     "memoryReads": 0,
+     "memoryWrites": 0,
+     "costUsd": 1.3137836999999999
+    },
+    "m": {
+     "instructionBytes": 63996,
+     "memoryIndexBytes": 2636,
+     "subagentRuns": 0,
+     "compactedRuns": 0,
+     "memoryReads": 2,
+     "memoryWrites": 0,
+     "costUsd": 3.2378298
+    }
+   }
+  },
+  "P2-build": {
+   "m1": "native",
+   "runs": {
+    "native": 10
+   },
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R2": {
+     "kind": "convention",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R3a": {
+     "kind": "canon",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R3b": {
+     "kind": "canon",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R4": {
+     "kind": "canon (language)",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R5": {
+     "kind": "unloaded, counter-pattern",
+     "native": {
+      "followed": 0,
+      "atFirstWrite": 0
+     },
+     "threshold": 0
+    },
+    "R6": {
+     "kind": "convention, counter-pattern",
+     "native": {
+      "followed": 0,
+      "atFirstWrite": 0
+     },
+     "threshold": 0
+    },
+    "R7": {
+     "kind": "canon, unloaded, counter-pattern",
+     "native": {
+      "followed": 0,
+      "atFirstWrite": 0
+     },
+     "threshold": 0
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "native": {
+      "median": 33,
+      "spread": 27
+     },
+     "threshold": 6
+    },
+    "filesReadBeforeFirstWrite": {
+     "native": {
+      "median": 10,
+      "spread": 7
+     },
+     "threshold": 3
+    },
+    "tokensAll": {
+     "native": {
+      "median": 1023126,
+      "spread": 1455037
+     },
+     "threshold": -431911
+    },
+    "outputTokens": {
+     "native": {
+      "median": 17973,
+      "spread": 11628
+     },
+     "threshold": 6345
+    },
+    "costUsd": {
+     "native": {
+      "median": 0.5365828,
+      "spread": 0.4427243999999998
+     },
+     "threshold": 0.09385840000000023
+    }
+   },
+   "recorded": {
+    "native": {
+     "instructionBytes": 9880,
+     "memoryIndexBytes": 0,
+     "subagentRuns": 0,
+     "compactedRuns": 0,
+     "memoryReads": 0,
+     "memoryWrites": 0,
+     "costUsd": 5.8572447
+    }
+   }
+  },
+  "R0-build": {
+   "m1": "native",
+   "runs": {
+    "native": 10
+   },
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 0
+     },
+     "threshold": 10
+    },
+    "R2a": {
+     "kind": "counter-pattern (stale skill)",
+     "native": {
+      "followed": 9,
+      "atFirstWrite": 0
+     },
+     "threshold": 9
+    },
+    "R2b": {
+     "kind": "counter-pattern (stale skill)",
+     "native": {
+      "followed": 9,
+      "atFirstWrite": 0
+     },
+     "threshold": 9
+    },
+    "R3": {
+     "kind": "convention",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R4": {
+     "kind": "design",
+     "native": {
+      "followed": 4,
+      "atFirstWrite": 4
+     },
+     "threshold": 4
+    },
+    "R5": {
+     "kind": "convention, counter-pattern",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 10
+     },
+     "threshold": 10
+    },
+    "R6": {
+     "kind": "design, counter-pattern",
+     "native": {
+      "followed": 7,
+      "atFirstWrite": 7
+     },
+     "threshold": 7
+    },
+    "R7": {
+     "kind": "unloaded (skill body only)",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 0
+     },
+     "threshold": 10
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "native": {
+      "median": 21,
+      "spread": 20
+     },
+     "threshold": 1
+    },
+    "filesReadBeforeFirstWrite": {
+     "native": {
+      "median": 7,
+      "spread": 8
+     },
+     "threshold": -1
+    },
+    "tokensAll": {
+     "native": {
+      "median": 674946,
+      "spread": 480482
+     },
+     "threshold": 194464
+    },
+    "outputTokens": {
+     "native": {
+      "median": 10059,
+      "spread": 8320
+     },
+     "threshold": 1739
+    },
+    "costUsd": {
+     "native": {
+      "median": 0.3560429,
+      "spread": 0.23594959999999995
+     },
+     "threshold": 0.12009330000000004
+    }
+   },
+   "recorded": {
+    "native": {
+     "instructionBytes": 0,
+     "memoryIndexBytes": 0,
+     "subagentRuns": 0,
+     "compactedRuns": 0,
+     "memoryReads": 0,
+     "memoryWrites": 0,
+     "costUsd": 3.6470318999999995
+    }
+   }
+  },
+  "P2-plan": {
+   "m1": "native",
+   "runs": {
+    "native": 10
+   },
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "rules": {
+    "P1": {
+     "kind": "design (site model)",
+     "native": {
+      "followed": 9,
+      "atFirstWrite": 0
+     },
+     "threshold": 9
+    },
+    "P3a": {
+     "kind": "canon",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 0
+     },
+     "threshold": 10
+    },
+    "P3b": {
+     "kind": "canon",
+     "native": {
+      "followed": 10,
+      "atFirstWrite": 0
+     },
+     "threshold": 10
+    },
+    "P4": {
+     "kind": "design (clearing)",
+     "native": {
+      "followed": 9,
+      "atFirstWrite": 0
+     },
+     "threshold": 9
+    },
+    "P5": {
+     "kind": "process",
+     "native": {
+      "followed": 5,
+      "atFirstWrite": 0
+     },
+     "threshold": 5
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "native": {
+      "median": null,
+      "spread": null
+     },
+     "threshold": null
+    },
+    "filesReadBeforeFirstWrite": {
+     "native": {
+      "median": 2,
+      "spread": 2
+     },
+     "threshold": 0
+    },
+    "tokensAll": {
+     "native": {
+      "median": 133615,
+      "spread": 186306
+     },
+     "threshold": -52691
+    },
+    "outputTokens": {
+     "native": {
+      "median": 3498,
+      "spread": 1804
+     },
+     "threshold": 1694
+    },
+    "costUsd": {
+     "native": {
+      "median": 0.1288618,
+      "spread": 0.14689680000000002
+     },
+     "threshold": -0.018035000000000023
+    }
+   },
+   "recorded": {
+    "native": {
+     "instructionBytes": 9880,
+     "memoryIndexBytes": 0,
+     "subagentRuns": 0,
+     "compactedRuns": 0,
+     "memoryReads": 0,
+     "memoryWrites": 0,
+     "costUsd": 1.4562889
+    }
+   }
+  }
+ }
+}
