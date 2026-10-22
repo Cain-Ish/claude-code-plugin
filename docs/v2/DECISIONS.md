@@ -24,7 +24,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
-| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
+| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | CHECKING 2026-10-22 | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
 Frontier (rule 6): **D21** (inventory). D18 locked on 2026-10-22, on attempt 3: five events with one Node script each
@@ -1621,6 +1621,53 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Evidence so far:** compute structure such as the component inventory from code on demand instead of storing it
   (prior-and-SOTA rules 1, 2, 7); P2's 6,740 scripts are found only by search (research
   2026-10-20-scale-real-repos).
+- **Narrowed (2026-10-22):** the record holds two questions (rule 1 of the record). This check takes reuse: when
+  Claude builds something, does it use what the repo already has, and does v2 need an inventory for that? The other
+  half, what onboarding puts in the map of a repo with no documents (D15 pointed it here), is not this check's. If
+  (a) locks, it goes to the user at the gate as its own question, since the charter says onboarding "maps what the
+  code shows".
+- **Premise, never counted:** the scale note says what exists is "found only by search, or re-created"; no run has
+  counted a duplicate. As in 6f, the premise is counted first, on logs already on disk (rule 5).
+- **Options:**
+  - (a) Claude Code's own search (Glob, Grep, Read) is the inventory; v2 adds nothing for reuse.
+  - (b) A path inventory from `git ls-files` (file names grouped by directory, no parser), kept in D18's cache and
+    delivered or queried.
+  - (c) The repo's own tools reveal a duplicate (compiler, linter), fed back as in D20.
+  - Rejected by citation, no run: a symbol index from a parser (tree-sitter, ctags) is per-language and a native
+    dependency (charter); a model-written overview of the code scores lower and costs more (arXiv 2602.11988, in
+    D15) and is the overview prior-and-SOTA rule 1 warns against.
+- **Check, part 1 (pre-registered 2026-10-22, before any unit is judged):**
+  - *Corpus.* The 36 valid build runs on disk, at their pinned commits: D20 stage 1 (native, 5 runs each of the P1,
+    P2 and R0 build tasks), stage 2 arm b (15) and arm d (6). Excluded: smoke runs; the plan task and D22's
+    investigations (no writes). D17's 20 A1 runs are reported by file name only: the harness deleted their files.
+  - *Units.* What each run added: each new file, and each new named unit in a file it edited (a class, function,
+    method, constant, type, style, config key or content entry), from its Write and Edit calls.
+  - *Judge.* Per task, one fresh Opus subagent, local, with Read, Glob and Grep on a worktree of the scratch clone at
+    the pinned commit and no web. It gets the task's prompt and each run's additions, shuffled, without arm or run
+    labels. For each unit it says *duplicate* (naming the tracked file and unit that already provides the same thing
+    for the same purpose, so the task could have used or extended it) or *not*; and it lists the existing units each
+    run's code reused (calls, imports, inheritance). Not duplicates: what the task asked to create, a new sibling
+    that follows an existing pattern, tests and docs of the new unit. Prompt
+    [probes/V2-D21-inventory/judge.md](probes/V2-D21-inventory/judge.md) (sha256 `9559962bbb79`); the additions are
+    extracted by `units.mjs` from each run's successful Write and Edit calls.
+  - *Controls.* One per task: a unit written for this check that re-implements a tracked unit of the task's area
+    under another name and wording, placed among one run's additions. The count carries a verdict only if the judge
+    names all 3 originals.
+  - *Verification.* Each claimed duplicate is checked by reading the named original at the pinned commit. It counts
+    if the original exists there and provides the same thing; a rejected claim is listed with its reason.
+  - *Informative task.* A task tests reuse only if the judge lists reused existing units in at least 3 of its runs.
+    Otherwise it is reported and not counted.
+  - *Decision rule:*
+    - (a) locks if verified duplicates occur in at most 1 of the counted runs, on at least 2 informative tasks,
+      with all 3 controls named;
+    - verified duplicates in 2 or more runs: part 2, written before it runs as attempt 2, puts (b) and (c) against
+      the runs that duplicated;
+    - a control missed, or fewer than 2 informative tasks: the count cannot carry a verdict, and attempt 1 fails.
+  - *Asymmetry, written now:* these tasks were chosen to test rules, not to invite duplication. A nonzero count is
+    strong evidence, a zero weak, so (a) locks only with the reopen trigger "a duplicate counted in D19's runs or
+    in the first slice's eval".
+  - *Seen before this check was written (reported, not counted):* every one of the 36 runs searched before its
+    first write (3 to 21 Glob and Grep calls); no A1 run created a file beyond its component's own.
 
 ### V2-D22 — Selection
 - **Question (split from D13, 2026-10-21):** how do the entries that bind a task reach Claude, without a hand-made
