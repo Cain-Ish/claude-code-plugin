@@ -1,0 +1,47 @@
+{
+ "date": "2026-10-22",
+ "noNode": {
+  "completed": true,
+  "costUsd": 0.00163633,
+  "messageShown": 1,
+  "messageEchoes": 0,
+  "sessionStart": {
+   "events": 2,
+   "errors": 0,
+   "shown": []
+  },
+  "afterRead": {
+   "events": 2,
+   "errors": 1,
+   "shown": [
+    "Error occurred while executing hook command: Executable not found in $PATH: \"node\""
+   ]
+  },
+  "outcomes": [
+   "hook_started:",
+   "hook_response:success",
+   "hook_response:error"
+  ]
+ },
+ "withNode": {
+  "completed": true,
+  "costUsd": 0.0018257400000000002,
+  "messageShown": 0,
+  "messageEchoes": 0,
+  "sessionStart": {
+   "events": 2,
+   "errors": 0,
+   "shown": []
+  },
+  "afterRead": {
+   "events": 2,
+   "errors": 0,
+   "shown": []
+  },
+  "outcomes": [
+   "hook_started:",
+   "hook_response:success"
+  ]
+ },
+ "pass": true
+}

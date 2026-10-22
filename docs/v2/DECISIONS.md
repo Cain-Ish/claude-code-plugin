@@ -21,15 +21,16 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | CHECKING | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | OPEN | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D18** (runtime and surface budget). D16 locked on 2026-10-21: a deterministic re-find of each
-entry's quote at delivery (30 to 50 ms for 30 entries), with stale entries labelled. **D22 is BLOCKED** until the
-user ticks the checklists in `research/raw/d22/validate/`; its existing runs are then re-scored. D21 follows D18.
+Frontier (rule 6): **D21** (inventory). D18 locked on 2026-10-22, on attempt 3: five events with one Node script each
+(exec form; session start in shell form says once when Node is missing). Each hook's added p95 is at most 100 ms at 8
+concurrent; on read of a document sits exactly at the bar. **D22 is BLOCKED** until the user ticks the checklists in
+`research/raw/d22/validate/`; its existing runs are then re-scored.
 
 ---
 
@@ -1335,8 +1336,61 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - with `node` present, the session completes, with no message and no hook error.
 
     Cost about 0.01 USD.
+  - *Result (pass,* [nonode-a3.json](probes/V2-D18-runtime/results/nonode-a3.json)*):*
+    - without Node, the session completed, the message came from one hook output and the session start had no error.
+      The after-Read hook showed "Executable not found in $PATH";
+    - with Node, the session completed with no message and no hook error.
+- **Choice (2026-10-22):**
+  - *Runtime:* Node 20 or later. Every hook runs in exec form (`command: "node"`, `args`) except session start, which
+    runs in shell form (bash) once per session and says when Node is missing. Without Node, the other hooks show
+    hook errors (the user's answer).
+  - *Events, one script each:*
+    - `SessionStart`: D14's capture instruction (904 bytes) and the cache refresh;
+    - `UserPromptSubmit`: D22's slot;
+    - `PostToolUse` after a Read: D22's slot;
+    - `PostToolUse` after a Write or Edit: the write-time net;
+    - `Stop`: D20's failing checks.
 
-  Attempts: 3.
+    No `PreToolUse`, no MCP server and no agents. `SubagentStart` is deferred.
+  - *Budget per hook:* its added p95 over an empty Node process is at most 100 ms at 8 concurrent, both by wall
+    clock and in process (attempt 3's table).
+  - *Guards:* every delivery passes through one function:
+    - D16's re-find, in the word-list form;
+    - D14's label, per entry: an entry is unreviewed if its map file is uncommitted and HEAD does not hold it. The
+      set is read again when git's index or HEAD log moves;
+    - unverified entries are labelled with their date.
+  - *Map path:* `.project-map/` at the repo root, outside `.claude/`, which Claude Code protects (D14).
+  - *Cache:* `.project-map/.cache/`, gitignored, in version folders with an atomic pointer. It is rebuilt from the
+    Markdown when a map file or folder is newer than the stamp, never the reverse. The Markdown carries
+    `- verified: yes|no, <date>`.
+  - *Boundary:* hooks spawn only `git`, and map text never reaches a process or `eval`. Only the onboarding command
+    spawns `claude`, with `V2_NESTED=1`, on which every hook exits at once.
+  - *Surface, against D17:* 5 events with one script each, 1 command (onboarding, plus whatever D22 needs), 0 agents,
+    0 MCP servers, and 904 bytes always on.
+- **Rejected:**
+  - A bar on absolute time: an empty Node process already exceeds it (attempt 1).
+  - Shell form for every hook: it costs about 90 ms more per call at 8 concurrent.
+  - `git status` at every session start: 13 of 200 failed under concurrency, and it added 139 ms.
+  - One regular expression per context entry: 5 to 15 ms each.
+  - Per-file unreviewed labels: they would mark the committed entries of `captured.md`.
+  - D20's `PreToolUse` deny (above).
+- **Known limits, named:**
+  - Only Windows was measured, and Windows is the slow case for spawning processes.
+  - Stop and D20's pattern checks are not built, so they are not measured.
+  - On a coarse file clock, a map or git change in the same tick as a build waits for the next change.
+  - The re-find lowercases instead of case-folding, which differs on a few letters, and its "moved" search covers
+    only the map's own sources.
+  - On Windows without Git Bash, the session-start wrapper fails once per session and gives no message.
+- **Reopen if:**
+  - A hook's added p95 exceeds 100 ms at 8 concurrent on another machine or OS, or on a bigger map, in the first
+    slice. On read of a document is already at the bar.
+  - Stop or D20's checks exceed the budget.
+  - A delivery reaches Claude without the guards, or an uncommitted entry arrives unlabelled.
+  - Claude Code adds a way to silence a missing executable, or changes the exec or shell form.
+  - Stale-cache rebuilds (0.8 s per hook with 8 at once, on P2) show up in the first slice's sessions. The fix is an
+    incremental rebuild.
+
+  Attempts: 1 failed, 2 failed, 3 passed.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
