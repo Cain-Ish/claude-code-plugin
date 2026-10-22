@@ -24,7 +24,7 @@ const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 // cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
-const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3'].includes(mode) ? null : process.exit(2));
+const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3', 'rebase'].includes(mode) ? null : process.exit(2));
 
 const env = (extra = {}) => {
   const e = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1', ...extra };
@@ -72,7 +72,7 @@ const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path
 
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
-  if (['a', 'm', 'n', 'n0'].includes(arm)) return {};
+  if (['a', 'm', 'mc', 'n', 'n0'].includes(arm)) return {};
   if (['p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro'].includes(arm)) { // V2-D22 pull: the documents' index with Vercel's instruction, always on from session start
     const hook = path.join('..', 'V2-D21-inventory', 'inventory-hook.mjs');
     fs.copyFileSync(task.index, path.join(base, 'inventory.txt'));
@@ -151,17 +151,17 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 }
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
-const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false, pfc: true, pfr: true, pfrs: true, pfro: true };
-const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro']; // session arms that push no rule card
+const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false, pfc: true, pfr: true, pfrs: true, pfro: true, mc: true };
+const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro', 'mc']; // session arms that push no rule card
 // V2-D22 pull, attempt 2: fixed before it ran (DECISIONS.md)
 const FORCE = 'Before you start: for each directory in this project\'s document index, state in one line whether its '
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
   + 'change anything.';
 const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, investigate what this task needs and `
   + 'report what you found. Do not create or edit any file yet.', ...(compact ? ['/compact'] : []), 'Now make the change.'];
-function claudeTurns(cwd, turns, model, raw) {
+function claudeTurns(cwd, turns, model, raw, addDir = null) {
   return new Promise((resolve) => {
-    const child = spawn('claude', [...claudeArgs(model), '--input-format', 'stream-json'], { cwd, env: env() });
+    const child = spawn('claude', [...claudeArgs(model, undefined, addDir), '--input-format', 'stream-json'], { cwd, env: env() });
     let out = '';
     let buf = '';
     let i = 0;
@@ -266,13 +266,14 @@ async function runOnce(i, model = cfg.model) {
   // stage 3 arms run side by side, so each has its own worktree
   const dir = path.join(path.dirname(task.repo), `wt-${task.id}${SESSION[arm] === undefined ? '' : `-${arm}`}`);
   const log = path.join(base, 'instructions.jsonl');
-  // V2-D19 arm m: the user's own auto memory, a fresh copy per run, writable (as D17's M1)
-  const mem = arm === 'm' ? path.join(base, 'memory') : null;
+  // V2-D19 arm m: the user's own auto memory, a fresh copy per run, writable (as D17's M1); mc: the same in the
+  // three-turn session (the Opus re-baseline, 05-eval-plan.md)
+  const mem = ['m', 'mc'].includes(arm) ? path.join(base, 'memory') : null;
   if (mem) fs.cpSync(task.memory, mem, { recursive: true });
   makeRun(dir, log, armHooks(base), mem);
   const compact = SESSION[arm];
   const ev = compact === undefined ? claude(dir, task.prompt, model, path.join(base, 'stream.jsonl'), {}, undefined, mem)
-    : await claudeTurns(dir, turnsOf(task.prompt, compact), model, path.join(base, 'stream.jsonl'));
+    : await claudeTurns(dir, turnsOf(task.prompt, compact), model, path.join(base, 'stream.jsonl'), mem);
   const f = facts(ev, dir, log, base);
   const { files, fresh } = changedFiles(dir);
   fs.writeFileSync(path.join(base, 'files.json'), JSON.stringify(files, null, 1));
@@ -375,6 +376,7 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
     // a result's usage is its own turn only; its modelUsage, like total_cost_usd, sums the session and its subagents
     tokensAll: Object.values(results.at(-1)?.modelUsage ?? {})
       .reduce((a, u) => a + u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens + u.outputTokens, 0),
+    outputTokensAll: Object.values(results.at(-1)?.modelUsage ?? {}).reduce((a, u) => a + u.outputTokens, 0),
     deliveredBytes: f.deliveries.reduce((a, d) => a + (d.bytes ?? 0), 0), redelivered: f.deliveries.filter((d) => d.ev === 'SessionStart' && d.cards).length,
     summaryBytes: summary == null ? null : Buffer.byteLength(summary),
     keptInSummary: summary == null ? null : Object.fromEntries(task.rules.map((r) => [r.id, [`\\b${r.id}\\b`, r.source && esc(r.source), r.mark]
@@ -577,6 +579,44 @@ if (mode === 'checks') {
   const dir = path.join(HERE, '..', 'V2-D19-scale', 'results');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'a2.json'), `${JSON.stringify(out, null, 1)}\n`);
+  console.log(JSON.stringify(out, null, 1));
+} else if (mode === 'rebase') {
+  // The Opus re-baseline (05-eval-plan.md): per task, its M1 arm (task.m1Arm) and the thresholds by D17's rule with
+  // the gap-target forms (D17, D19): a rule M1 never follows needs 8 of 10; a cell whose spread is at least its median
+  // claims no gain and gets a no-worse ceiling instead. Counts only.
+  const dirOf = (a) => (a === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', a));
+  const load = (a, id) => {
+    const file = path.join(dirOf(a), `${id}.json`);
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).runs.filter((r) => r.valid) : [];
+  };
+  const spread = (a) => { const v = a.filter((x) => x != null); return v.length ? Math.max(...v) - Math.min(...v) : null; };
+  // sessions: every turn and subagent (the last result's modelUsage); one-turn runs: that turn's own usage
+  const measures = { toolCallsBeforeFirstWrite: (r) => r.orientation.toolCallsBeforeFirstWrite, filesReadBeforeFirstWrite: (r) => r.orientation.filesReadBeforeFirstWrite,
+    tokensAll: (r) => r.session?.tokensAll ?? (r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens),
+    outputTokens: (r) => r.session?.outputTokensAll ?? r.usage.outputTokens, costUsd: (r) => r.usage.costUsd };
+  const out = { date: new Date().toISOString().slice(0, 10), model: cfg.model,
+    rule: 'D17 against M1; at floor 0 a rule needs 8 of 10; where the spread is at least the median, no gain is claimed and v2 must stay at or below median plus spread', tasks: {} };
+  for (const t of cfg.tasks) {
+    const rs = load(t.m1Arm, t.id);
+    if (!rs.length) continue;
+    out.tasks[t.id] = {
+      m1Arm: t.m1Arm, validRuns: rs.length, epochs: [...new Set(rs.map((r) => r.epoch?.cli))], stopped: rs.filter((r) => !r.changed?.length).length,
+      rules: Object.fromEntries(t.rules.map((rule) => {
+        const n = rs.filter((r) => r.rules[rule.id].final).length;
+        return [rule.id, { kind: rule.kind, m1: n, target: n === 0 ? 8 : n }];
+      })),
+      measures: Object.fromEntries(Object.entries(measures).map(([k, fn]) => {
+        const v = rs.map(fn).filter((x) => x != null);
+        const med = median(v); const sp = spread(v);
+        if (med == null) return [k, null];
+        return [k, med - sp > 0 ? { median: med, spread: sp, below: med - sp } : { median: med, spread: sp, noGain: true, ceiling: med + sp }];
+      })),
+      totalCostUsd: rs.reduce((a, r) => a + (r.usage.costUsd ?? 0), 0),
+    };
+  }
+  const dir = path.join(HERE, '..', 'V2-D19-scale', 'results');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `rebase-${cfg.summaryName ?? 'opus'}.json`), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
 } else if (mode === 'revalidate') {
   // Stage 3: re-apply the session checks to a task and arm's saved logs after a correction to them (recorded in

@@ -1,5 +1,6 @@
 // V2-D17 eval harness (05-eval-plan.md): runs one arm of scenario A1 with `claude -p` and scores it deterministically.
 // Usage: node eval.mjs <scratch-dir> <M0|M1> [runs=1] [first=1]  |  node eval.mjs --smoke  |  node eval.mjs --summary
+// (D17_MODEL=<model> D17_TAG=<suffix> for another epoch)
 // Run folders and raw streams stay in <scratch-dir>; the scored record (no paths, no session ids) is merged into
 // results/<arm>.json next to this script.
 import { spawnSync } from 'node:child_process';
@@ -11,7 +12,9 @@ import * as S from './sessions.mjs';
 import { provenanceOf } from '../V2-D14-capture/provenance.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const MODEL = 'claude-sonnet-5-5';
+// another epoch (05-eval-plan.md: the Opus re-baseline) sets D17_MODEL, and D17_TAG keeps its results in their own files
+const MODEL = process.env.D17_MODEL ?? 'claude-sonnet-5-5';
+const TAG = process.env.D17_TAG ?? '';
 const CODE = /\.(tsx?|jsx?|css|scss)$/;
 
 function walk(dir, skip = [], base = dir, out = {}) {
@@ -331,7 +334,7 @@ function summary() {
   const stat = (a) => ({ median: med(a), min: Math.min(...a), max: Math.max(...a), spread: Math.max(...a) - Math.min(...a) });
   const out = {};
   for (const arm of ['M0', 'M1']) {
-    const f = path.join(HERE, 'results', `${arm}.json`);
+    const f = path.join(HERE, 'results', `${arm}${TAG}.json`);
     if (!fs.existsSync(f)) continue;
     const all = JSON.parse(fs.readFileSync(f, 'utf8')).runs;
     const runs = all.filter((r) => r.valid);
@@ -365,7 +368,7 @@ function summary() {
       },
     };
   }
-  fs.writeFileSync(path.join(HERE, 'results', 'summary.json'), `${JSON.stringify(out, null, 2)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', `summary${TAG}.json`), `${JSON.stringify(out, null, 2)}\n`);
   console.log(JSON.stringify(out, null, 2));
 }
 
@@ -377,7 +380,7 @@ const [scratch, arm, runs = '1', first = '1'] = process.argv.slice(2);
 if (!scratch || !['M0', 'M1', 'M2'].includes(arm)) throw new Error('usage: node eval.mjs <scratch-dir> <M0|M1|M2> [runs] [first]  |  --smoke');
 if (!smoke()) throw new Error('smoke check failed: no run before it passes');
 const ep = epoch();
-const file = path.join(HERE, 'results', `${arm}.json`);
+const file = path.join(HERE, 'results', `${arm}${TAG}.json`);
 const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { plan: '../../05-eval-plan.md', runs: [] };
 for (let i = Number(first); i < Number(first) + Number(runs); i++) {
   let rec;
