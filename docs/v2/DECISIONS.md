@@ -1775,6 +1775,18 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     text, so they stay local and only counts are published.
   - *Not tested here:* a filled context without compaction (dilution; expensive at these sizes), Fable 5.1, Bash on,
     subagents, and selection (the cards are still the oracle).
+  - *Before the counted runs (2026-10-22):*
+    - *Smoke (Haiku, P1):* valid. Three turns; the compaction went from 68k to 12k tokens; one prompt delivery; no
+      write in the investigation turn. The summary was read and named every rule. `total_cost_usd` is cumulative
+      across turns, so a session's cost is its last turn's.
+    - *Pilots (Opus, `oc`, not counted):* P1 1.91 USD (19 requests; compaction from 75k to 12k tokens). P2 6.08 USD
+      (87 requests, with subagents). Both followed every rule, and both summaries named every rule. The projection
+      came to about 120 USD for stage 1, plus up to about 60 for stage 2.
+    - *The user chose the full design on Opus (2026-10-22).*
+    - *Two harness corrections, neither a change to a pass condition:*
+      - P2's pilot was flagged invalid because its subagents ran on Haiku and Sonnet. "On the pinned model" now
+        checks the session's own messages, and subagent models are recorded.
+      - Each arm gets its own worktree, so the six task-and-arm chains run side by side, at the same time.
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and

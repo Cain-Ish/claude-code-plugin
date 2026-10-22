@@ -8,10 +8,12 @@
 // Stage 2 (arm b: delivery, d: delivery + checks + account; deliver.mjs) writes to d20-stage2/<arm>/:
 //   node native.mjs arrival  <config> <task> [runs]   nonce smoke of the three hook channels D12 did not probe
 //   node native.mjs summary2 <config>                 writes results/summary-stage2.json (counts only)
+// Stage 3 (V2-D20, reopened): one session in turns (investigate, /compact, make the change); arms n, o0, oc, then
+// or, od, ow (see SESSION). `run` and `smoke` take these arms like any other.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { check, changedFiles, slash } from './check.mjs';
 
@@ -21,7 +23,7 @@ const cfgPath = path.resolve(cfgArg);
 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), 'd20-stage2', arm);
-const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale'].includes(mode) ? null : process.exit(2));
+const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3'].includes(mode) ? null : process.exit(2));
 
 const env = (extra = {}) => {
   const e = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1', ...extra };
@@ -36,7 +38,8 @@ const rel = (dir, p) => {
   return i >= 0 ? q.slice(i + path.basename(dir).length + 2) : q && !path.isAbsolute(q) ? q : null;
 };
 const parse = (s) => s.split('\n').flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
-const blocks = (ev, role, type) => ev.flatMap((e) => (e.type === role ? (e.message?.content ?? []).filter((c) => c.type === type) : []));
+// content is a string on the user turns of a multi-turn session (stage 3)
+const blocks = (ev, role, type) => ev.flatMap((e) => (e.type === role && Array.isArray(e.message?.content) ? e.message.content.filter((c) => c.type === type) : []));
 const median = (a) => { const s = a.filter((x) => x != null).sort((x, y) => x - y); return s.length ? s[(s.length - 1) >> 1] : null; };
 
 // ---------- one session in a fresh worktree ----------
@@ -62,7 +65,7 @@ const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path
 
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
-  if (['a', 'm'].includes(arm)) return {};
+  if (['a', 'm', 'n'].includes(arm)) return {};
   if (arm.startsWith('r')) { // V2-D22, the user's route (r: run 2, r3: keyed to the file read): push, then on read
     fs.copyFileSync(task.route, path.join(base, 'route.json'));
     const h = { hooks: [nodeHook(path.join('..', 'V2-D22-selection', 'onread.mjs'), base)] };
@@ -76,17 +79,53 @@ function armHooks(base) {
   const writes = { matcher: 'Write|Edit|MultiEdit', ...d };
   fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm,
     cards: task.rules.map((r) => ({ id: r.id, ...r.card, check: r.check })) }, null, 1));
+  // stage 3: the cards once, at the first prompt (deliver.mjs); stage 2 of it adds one path to oc
+  if (arm.startsWith('o')) return { UserPromptSubmit: [d], ...({ or: { SessionStart: [{ matcher: 'compact', ...d }] },
+    od: { PostToolUse: [writes], Stop: [d] }, ow: { PreToolUse: [writes] } }[arm] ?? {}) };
   return { UserPromptSubmit: [d], PreToolUse: [writes], ...(arm === 'd' ? { PostToolUse: [writes], Stop: [d] } : {}) };
 }
 
-function claude(cwd, prompt, model, raw, extraEnv = {}, deny = 'Bash,WebFetch,WebSearch', addDir = null) {
-  // Skills stay on (they are how these repos hold knowledge); Bash and the web are off: no installs, static scoring.
-  const r = spawnSync('claude', ['-p', '--model', model, '--setting-sources', 'project,local', '--strict-mcp-config',
-    '--disallowedTools', deny, '--permission-mode', 'acceptEdits',
-    '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(addDir ? ['--add-dir', addDir] : [])],
-  { cwd, input: prompt, timeout: 1_800_000, encoding: 'utf8', env: env(extraEnv), maxBuffer: 256 << 20 });
+// Skills stay on (they are how these repos hold knowledge); Bash and the web are off: no installs, static scoring.
+const claudeArgs = (model, deny = 'Bash,WebFetch,WebSearch', addDir = null) => ['-p', '--model', model,
+  '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', deny, '--permission-mode', 'acceptEdits',
+  '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(addDir ? ['--add-dir', addDir] : [])];
+
+function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir = null) {
+  const r = spawnSync('claude', claudeArgs(model, deny, addDir),
+    { cwd, input: prompt, timeout: 1_800_000, encoding: 'utf8', env: env(extraEnv), maxBuffer: 256 << 20 });
   fs.writeFileSync(raw, (r.stdout ?? '') + (r.stderr ? `\n#stderr ${r.stderr}` : ''));
   return parse(r.stdout ?? '');
+}
+
+// Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
+const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true };
+const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, investigate what this task needs and `
+  + 'report what you found. Do not create or edit any file yet.', ...(compact ? ['/compact'] : []), 'Now make the change.'];
+function claudeTurns(cwd, turns, model, raw) {
+  return new Promise((resolve) => {
+    const child = spawn('claude', [...claudeArgs(model), '--input-format', 'stream-json'], { cwd, env: env() });
+    let out = '';
+    let buf = '';
+    let i = 0;
+    const send = () => {
+      if (i < turns.length) child.stdin.write(`${JSON.stringify({ type: 'user', message: { role: 'user', content: turns[i++] } })}\n`);
+      else child.stdin.end();
+    };
+    child.stdout.on('data', (d) => {
+      out += d;
+      buf += d;
+      for (let n = buf.indexOf('\n'); n >= 0; n = buf.indexOf('\n')) {
+        const line = buf.slice(0, n);
+        buf = buf.slice(n + 1);
+        if (parse(line)[0]?.type === 'result') send();
+      }
+    });
+    let err = '';
+    child.stderr.on('data', (d) => { err += d; });
+    const timer = setTimeout(() => child.kill(), 3_600_000);
+    child.on('close', () => { clearTimeout(timer); fs.writeFileSync(raw, out + (err ? `\n#stderr ${err}` : '')); resolve(parse(out)); });
+    send();
+  });
 }
 
 // ---------- scoring ----------
@@ -162,17 +201,20 @@ function facts(ev, dir, logFile, base) {
   };
 }
 
-function runOnce(i, model = cfg.model) {
+async function runOnce(i, model = cfg.model) {
   const base = path.join(OUT, task.id, `run${i}`);
   fs.rmSync(base, { recursive: true, force: true });
   fs.mkdirSync(base, { recursive: true });
-  const dir = path.join(path.dirname(task.repo), `wt-${task.id}`);
+  // stage 3 arms run side by side, so each has its own worktree
+  const dir = path.join(path.dirname(task.repo), `wt-${task.id}${SESSION[arm] === undefined ? '' : `-${arm}`}`);
   const log = path.join(base, 'instructions.jsonl');
   // V2-D19 arm m: the user's own auto memory, a fresh copy per run, writable (as D17's M1)
   const mem = arm === 'm' ? path.join(base, 'memory') : null;
   if (mem) fs.cpSync(task.memory, mem, { recursive: true });
   makeRun(dir, log, armHooks(base), mem);
-  const ev = claude(dir, task.prompt, model, path.join(base, 'stream.jsonl'), {}, undefined, mem);
+  const compact = SESSION[arm];
+  const ev = compact === undefined ? claude(dir, task.prompt, model, path.join(base, 'stream.jsonl'), {}, undefined, mem)
+    : await claudeTurns(dir, turnsOf(task.prompt, compact), model, path.join(base, 'stream.jsonl'));
   const f = facts(ev, dir, log, base);
   const { files, fresh } = changedFiles(dir);
   fs.writeFileSync(path.join(base, 'files.json'), JSON.stringify(files, null, 1));
@@ -194,7 +236,8 @@ function runOnce(i, model = cfg.model) {
     if (refused) rec.invalid.push(`${refused} memory write(s) refused`);
     if (!rec.memory.pathIsRunCopy) rec.invalid.push('auto memory not the run copy');
   }
-  if (!['a', 'i', 'm'].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
+  if (compact !== undefined) rec.session = sessionFacts(ev, f, model, compact, rec.invalid);
+  if (!['a', 'i', 'm', 'n'].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
   if (arm === 'd' && !byEv('Stop').length) rec.invalid.push('no Stop hook call');
   rec.delivery = { denies: byEv('PreToolUse').filter((d) => d.cards).length, checkFeedback: byEv('PostToolUse').filter((d) => d.cards).length,
     stopFailing: byEv('Stop')[0]?.cards ?? null, accountHeading, hookMs: f.deliveries.map((d) => d.ms),
@@ -230,6 +273,42 @@ function runOnce(i, model = cfg.model) {
   return { rec, f, files, reply };
 }
 
+// Stage 3: a session's validity (pushed onto invalid) and measures. Kept rules are read from the compaction summary
+// in the session's transcript (local only), by rule id, source path or mark: a lower bound.
+function sessionFacts(ev, f, model, compact, invalid) {
+  const results = ev.filter((e) => e.type === 'result');
+  const first = ev.findIndex((e) => e.type === 'result');
+  const isWrite = (c) => c.type === 'tool_use' && ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(c.name);
+  const boundary = ev.find((e) => e.type === 'system' && e.subtype === 'compact_boundary');
+  const prompts = f.deliveries.filter((d) => d.ev === 'UserPromptSubmit' && d.cards).length;
+  // the session's own model: subagents (parent_tool_use_id set) run on theirs, which the pilot showed for Opus
+  const main = ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id && e.message?.model && e.message.model !== '<synthetic>');
+  const models = [...new Set(main.map((e) => e.message.model))];
+  if (results.length !== (compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
+  if (ev.slice(0, first).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
+  if (!!boundary !== compact) invalid.push(compact ? 'no compaction' : 'compacted');
+  if (arm !== 'n' && prompts !== 1) invalid.push(`${prompts} prompt deliveries`);
+  if (models.some((m) => !m.startsWith(model))) invalid.push(`ran on ${models}`);
+  const ctx = (u) => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+  const seen = new Map();
+  for (const e of ev) if (e.type === 'assistant' && e.message?.usage && !seen.has(e.message.id)) {
+    const u = e.message.usage;
+    seen.set(e.message.id, u.iterations?.length ? Math.max(...u.iterations.map(ctx)) : ctx(u)); // usage sums a message's calls
+  }
+  const tp = f.loads.find((l) => l.transcript_path)?.transcript_path;
+  const summary = tp && fs.existsSync(tp) ? parse(fs.readFileSync(tp, 'utf8')).filter((e) => e.isCompactSummary)
+    .map((e) => JSON.stringify(e.message?.content ?? '')).join('\n') : null;
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return {
+    turns: results.length, models, subagentModels: [...new Set(ev.filter((e) => e.type === 'assistant' && e.parent_tool_use_id).map((e) => e.message?.model))], compaction: boundary ? (boundary.compact_metadata ?? boundary.compactMetadata ?? {}) : null,
+    requests: seen.size, contextPerRequest: [...seen.values()], resultCostsUsd: results.map((r) => r.total_cost_usd),
+    deliveredBytes: f.deliveries.reduce((a, d) => a + (d.bytes ?? 0), 0), redelivered: f.deliveries.filter((d) => d.ev === 'SessionStart' && d.cards).length,
+    summaryBytes: summary == null ? null : Buffer.byteLength(summary),
+    keptInSummary: summary == null ? null : Object.fromEntries(task.rules.map((r) => [r.id, [`\\b${r.id}\\b`, r.source && esc(r.source), r.mark]
+      .filter(Boolean).some((x) => new RegExp(x, 'i').test(summary))])),
+  };
+}
+
 function epoch() {
   const h = crypto.createHash('sha256').update(JSON.stringify(task));
   const cli = run('claude', ['--version']).stdout.trim();
@@ -258,21 +337,21 @@ if (mode === 'checks') {
   if (arm === 'a') task.prompt = 'Create a file named smoke-note.md in the repository root containing the single word ok.';
   // arm m: the memory index arrived if Claude quotes its first line without opening it (V2-D19's pre-registered smoke)
   if (arm === 'm') task.prompt = 'Without using any tool, quote the first line of your auto memory index verbatim. Then create a file named smoke-note.md in the repository root containing the single word ok.';
-  const { rec, f } = runOnce(0, cfg.smokeModel ?? 'claude-haiku-5-5');
+  const { rec, f } = await runOnce(0, cfg.smokeModel ?? 'claude-haiku-5-5');
   task.prompt = saved;
   const ev = parse(fs.readFileSync(path.join(OUT, task.id, 'run0', 'stream.jsonl'), 'utf8'));
   const kinds = {};
   for (const e of ev) kinds[`${e.type}/${e.subtype ?? ''}`] = (kinds[`${e.type}/${e.subtype ?? ''}`] ?? 0) + 1;
   console.log(JSON.stringify({ valid: rec.valid, invalid: rec.invalid, skillsListed: f.init?.skills, plugins: f.init?.plugins,
     mcp: f.init?.mcp_servers, loads: rec.instructionsLoaded, logFields: Object.keys(f.loads[0] ?? {}),
-    changed: rec.changed, usage: rec.usage, delivery: rec.delivery, rules: rec.rules, eventKinds: kinds, memory: rec.memory,
+    changed: rec.changed, usage: rec.usage, delivery: rec.delivery, rules: rec.rules, eventKinds: kinds, memory: rec.memory, session: rec.session,
     memoryQuoted: arm === 'm' ? blocks(ev, 'assistant', 'text').map((c) => c.text).join('\n').includes(fs.readFileSync(path.join(task.memory, 'MEMORY.md'), 'utf8').split('\n')[0].trim()) : undefined }, null, 1));
 } else if (mode === 'run') {
   const ep = epoch();
   const file = path.join(OUT, `${task.id}.json`);
   const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { runs: [] };
   for (let i = Number(first); i < Number(first) + Number(runs); i++) {
-    const { rec } = runOnce(i);
+    const { rec } = await runOnce(i);
     rec.epoch = ep;
     saved.runs = saved.runs.filter((x) => x.run !== i).concat(rec);
     fs.writeFileSync(file, `${JSON.stringify(saved, null, 1)}\n`);
@@ -420,7 +499,40 @@ if (mode === 'checks') {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'a2.json'), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
+} else if (mode === 'summary3') {
+  // Stage 3, public: per task and rule, followed counts per session arm, held or missed by D20's rule, the rules lost
+  // to the compaction (held in o0, missed in oc) and which stage 2 path restored them; per arm, the session measures.
+  const S = path.join(path.dirname(cfgPath), 'd20-stage2');
+  const load = (a, id) => {
+    const f = path.join(S, a, `${id}.json`);
+    return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).runs.filter((r) => r.valid) : [];
+  };
+  const status = (rs, id) => (rs.length < 5 ? null : rs.filter((r) => !r.rules[id].final).length >= 2 ? 'missed' : 'held');
+  const out = { date: new Date().toISOString().slice(0, 10), model: cfg.model, tasks: {} };
+  for (const t of cfg.tasks) {
+    const arms = Object.fromEntries(Object.keys(SESSION).map((a) => [a, load(a, t.id)]).filter(([, rs]) => rs.length));
+    out.tasks[t.id] = {
+      runs: Object.fromEntries(Object.entries(arms).map(([a, rs]) => [a, rs.length])),
+      epochs: [...new Set(Object.values(arms).flat().map((r) => r.epoch?.cli))],
+      rules: Object.fromEntries(t.rules.map((rule) => {
+        const row = { kind: rule.kind, cls: rule.card.cls };
+        for (const [a, rs] of Object.entries(arms)) row[a] = { followed: rs.filter((r) => r.rules[rule.id].final).length, of: rs.length,
+          status: status(rs, rule.id), keptInSummary: rs.filter((r) => r.session?.keptInSummary?.[rule.id]).length };
+        row.lost = row.o0?.status === 'held' && row.oc?.status === 'missed';
+        if (row.lost) row.restoredBy = ['or', 'od', 'ow'].filter((a) => row[a]?.status === 'held');
+        return [rule.id, row];
+      })),
+      sessions: Object.fromEntries(Object.entries(arms).map(([a, rs]) => [a, {
+        maxContextPerRequest: median(rs.map((r) => Math.max(...r.session.contextPerRequest))), requests: median(rs.map((r) => r.session.requests)),
+        compactionPreTokens: median(rs.map((r) => r.session.compaction?.pre_tokens ?? null)), compactionPostTokens: median(rs.map((r) => r.session.compaction?.post_tokens ?? null)),
+        deliveredBytes: median(rs.map((r) => r.session.deliveredBytes)), costUsd: median(rs.map((r) => r.usage.costUsd)),
+        totalCostUsd: rs.reduce((x, r) => x + (r.usage.costUsd ?? 0), 0) }])),
+    };
+  }
+  fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
+  fs.writeFileSync(path.join(HERE, 'results', 'summary-stage3.json'), `${JSON.stringify(out, null, 1)}\n`);
+  console.log(JSON.stringify(out, null, 1));
 } else {
-  console.error('usage: node native.mjs checks|smoke|run|summary|arrival|summary2|scale <config> [task] [runs] [first] [arm]');
+  console.error('usage: node native.mjs checks|smoke|run|summary|arrival|summary2|scale|summary3 <config> [task] [runs] [first] [arm]');
   process.exit(2);
 }

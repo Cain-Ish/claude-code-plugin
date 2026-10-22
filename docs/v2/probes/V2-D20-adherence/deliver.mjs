@@ -11,8 +11,10 @@ const dir = process.argv[2];
 const { arm, cards } = JSON.parse(fs.readFileSync(path.join(dir, 'cards.json'), 'utf8'));
 const logPath = path.join(dir, 'deliveries.jsonl');
 // the log is the state: a card already denied-and-delivered before a write is not delivered there again
-const preWrite = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').trim().split('\n') : [])
-  .flatMap((l) => (l ? [JSON.parse(l)] : [])).filter((l) => l.ev === 'PreToolUse').flatMap((l) => l.cards ?? []);
+const logged = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').trim().split('\n') : []).flatMap((l) => (l ? [JSON.parse(l)] : []));
+const preWrite = logged.filter((l) => l.ev === 'PreToolUse').flatMap((l) => l.cards ?? []);
+// stage 3 (arms o*): the cards reach the first prompt of the session only
+const prompted = arm.startsWith('o') && logged.some((l) => l.ev === 'UserPromptSubmit' && l.cards);
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const ev = input.hook_event_name;
 const line = (c) => `- ${c.id} (${c.area}): ${c.text} [source: ${c.source}]`;
@@ -20,7 +22,7 @@ const file = slash(path.relative(input.cwd ?? '.', input.tool_input?.file_path ?
 const log = { ev };
 let out = null;
 
-if (ev === 'UserPromptSubmit') {
+if ((ev === 'UserPromptSubmit' && !prompted) || (ev === 'SessionStart' && arm === 'or')) { // or: again after compaction
   out = { hookSpecificOutput: { hookEventName: ev, additionalContext: '[d20-rules] Rules of this project that bind this '
     + 'task, quoted from its own files with their source. Where existing code differs from a rule, follow the rule.\n'
     + cards.map(line).join('\n') } };
@@ -33,7 +35,7 @@ if (ev === 'UserPromptSubmit') {
       + `once per area).\n${due.map(line).join('\n')}` } };
     Object.assign(log, { file, cards: due.map((c) => c.id) });
   }
-} else if (ev === 'PostToolUse' && arm === 'd') {
+} else if (ev === 'PostToolUse' && ['d', 'od'].includes(arm)) {
   const { files, fresh } = changedFiles(input.cwd);
   const bad = file in files ? cards.filter((c) => c.cls === 'pattern' && c.check.where !== 'reply'
     && new RegExp(c.check.path ?? '.').test(file) && !check(c.check, { [file]: files[file] }, '', fresh)) : [];
@@ -42,7 +44,7 @@ if (ev === 'UserPromptSubmit') {
       + bad.map((c) => `- ${c.id}: ${c.msg} [source: ${c.source}]`).join('\n') };
     Object.assign(log, { file, cards: bad.map((c) => c.id) });
   }
-} else if (ev === 'Stop' && arm === 'd' && !input.stop_hook_active) {
+} else if (ev === 'Stop' && ['d', 'od'].includes(arm) && !input.stop_hook_active) {
   const { files, fresh } = changedFiles(input.cwd);
   const bad = cards.filter((c) => c.cls === 'pattern' && c.check.where !== 'reply' && !check(c.check, files, '', fresh));
   out = { decision: 'block', reason: '[d20-stop] Before you finish:\n'
@@ -52,6 +54,6 @@ if (ev === 'UserPromptSubmit') {
   log.cards = bad.map((c) => c.id);
 }
 
-if (out) process.stdout.write(JSON.stringify(out));
+if (out) { process.stdout.write(JSON.stringify(out)); log.bytes = Buffer.byteLength(JSON.stringify(out)); }
 log.ms = Math.round(process.uptime() * 1000);
 fs.appendFileSync(logPath, `${JSON.stringify(log)}\n`);
