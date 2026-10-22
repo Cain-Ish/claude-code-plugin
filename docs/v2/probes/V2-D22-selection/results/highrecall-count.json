@@ -1,0 +1,325 @@
+{
+ "date": "2026-10-22",
+ "prompt": "8213b6dfa307",
+ "capKb": 32,
+ "model": "claude-sonnet-5-5",
+ "rule": "holdable: all entries cover >= 0.5 of the card trigrams; held: the delivery covers >= 0.8 of that (D13 corrected, on entry text)",
+ "tasks": {
+  "P1-build": {
+   "cards": 6,
+   "holdable": 5,
+   "picksHoldingAll": 0,
+   "of": 5,
+   "pass": false,
+   "runs": [
+    {
+     "pick": 1,
+     "sections": 24,
+     "entries": 101,
+     "kb": 32,
+     "ms": 3504,
+     "cost": 0.07627,
+     "missed": [
+      "R6"
+     ]
+    },
+    {
+     "pick": 2,
+     "sections": 28,
+     "entries": 101,
+     "kb": 32,
+     "ms": 2596,
+     "cost": 0.0039661,
+     "missed": [
+      "R6"
+     ]
+    },
+    {
+     "pick": 3,
+     "sections": 24,
+     "entries": 101,
+     "kb": 32,
+     "ms": 2559,
+     "cost": 0.0038861000000000004,
+     "missed": [
+      "R6"
+     ]
+    },
+    {
+     "pick": 4,
+     "sections": 27,
+     "entries": 101,
+     "kb": 32,
+     "ms": 4263,
+     "cost": 0.0039461,
+     "missed": [
+      "R6"
+     ]
+    },
+    {
+     "pick": 5,
+     "sections": 29,
+     "entries": 101,
+     "kb": 32,
+     "ms": 3060,
+     "cost": 0.0039741,
+     "missed": [
+      "R6"
+     ]
+    }
+   ]
+  },
+  "P2-build": {
+   "cards": 8,
+   "holdable": 8,
+   "picksHoldingAll": 0,
+   "of": 5,
+   "pass": false,
+   "runs": [
+    {
+     "pick": 1,
+     "sections": 60,
+     "entries": 156,
+     "kb": 32,
+     "ms": 7086,
+     "cost": 0.321548,
+     "missed": [
+      "R3a",
+      "R3b",
+      "R4",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 2,
+     "sections": 60,
+     "entries": 156,
+     "kb": 32,
+     "ms": 3695,
+     "cost": 0.011034200000000001,
+     "missed": [
+      "R3a",
+      "R3b",
+      "R4",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 3,
+     "sections": 60,
+     "entries": 156,
+     "kb": 32,
+     "ms": 4460,
+     "cost": 0.010904200000000001,
+     "missed": [
+      "R3a",
+      "R3b",
+      "R4",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 4,
+     "sections": 60,
+     "entries": 170,
+     "kb": 32,
+     "ms": 4239,
+     "cost": 0.0115602,
+     "missed": [
+      "R3a",
+      "R3b",
+      "R4",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 5,
+     "sections": 60,
+     "entries": 158,
+     "kb": 32,
+     "ms": 4410,
+     "cost": 0.0112242,
+     "missed": [
+      "R3a",
+      "R3b",
+      "R4",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    }
+   ]
+  },
+  "R0-build": {
+   "cards": 8,
+   "holdable": 8,
+   "picksHoldingAll": 0,
+   "of": 5,
+   "pass": false,
+   "runs": [
+    {
+     "pick": 1,
+     "sections": 59,
+     "entries": 82,
+     "kb": 32,
+     "ms": 3137,
+     "cost": 0.144358,
+     "missed": [
+      "R2a",
+      "R2b",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 2,
+     "sections": 60,
+     "entries": 82,
+     "kb": 32,
+     "ms": 4451,
+     "cost": 0.006346700000000001,
+     "missed": [
+      "R2a",
+      "R2b",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 3,
+     "sections": 60,
+     "entries": 82,
+     "kb": 32,
+     "ms": 5716,
+     "cost": 0.006354700000000001,
+     "missed": [
+      "R2a",
+      "R2b",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 4,
+     "sections": 60,
+     "entries": 82,
+     "kb": 32,
+     "ms": 4839,
+     "cost": 0.0062947,
+     "missed": [
+      "R2a",
+      "R2b",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    },
+    {
+     "pick": 5,
+     "sections": 60,
+     "entries": 82,
+     "kb": 32,
+     "ms": 4311,
+     "cost": 0.0064307,
+     "missed": [
+      "R2a",
+      "R2b",
+      "R5",
+      "R6",
+      "R7"
+     ]
+    }
+   ]
+  },
+  "P2-plan": {
+   "cards": 5,
+   "holdable": 5,
+   "picksHoldingAll": 0,
+   "of": 5,
+   "pass": false,
+   "runs": [
+    {
+     "pick": 1,
+     "sections": 60,
+     "entries": 137,
+     "kb": 32,
+     "ms": 9657,
+     "cost": 0.326856,
+     "missed": [
+      "P1",
+      "P3a",
+      "P3b",
+      "P4"
+     ]
+    },
+    {
+     "pick": 2,
+     "sections": 60,
+     "entries": 153,
+     "kb": 32,
+     "ms": 5428,
+     "cost": 0.0111174,
+     "missed": [
+      "P1",
+      "P3a",
+      "P3b",
+      "P4"
+     ]
+    },
+    {
+     "pick": 3,
+     "sections": 60,
+     "entries": 174,
+     "kb": 31.9,
+     "ms": 5931,
+     "cost": 0.013727399999999999,
+     "missed": [
+      "P1",
+      "P3a",
+      "P3b",
+      "P4",
+      "P5"
+     ]
+    },
+    {
+     "pick": 4,
+     "sections": 60,
+     "entries": 144,
+     "kb": 32,
+     "ms": 9055,
+     "cost": 0.017801400000000002,
+     "missed": [
+      "P1",
+      "P3a",
+      "P3b",
+      "P4",
+      "P5"
+     ]
+    },
+    {
+     "pick": 5,
+     "sections": 60,
+     "entries": 124,
+     "kb": 32,
+     "ms": 9457,
+     "cost": 0.016777399999999998,
+     "missed": [
+      "P3a",
+      "P4"
+     ]
+    }
+   ]
+  }
+ }
+}

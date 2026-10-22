@@ -7,6 +7,9 @@
 //   node route.mjs pool   <tasks> <task-id>   after the judge's step 1: pooled entries, shuffled -> d22/pool-<task>.txt
 //   node route.mjs native <tasks>             a D20-harness config for the native runs -> d22/native.json
 //   node route.mjs score  <tasks>             grades, arms and native runs -> results/summary.json (counts only)
+//   node route.mjs highrecall <tasks> <cards> [picks]   the high-recall pick (arm ph): picks -> d22/highrecall/,
+//                                             counts by D13's corrected held rule -> results/highrecall-count.json
+//   node route.mjs phcards <tasks>            each pick's entries for D20's harness (arm ph) -> d22/highrecall/<task>-cards.json
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,7 +17,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { index, rank, deliver } from '../V2-D13-selection/select.mjs';
+import { index, rank, deliver, cardGrams, entryGrams, cover } from '../V2-D13-selection/select.mjs';
 import { tokensOf, keyedFor } from './keys.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +32,12 @@ task and leave out the rest. If none binds, give [].`;
 export const SECT = `You choose where in a project's documentation the knowledge for a task lives. Input: the task, then the
 documentation's sections, one per line: [n] file › heading › subheading. Output: only a JSON array of at most ${MAX_SECTIONS}
 section numbers, most relevant first, no prose, no code fence.`;
+// V2-D22's high-recall push check (arm ph): fixed before its first call (DECISIONS.md)
+export const SECT_HR = `You choose where in a project's documentation the rules for a task live. Input: the task, then the
+documentation's sections, one per line: [n] file › heading › subheading. Output: only a JSON array of section numbers,
+most likely to bind the task first, no prose, no code fence. Err on the side of inclusion: list every section that might
+hold a rule or fact someone doing the task must follow or know, up to 60 sections.`;
+const HR_CAP = 32;
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 12);
 
 // ---- the map ----
@@ -83,9 +92,9 @@ const claude = (sys, input) => new Promise((resolve) => {
 
 // ---- the arms ----
 
-const take = (entries, order) => {
+const take = (entries, order, cap = CAP) => {
   const valid = [...new Set(order)].filter((n) => entries[n]);
-  return deliver(entries.map((e) => ({ file: e.file, heads: e.heads, text: `${e.context ? `${e.context}\n` : ''}${e.quote}` })), valid.map((i) => ({ i })), CAP);
+  return deliver(entries.map((e) => ({ file: e.file, heads: e.heads, text: `${e.context ? `${e.context}\n` : ''}${e.quote}` })), valid.map((i) => ({ i })), cap);
 };
 
 export async function arms(map, prompt, only = null) {
@@ -127,6 +136,7 @@ const D22 = tasksArg ? path.dirname(path.resolve(tasksArg)) : null;
 const RAW = D22 ? path.dirname(D22) : null;
 const maps = {};
 const mapOf = (label) => (maps[label] ??= loadMap(RAW, label));
+const r1 = (b) => Math.round(b / 1024);
 const shuffle = (xs, seed) => [...xs].sort((a, b) => sha(`${seed}${a}`).localeCompare(sha(`${seed}${b}`)));
 
 if (mode === 'selftest') {
@@ -146,6 +156,51 @@ if (mode === 'selftest') {
     if (only) r = { ...JSON.parse(fs.readFileSync(file, 'utf8')), [only]: { ...r[only], rerun: 'after a harness parse failure' } };
     fs.writeFileSync(file, JSON.stringify(r));
     console.log(t.id, ['b', 'd1', 'd2'].map((a) => `${a}: ${r[a].ids.length} entries ${Math.round(r[a].bytes / 1024)} KB ${r[a].ms} ms${r[a].error ? ' ERROR' : ''}`).join(' | '));
+  }
+} else if (mode === 'highrecall') {
+  // Arm ph: the picked sections' entries in pick order, then source order, up to 32 KB. Each pick is saved for the
+  // session that uses it; the count scores the delivered entries' text against D20's cards.
+  const cards = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+  const picks = Number(process.argv[5] ?? 5);
+  const text = (e) => ({ file: e.file, heads: e.heads, text: `${e.context ? `${e.context}\n` : ''}${e.quote}` });
+  const out = { date: new Date().toISOString().slice(0, 10), prompt: sha(SECT_HR), capKb: HR_CAP, model: MODEL,
+    rule: 'holdable: all entries cover >= 0.5 of the card trigrams; held: the delivery covers >= 0.8 of that (D13 corrected, on entry text)', tasks: {} };
+  fs.mkdirSync(path.join(D22, 'highrecall'), { recursive: true });
+  for (const t of TASKS) {
+    const { entries, keys } = mapOf(t.repo);
+    const sets = entries.map((e) => entryGrams(text(e)));
+    const want = Object.entries(cards[t.id]).map(([id, c]) => [id, cardGrams(c.text)]);
+    const corpus = Object.fromEntries(want.map(([id, g]) => [id, cover(g, sets)]));
+    const holdable = want.filter(([id]) => corpus[id] >= 0.5);
+    const bySec = new Map();
+    for (const e of entries) { const k = sectionKey(e.file, e.heads); if (!bySec.has(k)) bySec.set(k, []); bySec.get(k).push(e.n); }
+    const runs = [];
+    for (let k = 1; k <= picks; k++) {
+      const s = await claude(SECT_HR, `Task: ${t.prompt}\n\nSections:\n${keys.map((x, n) => `[${n}] ${x}`).join('\n')}`);
+      const secs = [...new Set(s.ids.map((n) => keys[n]).filter(Boolean))].slice(0, 60);
+      const d = take(entries, secs.flatMap((x) => bySec.get(x) ?? []), HR_CAP);
+      const got = d.out.map((i) => sets[i]);
+      const missed = holdable.filter(([id, g]) => cover(g, got) < 0.8 * corpus[id]).map(([id]) => id);
+      runs.push({ pick: k, sections: secs.length, entries: d.out.length, kb: +(d.used / 1024).toFixed(1), ms: s.ms, cost: s.cost, error: s.error, missed, secs, ids: d.out });
+      fs.writeFileSync(path.join(D22, 'highrecall', `${t.id}.json`), JSON.stringify({ picks: runs }));
+      console.log(t.id, 'pick', k, `${secs.length} sections, ${d.out.length} entries, ${r1(d.used)} KB, ${s.ms} ms, missed: ${missed.join(',') || 'none'}${s.error ? ' ERROR' : ''}`);
+    }
+    const allHeld = runs.filter((r) => !r.missed.length && !r.error).length;
+    out.tasks[t.id] = { cards: want.length, holdable: holdable.length, picksHoldingAll: allHeld, of: picks,
+      pass: allHeld >= Math.ceil(0.8 * picks), runs: runs.map(({ pick, sections, entries: n, kb, ms, cost, missed }) => ({ pick, sections, entries: n, kb, ms, cost, missed })) };
+  }
+  fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
+  fs.writeFileSync(path.join(HERE, 'results', 'highrecall-count.json'), `${JSON.stringify(out, null, 1)}
+`);
+  console.log(JSON.stringify(Object.fromEntries(Object.entries(out.tasks).map(([k, v]) => [k, `${v.picksHoldingAll}/${v.of} ${v.pass ? 'pass' : 'fail'}`]))));
+} else if (mode === 'phcards') {
+  // arm ph's delivery, per pick: the entries the count scored, as D20's harness pushes them (area, text, source)
+  for (const t of TASKS) {
+    const { entries } = mapOf(t.repo);
+    const { picks } = JSON.parse(fs.readFileSync(path.join(D22, 'highrecall', `${t.id}.json`), 'utf8'));
+    fs.writeFileSync(path.join(D22, 'highrecall', `${t.id}-cards.json`), JSON.stringify(picks.map((p) => p.ids.map((i) => ({ area: entries[i].area,
+      text: `${entries[i].context ? `${entries[i].context} ` : ''}${entries[i].quote}`.replace(/\s+/g, ' '), source: sectionKey(entries[i].file, entries[i].heads) })))));
+    console.log(t.id, picks.map((p) => p.ids.length).join(' '));
   }
 } else if (mode === 'index') {
   // the index needs only the document blocks, not the converted entries

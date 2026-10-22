@@ -2635,3 +2635,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - `ph` fails on following: the forced route leads.
     - Both work: cost and latency decide, and the vague-first-prompt check comes next for the leader.
     - The count fails: no session runs, and the forced route leads.
+- **High-recall push count (2026-10-22; [highrecall-count.json](probes/V2-D22-selection/results/highrecall-count.json)):
+  fail, so `ph` is not run and the forced route leads.**
+  - *The count.* No pick held every holdable card on any task (0 of 5 each). Every pick was cut at 32 KB.
+    - P1 build: R6 missed in all 5 picks.
+    - P2 build: R3a, R3b, R4, R5, R6 and R7 missed in all 5.
+    - R0 build: R2a, R2b, R5, R6 and R7 missed in all 5.
+    - P2 plan: 2 to 5 of 5 missed per pick.
+
+    The picks took 2.6 to 9.7 s each, on Sonnet.
+  - *Why (a diagnostic, not part of the check).* For each card, the section holding the entry that best covers it:
+    - mostly picked, but ranked low: in P2 build at ranks 19 to 57, against the cap's reach of the first few
+      sections;
+    - in P1, the 32 KB filled after 3 sections, and R6's section came 4th in every pick;
+    - P2 R5's section was never picked.
+
+    So the sections a high-recall pick names add up to far more than 32 KB. The forced route's sessions read 102 to
+    147 KB of documents in P2 and followed the rules. A push that fits the hook channel cannot carry that.
+  - *Consequence (registered).* The forced route leads. The next check tests the session shapes that threaten it,
+    which rethink 2 and the review both raised: a vague first prompt, and a compaction.

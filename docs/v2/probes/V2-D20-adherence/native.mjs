@@ -89,6 +89,17 @@ function armHooks(base) {
     fs.copyFileSync(task.inventory, path.join(base, 'inventory.txt'));
     return { UserPromptSubmit: [{ hooks: [nodeHook(path.join('..', 'V2-D21-inventory', 'inventory-hook.mjs'), base)] }] };
   }
+  if (arm === 'ph') { // V2-D22 high-recall push: session i gets pick i's entries (route.mjs highrecall, phcards), at the first prompt
+    const pick = JSON.parse(fs.readFileSync(task.phCards, 'utf8'))[Number(path.basename(base).slice(3)) - 1];
+    const line = (c) => `- ${c.id} (${c.area}): ${c.text} [source: ${c.source}]\n`;
+    const chunks = [];
+    for (const [n, c] of pick.map((x, k) => [k, { id: `E${String(k + 1).padStart(3, '0')}`, ...x }])) {
+      if (!n || chunks.at(-1).reduce((a, x) => a + line(x).length, 0) + line(c).length > 8500) chunks.push([]);
+      chunks.at(-1).push(c);
+    }
+    fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm, cards: [], chunks, delivered: pick.length }, null, 1));
+    return { UserPromptSubmit: [{ hooks: chunks.map((_, k) => nodeHook('deliver.mjs', base, String(k))) }] };
+  }
   const d ={ hooks: [nodeHook('deliver.mjs', base)] };
   const writes = { matcher: 'Write|Edit|MultiEdit', ...d };
   fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm,
@@ -133,7 +144,7 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 }
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
-const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false };
+const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false };
 const NO_CARDS = ['n', 'n0', 'p', 'pf']; // session arms that push no rule card
 // V2-D22 pull, attempt 2: fixed before it ran (DECISIONS.md)
 const FORCE = 'Before you start: for each directory in this project\'s document index, state in one line whether its '
@@ -603,7 +614,7 @@ if (mode === 'checks') {
         row.lostWithoutStopped = row.o0?.statusWithoutStopped === 'held' && row.oc?.statusWithoutStopped === 'missed';
         // V2-D22 volume: lost at a level = held in o0, missed there ([as registered, without stopped sessions])
         // V2-D22 pull (p, then pf): reached = held there where n0 misses it; holds = holds what o0 holds ([as registered, without stopped])
-        for (const a of ['p', 'pf']) if (row[a] && row.n0) {
+        for (const a of ['p', 'pf', 'ph']) if (row[a] && row.n0) {
           row[`reachedBy_${a}`] = [row.n0.status === 'missed' && row[a].status === 'held', row.n0.statusWithoutStopped === 'missed' && row[a].statusWithoutStopped === 'held'];
           row[`holds_${a}`] = [row.o0?.status !== 'held' || row[a].status === 'held', row.o0?.statusWithoutStopped !== 'held' || row[a].statusWithoutStopped === 'held'];
         }
