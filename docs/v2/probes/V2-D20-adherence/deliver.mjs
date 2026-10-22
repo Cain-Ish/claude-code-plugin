@@ -19,6 +19,10 @@ const preWrite = logged.filter((l) => l.ev === 'PreToolUse').flatMap((l) => l.ca
 const prompted = arm.startsWith('o') && logged.some((l) => l.ev === 'UserPromptSubmit' && l.cards);
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const ev = input.hook_event_name;
+// V2-D20 net check, arm pfrs: fixed before it ran (DECISIONS.md)
+const REVIEW = "Before you finish: reread this project's instruction files (such as CLAUDE.md and its rules) and the project "
+  + 'documents you read for this task. List each rule in them that binds the files you changed, check every changed file '
+  + 'against each rule, and fix any file that breaks one. Then finish.';
 const line = (c) => `- ${c.id} (${c.area}): ${c.text} [source: ${c.source}]`;
 const file = slash(path.relative(input.cwd ?? '.', input.tool_input?.file_path ?? input.tool_input?.notebook_path ?? ''));
 const log = { ev };
@@ -44,7 +48,14 @@ if (chunk !== null) {
       + `once per area).\n${due.map(line).join('\n')}` } };
     Object.assign(log, { file, cards: due.map((c) => c.id) });
   }
-} else if (ev === 'PostToolUse' && ['d', 'od'].includes(arm)) {
+} else if (ev === 'Stop' && arm === 'pfrs') {
+  // V2-D20 net, option (a): a self-review, once, at the first Stop after files changed; no checks shown to Claude
+  const { files, fresh } = changedFiles(input.cwd);
+  if (Object.keys(files).length && !input.stop_hook_active && !logged.some((l) => l.review)) {
+    out = { decision: 'block', reason: REVIEW };
+    Object.assign(log, { review: true, failing: cards.filter((c) => c.check.where !== 'reply' && !check(c.check, files, '', fresh)).map((c) => c.id) });
+  }
+} else if (ev === 'PostToolUse' && ['d', 'od', 'pfro'].includes(arm)) {
   const { files, fresh } = changedFiles(input.cwd);
   const bad = file in files ? cards.filter((c) => c.cls === 'pattern' && c.check.where !== 'reply'
     && new RegExp(c.check.path ?? '.').test(file) && !check(c.check, { [file]: files[file] }, '', fresh)) : [];
@@ -52,6 +63,14 @@ if (chunk !== null) {
     out = { decision: 'block', reason: `[d20-check] ${file} breaks a project rule:\n`
       + bad.map((c) => `- ${c.id}: ${c.msg} [source: ${c.source}]`).join('\n') };
     Object.assign(log, { file, cards: bad.map((c) => c.id) });
+  }
+} else if (ev === 'Stop' && arm === 'pfro' && !input.stop_hook_active) {
+  // V2-D20 net, the ceiling for option (b): the failing checks only, without the rule account
+  const { files, fresh } = changedFiles(input.cwd);
+  const bad = cards.filter((c) => c.cls === 'pattern' && c.check.where !== 'reply' && !check(c.check, files, '', fresh));
+  if (bad.length) {
+    out = { decision: 'block', reason: `[d20-stop] Before you finish, these checks fail; fix them first:\n${bad.map((c) => `- ${c.id}: ${c.msg} [source: ${c.source}]`).join('\n')}` };
+    log.cards = bad.map((c) => c.id);
   }
 } else if (ev === 'Stop' && ['d', 'od'].includes(arm) && !input.stop_hook_active) {
   const { files, fresh } = changedFiles(input.cwd);
