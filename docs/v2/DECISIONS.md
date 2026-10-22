@@ -22,7 +22,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
-| V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
+| V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | CHECKING 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
@@ -1441,6 +1441,67 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   knowledge is 1.9 MB of documents read on demand and 6,740 scripts found only by search; v1's store held 3 entries
   for P2 against about 600 rule items, and its P1 decisions sat in an archive sessions did not load
   ([research/2026-10-20-scale-real-repos.md](research/2026-10-20-scale-real-repos.md)).
+- **Premise, counted before this check (rule 5; seen, not counted):** the question assumes that a task's context
+  fills quickly at scale. In the 32 Sonnet 5.5 native runs on disk (D20 stage 1's 20, D22's 12 on its investigation
+  tasks), the window is 1,000,000 tokens. The largest context of any turn was 56k to 93k tokens on the build tasks,
+  39k to 47k on the plan task and 39k to 170k on the investigation tasks: at most 17% of the window. No run compacted
+  and none used a subagent. So context fill is recorded with no threshold. On a 200,000-token window the
+  investigation tasks would reach 85%, and another model is another baseline (D17).
+- **Narrowed (2026-10-22):** A2 is D20's four test-bed tasks (a build task in each repo and P2's plan task), whose
+  rules have deterministic checks. D22's six investigation tasks join when D22 locks; their scoring is D22's.
+- **The auto-memory arm at scale (M1), counted before choosing:** P1's own auto memory on this machine holds 15
+  files (16.9 KB, an index of 14 lines). P2 was never opened in Claude Code here, so it has none. The v1 repo's holds
+  one note about this concept work, nothing about its own rules. Options:
+  - (a) the user's auto memory as it stands, copied fresh into each run: the repo as it is run today, with no
+    history written for the check;
+  - (b) a history written for the check (earlier sessions with auto memory on, then the task): rejected, since the
+    history chosen decides what the memory holds;
+  - (c) no M1 run, with D17's A1 result standing in for it: rejected, since P1's memory is real and has not been
+    read, and a run is cheap.
+
+  Chosen: (a). M1 differs from native only in P1. In P2 and the v1 repo, M1 is the native arm, stated as such. P1's
+  memory is not read before the runs; its content is classed afterwards (reported, not counted).
+- **Check (pre-registered 2026-10-22, before any D19 run):**
+  - *Harness.* D20's `native.mjs`, unchanged in everything else: stage 2's corrected checks, Sonnet 5.5, the CLI
+    2.1.305 epoch, Bash and the web off, the pinned commits. It gets a new arm `m`: auto memory on, with
+    `autoMemoryDirectory` set to a fresh copy, per run, of P1's memory, frozen when this was written and kept private.
+    Writes to it are allowed (`--add-dir`, as in D17).
+  - *Smoke (Haiku, not counted).* The memory index reaches the session. It is shown by the `InstructionsLoaded` log,
+    or, if that hook does not report auto memory, by a Haiku session asked to quote the index's first line.
+  - *Runs.*
+    - A pilot of one arm m run on P1's build task, with its cost reported. Then arm m on P1's build task to 10
+      valid runs.
+    - Native on P2's build and plan tasks and the v1 repo's build task: 5 more each (runs 6 to 10, same epoch),
+      making 10 each, as D17's 10 per arm. P1's native 5 are compared with arm m, not used as a threshold base.
+    - Valid by D20's rules. Arm m also needs the memory index loaded at start and no memory write refused. Invalid
+      runs are replaced, up to 2 per task.
+    - Projected cost about 8 USD; above 25 USD the user is asked first. A CLI version change re-runs the comparison
+      in one epoch.
+  - *Measures per run:*
+    - each rule's check on the final files and at the first write (D20's 27 rules);
+    - in P1, the value re-declared or reused (D21's `reuse.mjs`);
+    - tool calls and files read before the first write;
+    - tokens of all kinds, output tokens and USD;
+    - instruction bytes loaded and, in arm m, the memory index's bytes;
+    - recorded only: the largest context of any turn, compactions and subagents.
+
+    A file a run creates beyond the task's own is read against the tree by hand. If it does what a tracked file
+    already does, it is a file-level duplicate, and D21's trigger fires.
+
+    Dropped: "reads of files the output never imports", which needs an import parser per language (charter). Tool
+    calls and files read before the first write stand in for it, as in D17.
+  - *Thresholds.* D17's rule unchanged, per task, against M1 (P1: arm m; P2 and the v1 repo: native, which is M1
+    there):
+    - on counts and tokens, v2's median beats M1's by more than M1's spread over its 10 runs;
+    - on pass items (each rule, and P1's value reused), v2 passes in no fewer runs than M1.
+
+    Where M1 passes a rule in 0 of 10 runs, the floor is 0 and the target is the user's call, as in A1. The
+    thresholds are written into `05-eval-plan.md` as scenario A2.
+  - *Locks when:* the memory reaches the session in the smoke, every task has 10 valid M1 runs, and the thresholds
+    are written by the rule. A harness that cannot get the memory to arrive or the runs valid within 3 attempts goes
+    up a level (rule 4).
+  - *Reported, no threshold:* arm m against native in P1 (does the user's own memory change anything), and what the
+    memory holds: any of the task's rules, or the value.
 
 ### V2-D20 — Adherence: how v2 makes Claude look for and follow the knowledge
 - **Question:** knowledge in the map is worth nothing unless Claude (a) has the part that binds the task before it
