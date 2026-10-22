@@ -2360,3 +2360,5 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - *Finding, reported:* in P2, a word-matching selector's realistic picks include stale entries that contradict a
       binding rule. This check removes them, so it measures volume. Contradiction in the delivered set is not tested
       here. D16's re-find does not flag such entries, because their quotes are still in their files.
+    - *Pilots (Opus, `v32`, not counted):* P1 1.17 USD, P2 4.98 USD. Both followed every binding rule. The projection
+      came to about 31 USD for the 10 counted sessions. *The user chose to run as registered (2026-10-22).*

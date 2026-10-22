@@ -568,6 +568,8 @@ if (mode === 'checks') {
         }
         row.lost = row.o0?.status === 'held' && row.oc?.status === 'missed';
         row.lostWithoutStopped = row.o0?.statusWithoutStopped === 'held' && row.oc?.statusWithoutStopped === 'missed';
+        // V2-D22 volume: lost at a level = held in o0, missed there ([as registered, without stopped sessions])
+        for (const v of ['v8', 'v32']) if (row[v]) row[`lostAt${v}`] = [row.o0?.status === 'held' && row[v].status === 'missed', row.o0?.statusWithoutStopped === 'held' && row[v].statusWithoutStopped === 'missed'];
         if (row.lost || row.lostWithoutStopped) row.restoredBy = ['or', 'od', 'ow'].filter((a) => row[a]?.status === 'held');
         return [rule.id, row];
       })),
@@ -575,11 +577,13 @@ if (mode === 'checks') {
         maxContextPerRequest: median(rs.map((r) => Math.max(...r.session.contextPerRequest))), requests: median(rs.map((r) => r.session.requests)),
         compactionPreTokens: median(rs.map((r) => r.session.compaction?.pre_tokens ?? null)), compactionPostTokens: median(rs.map((r) => r.session.compaction?.post_tokens ?? null)),
         deliveredBytes: median(rs.map((r) => r.session.deliveredBytes)), costUsd: median(rs.map((r) => r.usage.costUsd)),
-        totalCostUsd: rs.reduce((x, r) => x + (r.usage.costUsd ?? 0), 0) }])),
+        costSpread: Math.max(...rs.map((r) => r.usage.costUsd)) - Math.min(...rs.map((r) => r.usage.costUsd)),
+        tokensAll: median(rs.map((r) => r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens)),
+        stopped: rs.filter((r) => !r.changed?.length).length, totalCostUsd: rs.reduce((x, r) => x + (r.usage.costUsd ?? 0), 0) }])),
     };
   }
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
-  fs.writeFileSync(path.join(HERE, 'results', 'summary-stage3.json'), `${JSON.stringify(out, null, 1)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', `summary-${cfg.summaryName ?? 'stage3'}.json`), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
 } else {
   console.error('usage: node native.mjs checks|smoke|run|summary|arrival|summary2|scale|summary3 <config> [task] [runs] [first] [arm]');
