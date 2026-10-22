@@ -1246,6 +1246,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Reopen if:** the CLI, the model or the fixture changes before the v2 arm runs (a new epoch: the baselines run
   again, the rule stays); the user sets targets for C2, T3 or T5 or changes the rule (a new attempt, rule 2); a native
   team memory ships (M1 would then reach a second person). Attempts: 0.
+- **Trigger fired (2026-10-22): the model changes before the v2 arm runs.** A1's M0 and M1 re-run on Opus 5.5. The
+  rule stays. The protocol is in `05-eval-plan.md` ("Re-baseline on Opus 5.5").
 - **Targets for the rule's gaps (2026-10-22).** Set under the user's instruction that decisions are settled by
   rethinking, without waiting on them. The trigger counts this as an attempt. Rule 2 is kept: the rule is unchanged,
   and these fill only the cells it cannot reach.
@@ -1691,6 +1693,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - P1's shared value reused: not a v2 target. D21 makes it v2's only through a rule the project states, and none
     does.
   - Attempts: 1 (a change to the threshold set, per the trigger; no check failed).
+- **Trigger fired (2026-10-22): the model changes before the v2 arm runs.** The eval moves to Opus 5.5, the user's
+  model, so A2's M1 re-runs in that epoch. The rule and the gap targets stay. The protocol is pre-registered in
+  `05-eval-plan.md` ("Re-baseline on Opus 5.5").
 - **Trigger fired (2026-10-22): D22 locked.** D22's six investigation tasks join A2. Their measure is end-to-end
   (assertions on the answer, not reach against a judge) and is written in the eval plan's update at step 14.
 

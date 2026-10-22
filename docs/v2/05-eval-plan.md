@@ -298,3 +298,41 @@ its gap targets stay. The numbers re-run in the new epoch.
     `pfr` 3 of 5).
   - *Expected risk:* cost in document-heavy repos, where the route spent about three times push's tokens. That is
     D22's first reopen trigger.
+
+### Re-baseline on Opus 5.5 (pre-registered 2026-10-22, before any assertion is written or any run)
+
+The first task of the build phase (06, step 1). D17's and D19's trigger fired: the model changes before the v2 arm
+runs.
+
+- **Epoch:**
+  - Opus 5.5, with the CLI version as reported at the first run, recorded with the results;
+  - the pinned commits; the web on; Bash off (the harness's static scoring).
+- **A1:** D17's harness, unchanged except for the model. Arms M0 and M1, 10 chains each (H1 to H3, then T and N).
+- **A2, the M1 arm, 10 valid runs per task:**
+  - P1 build: native plus the user's own P1 auto memory (a fresh copy per run), in stage 3's three turns with
+    `/compact` (a new arm, `mc`).
+  - P2 build and R0 build: native, three turns with `/compact`.
+  - P2 plan: native, one turn, the reply scored.
+  - The six investigation tasks (D22's): native, one turn, the reply scored by frozen assertions.
+- **The assertions, written blind and frozen before any Opus run.**
+  - *Who writes them:* a fresh agent, given only the six task prompts, the three repos at their pinned commits, and
+    the schema. It is told not to open `DECISIONS.md`, `docs/v2/research/` (apart from its input), any probe
+    results, or D22's pools, deliveries and grades.
+  - *What it writes:* 3 to 6 per task, each anchored to an exact token the repo's documents state, and at least one
+    trap per task, where a stale document or pre-training points one way and a binding rule the other.
+  - *Form:* D20's reply checks (\`where: reply\`, \`must\`, \`mustNot\`), each with a correct and a wrong sample.
+  - *Checks:* \`native.mjs checks\` must pass every sample. A failing check goes back to the agent with format
+    feedback only.
+  - *Recorded here before any run:* the private file's sha256, and what the agent saw and did not see.
+- **Measures:**
+  - D19's: each rule's check, tool calls and files read before the first write, tokens of all kinds (subagents
+    included), output tokens, USD;
+  - plus stopped sessions, read both ways.
+- **Thresholds:** D17's rule against M1, plus the gap-target forms, computed by script into this file.
+- **Validity:** D20 stage 3's checks for the three-turn tasks, and D22's native checks for the one-turn tasks.
+  Invalid runs are replaced, up to 2 per task.
+- **The pilot gate:** one run per task (one chain per arm for A1), costs reported in a progress note with the
+  projected total before the rest runs.
+- **Estimate:** 300 to 450 USD-equivalent. The pilots correct it.
+- **Not in this step:** the added shapes (a vague first prompt, two compactions, a task switch). They feed D22's
+  triggers and run with the v2 arm.
