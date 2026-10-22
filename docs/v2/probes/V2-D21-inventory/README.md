@@ -18,4 +18,5 @@ verdicts of the private repos stay in `research/raw/d21/` (gitignored); this fol
 | 1, option (a) | [part1.json](results/part1.json): controls 3 of 3; duplicates in 10 of 36 runs, all in one task and of one kind (a value re-declared that a shared module exports); no file duplicated |
 | 2, options (b), (c) | [part2.json](results/part2.json): the inventory left 5 of 5 runs duplicating; the repo's own checks do not look |
 
-D21 is BLOCKED after attempt 2 and goes up a level to the user.
+D21 was BLOCKED after attempt 2, then LOCKED on the user's answers (2026-10-22): v2 builds no inventory, and Claude's
+own search finds what a repo has.

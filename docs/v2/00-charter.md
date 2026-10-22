@@ -34,8 +34,9 @@ one language or stack.
   it. Token cost is a design constraint, measured per task.
 - **Starts from what the project has** (user, 2026-10-20). The plugin's first act in a repo turns the project's
   existing rules and documents (instruction files, rule files, docs, skill bodies) into the map's one standard
-  format, each entry anchored to its source; in a project with none, it maps what the code shows. From then on that
-  format is what is delivered and enforced, and new knowledge enters in it (V2-D15, D13).
+  format, each entry anchored to its source. A project with none starts with an empty map: Claude's own search
+  finds what the code has, and the map grows from work (user, 2026-10-22; V2-D21). From then on that format is what
+  is delivered and enforced, and new knowledge enters in it (V2-D15, D13).
 - **Followed, not only shown** (user, 2026-10-20). Claude is held to the rules that bind its task, not merely given
   them; V2-D20 decides how. Only the project's own rules in the map are enforced: general code review stays a
   non-goal.

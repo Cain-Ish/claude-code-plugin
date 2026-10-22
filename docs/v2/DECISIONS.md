@@ -24,16 +24,14 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | OPEN | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
-| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | BLOCKED 2026-10-22 (attempt 2; up a level to the user) | evidence | D10, D13 |
+| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
 Frontier (rule 6): **D19** (measurement at scale; parents D10 and D17 LOCKED). Its native arm already ran (D20 stage
 1). The auto-memory arm, a pilot and the thresholds remain, and only its v2 arm waits on D22. Its draft measure
-"duplicates checked against an inventory" now takes D21's judge method, since no inventory is generated. **D21 is BLOCKED**
-(2026-10-22, attempt 2) and goes up a level to the user. Claude duplicated no file in 36 runs, and a path inventory
-did not stop the duplication that did occur, below file level. The user places that duplication (a project rule or
-code review) and decides what onboarding maps in a repo with no documents. **D22 is BLOCKED** until the user ticks the
-checklists in `research/raw/d22/validate/`; its existing runs are then re-scored. D18 locked on 2026-10-22.
+"duplicates checked against an inventory" now takes D21's judge method, since v2 builds no inventory (D21, locked
+2026-10-22 on the user's answers after a block). **D22 is BLOCKED** until the user ticks the checklists in
+`research/raw/d22/validate/`; its existing runs are then re-scored. D18 locked on 2026-10-22.
 
 ---
 
@@ -939,7 +937,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - the map is plain Markdown, one file per source file, which a person can correct with the plugin off (PM4);
   - a repo with no documents gets no synthesised conventions; its map starts from the inventory (D21) and from
     captured work (D14). This rests on the citation. The A1 fixture's documents were converted and reviewed only in
-    attempt 1, with the 40 KB converter and the old definition.
+    attempt 1, with the 40 KB converter and the old definition. *D21 (2026-10-22): v2 builds no inventory, so such a
+    map starts empty and grows from captured work.*
 
   Not settled here: how a project's areas are found. The converter's labels are per-entry topics (1,253 to 2,106
   per repo); the question moved to D22.
@@ -1733,8 +1732,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *(c):* the repo's configured checks are three post-write hooks, reminders that never block and inspect no
     constant; a lint config with neither a number rule nor any rule that compares a constant with another module's
     export; and two lint-based tests about UI style and one component's props. None would report the duplicate.
-- **Status: BLOCKED 2026-10-22, after attempt 2.** Attempts: 1 failed ((a)), 2 failed ((b) and (c)). Every option
-  of the record is used up, so no third attempt is made (rule 4).
+- **Status: BLOCKED 2026-10-22 after attempt 2, then LOCKED the same day on the user's answers.** Attempts: 1 failed
+  ((a)), 2 failed ((b) and (c)). Every option of the record was used up, so no third attempt was made and the
+  question went up a level (rule 4).
 - **The assumption that failed:** that an inventory of what exists (files, components, scripts) is what stops
   Claude from duplicating. On three stacks and in 36 runs, Claude duplicated no file: its own search found what
   existed at file level. The duplication that did occur lies below file level. A value the task states as a number
@@ -1748,6 +1748,28 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *What onboarding maps in a repo with no documents* (the half D15 pointed here). With (a)'s file-level result,
     an inventory has no measured use for reuse. The charter's "maps what the code shows" then either means Claude's
     own search plus captured work (D14), or the charter line changes.
+- **Check after the block (user):** the user's explicit answer to the two questions above. Recommended to the user,
+  each with its counts:
+  - the duplication found here is v2's only when the project states the rule. Then onboarding (D15) or capture (D14)
+    puts it in the map, and D20 delivers and checks it. A value re-declared that no project rule covers is code
+    review, a non-goal (charter). Arm b delivered P1's own rules and still duplicated in 5 of 5 runs: no delivered
+    card named the value.
+  - a repo with no documents starts with an empty map. Claude's own search finds what exists (no file duplicated in
+    36 runs), the map grows from captured work (D14), and the charter's "maps what the code shows" is reworded.
+- **Result (2026-10-22):** the user agreed with both recommendations.
+- **Choice (2026-10-22):** v2 builds no inventory of what exists. Claude Code's own search (Glob, Grep, Read) is how
+  Claude finds what a repo has: option (a). The choice rests on the user's placement of the kind that occurred, not
+  on (a)'s check, which that kind failed.
+  - A repo with no documents starts with an empty map, which grows from captured work (D14). The charter's
+    onboarding line says so.
+  - A shared value re-declared is v2's only through a rule the project states or someone captures (D15, D14),
+    delivered and checked by D20. Without such a rule it is code review, which v2 does not do.
+- **Rejected:**
+  - (b) A path inventory: delivered at prompt, it left 5 of 5 runs duplicating, and no run opened the file it named
+    (part 2).
+  - (c) The repo's own tools: P1's configured checks do not look at constants (part 2), and a plugin for any stack
+    cannot assume a repo's tools do.
+  - A parser index and a model-written overview: by citation (options).
 - **Reopen if:** a duplicate at file level is counted in D19's runs or in the first slice's eval; or a Claude Code
   release adds a native index of what exists.
 
