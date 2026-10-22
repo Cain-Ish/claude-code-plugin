@@ -5,8 +5,11 @@
   "P2-build": {
    "runs": {
     "o0": 5,
+    "oc": 5,
     "n0": 5,
-    "pf": 5
+    "pf": 5,
+    "pfc": 5,
+    "pfr": 5
    },
    "epochs": [
     "2.1.305 (Claude Code)"
@@ -24,6 +27,15 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "oc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
      "n0": {
       "followed": 5,
       "of": 5,
@@ -42,6 +54,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 1,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 3,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -49,6 +79,14 @@
       false
      ],
      "holds_pf": [
+      true,
+      true
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
       true,
       true
      ]
@@ -65,6 +103,15 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "oc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 3,
+      "readBefore": 5
+     },
      "n0": {
       "followed": 5,
       "of": 5,
@@ -83,6 +130,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 1,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -90,6 +155,14 @@
       false
      ],
      "holds_pf": [
+      true,
+      true
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
       true,
       true
      ]
@@ -106,6 +179,15 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "oc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
      "n0": {
       "followed": 5,
       "of": 5,
@@ -124,6 +206,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 1,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -131,6 +231,14 @@
       false
      ],
      "holds_pf": [
+      true,
+      true
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
       true,
       true
      ]
@@ -147,6 +255,15 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "oc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
      "n0": {
       "followed": 5,
       "of": 5,
@@ -165,6 +282,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 1,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -172,6 +307,14 @@
       false
      ],
      "holds_pf": [
+      true,
+      true
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
       true,
       true
      ]
@@ -188,6 +331,15 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "oc": {
+      "followed": 3,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 3,
+      "readBefore": 5
+     },
      "n0": {
       "followed": 5,
       "of": 5,
@@ -206,8 +358,26 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
-     "lost": false,
-     "lostWithoutStopped": false,
+     "pfc": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 1,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 3,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 3,
+      "readBefore": 5
+     },
+     "lost": true,
+     "lostWithoutStopped": true,
      "reachedBy_pf": [
       false,
       false
@@ -215,7 +385,16 @@
      "holds_pf": [
       true,
       true
-     ]
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
+      true,
+      true
+     ],
+     "restoredBy": []
     },
     "R5": {
      "kind": "unloaded, counter-pattern",
@@ -227,6 +406,15 @@
       "stopped": 0,
       "statusWithoutStopped": "held",
       "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "oc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
       "readBefore": 5
      },
      "n0": {
@@ -247,6 +435,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 1,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 4
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -254,6 +460,14 @@
       true
      ],
      "holds_pf": [
+      true,
+      true
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
       true,
       true
      ]
@@ -268,6 +482,15 @@
       "stopped": 0,
       "statusWithoutStopped": "held",
       "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "oc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 3,
       "readBefore": 5
      },
      "n0": {
@@ -288,6 +511,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 1,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 3,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -295,6 +536,14 @@
       false
      ],
      "holds_pf": [
+      true,
+      true
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
       true,
       true
      ]
@@ -309,6 +558,15 @@
       "stopped": 0,
       "statusWithoutStopped": "held",
       "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "oc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
       "readBefore": 5
      },
      "n0": {
@@ -329,6 +587,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 1,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 2,
+      "readBefore": 4
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -336,6 +612,14 @@
       true
      ],
      "holds_pf": [
+      true,
+      true
+     ],
+     "holds_pfc": [
+      false,
+      false
+     ],
+     "holds_pfr": [
       true,
       true
      ]
@@ -354,6 +638,19 @@
      "stopped": 0,
      "webSessions": 5,
      "totalCostUsd": 15.783511670000001
+    },
+    "oc": {
+     "maxContextPerRequest": 161895,
+     "requests": 72,
+     "compactionPreTokens": 92128,
+     "compactionPostTokens": 14978,
+     "deliveredBytes": 2402,
+     "costUsd": 3.78951897,
+     "costSpread": 2.6657499850000006,
+     "tokensAll": 7348632,
+     "stopped": 0,
+     "webSessions": 5,
+     "totalCostUsd": 18.849121295
     },
     "n0": {
      "maxContextPerRequest": 206617,
@@ -380,6 +677,32 @@
      "stopped": 0,
      "webSessions": 5,
      "totalCostUsd": 41.110728949999995
+    },
+    "pfc": {
+     "maxContextPerRequest": 193965,
+     "requests": 115,
+     "compactionPreTokens": 98972,
+     "compactionPostTokens": 13550,
+     "deliveredBytes": 12389,
+     "costUsd": 7.115148599999998,
+     "costSpread": 4.697040425000001,
+     "tokensAll": 12851790,
+     "stopped": 1,
+     "webSessions": 5,
+     "totalCostUsd": 32.846228544999995
+    },
+    "pfr": {
+     "maxContextPerRequest": 316031,
+     "requests": 160,
+     "compactionPreTokens": 61258,
+     "compactionPostTokens": 14062,
+     "deliveredBytes": 12616,
+     "costUsd": 12.687592599999999,
+     "costSpread": 7.328098700000002,
+     "tokensAll": 21332167,
+     "stopped": 0,
+     "webSessions": 5,
+     "totalCostUsd": 56.592027999999985
     }
    }
   }

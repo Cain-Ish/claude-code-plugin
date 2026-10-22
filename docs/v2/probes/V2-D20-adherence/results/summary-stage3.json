@@ -10,7 +10,9 @@
     "v32": 5,
     "n0": 5,
     "p": 5,
-    "pf": 5
+    "pf": 5,
+    "pfc": 5,
+    "pfr": 5
    },
    "epochs": [
     "2.1.305 (Claude Code)"
@@ -82,6 +84,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_p": [
@@ -103,6 +123,14 @@
      "lostAtv32": [
       false,
       false
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
+      true,
+      true
      ]
     },
     "R2": {
@@ -171,6 +199,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 1,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_p": [
@@ -192,6 +238,14 @@
      "lostAtv32": [
       false,
       false
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
+      true,
+      true
      ]
     },
     "R3": {
@@ -260,6 +314,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_p": [
@@ -281,6 +353,14 @@
      "lostAtv32": [
       false,
       false
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
+      true,
+      true
      ]
     },
     "R4": {
@@ -349,6 +429,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_p": [
@@ -370,6 +468,14 @@
      "lostAtv32": [
       false,
       false
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
+      true,
+      true
      ]
     },
     "R5": {
@@ -438,6 +544,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_p": [
@@ -459,6 +583,14 @@
      "lostAtv32": [
       false,
       false
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
+      true,
+      true
      ]
     },
     "R6": {
@@ -527,6 +659,24 @@
       "keptInSummary": 0,
       "readBefore": 5
      },
+     "pfc": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "pfr": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_p": [
@@ -548,6 +698,14 @@
      "lostAtv32": [
       false,
       false
+     ],
+     "holds_pfc": [
+      true,
+      true
+     ],
+     "holds_pfr": [
+      true,
+      true
      ]
     }
    },
@@ -642,6 +800,32 @@
      "stopped": 0,
      "webSessions": 0,
      "totalCostUsd": 6.213149999999999
+    },
+    "pfc": {
+     "maxContextPerRequest": 89020,
+     "requests": 17,
+     "compactionPreTokens": 91651,
+     "compactionPostTokens": 11845,
+     "deliveredBytes": 4149,
+     "costUsd": 1.6262858000000004,
+     "costSpread": 0.43981500000000007,
+     "tokensAll": 1233806,
+     "stopped": 0,
+     "webSessions": 0,
+     "totalCostUsd": 8.280987999999999
+    },
+    "pfr": {
+     "maxContextPerRequest": 93624,
+     "requests": 16,
+     "compactionPreTokens": 80289,
+     "compactionPostTokens": 12156,
+     "deliveredBytes": 4376,
+     "costUsd": 1.6819972,
+     "costSpread": 0.44730320000000057,
+     "tokensAll": 1195698,
+     "stopped": 0,
+     "webSessions": 0,
+     "totalCostUsd": 8.572415000000001
     }
    }
   },

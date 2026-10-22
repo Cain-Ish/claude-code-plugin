@@ -2707,3 +2707,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       of what was read, which is its own check.
   - *Not tested here, named as a trigger for the lock:* a vague first prompt that only later turns into the build
     (Gemini's second check). It belongs in the first slice's eval, on symptom-style tasks.
+- **Forced route across a compaction, result (2026-10-22; [summary-stage3.json](probes/V2-D20-adherence/results/summary-stage3.json)
+  for P1, [summary-web.json](probes/V2-D20-adherence/results/summary-web.json) for P2): only `pfr` works on both
+  tasks.**
+  - *Runs:* 25 sessions, all valid, one epoch (CLI 2.1.305, Opus 5.5), 125.14 USD. In every session the index was
+    logged at startup and after the compaction, and the forced text once (`pfc`) or twice (`pfr`).
+  - *In scope (the rules `oc` holds):* P1: R1 and R3 to R6. P2: all but R4, which `oc` missed (3 of 5).
+  - *P1:* `pfc` and `pfr` hold every in-scope rule. R6 is 5 of 5 in each, against native's 0 of 5 (stage 3's `n`).
+  - *P2:*
+    - `pfr` holds every in-scope rule (R5 and R7 5 of 5, R6 4 of 5).
+    - `pfc` misses R7: 2 of 5, which is 2 of the 4 sessions that wrote anything. The fifth stopped, so both readings
+      agree.
+  - *The split (pre-registered) of `pfc`'s R7 misses:* one read before the compaction and not followed after it
+    (compaction loss), one never read in the main thread (the forced decision did not reach it), and one stopped
+    session. `pfr` had no in-scope miss. Its R4 misses (out of scope) are a rule Claude Code loads itself.
+  - *Cost against `oc` (D17's form):*
+    - P1: `pfr` 1.68 USD against 1.80 (spread 0.17), and 1.20M tokens against 1.41M. Not more.
+    - P2: `pfr` 12.69 against 3.79 (spread 2.67), and 21.3M tokens against 7.35M. **More by the rule**, about three
+      times. Its largest request was 316k tokens against 162k.
+    - `pfc` cost 7.12 USD in P2.
+  - *Consequence (registered):* only `pfr` works, so the route forces the decision again at the first prompt after
+    each compaction, and its tokens are the price. In P1 that price is nothing; in P2 it is about three times push.
