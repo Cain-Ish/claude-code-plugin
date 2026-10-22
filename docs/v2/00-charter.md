@@ -78,7 +78,7 @@ it has run.
 | Orientation | Tool calls and files read before the first correct file |
 | Cost | Tokens per task; always-on bytes per session |
 | Arrival | Every delivery channel proven by a nonce probe to reach the main session and subagents before it carries content |
-| Freshness | Zero stale claims delivered as current (mechanism: V2-D16, deterministic anchors) |
+| Freshness | Zero stale captured entries delivered as current (V2-D16: the re-find when a map file is read). A project document that is stale, or contradicts another, is the project's; the plugin does not detect it (2026-10-22) |
 
 **Test bed** (user, 2026-10-20). v1's own repo, P1 and P2 (two private repos, published here as numbers only) are
 tested as one combined example, each from a scratch clone. They hold three shapes of existing knowledge: no

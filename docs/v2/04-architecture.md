@@ -50,6 +50,10 @@ Node and git are present. A repo with no documents gets an empty index and an em
 - **Untested shapes.** Investigation tasks, a vague first prompt, several compactions, and an index past 45
   directories. These are D22's triggers.
 - **Subagents** do not see the index, since `SessionStart` reaches only the main session (D12).
+- **Stale documents.** Claude reads the project's documents as they are. A stale document that contradicts a binding
+  rule is not flagged: the volume check found 10 such entries in P2. D16 labels captured entries only.
+- **The index build at session start** (from git's file list) is unmeasured. The 16 to 45 ms measured so far delivered
+  a precomputed file. It is the first D18 measurement in the slice.
 - **Friction.** A forced decision at the session's first prompt and after each compaction. A new task in the same
   session gets none, which is untested. Both are measured in the first slice.
 - **Pattern rules on Opus.** P1 R2 was missed under every pull arm and under a self-review; only a hand-written check

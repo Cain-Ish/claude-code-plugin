@@ -87,3 +87,14 @@ Stage 3's three turns (investigate, `/compact`, make the change), Opus 5.5. Comp
 | Median tokens, `oc` / `pfr` | 1.41M / 1.20M | 7.35M / 21.3M |
 
 D22 locked on `pfr` (DECISIONS.md, V2-D22).
+
+## Counts that ruled routes out before any session (2026-10-22)
+
+- **Path-keyed pointer at the write** (attempt 3): [`pathkey.mjs`](pathkey.mjs) holds the keying rule K, its
+  self-test, the hook and the count ([`results/pathkey-count.json`](results/pathkey-count.json)). The rule
+  documents never name the code paths written: sources were named in 0 of 34 and 2 of 30 sessions.
+- **High-recall push:** `route.mjs highrecall` (the section pick) and `phcards`
+  ([`results/highrecall-count.json`](results/highrecall-count.json)). No pick held every holdable card. The sections
+  a pick names far exceed 32 KB.
+- **Conversion branches against raw documents** (D15's re-decision): [`branchcount.mjs`](branchcount.mjs). The
+  branches came to 0.91 of the raw bytes the P2 sessions read (bar 0.50).

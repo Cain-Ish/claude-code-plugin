@@ -2984,7 +2984,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       where they are; captured knowledge joins them in the same plain files."
     - **D18, recorded change, no trigger.** `SessionStart` carries the index beside the 904-byte capture
       instruction, on `startup` and `compact`. `UserPromptSubmit` carries the forced text (227 bytes). The index
-      hook ran in 16 to 45 ms. `PostToolUse` after a Read stays free for the guards.
+      hook ran in 16 to 45 ms, delivering a precomputed file. Building the index from git's file list at session start
+      is unmeasured, and it is the first D18 measurement in the first slice. `PostToolUse` after a Read stays free for the guards.
     - **D14 and D16.** Their guard sat on pushed entries. Under the route Claude reads files directly. Marking an
       uncommitted captured file as unreviewed moves to `PostToolUse` after a Read of a map file (Gemini's
       suggestion, in D18's existing slot). That is for the architecture step.

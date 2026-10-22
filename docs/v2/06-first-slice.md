@@ -33,7 +33,7 @@ Not in the skeleton:
 | --- | --- | --- |
 | Always-on bytes per session | 904 B plus the index; an index past 6 KB (P2's size) is measured before it ships | D13 re-locked, D22 |
 | Bytes per forced decision | 227 B, at most once per epoch (the session's start, then after each compaction) | D22 |
-| Added hook p95 at 8 concurrent sessions, Windows | at most 100 ms per hook | D18 |
+| Added hook p95 at 8 concurrent sessions, Windows | at most 100 ms per hook; the index build from git's file list at session start is measured first (unmeasured so far) | D18 |
 | Processes per hook event | 1 Node process; hooks spawn only `git` | D18 |
 | Product lines (hooks, library, command; not tests or the harness) | at most 600 | D18's runtime prototype: 331 lines covering the guards, cache and labels |
 | Surfaces | 3 hook events, 1 command, 0 agents, 0 MCP servers, 0 skills | D18, PM6 |

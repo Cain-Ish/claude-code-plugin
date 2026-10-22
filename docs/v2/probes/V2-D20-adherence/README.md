@@ -193,3 +193,29 @@ per arm. The check and its result are in [`DECISIONS.md`](../../DECISIONS.md) un
 
 Run: `node native.mjs run <config> <task> 5 1 <n|o0|oc>`, then `revalidate` per task and arm after the turn-count
 correction, then `summary3`.
+
+## Later arms on this harness (2026-10-22)
+
+The same harness ran D22's pull and volume checks and D20's net check. Every two-turn and three-turn arm writes to
+the private config's output folder, and `summary3` counts them. [`results/summary-stage3.json`](results/summary-stage3.json)
+holds the web-off configs, and [`results/summary-web.json`](results/summary-web.json) the web-on re-run, which
+`cfg.web` and `cfg.outDir` select.
+
+| Arm | What it adds to the session | Decision |
+| --- | --- | --- |
+| `v8`, `v32` | the binding cards plus a word-matching selector's false positives, to 8 or 32 KB, in hook chunks | D22 volume |
+| `n0` | native, two turns, no compaction | D22 pull |
+| `p`, `pf` | the document index from session start; `pf` adds the forced decision at the first prompt | D22 pull |
+| `pfc`, `pfr` | the index again after `/compact`; `pfr` forces the decision again after it | D22 lock |
+| `pfrs` | `pfr` plus a self-review at the first `Stop` after changes, with no checks | D20 net |
+| `pfro` | `pfr` plus R2's hand-written check fed back after writes and at `Stop` | D20 net |
+| `ph` | a high-recall section pick pushed up to 32 KB (built, not run: ruled out by count) | D22 |
+
+Also here:
+- [`split.mjs`](split.mjs): sorts each miss into read before the compaction, after it, never read, loaded by Claude
+  Code, or stopped.
+- [`genchecks.mjs`](genchecks.mjs): model-written checks scored against the pattern rules' samples
+  ([`results/genchecks.json`](results/genchecks.json): 6 of 17 caught).
+
+Session tokens count all turns and subagents (the last result's `modelUsage`), since the token correction of
+2026-10-22. Results and their registrations are in [DECISIONS.md](../../DECISIONS.md) under V2-D20 and V2-D22.
