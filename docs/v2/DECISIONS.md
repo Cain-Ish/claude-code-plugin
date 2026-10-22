@@ -27,7 +27,9 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | BLOCKED 2026-10-22 (attempt 2; up a level to the user) | evidence | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): no OPEN decision has all its parents LOCKED except D19, which waits on D22. **D21 is BLOCKED**
+Frontier (rule 6): **D19** (measurement at scale; parents D10 and D17 LOCKED). Its native arm already ran (D20 stage
+1). The auto-memory arm, a pilot and the thresholds remain, and only its v2 arm waits on D22. Its draft measure
+"duplicates checked against an inventory" now takes D21's judge method, since no inventory is generated. **D21 is BLOCKED**
 (2026-10-22, attempt 2) and goes up a level to the user. Claude duplicated no file in 36 runs, and a path inventory
 did not stop the duplication that did occur, below file level. The user places that duplication (a project rule or
 code review) and decides what onboarding maps in a repo with no documents. **D22 is BLOCKED** until the user ticks the
