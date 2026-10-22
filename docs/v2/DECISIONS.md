@@ -15,7 +15,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
-| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20 | evidence | — |
+| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED 2026-10-22 (its trigger: interactive sessions; cell in D20 stage 3) | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21 | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block) | evidence | D13 |
@@ -23,21 +23,16 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
-| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21 | evidence | D12, D17 |
+| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED 2026-10-22 (rule 9, rethink 2; stage 3) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how do the entries that bind a task reach Claude without a hand-made list, within 8 KB? | BLOCKED 2026-10-21 (budget and route to the user) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): every decision but **D22** is LOCKED (D19 on 2026-10-22: scenario A2 and its thresholds in
-`05-eval-plan.md`). **D22 is BLOCKED** until the user ticks the checklists in `research/raw/d22/validate/`; its
-existing runs are then re-scored. Step 14 (architecture, eval plan, first slice) waits on D22, since selection is
-part of the architecture. Targets for the gaps of D17's rule in A1 and A2 are the user's call.
-**Rethink 2 (2026-10-22, [research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md))**:
-- The probes measured single tasks. The user's real sessions fill most of the window and are compacted in 7 of 11.
-  So D19's context measure answered the wrong question, and D20's prompt-time delivery is shown only for one
-  prompt.
-- D12's trigger fired: the design depends on interactive sessions, on another model.
-- It names the next check: one long session across a compaction, by delivery path. It also adds untested options
-  to D22. No locked record changes until the user has read it.
+Frontier (rule 6): **D20 stage 3**, the session check (pre-registered 2026-10-22). D20 and D12 were reopened on
+2026-10-22 after rethink 2 ([research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md)): the probes
+measured single tasks, while the user's real sessions fill most of the window and compacted in 7 of 11. D19 stays
+LOCKED, but its context measure is reset; this check supplies the session-level numbers its re-lock needs. **D22 is
+BLOCKED** until the user ticks the checklists in `research/raw/d22/validate/`; rethink 2 adds untested options to
+it. Step 14 waits on D20 and D22. Targets for the gaps of D17's rule in A1 and A2 are the user's call.
 
 ---
 
@@ -249,6 +244,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Reopen if:** a Claude Code release changes how `CLAUDE.md`, rules, skills, hooks or MCP instructions load
   (PM8); or a design depends on a context not probed here (an interactive session, another model, auto memory at
   its default location). Attempts: 0.
+- **Reopened 2026-10-22 (its trigger fired).** The user's working sessions are interactive, last for hours, run on
+  Opus 5.5 and Fable 5.1, and compacted in 7 of 11 ([research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md)).
+  The interactive-session cell is measured by D20's stage 3: prompt-time delivery across a compaction, on the user's
+  model, and re-delivery by the session-start hook on `compact`. The arrival results above stand.
 - **Evidence so far (documented, not yet probed):** research/2026-10-19-platform-memory-channels.md (Explore and Plan
   skip `CLAUDE.md`; path rules reach every agent type on file touch but are not re-injected after compaction; hook
   context above 10,000 chars becomes a file preview). Path rules may arrive after planning has started (Ultimate
@@ -1698,6 +1697,84 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     were fed back as the checks.
 
   Attempts: 0.
+- **Reopened 2026-10-22 (rule 9; [research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md)).**
+  - Stages 1 and 2 ran one prompt per session.
+  - The user's working sessions run for hours and compacted in 7 of 11. Compaction summarises hook output (D12; the
+    context-window docs), and compactors keep about 17% of injected constraints in the literature.
+  - So "delivered at prompt arrival" is shown only where the prompt sits next to the write. D12's own trigger fired
+    for the same reason: the design depends on interactive sessions, on another model. The user agreed to the
+    session check on 2026-10-22.
+- **Stage 3 check (pre-registered 2026-10-22, before any stage 3 run or harness change):**
+  - *Question.* Do the rules delivered when a task's prompt arrives still bind the work after a compaction between
+    that prompt and the writes? If not, which re-delivery restores them?
+  - *Session shape.* One session, three turns, through D12's multi-turn method (stream-json input, each turn sent
+    after the previous result):
+    1. the task's prompt, followed by: "Before changing anything, investigate what this task needs and report what
+       you found. Do not create or edit any file yet.";
+    2. `/compact` (arms with compaction only);
+    3. "Now make the change."
+
+    The second turn imitates the automatic compaction of a long session; the third imitates work resuming after
+    it.
+  - *Setup.* D20's harness (`native.mjs`) and cards, stage 2's corrected checks, Bash and the web off, the pinned
+    commits.
+    - Model: the user's, Opus 5.5 (`claude-opus-5-5`), on every turn.
+    - Tasks: P1's and P2's build tasks, which hold the four rules native never follows (P1 R6; P2 R5, R6 and R7).
+      Stage 2's delivery fixed all four.
+    - The config is private, in `research/raw/`, with its own output folder, so stages 1 and 2 stay untouched.
+  - *Arms, stage 1:*
+    - `n`: native, with the compaction.
+    - `o0`: the task's cards delivered once, at the first prompt, with no compaction.
+    - `oc`: the same, with the compaction.
+
+    "Once" means the prompt hook delivers only when its log holds no earlier prompt delivery. The pre-write deny
+    and the checks are off.
+  - *Runs.* A Haiku smoke of `oc` first. Then one Opus pilot of `oc` per task, with its cost. Then 5 runs per arm
+    and task, 30 sessions in all.
+    - Above 25 USD projected (stages 1 and 2 together), the user is asked first, with these fallbacks: one task,
+      3 runs per arm, or Sonnet 5.5 with the model named as the limit.
+  - *Valid session:*
+    - every turn ends in success, on the pinned model;
+    - no Write or Edit before the first turn's result. A write in the investigation turn voids the session;
+      replaced up to 2 per arm and task;
+    - a compaction boundary in `n` and `oc`, none in `o0`;
+    - exactly one prompt delivery in `o0` and `oc`;
+    - the session-start instruction load logged, as in D20.
+  - *Outcome per rule, D20's rule:* missed if it fails its check in 2 or more of 5 runs; held if in at most 1.
+    - A rule is *lost* if `o0` holds it and `oc` misses it.
+    - Rules `o0` already misses (the two-turn shape or the model) are reported and left out of the comparison.
+  - *Decision, stage 1:*
+    - **No rule lost:** prompt-time delivery survived a compaction in this shape. Stage 2 is not run. D20 re-locks
+      with this shape tested and a new trigger: "a rule lost after a compaction in real use or the first slice's
+      eval".
+    - **A rule lost:** compaction drops delivered rules, and stage 2 runs.
+  - *Stage 2, run only on the task(s) with a lost rule, 5 runs per arm, each arm starting from `oc`.* What each path
+    can reach is written now, so a partial recovery is not read as a full one:
+    - `r`: the cards re-delivered by the session-start hook on `compact`, whose arrival D12 showed. It can reach
+      every lost rule.
+    - `d`: the design as it stands. The pattern checks are fed back after writes and at `Stop`. It can reach only
+      pattern rules (P1 R2; P2 R5 and R6), not judgment rules (P1 R6; P2 R7).
+    - `w`, the pre-write deny D18 dropped, runs only if `r` and `d` together leave a judgment rule missed.
+    - A path restores a lost rule if it holds there. D20's mechanism then adds the cheapest path that restores
+      every lost rule it can reach.
+    - A lost rule that no path restores goes up a level (rule 4).
+  - *Asymmetry, written now.* Two things in this shape favour survival:
+    - the first turn asks Claude to report what it found, which may write the rules into its reply;
+    - a forced compaction at this size is gentler than the user's real ones, which summarise 220k to 840k tokens
+      into 11k to 29k.
+
+    So survival is weak evidence (an upper bound), and a loss is decisive.
+  - *Measures per session:*
+    - each rule's check on the final files and at the first write;
+    - the context of each request (the largest of a message's API calls), requests per session, delivered bytes;
+    - the compaction's size before and after;
+    - tokens and USD.
+
+    Reported, not counted: whether each rule appears in the compaction summary, read from the session transcript.
+    This is a lower bound: it looks for the rule's id, its source path or its mark. Summaries hold private task
+    text, so they stay local and only counts are published.
+  - *Not tested here:* a filled context without compaction (dilution; expensive at these sizes), Fable 5.1, Bash on,
+    subagents, and selection (the cards are still the oracle).
 - **Revised draft (2026-10-20, test bed):** real deployments deliver rules converted from what a repo already has,
   so the delivered rules are not written for the probe. For one task per test-bed repo (P1 first, as the pilot, with
   its cost reported before the rest), the rules that bind it are hand-converted from the repo's own rule files and
