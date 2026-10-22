@@ -1,0 +1,682 @@
+{
+  "plan": "../../05-eval-plan.md",
+  "runs": [
+    {
+      "arm": "M0",
+      "run": 1,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.1648118,
+          "inputTokens": 8,
+          "outputTokens": 3690,
+          "cacheReadTokens": 81019,
+          "cacheWriteTokens": 9347,
+          "turns": 12,
+          "durationMs": 31492
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0907624,
+          "inputTokens": 8,
+          "outputTokens": 1524,
+          "cacheReadTokens": 80612,
+          "cacheWriteTokens": 5516,
+          "turns": 8,
+          "durationMs": 15448
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 9,
+        "filesReadBeforeFirstWrite": 8
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2555742,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 2,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.18361680000000002,
+          "inputTokens": 10,
+          "outputTokens": 4180,
+          "cacheReadTokens": 107924,
+          "cacheWriteTokens": 9799,
+          "turns": 16,
+          "durationMs": 41451
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0894616,
+          "inputTokens": 8,
+          "outputTokens": 1480,
+          "cacheReadTokens": 80628,
+          "cacheWriteTokens": 5463,
+          "turns": 8,
+          "durationMs": 14379
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 14,
+        "filesReadBeforeFirstWrite": 13
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.27307840000000005,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 3,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.17426060000000002,
+          "inputTokens": 12,
+          "outputTokens": 3636,
+          "cacheReadTokens": 131303,
+          "cacheWriteTokens": 9404,
+          "turns": 13,
+          "durationMs": 33476
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.09013020000000001,
+          "inputTokens": 8,
+          "outputTokens": 1496,
+          "cacheReadTokens": 80611,
+          "cacheWriteTokens": 5507,
+          "turns": 8,
+          "durationMs": 18161
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 10,
+        "filesReadBeforeFirstWrite": 8
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.26439080000000004,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 4,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.16690419999999997,
+          "inputTokens": 10,
+          "outputTokens": 3743,
+          "cacheReadTokens": 106821,
+          "cacheWriteTokens": 8830,
+          "turns": 14,
+          "durationMs": 32623
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.09185000000000001,
+          "inputTokens": 8,
+          "outputTokens": 1579,
+          "cacheReadTokens": 80590,
+          "cacheWriteTokens": 5515,
+          "turns": 8,
+          "durationMs": 15685
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 11,
+        "filesReadBeforeFirstWrite": 10
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2587542,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 5,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.1611124,
+          "inputTokens": 10,
+          "outputTokens": 3471,
+          "cacheReadTokens": 107582,
+          "cacheWriteTokens": 8767,
+          "turns": 14,
+          "durationMs": 30035
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0889582,
+          "inputTokens": 8,
+          "outputTokens": 1454,
+          "cacheReadTokens": 80591,
+          "cacheWriteTokens": 5466,
+          "turns": 8,
+          "durationMs": 17886
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 12,
+        "filesReadBeforeFirstWrite": 11
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2500706,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 6,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.1595284,
+          "inputTokens": 8,
+          "outputTokens": 3719,
+          "cacheReadTokens": 82222,
+          "cacheWriteTokens": 8584,
+          "turns": 13,
+          "durationMs": 39805
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.10094299999999999,
+          "inputTokens": 10,
+          "outputTokens": 1584,
+          "cacheReadTokens": 103675,
+          "cacheWriteTokens": 6061,
+          "turns": 9,
+          "durationMs": 17090
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 10,
+        "filesReadBeforeFirstWrite": 9
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.26047139999999996,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 7,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.1770716,
+          "inputTokens": 10,
+          "outputTokens": 4101,
+          "cacheReadTokens": 106978,
+          "cacheWriteTokens": 9202,
+          "turns": 14,
+          "durationMs": 40619
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.09780120000000002,
+          "inputTokens": 8,
+          "outputTokens": 1614,
+          "cacheReadTokens": 81246,
+          "cacheWriteTokens": 6155,
+          "turns": 9,
+          "durationMs": 15611
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 11,
+        "filesReadBeforeFirstWrite": 10
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.27487280000000003,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 8,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.1661098,
+          "inputTokens": 10,
+          "outputTokens": 3682,
+          "cacheReadTokens": 105949,
+          "cacheWriteTokens": 8905,
+          "turns": 14,
+          "durationMs": 32806
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0890876,
+          "inputTokens": 8,
+          "outputTokens": 1460,
+          "cacheReadTokens": 80598,
+          "cacheWriteTokens": 5467,
+          "turns": 8,
+          "durationMs": 16919
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 11,
+        "filesReadBeforeFirstWrite": 10
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2551974,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 9,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.1623538,
+          "inputTokens": 10,
+          "outputTokens": 3591,
+          "cacheReadTokens": 105909,
+          "cacheWriteTokens": 8664,
+          "turns": 13,
+          "durationMs": 32221
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.0897116,
+          "inputTokens": 8,
+          "outputTokens": 1479,
+          "cacheReadTokens": 80618,
+          "cacheWriteTokens": 5497,
+          "turns": 8,
+          "durationMs": 15376
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": false,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 11,
+        "filesReadBeforeFirstWrite": 10
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2520654,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    },
+    {
+      "arm": "M0",
+      "run": 10,
+      "date": "2026-10-22",
+      "invalid": [],
+      "sessions": {
+        "T": {
+          "memoryWrites": 0,
+          "costUsd": 0.1750302,
+          "inputTokens": 10,
+          "outputTokens": 4036,
+          "cacheReadTokens": 107631,
+          "cacheWriteTokens": 9093,
+          "turns": 14,
+          "durationMs": 41172
+        },
+        "N": {
+          "memoryWrites": 0,
+          "costUsd": 0.08515920000000002,
+          "inputTokens": 8,
+          "outputTokens": 1372,
+          "cacheReadTokens": 80316,
+          "cacheWriteTokens": 5203,
+          "turns": 7,
+          "durationMs": 13663
+        }
+      },
+      "capture": null,
+      "test": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false,
+        "T5": false
+      },
+      "testAtFirstWrite": {
+        "T1": true,
+        "T2": true,
+        "T3": false,
+        "T4": false
+      },
+      "neighbour": {
+        "N1": false,
+        "N2": true,
+        "N3": true
+      },
+      "orientation": {
+        "toolCallsBeforeFirstWrite": 11,
+        "filesReadBeforeFirstWrite": 10
+      },
+      "alwaysOnBytes": 0,
+      "newFiles": {
+        "T": [
+          "src/components/UserAvatar/index.ts",
+          "src/components/UserAvatar/UserAvatar.tsx"
+        ],
+        "N": [
+          "src/components/ProductImage.tsx"
+        ]
+      },
+      "costUsd": 0.2601894,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb"
+      }
+    }
+  ]
+}
