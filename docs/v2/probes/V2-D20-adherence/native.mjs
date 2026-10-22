@@ -73,12 +73,13 @@ const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
   if (['a', 'm', 'n', 'n0'].includes(arm)) return {};
-  if (['p', 'pf'].includes(arm)) { // V2-D22 pull: the documents' index with Vercel's instruction, always on from session start
+  if (['p', 'pf', 'pfc', 'pfr'].includes(arm)) { // V2-D22 pull: the documents' index with Vercel's instruction, always on from session start
     const hook = path.join('..', 'V2-D21-inventory', 'inventory-hook.mjs');
     fs.copyFileSync(task.index, path.join(base, 'inventory.txt'));
-    if (arm === 'pf') fs.writeFileSync(path.join(base, 'force.txt'), FORCE); // attempt 2: a forced decision, once
-    return { SessionStart: [{ matcher: 'startup', hooks: [nodeHook(hook, base)] }],
-      ...(arm === 'pf' ? { UserPromptSubmit: [{ hooks: [nodeHook(hook, base, 'force.txt')] }] } : {}) };
+    if (arm !== 'p') fs.writeFileSync(path.join(base, 'force.txt'), FORCE); // attempt 2: a forced decision, once
+    // pfc, pfr: the index again after a compaction; pfr: the forced text again at the first prompt after it
+    return { SessionStart: [{ matcher: SESSION[arm] ? 'startup|compact' : 'startup', hooks: [nodeHook(hook, base)] }],
+      ...(arm !== 'p' ? { UserPromptSubmit: [{ hooks: [nodeHook(hook, base, 'force.txt', ...(arm === 'pfr' ? ['epoch'] : []))] }] } : {}) };
   }
   if (arm.startsWith('r')) { // V2-D22, the user's route (r: run 2, r3: keyed to the file read): push, then on read
     fs.copyFileSync(task.route, path.join(base, 'route.json'));
@@ -144,8 +145,8 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 }
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
-const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false };
-const NO_CARDS = ['n', 'n0', 'p', 'pf']; // session arms that push no rule card
+const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false, pfc: true, pfr: true };
+const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr']; // session arms that push no rule card
 // V2-D22 pull, attempt 2: fixed before it ran (DECISIONS.md)
 const FORCE = 'Before you start: for each directory in this project\'s document index, state in one line whether its '
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
@@ -343,8 +344,10 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   if (ev.slice(0, first).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
   if (!!boundary !== compact) invalid.push(compact ? 'no compaction' : 'compacted');
   if (!NO_CARDS.includes(arm) && prompts !== expected) invalid.push(`${prompts} prompt deliveries`);
-  if (['p', 'pf'].includes(arm) && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory)) invalid.push('index not delivered at session start');
-  if (arm === 'pf' && f.deliveries.filter((d) => d.ev === 'UserPromptSubmit' && d.text).length !== 1) invalid.push('forced text not delivered once at the first prompt');
+  if (['p', 'pf', 'pfc', 'pfr'].includes(arm) && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory)) invalid.push('index not delivered at session start');
+  if (['pfc', 'pfr'].includes(arm) && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory && d.source === 'compact')) invalid.push('index not delivered after the compaction');
+  const forced = f.deliveries.filter((d) => d.ev === 'UserPromptSubmit' && d.text).length;
+  if (['pf', 'pfc', 'pfr'].includes(arm) && forced !== (arm === 'pfr' ? 2 : 1)) invalid.push(`forced text delivered ${forced} times`);
   if (models.some((m) => !m.startsWith(model))) invalid.push(`ran on ${models}`);
   // the web smoke: WebSearch is listed in the main session; WebFetch is reached through a fetch subagent on this CLI
   if (cfg.web && !f.init?.tools?.includes('WebSearch')) invalid.push('web search not listed');
@@ -619,6 +622,8 @@ if (mode === 'checks') {
           row[`holds_${a}`] = [row.o0?.status !== 'held' || row[a].status === 'held', row.o0?.statusWithoutStopped !== 'held' || row[a].statusWithoutStopped === 'held'];
         }
         for (const v of ['v8', 'v32']) if (row[v]) row[`lostAt${v}`] = [row.o0?.status === 'held' && row[v].status === 'missed', row.o0?.statusWithoutStopped === 'held' && row[v].statusWithoutStopped === 'missed'];
+        // V2-D22 forced route across a compaction: holds what oc (push, compacted) holds ([as registered, without stopped])
+        for (const a of ['pfc', 'pfr']) if (row[a]) row[`holds_${a}`] = [row.oc?.status !== 'held' || row[a].status === 'held', row.oc?.statusWithoutStopped !== 'held' || row[a].statusWithoutStopped === 'held'];
         if (row.lost || row.lostWithoutStopped) row.restoredBy = ['or', 'od', 'ow'].filter((a) => row[a]?.status === 'held');
         return [rule.id, row];
       })),
