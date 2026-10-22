@@ -1689,6 +1689,40 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - the one run that searched for it found it and imported it;
     - no card delivered in stage 2 named it;
     - the repo's own post-write hooks fired 12 to 38 times per run and flagged nothing.
+- **Check, part 2 = attempt 2 (pre-registered 2026-10-22, before any part 2 run or read).** On the duplicating task
+  only; P2 and R0 are not widened to.
+  - *(c), by record and a read, no run.* The hooks' silence is already seen, so (c) cannot be registered and then
+    observed. It holds the duplicate only if a check the repo configures at the pinned commit would report a local
+    constant that re-declares a value another module exports: a hook in its settings and the script it runs, a rule
+    in its lint config (its own rules included), or a test. Read: the settings' hooks and their scripts, the lint
+    config and the custom lint rules. A rule against bare numbers does not count, since the runs wrote a named
+    constant; whether the repo's number rule exempts named constants is read in its config, not assumed. Nothing is
+    installed, so no linter runs (npm on this machine is the user's open action); the hooks that did run are the
+    evidence.
+  - *(b), by 5 runs.* D20's harness (`native.mjs`, arm `i`; Sonnet 5.5, Bash and the web off, the task's pinned
+    commit) with one change: `inventory-hook.mjs` delivers a precomputed inventory when the prompt arrives.
+    - The inventory (`inventory.mjs`): `git ls-tree` at the commit, the files under each package's source folder,
+      grouped by directory with their names: 342 files, 32 directories, 5,737 bytes. That is within D13's 8 KB and
+      the 10,000-character hook limit, and it names the file that holds the original.
+    - Its scope was chosen by hand, knowing where the original lives. It is the most favourable inventory within
+      budget, so a pass is an upper bound and a fail is decisive for (b).
+    - Score, per run, deterministic (`reuse.mjs`, names from the private config): the new component imports the
+      name from the shared module, uses it, and declares no local constant for the value; anything else is a
+      duplicate. Validated before this was written on the 11 runs of part 1: it agrees with the judge on all 11 (10
+      duplicates, 1 reuse).
+    - *Pass:* a duplicate in at most 1 of 5 runs, against native's 4 of 5 and arm b's 5 of 5. Invalid runs (D20's
+      rules, plus the inventory delivered at prompt) are replaced, up to 2.
+  - *Consequences, written now:*
+    - (c) holds and (b) fails: (c) is the candidate, and its lock waits for a check that the repo's tool, fed back
+      after the write, fixes the duplicate.
+    - (b) passes: a surprise. Before any lock, its bytes are recorded against D13's budget and prior-and-SOTA rule
+      1, and a further check must show the inventory's scope chosen without knowing the answer.
+    - Both fail: no option of this record remains (the parser and the overview are rejected by citation), so D21
+      goes up a level without a third attempt (rule 4). It becomes BLOCKED and names the assumption that failed:
+      that an inventory of what exists (files, components, scripts) is what stops duplication. No file was
+      duplicated in 36 runs on three stacks. The kind that occurred lies below file level, driven by a number in the
+      task and a sibling that re-declares it: a fact about where a value lives. That is map-shaped (D13, D15, D14)
+      or check-shaped (D20), and the reopened question is named, not chosen.
 
 ### V2-D22 — Selection
 - **Question (split from D13, 2026-10-21):** how do the entries that bind a task reach Claude, without a hand-made

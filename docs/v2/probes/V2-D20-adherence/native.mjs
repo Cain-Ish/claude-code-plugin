@@ -68,7 +68,11 @@ function armHooks(base) {
     const h = { hooks: [nodeHook(path.join('..', 'V2-D22-selection', 'onread.mjs'), base)] };
     return { UserPromptSubmit: [h], PostToolUse: [{ matcher: 'Read', ...h }] };
   }
-  const d = { hooks: [nodeHook('deliver.mjs', base)] };
+  if (arm === 'i') { // V2-D21 (b): a path inventory, precomputed, delivered as it is when the prompt arrives
+    fs.copyFileSync(task.inventory, path.join(base, 'inventory.txt'));
+    return { UserPromptSubmit: [{ hooks: [nodeHook(path.join('..', 'V2-D21-inventory', 'inventory-hook.mjs'), base)] }] };
+  }
+  const d ={ hooks: [nodeHook('deliver.mjs', base)] };
   const writes = { matcher: 'Write|Edit|MultiEdit', ...d };
   fs.writeFileSync(path.join(base, 'cards.json'), JSON.stringify({ arm,
     cards: task.rules.map((r) => ({ id: r.id, ...r.card, check: r.check })) }, null, 1));
@@ -175,7 +179,8 @@ function runOnce(i, model = cfg.model) {
   if (!r || r.subtype !== 'success' || r.is_error) rec.invalid.push('no success result');
   if (f.init?.model && !f.init.model.startsWith(model)) rec.invalid.push(`ran on ${f.init.model}`);
   const byEv = (e) => f.deliveries.filter((d) => d.ev === e);
-  if (arm !== 'a' && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
+  if (arm === 'i' && !byEv('UserPromptSubmit').some((d) => d.inventory)) rec.invalid.push('inventory not delivered at prompt');
+  if (!['a', 'i'].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
   if (arm === 'd' && !byEv('Stop').length) rec.invalid.push('no Stop hook call');
   rec.delivery = { denies: byEv('PreToolUse').filter((d) => d.cards).length, checkFeedback: byEv('PostToolUse').filter((d) => d.cards).length,
     stopFailing: byEv('Stop')[0]?.cards ?? null, accountHeading, hookMs: f.deliveries.map((d) => d.ms),
