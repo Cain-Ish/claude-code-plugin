@@ -31,6 +31,12 @@ Frontier (rule 6): every decision but **D22** is LOCKED (D19 on 2026-10-22: scen
 `05-eval-plan.md`). **D22 is BLOCKED** until the user ticks the checklists in `research/raw/d22/validate/`; its
 existing runs are then re-scored. Step 14 (architecture, eval plan, first slice) waits on D22, since selection is
 part of the architecture. Targets for the gaps of D17's rule in A1 and A2 are the user's call.
+**Rethink 2 (2026-10-22, [research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md))**:
+- The probes measured single tasks. The user's real sessions fill most of the window and are compacted in 7 of 11.
+  So D19's context measure answered the wrong question, and D20's prompt-time delivery holds only for one prompt.
+- D12's trigger fired: the design depends on interactive sessions, on another model.
+- It names the next check: one long session across a compaction, by delivery path. It also adds untested options
+  to D22. No locked record changes until the user has read it.
 
 ---
 
