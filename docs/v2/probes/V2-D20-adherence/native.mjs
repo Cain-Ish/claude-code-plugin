@@ -65,7 +65,11 @@ const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path
 
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
-  if (['a', 'm', 'n'].includes(arm)) return {};
+  if (['a', 'm', 'n', 'n0'].includes(arm)) return {};
+  if (arm === 'p') { // V2-D22 pull: the documents' index with Vercel's instruction, always on from session start
+    fs.copyFileSync(task.index, path.join(base, 'inventory.txt'));
+    return { SessionStart: [{ matcher: 'startup', hooks: [nodeHook(path.join('..', 'V2-D21-inventory', 'inventory-hook.mjs'), base)] }] };
+  }
   if (arm.startsWith('r')) { // V2-D22, the user's route (r: run 2, r3: keyed to the file read): push, then on read
     fs.copyFileSync(task.route, path.join(base, 'route.json'));
     const h = { hooks: [nodeHook(path.join('..', 'V2-D22-selection', 'onread.mjs'), base)] };
@@ -117,7 +121,8 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 }
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
-const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false };
+const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false };
+const NO_CARDS = ['n', 'n0', 'p']; // session arms that push no rule card
 const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, investigate what this task needs and `
   + 'report what you found. Do not create or edit any file yet.', ...(compact ? ['/compact'] : []), 'Now make the change.'];
 function claudeTurns(cwd, turns, model, raw) {
@@ -257,7 +262,7 @@ async function runOnce(i, model = cfg.model) {
   }
   if (compact !== undefined) rec.session = sessionFacts(ev, f, model, compact, rec.invalid, chunksOf(base));
   if (arm.startsWith('v')) ({ positions: rec.positions, delivered: rec.delivered } = JSON.parse(fs.readFileSync(path.join(base, 'cards.json'), 'utf8')));
-  if (!['a', 'i', 'm', 'n'].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
+  if (!['a', 'i', 'm', ...NO_CARDS].includes(arm) && !task.rules.every((x) => byEv('UserPromptSubmit').some((d) => d.cards?.includes(x.id)))) rec.invalid.push('cards not delivered at prompt');
   if (arm === 'd' && !byEv('Stop').length) rec.invalid.push('no Stop hook call');
   rec.delivery = { denies: byEv('PreToolUse').filter((d) => d.cards).length, checkFeedback: byEv('PostToolUse').filter((d) => d.cards).length,
     stopFailing: byEv('Stop')[0]?.cards ?? null, accountHeading, hookMs: f.deliveries.map((d) => d.ms),
@@ -310,7 +315,8 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   if (results.length < (compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
   if (ev.slice(0, first).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
   if (!!boundary !== compact) invalid.push(compact ? 'no compaction' : 'compacted');
-  if (arm !== 'n' && prompts !== expected) invalid.push(`${prompts} prompt deliveries`);
+  if (!NO_CARDS.includes(arm) && prompts !== expected) invalid.push(`${prompts} prompt deliveries`);
+  if (arm === 'p' && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory)) invalid.push('index not delivered at session start');
   if (models.some((m) => !m.startsWith(model))) invalid.push(`ran on ${models}`);
   const ctx = (u) => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
   const seen = new Map();
@@ -361,6 +367,8 @@ if (mode === 'checks') {
   // arm m: the memory index arrived if Claude quotes its first line without opening it (V2-D19's pre-registered smoke)
   // arms v*: every chunk arrived if Claude names the last card of the last chunk without a tool (V2-D22 volume smoke)
   if (arm.startsWith('v')) task.prompt = 'Without using any tool, reply with only the id of the last project rule listed in your context, then stop.';
+  // arm p: the index arrived if Claude quotes its first sentence without a tool (V2-D22 pull smoke)
+  if (arm === 'p') task.prompt = 'Without using any tool, quote the sentence in your context that begins "IMPORTANT: Prefer retrieval-led", then stop.';
   if (arm === 'm') task.prompt = 'Without using any tool, quote the first line of your auto memory index verbatim. Then create a file named smoke-note.md in the repository root containing the single word ok.';
   const { rec, f } = await runOnce(0, cfg.smokeModel ?? 'claude-haiku-5-5');
   task.prompt = saved;
@@ -564,11 +572,18 @@ if (mode === 'checks') {
           const wrote = rs.filter((r) => r.changed?.length);
           row[a] = { followed: rs.filter((r) => r.rules[rule.id].final).length, of: rs.length, status: status(rs, rule.id),
             stopped: rs.length - wrote.length, statusWithoutStopped: wrote.length && wrote.filter((r) => !r.rules[rule.id].final).length >= 2 ? 'missed' : wrote.length ? 'held' : null,
-            keptInSummary: rs.filter((r) => r.session?.keptInSummary?.[rule.id]).length };
+            keptInSummary: rs.filter((r) => r.session?.keptInSummary?.[rule.id]).length,
+            // the rule's source read or loaded before the first write (V2-D22 pull: the mechanism)
+            readBefore: rs.filter((r) => r.rules[rule.id].inContextBeforeFirstWrite).length };
         }
         row.lost = row.o0?.status === 'held' && row.oc?.status === 'missed';
         row.lostWithoutStopped = row.o0?.statusWithoutStopped === 'held' && row.oc?.statusWithoutStopped === 'missed';
         // V2-D22 volume: lost at a level = held in o0, missed there ([as registered, without stopped sessions])
+        // V2-D22 pull: reached = held in p where n0 misses it; holds = p holds what o0 holds ([as registered, without stopped])
+        if (row.p && row.n0) {
+          row.reachedByPull = [row.n0.status === 'missed' && row.p.status === 'held', row.n0.statusWithoutStopped === 'missed' && row.p.statusWithoutStopped === 'held'];
+          row.pullHolds = [row.o0?.status !== 'held' || row.p.status === 'held', row.o0?.statusWithoutStopped !== 'held' || row.p.statusWithoutStopped === 'held'];
+        }
         for (const v of ['v8', 'v32']) if (row[v]) row[`lostAt${v}`] = [row.o0?.status === 'held' && row[v].status === 'missed', row.o0?.statusWithoutStopped === 'held' && row[v].statusWithoutStopped === 'missed'];
         if (row.lost || row.lostWithoutStopped) row.restoredBy = ['or', 'od', 'ow'].filter((a) => row[a]?.status === 'held');
         return [rule.id, row];

@@ -2425,3 +2425,5 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     not counts as following without pull, and is reported as such.
   - *Not gated on USD.* The user runs on a subscription (2026-10-22). Usage limits and restarts are the constraints,
     so chains run per task and arm, and runs resume from their index.
+  - *Smoke (Haiku, P1, `p`):* valid. The index (1,961 bytes) was logged at session start, and the session quoted
+    its first sentence without a tool.
