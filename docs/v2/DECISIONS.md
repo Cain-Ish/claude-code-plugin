@@ -2516,3 +2516,36 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - If `pf` fails on P2 with the web on, the failure is not the harness's. Attempt 3 then runs as the third
       attempt (rule 4).
     - If sessions still stop with the web on, they stop for another reason, and that reason is reported.
+- **Attempt 3 check (pre-registered 2026-10-22, before the hook, the count or any session): path-keyed delivery at
+  the action (arm `pk`).**
+  - *The hook.* A `PreToolUse` hook on Write, Edit and MultiEdit. Before the first write in each directory of a
+    session, it denies that write once, with a reason that names the project documents keyed to the target file and
+    asks Claude to read them, then write again. Later writes in that directory pass. If no document is keyed, the
+    write passes and nothing is said.
+    - It names paths, not rule text, so it stays pull.
+    - The deny is the force: the pull check showed that an unforced pointer is not followed (`p`), and a forced one
+      is (`pf`, P1).
+    - No index and no forced text at the prompt, so the mechanism is tested alone.
+  - *The keying rule K, fixed now, mechanical, with no model and no map.* The documents are the same as the index's:
+    tracked files ending `.md`, `.mdx`, `.markdown`, `.txt` or `.rst`, any case. For a target `a/b/c/F.ext`, a
+    document is keyed if its text, with `\` read as `/` and case ignored, names one of these. They are ranked in
+    this order:
+    1. the target's repo-relative path;
+    2. its file name `F.ext`;
+    3. its directory path or any trailing part of it with at least two segments (`a/b/c`, then `b/c`), with a
+       non-path character or the start of the text before it.
+
+    Within a level, the order is git's file order. At most 10 documents are named; agent guidance favours at most
+    10 to 15 references. A document is not keyed to itself.
+  - *Count first (rule 5; free, before any session).* K is applied to the files that the existing sessions of both
+    tasks wrote, from every two-turn arm (stage 3, volume, pull). For each rule native misses (P1 R6; P2 R5 and R7),
+    in each session that wrote a file the rule's check covers: is the rule's source among the documents K names at
+    the first write in that file's directory?
+    - *Pass, so the sessions run:* the source is named in at least 80% of those sessions, for every such rule.
+    - *Fail:* attempt 3 is ruled out by count, as D13's and D15's attempts were. That is D22's pull track's third
+      failed attempt (rule 4), and it goes up a level.
+  - *Sessions, if the count passes.* `pk` on both tasks, 5 each: P1 with the web off (its baselines), P2 with the
+    web on (the re-run's baselines). Valid as the pull check, plus every deny logged.
+  - *Decision (as before).* `pk` works on a task if it holds every rule `o0` holds there.
+    - Mechanism: the rule's source read before the first write that went through.
+    - Also reported: the denies per session, the documents named, and tokens and cost against `o0` and `pf`.
