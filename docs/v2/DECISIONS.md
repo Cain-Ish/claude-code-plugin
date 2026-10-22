@@ -2031,6 +2031,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       to the architecture as a budget with a trigger.
     - **Fail:** model-written checks fail even with the source given. The net is DEFERRED with a trigger (the
       project's own linters stay its only source), and A2's R2 cell is recorded as an expected miss.
+- **Check source count, result (2026-10-22; [genchecks.mjs](probes/V2-D20-adherence/genchecks.mjs),
+  [results/genchecks.json](probes/V2-D20-adherence/results/genchecks.json)): fail.**
+  - *Caught:* 6 of the 17 pattern rules (P1 1 of 5, P2 1 of 4, R0 4 of 8), and P1 R2 was not among them.
+  - *False alarms:* 0.21 of the checks that applied to a correct sample.
+  - *Generated:* 204 checks from 10 documents, 0.71 USD. 8 were not valid JavaScript regular expressions.
+  - *Why (a diagnostic, not part of the check):* of the 11 misses, 8 had a check that applied and passed the correct
+    sample but also passed the wrong one, so it was too general to catch the violation. 3 had no check that applied.
+  - *Consequence (registered):* even with each rule's own source given, a model does not write checks that catch these
+    rules. The net's source stays open, and the net is DEFERRED (see the result below, once P2's self-review sessions
+    are in).
 
 ### V2-D21 — Inventory of what exists
 - **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,
