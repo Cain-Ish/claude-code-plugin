@@ -2007,6 +2007,30 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     and source, which is a push before the change. Now the feedback covers only checks on files that exist, and only
     R2's check, as registered. The re-smoke was valid, with no block at the investigation turn. `pfrs` was not
     affected: its review fires only once files have changed.
+- **Check source count (pre-registered 2026-10-22, before the generator's first call; run while P2's `pfrs` finishes).**
+  P1 already shows that the self-review leaves R2 failing (0 of 5) and the fed-back check fixes it (5 of 5). If that
+  holds, the net needs checks, and this count asks whether a model can write them.
+  - *Generator:* one Sonnet 5.5 call, no tools, per source document of D20's 17 pattern rules (P1 5, P2 4, R0 8;
+    13 documents). It is blind to the hand-written checks. The prompt, fixed now: "You write automatic checks for a
+    project's own rules. Input: one document of the project. For every rule in it that a text check on a changed
+    file can verify, output a JSON object {\"rule\": a short quote, \"files\": a regular expression for the file
+    paths it applies to, \"must\": [regular expressions a correct file contains], \"mustNot\": [regular expressions a
+    correct file does not contain], \"message\": one line}. Output only a JSON array, no prose. Leave out rules a text
+    check cannot verify."
+  - *Routing is an upper bound:* each rule's own source document is given. Real onboarding would have to find it.
+  - *Scoring, against D20's samples:* a rule is caught if a generated check from its source applies to the sample's
+    path, passes the correct sample and fails the wrong one. A false alarm is a generated check that applies to a
+    correct sample and fails it.
+  - *Bar:*
+    - at least 14 of the 17 caught (80%), with P1 R2 among them;
+    - false alarms in at most 1 in 10 of the checks that apply to a correct sample.
+  - *Reported:* checks per document, and how many of the repos' current files at the pinned commits each check would
+    flag. That is noise on existing code.
+  - *Consequences:*
+    - **Pass:** the net's checks can be model-written at onboarding. Which documents to scan, and at what cost, goes
+      to the architecture as a budget with a trigger.
+    - **Fail:** model-written checks fail even with the source given. The net is DEFERRED with a trigger (the
+      project's own linters stay its only source), and A2's R2 cell is recorded as an expected miss.
 
 ### V2-D21 — Inventory of what exists
 - **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,
