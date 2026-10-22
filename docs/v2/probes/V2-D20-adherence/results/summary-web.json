@@ -9,7 +9,8 @@
     "n0": 5,
     "pf": 5,
     "pfc": 5,
-    "pfr": 5
+    "pfr": 5,
+    "pfrs": 5
    },
    "epochs": [
     "2.1.305 (Claude Code)"
@@ -72,6 +73,15 @@
       "keptInSummary": 3,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 1,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -87,6 +97,10 @@
       true
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ]
@@ -148,6 +162,15 @@
       "keptInSummary": 5,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 4,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -163,6 +186,10 @@
       true
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ]
@@ -224,6 +251,15 @@
       "keptInSummary": 5,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -239,6 +275,10 @@
       true
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ]
@@ -300,6 +340,15 @@
       "keptInSummary": 5,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -315,6 +364,10 @@
       true
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ]
@@ -376,6 +429,15 @@
       "keptInSummary": 3,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 3,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 1,
+      "readBefore": 5
+     },
      "lost": true,
      "lostWithoutStopped": true,
      "reachedBy_pf": [
@@ -391,6 +453,10 @@
       true
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ],
@@ -453,6 +519,15 @@
       "keptInSummary": 2,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -468,6 +543,10 @@
       true
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ]
@@ -529,6 +608,15 @@
       "keptInSummary": 3,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 1,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -544,6 +632,10 @@
       true
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ]
@@ -605,6 +697,15 @@
       "keptInSummary": 2,
       "readBefore": 5
      },
+     "pfrs": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
      "lost": false,
      "lostWithoutStopped": false,
      "reachedBy_pf": [
@@ -620,6 +721,10 @@
       false
      ],
      "holds_pfr": [
+      true,
+      true
+     ],
+     "holds_pfrs": [
       true,
       true
      ]
@@ -703,6 +808,19 @@
      "stopped": 0,
      "webSessions": 5,
      "totalCostUsd": 56.592027999999985
+    },
+    "pfrs": {
+     "maxContextPerRequest": 221169,
+     "requests": 118,
+     "compactionPreTokens": 62930,
+     "compactionPostTokens": 14748,
+     "deliveredBytes": 12938,
+     "costUsd": 7.9889863,
+     "costSpread": 4.028022465000001,
+     "tokensAll": 13095166,
+     "stopped": 0,
+     "webSessions": 5,
+     "totalCostUsd": 40.35239293499999
     }
    }
   }

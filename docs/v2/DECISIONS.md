@@ -23,22 +23,20 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
-| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); REOPENED 2026-10-22 on the net's check source (rule 9, from D15) | evidence | D12, D17 |
+| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D20**, reopened on 2026-10-22 on one question: where the write-time net's checks come from.
+Frontier (rule 6): **the phase gate.** Every spine decision is LOCKED, or DEFERRED with a trigger (D20's net).
 - **D22 is LOCKED** (2026-10-22). Claude sees an index of the repo's documents from session start. At the first
   prompt, and again at the first prompt after each compaction, it is made to decide which directories bear on the
-  task and to read them. It followed every in-scope rule in both test-bed tasks. Its known weakness is cost: about
-  three times push's tokens in the larger repo.
-- **D15 and D13 re-locked** (2026-10-22). Onboarding builds the index only, since the conversion was ruled out by
-  count (0.91 of the raw bytes). Entries hold knowledge captured from work. The delivery budget became always-on
-  bytes.
-- Then step 14: the architecture, the eval plan (D22's investigation tasks join A2, per D19's trigger), the first
-  slice, and the phase gate.
-- D17 and D19 gained targets for their rule's gaps (2026-10-22): 8 of 10 where M1 is at 0, and a no-worse ceiling
-  where the spread swamps the median.
+  task and to read them. It followed every in-scope rule in both test-bed tasks. Its known weakness is cost.
+- **D15, D13 and D16 re-locked** (2026-10-22). Onboarding builds the index only. Entries hold knowledge captured from
+  work. The re-find runs when a map file is read.
+- **D20:** following stands, and the write-time net is DEFERRED. The fed-back check works when it is right, but no
+  tested source writes such checks.
+- **Step 14:** `04-architecture.md`, the eval plan's Opus section and `06-first-slice.md` are drafted. Then the
+  devils-advocate review and Gemini.
 
 ---
 
@@ -2057,6 +2055,32 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Consequence (registered):* even with each rule's own source given, a model does not write checks that catch these
     rules. The net's source stays open, and the net is DEFERRED (see the result below, once P2's self-review sessions
     are in).
+- **Net check result (2026-10-22; [summary-stage3.json](probes/V2-D20-adherence/results/summary-stage3.json),
+  [summary-web.json](probes/V2-D20-adherence/results/summary-web.json)): `pfrs` fails on both tasks, and `pfro`
+  works on P1.**
+  - *Runs:* 15 sessions, all valid, 59.77 USD.
+  - *P1:*
+    - `pfrs` left R2 at 0 of 5. R2's check was failing at the review block in all 5 sessions, and still failing at
+      the end. Claude reviewed its files and judged them compliant.
+    - `pfro` brought R2 to 5 of 5, with the check fed back twice per session.
+    - Both held every other rule.
+  - *P2:* `pfrs` left R4 (judgment) at 3 of 5, as `pfr` did, and R5 at 4 of 5. One review block found R5 failing,
+    and it stayed failing.
+  - *Cost against `pfr`:* P1 `pfrs` 2.04 USD against 1.68 (spread 0.45), and `pfro` 1.90: neither is more. In P2,
+    `pfrs` came lower (7.99 against 12.69), which is within the subagent variance.
+  - *Consequence (registered):* only `pfro` fixes R2, so the net needs checks. The check-source count above found no
+    source that writes them.
+- **The net is DEFERRED (2026-10-22).**
+  - *What works:* the machinery, meaning failing checks fed back after writes and at `Stop`. It holds a pattern rule
+    on Opus when the check is right (`pfro` 5 of 5).
+  - *What does not:* every tested way of getting the check. Model-written checks caught 6 of 17, with false alarms at
+    0.21. A self-review with no check fixed 0 of 5.
+  - *Reopen when* a check source catches at least 14 of D20's 17 pattern rules on their samples, with false alarms at
+    most 1 in 10. Examples: checks the project's people write and review, checks Claude writes at capture under review,
+    or the project's own linters covering its pattern rules.
+  - *Until then:* the first slice ships no net (rule 1). In the eval, A2's P1 R2 cell is an expected miss. P2 R4 is
+    recorded with it: a judgment rule that push and pull both missed in the compaction shape (`oc` and `pfr` 3 of 5).
+  - *The rest of this record stands:* following, under D22's route.
 
 ### V2-D21 — Inventory of what exists
 - **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,

@@ -1,7 +1,8 @@
 # v2 eval plan
 
 **Status:** A1's baselines run and thresholds set on 2026-10-20 (V2-D17 LOCKED); see Baseline results and
-Thresholds. Scenario A2, at scale, added on 2026-10-22 (V2-D19 LOCKED); see the last section.
+Thresholds. Scenario A2, at scale, added on 2026-10-22 (V2-D19 LOCKED). The eval after the concept phase (Opus, new
+epoch, investigation tasks): the last section.
 Pre-registered on 2026-10-20, when the user confirmed the scenario, the arms and the capture rules
 (V2-D17). The neighbour session, the failure chain, the epoch rule and ten runs per arm were added the same day from
 [research/2026-10-20-memory-scenario-guide-and-docs.md](research/2026-10-20-memory-scenario-guide-and-docs.md),
@@ -260,3 +261,31 @@ P1 64.0 KB (plus a 2.6 KB memory index in M1), P2 9.9 KB, R0 0 (it has no instru
 - *Targets (2026-10-22, V2-D19):* each rule at 0 needs at least 8 of 10 v2 runs. On the "none" cells and R0's "below
   1", no gain is claimed: v2's median must be at most M1's median plus M1's spread. P1's shared value is not a v2
   target (D21).
+
+## The eval after the concept phase (2026-10-22)
+
+What changed since A1's and A2's baselines, and how the eval of the first slice runs. The thresholds' rule (D17) and
+its gap targets stay. The numbers re-run in the new epoch.
+
+- **Model and epoch: Opus 5.5, the user's model** (rethink 2: every baseline so far ran on Sonnet 5.5). This is a new
+  epoch, so D17's and D19's triggers apply. A1's arms M0 and M1, and A2's M1, re-run on Opus at the current CLI before
+  the v2 arm runs. That is the first task of the build phase (PM1: baselines first).
+- **Session shape for A2's build tasks:** stage 3's three turns (investigate and report, `/compact`, make the change),
+  with the web on, because a project's rules may need it (P2). P2's plan task runs in its first two turns, since it
+  writes nothing.
+- **D22's six investigation tasks join A2** (D19's trigger). They are scored by assertions on the answer, not reach
+  against a judge.
+  - The assertions are written from the repos' own documents, before the Opus re-baseline, blind to every arm's
+    output.
+  - They include traps: a stale document or pre-training points one way, and a binding rule points the other.
+  - Their thresholds come from that re-baseline, by D17's rule and its gap targets.
+- **Measures added:**
+  - session tokens of all kinds, subagents included (the last result's `modelUsage`; a `result` event's `usage` is
+    its own turn only);
+  - always-on bytes per session;
+  - stopped sessions, read both ways.
+- **Recorded before the v2 arm runs:**
+  - *Expected miss:* P1 R2, a pattern rule that Opus missed under every pull arm. D20's net is deferred: no
+    model-written check caught it, and the fed-back check needs a hand-written source.
+  - *Expected risk:* cost in document-heavy repos, where the route spent about three times push's tokens. That is
+    D22's first reopen trigger.
