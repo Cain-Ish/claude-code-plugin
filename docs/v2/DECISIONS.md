@@ -1959,6 +1959,49 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - The concrete stake: P1 R2, a pattern rule that Opus missed under every pull arm, has an A2 target of no fewer
     runs than M1 (4 of 10).
   - The rest of the choice stands: the following, and the feedback after writes and at `Stop`.
+- **Triggers fired, so the question widens (2026-10-22).**
+  - *Fired:* "a judgment rule stays missed, failing in 2 or more of 5 runs, with its card delivered". P2 R4, a
+    judgment rule, failed 2 of 5 in `oc` with the web on, and 2 of 5 in `pfr`.
+  - *Fired in substance:* "the pattern checks written at onboarding (D15) catch materially less". D15 now writes
+    none.
+  - *The question:* how does the net hold Claude to a rule that is in context and not applied, with no checks written
+    at onboarding?
+  - *Options:*
+    - (a) a forced self-review at `Stop`, with no checks;
+    - (b) failing checks fed back, their source undecided;
+    - (c) the project's own linters;
+    - (d) a model judge at `Stop` (D18's budget);
+    - (e) no net, with the cell recorded as a known miss.
+- **Net check (pre-registered 2026-10-22, before any harness change or run).**
+  - *Shape:* the locked route (`pfr`: three turns, forced again after the compaction), Opus 5.5. P1 runs with the
+    web off, P2 with it on.
+  - *Arm `pfrs`, option (a), on both tasks.* A `Stop` hook blocks once, at the first `Stop` with changed files,
+    with this text, fixed now: "Before you finish: reread this project's instruction files (such as CLAUDE.md and its
+    rules) and the project documents you read for this task. List each rule in them that binds the files you
+    changed, check every changed file against each rule, and fix any file that breaks one. Then finish." It names
+    the instruction files because R4's source is one that Claude Code loads itself.
+  - *Arm `pfro`, P1 only: the ceiling for (b).* R2's hand-written check is fed back after each write and at
+    `Stop`, as in stage 2's arm `d`. It runs without the rule account, which would push every rule's source. This
+    is the net stage 3 never ran on Opus.
+  - *Valid session:* `pfr`'s checks.
+    - In `pfrs`, the review block is logged exactly once, after files changed. There is none at the investigation
+      turn and none on a background wake-up.
+    - In `pfro`, every feedback is logged.
+  - *Mechanism, logged:*
+    - in `pfrs`, which pattern checks fail at the block, so "R2 failing at the block, passing at the end" is the
+      review's fix;
+    - for R4, the reads and edits made after the block (by script over the streams).
+  - *Decision:* an arm works on a task if it holds every rule `pfr` holds there, and R2 (P1) and R4 (P2) each in at
+    least 4 of 5.
+  - *Consequences, written now:*
+    - **`pfrs` works:** checks are unnecessary, and Claude is the checker. The net is the self-review.
+    - **Only `pfro` fixes R2:** checks are needed, and their source is the next question.
+    - **Neither fixes R2:** pattern rules on Opus are a known gap. The net is DEFERRED with a trigger, and A2's R2
+      cell is recorded in the eval plan as an expected miss.
+  - *Reported:* the review's added tokens against `pfr`'s (the route already sits above the no-worse ceiling in P2).
+  - *A limit, named:* in interactive use a `Stop` block fires each time Claude finishes after a change. That friction
+    is a first-slice trigger, not part of this check.
+  - This is the last check before step 14. If both arms fail, no attempt 2 runs here.
 
 ### V2-D21 — Inventory of what exists
 - **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,
