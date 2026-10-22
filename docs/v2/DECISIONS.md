@@ -16,30 +16,29 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3) | evidence | — |
-| V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED 2026-10-22 (rule 9: under D22's route, entries are not what Claude is given) | evidence | D10, D11, D12, D20 |
+| V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
-| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED 2026-10-22 (rule 9: D22's route reads the documents and builds its index without a model) | evidence | D13 |
+| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
-| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus) | evidence | D12, D17 |
+| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); REOPENED 2026-10-22 on the net's check source (rule 9, from D15) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **D13 and D15**, reopened on 2026-10-22 by rule 9 when D22 locked.
+Frontier (rule 6): **D20**, reopened on 2026-10-22 on one question: where the write-time net's checks come from.
 - **D22 is LOCKED** (2026-10-22). Claude sees an index of the repo's documents from session start. At the first
   prompt, and again at the first prompt after each compaction, it is made to decide which directories bear on the
   task and to read them. It followed every in-scope rule in both test-bed tasks. Its known weakness is cost: about
   three times push's tokens in the larger repo.
-- D13 (what an entry is for) and D15 (what onboarding produces) are decided next. Nothing may build on them until
-  they re-lock (rule 1).
+- **D15 and D13 re-locked** (2026-10-22). Onboarding builds the index only, since the conversion was ruled out by
+  count (0.91 of the raw bytes). Entries hold knowledge captured from work. The delivery budget became always-on
+  bytes.
 - Then step 14: the architecture, the eval plan (D22's investigation tasks join A2, per D19's trigger), the first
   slice, and the phase gate.
 - D17 and D19 gained targets for their rule's gaps (2026-10-22): 8 of 10 where M1 is at 0, and a no-worse ceiling
   where the spread swamps the median.
-- D20 and D12 were re-locked on 2026-10-22 (pushed rules held across a compaction). D19's context measure is
-  reset.
 
 ---
 
@@ -471,6 +470,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   question now: what is an entry for (captured knowledge, the source of checks, anything else), and does any delivery
   budget remain? The nearest trigger ("a selector reaches D22's pass on the sources' own blocks") is not claimed,
   because it was written against a pass D22 retired.
+- **Re-LOCKED 2026-10-22, by reasoning on existing evidence; no session.**
+  - *The entry shape stays, for knowledge captured from work (D14).* An entry holds:
+    - the statement in the words of whoever made it, trimmed, with cuts marked;
+    - its source: a document anchor, or the session's date;
+    - its area, and when it applies.
+
+    Entries are kept in plain Markdown under `.project-map/` (D11, D14), which D22's index lists.
+  - *The per-task delivery budget is dropped.* In its place, a recorded measure: always-on bytes per session. That
+    is D14's capture instruction (904 bytes), D22's index (2 KB in P1, 6 KB in P2), and the forced text (227
+    bytes, at the first prompt and after each compaction). D22's index-size trigger watches its growth.
+  - *Rejected:* entries as the unit delivered for a document's rules (D22's route; D15's count).
+  - *Whether entries also feed D20's checks* is D20's question.
+  - *Reopen if:*
+    - D20 decides its checks come from entries;
+    - the first slice's eval shows a captured entry read and not followed, which would be a question of form;
+    - Claude Code adds a native format for a project's shared memory.
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
@@ -998,6 +1013,30 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     session test worth running. That test would also record which thread read a branch or a raw document, and would
     split a miss whose branch covers less than 0.8 of the card as conversion recall, not a route failure.
   - *Otherwise:* (c) is ruled out by count, and D15 re-locks on (a) or (b) by reasoning on the existing evidence.
+- **Count result (2026-10-22; [branchcount.mjs](probes/V2-D22-selection/branchcount.mjs)): (c) is ruled out.**
+  Across 10 P2 sessions (7 to 12 documents each, 92 to 273 KB raw), the branches came to 0.91 of the raw bytes
+  (median; 0.89 to 1.01), against the bar of 0.50. Every document read had a branch. Under the user's scope, the
+  conversion does not shorten what Claude reads.
+- **Re-LOCKED 2026-10-22 on (a), by reasoning on existing evidence; no session.**
+  - Onboarding produces D22's index: the repo's tracked document files by directory, from git's file list, with no
+    model and no cost per MB. It is cached under `.project-map/.cache/` (D18) and rebuilt when the file list
+    changes.
+  - The repo's documents stay the source and are read where they are. Knowledge captured from work enters as D13
+    entries in `.project-map/` files, and the index lists those too.
+  - *Rejected:*
+    - (c) the full conversion: ruled out by count, and nothing D22's route uses. Its outputs (96 USD: the section
+      indexes and the full maps) stay in `research/raw/` as evidence.
+    - (b) checks written at onboarding: not decided here. Where D20's checks come from is D20's question (reopened
+      for it).
+  - *The gap this leaves, named:* P1 R2, a pattern rule, was missed under every pull arm on Opus (`pf` 1 of 5,
+    `pfc` 2 of 5, `pfr` 1 of 5). A2's target for it is no fewer runs than M1 (4 of 10). Without D20's write-time
+    net, the first slice fails that cell.
+  - *Charter:* the user's onboarding sentence is replaced (the charter's "What changed" keeps the old one).
+  - *Reopen if:*
+    - the first slice's eval puts v2 over M1's no-worse ceiling, and the main thread's document reads are the cause.
+      A compressed form (a narrower conversion) is then the candidate;
+    - a project keeps its rules in documents outside `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`;
+    - D20 decides its checks must be written at onboarding.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
@@ -1912,6 +1951,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   same rules as text, and verification to 90-100%; the docs call `CLAUDE.md` "context, not enforced configuration"
   and only hooks apply "regardless of what Claude decides"; no study measures delivery at tool time
   ([research/2026-10-20-adherence.md](research/2026-10-20-adherence.md)).
+
+- **REOPENED 2026-10-22 on one question (rule 9, from D15's re-lock): where do the write-time net's checks come
+  from?**
+  - This record holds checkable rules "as data patterns written at onboarding, or by the project's own linter".
+    D15's onboarding now writes no checks.
+  - The concrete stake: P1 R2, a pattern rule that Opus missed under every pull arm, has an A2 target of no fewer
+    runs than M1 (4 of 10).
+  - The rest of the choice stands: the following, and the feedback after writes and at `Stop`.
 
 ### V2-D21 — Inventory of what exists
 - **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,

@@ -32,11 +32,12 @@ one language or stack.
   design and UX rules; decisions with the rejected options and the reason.
 - **On demand, cheap.** Claude always sees a small index and reads a branch of the map only when the task touches
   it. Token cost is a design constraint, measured per task.
-- **Starts from what the project has** (user, 2026-10-20). The plugin's first act in a repo turns the project's
-  existing rules and documents (instruction files, rule files, docs, skill bodies) into the map's one standard
-  format, each entry anchored to its source. A project with none starts with an empty map: Claude's own search
-  finds what the code has, and the map grows from work (user, 2026-10-22; V2-D21). From then on that format is what
-  is delivered and enforced, and new knowledge enters in it (V2-D15, D13).
+- **Starts from what the project has** (user, 2026-10-20). The project's existing rules and documents (instruction
+  files, rule files, docs, skill bodies) stay where they are, and they stay the source. The plugin's first act in a
+  repo indexes them, so Claude sees where the project's knowledge lives and reads what binds its task (V2-D22,
+  D15). A project with none starts with an empty map: Claude's own search finds what the code has, and the map
+  grows from work (user, 2026-10-22; V2-D21). New knowledge enters as entries in one standard format, in plain files
+  the index also lists (V2-D13, D14).
 - **Followed, not only shown** (user, 2026-10-20). Claude is held to the rules that bind its task, not merely given
   them; V2-D20 decides how. Only the project's own rules in the map are enforced: general code review stays a
   non-goal.
@@ -71,7 +72,7 @@ it has run.
 
 | Outcome | Measure |
 | --- | --- |
-| Onboarding | Share of a repo's existing rules that reach the map with their source anchor and unchanged meaning; planted rules lost |
+| Onboarding | Every document file of the repo listed in the index; the rules that bind a task followed once Claude has read them (Consistency) |
 | Capture | Share of the decisions made in earlier sessions that are in the map afterwards, and what was kept that should not have been |
 | Consistency | Share of acceptance tasks whose output follows the recorded decisions |
 | Orientation | Tool calls and files read before the first correct file |
@@ -139,5 +140,11 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   deliver it.
 - **Added:** acceptance scenario A1, measured success criteria, explicit non-goals, a definition of done for the
   concept phase, and probe-before-decide (01-process.md).
+- **Onboarding no longer converts (2026-10-22, V2-D15 re-locked under the user's instruction to settle decisions by
+  rethinking).** The user's sentence of 2026-10-20 read: "The plugin's first act in a repo turns the project's
+  existing rules and documents ... into the map's one standard format, each entry anchored to its source ... From
+  then on that format is what is delivered and enforced." Under the route that worked (V2-D22), Claude reads the
+  documents themselves. Under the user's scope, the converted form came to 0.91 of the documents' bytes, so it saved
+  nothing.
 - **"Verify each decision during the process, 3-4 runs then rethink"** became the decision record, the
   pre-registered check and the three-strike rule in 01-process.md.
