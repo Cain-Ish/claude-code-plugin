@@ -1,6 +1,6 @@
 {
  "attempt": 3,
- "date": "2026-10-21",
+ "date": "2026-10-22",
  "labels": {
   "unchangedTree": {
    "delivered": 14119,
@@ -21,6 +21,11 @@
   "afterCommitCleanAtNextHook": true,
   "afterSoftResetLabelledAtNextHook": true,
   "restored": true,
+  "editedInPlace": {
+   "labelled": 1,
+   "isTheEdited": true,
+   "cleanAfterCheckout": true
+  },
   "allPathsGuarded": true,
   "pass": true
  },

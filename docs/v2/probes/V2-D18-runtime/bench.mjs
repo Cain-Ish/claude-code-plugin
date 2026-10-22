@@ -223,13 +223,25 @@ if (mode === 'build') {
   git(BENCH, 'reset', '-q', '--hard', 'HEAD');
   lib.refresh(BENCH);
   res.labels.restored = lib.shard(BENCH, 'probe-new').length === 0 && lib.shard(BENCH, source).length === before;
+  // found at review: an uncommitted edit to a committed entry (its context line, quote unchanged) is labelled, and only it
+  const ctxFile = files.find((f) => fs.readFileSync(path.join(BENCH, f), 'utf8').includes('\n- context: '));
+  const ctxText = fs.readFileSync(path.join(BENCH, ctxFile), 'utf8');
+  const at = ctxText.indexOf('\n- context: ');
+  fs.writeFileSync(path.join(BENCH, ctxFile), `${ctxText.slice(0, at)}\n- context: edited in place${ctxText.slice(ctxText.indexOf('\n', at + 1))}`);
+  lib.refresh(BENCH);
+  const unrev = () => lib.deliver(BENCH, lib.shard(BENCH, sourceOf(ctxFile)), Infinity).filter((o) => o.labels.includes('unreviewed, not yet committed'));
+  const edited = unrev();
+  git(BENCH, 'checkout', '--', ctxFile);
+  lib.refresh(BENCH);
+  res.labels.editedInPlace = { labelled: edited.length, isTheEdited: edited.every((o) => o.block.includes('edited in place')), cleanAfterCheckout: unrev().length === 0 };
   // every delivery path goes through deliver(): one emit per path, the session start's instruction excepted
   const hooksSrc = fs.readFileSync(path.join(HERE, 'hooks.mjs'), 'utf8');
   res.labels.allPathsGuarded = (hooksSrc.match(/emit\(/g) ?? []).length - 1 === (hooksSrc.match(/deliver\(/g) ?? []).length;
   const u = res.labels.unchangedTree;
   res.labels.pass = u.stale === 0 && u.unverified === u.expectedUnverified && u.unreviewed === 0 && res.labels.sameFile.newSeen && res.labels.sameFile.newLabelled
     && res.labels.sameFile.committedUnlabelled && res.labels.sameFile.newNotStale && res.labels.otherFileUnlabelled && res.labels.newFileLabelled
-    && res.labels.afterCommitCleanAtNextHook && res.labels.afterSoftResetLabelledAtNextHook && res.labels.restored && res.labels.allPathsGuarded;
+    && res.labels.afterCommitCleanAtNextHook && res.labels.afterSoftResetLabelledAtNextHook && res.labels.restored && res.labels.allPathsGuarded
+    && res.labels.editedInPlace.labelled === 1 && res.labels.editedInPlace.isTheEdited && res.labels.editedInPlace.cleanAfterCheckout;
   // 3. boundary: child_process gives only spawnSync, which runs only git; no eval or Function; the argument lists recorded
   const src = ['lib.mjs', 'hooks.mjs'].map((f) => fs.readFileSync(path.join(HERE, f), 'utf8')).join('\n');
   const cp = [...src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'node:child_process'/g)].flatMap((m) => m[1].split(',').map((s) => s.trim()));

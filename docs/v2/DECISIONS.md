@@ -1381,6 +1381,20 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - The re-find lowercases instead of case-folding, which differs on a few letters, and its "moved" search covers
     only the map's own sources.
   - On Windows without Git Bash, the session-start wrapper fails once per session and gives no message.
+- **Found at review (2026-10-22), fixed before the gate closed:**
+  - HEAD held an entry when its area and quote matched, so an uncommitted edit to a committed entry's context, terms,
+    heading or verified line would have arrived unlabelled. The key is now every field that is delivered or decides
+    delivery.
+  - A labels case was added: one committed entry's context line edited in place. Exactly that entry was labelled,
+    and none after `git checkout`. Labels and boundary pass again
+    ([checks-a3.json](probes/V2-D18-runtime/results/checks-a3.json)). The load numbers are unaffected, since there
+    is still one comparison per entry.
+  - Attempt 2's nested run replaced the bench repo's own tracked `.claude/settings.json` with the logging hook, so the
+    nested session ran the logger only. What it shows still holds: `V2_NESTED` reaches whatever hooks load.
+- **Triggers that pointed here, checked:**
+  - D14's "D18 cannot label uncommitted entries" did not fire: labels pass.
+  - D16's "the delivery check exceeds D18's hook budget" did not fire: 30 entries add 68 ms in process and 29 ms by
+    wall clock at 8 concurrent.
 - **Reopen if:**
   - A hook's added p95 exceeds 100 ms at 8 concurrent on another machine or OS, or on a bigger map, in the first
     slice. On read of a document is already at the bar.

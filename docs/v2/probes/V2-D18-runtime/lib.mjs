@@ -235,7 +235,8 @@ export function entriesFor(root, file) {
 
 // ---- the guards ----
 
-const keyOf = (e) => `${e.area}\n${e.quote}`;
+// every field that is delivered or decides delivery: an uncommitted edit to any of them makes the entry unreviewed
+const keyOf = ({ heads, area, quote, context, when, verified, date }) => JSON.stringify([heads, area, quote, context ?? null, when, verified, date]);
 // D14: per uncommitted map file, the entries its HEAD version holds (null for a file HEAD does not have). An entry is
 // unreviewed when its file is listed here and HEAD does not hold it. Outside git: null, and every entry is unreviewed.
 // --no-optional-locks: this read must not rewrite the index, or it would move the stamp it is checked against.
