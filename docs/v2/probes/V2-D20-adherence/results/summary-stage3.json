@@ -6,7 +6,11 @@
    "runs": {
     "n": 5,
     "o0": 5,
-    "oc": 5
+    "oc": 5,
+    "v32": 5,
+    "n0": 5,
+    "p": 5,
+    "pf": 5
    },
    "epochs": [
     "2.1.305 (Claude Code)"
@@ -21,7 +25,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 1
+      "keptInSummary": 1,
+      "readBefore": 5
      },
      "o0": {
       "followed": 5,
@@ -29,7 +34,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -37,10 +43,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R2": {
      "kind": "convention",
@@ -51,7 +114,8 @@
       "status": "missed",
       "stopped": 0,
       "statusWithoutStopped": "missed",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
      },
      "o0": {
       "followed": 2,
@@ -59,7 +123,8 @@
       "status": "missed",
       "stopped": 0,
       "statusWithoutStopped": "missed",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 2,
@@ -67,10 +132,67 @@
       "status": "missed",
       "stopped": 0,
       "statusWithoutStopped": "missed",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 3,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 0,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 1,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R3": {
      "kind": "convention",
@@ -81,7 +203,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
      },
      "o0": {
       "followed": 5,
@@ -89,7 +212,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -97,10 +221,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R4": {
      "kind": "design",
@@ -111,7 +292,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
      },
      "o0": {
       "followed": 5,
@@ -119,7 +301,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -127,10 +310,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R5": {
      "kind": "design",
@@ -141,7 +381,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
      },
      "o0": {
       "followed": 5,
@@ -149,7 +390,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -157,10 +399,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      true,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R6": {
      "kind": "unloaded, counter-pattern",
@@ -171,7 +470,8 @@
       "status": "missed",
       "stopped": 0,
       "statusWithoutStopped": "missed",
-      "keptInSummary": 1
+      "keptInSummary": 1,
+      "readBefore": 0
      },
      "o0": {
       "followed": 5,
@@ -179,7 +479,8 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -187,10 +488,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 0,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 0
+     },
+     "p": {
+      "followed": 1,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 0
+     },
+     "pf": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      false,
+      false
+     ],
+     "reachedBy_pf": [
+      true,
+      true
+     ],
+     "holds_pf": [
+      true,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     }
    },
    "sessions": {
@@ -201,6 +559,9 @@
      "compactionPostTokens": 11151,
      "deliveredBytes": 0,
      "costUsd": 1.4428774000000002,
+     "costSpread": 0.20353359999999987,
+     "tokensAll": 1044896,
+     "stopped": 0,
      "totalCostUsd": 7.4138674
     },
     "o0": {
@@ -210,6 +571,9 @@
      "compactionPostTokens": null,
      "deliveredBytes": 2215,
      "costUsd": 1.0101078,
+     "costSpread": 0.4550637999999999,
+     "tokensAll": 1236273,
+     "stopped": 0,
      "totalCostUsd": 5.5413908
     },
     "oc": {
@@ -219,7 +583,58 @@
      "compactionPostTokens": 12053,
      "deliveredBytes": 2215,
      "costUsd": 1.799455,
+     "costSpread": 0.17001480000000013,
+     "tokensAll": 1412454,
+     "stopped": 0,
      "totalCostUsd": 8.9497272
+    },
+    "v32": {
+     "maxContextPerRequest": 104329,
+     "requests": 19,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 32665,
+     "costUsd": 1.2842064,
+     "costSpread": 0.37319740000000023,
+     "tokensAll": 1411178,
+     "stopped": 0,
+     "totalCostUsd": 6.2953116
+    },
+    "n0": {
+     "maxContextPerRequest": 84811,
+     "requests": 17,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 0,
+     "costUsd": 0.9640708000000002,
+     "costSpread": 0.3623242,
+     "tokensAll": 1075427,
+     "stopped": 0,
+     "totalCostUsd": 4.4567652
+    },
+    "p": {
+     "maxContextPerRequest": 80836,
+     "requests": 17,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 1961,
+     "costUsd": 1.029584,
+     "costSpread": 0.46843900000000005,
+     "tokensAll": 1167054,
+     "stopped": 0,
+     "totalCostUsd": 4.844539
+    },
+    "pf": {
+     "maxContextPerRequest": 102729,
+     "requests": 19,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 2188,
+     "costUsd": 1.249102,
+     "costSpread": 0.4276884000000003,
+     "tokensAll": 1454360,
+     "stopped": 0,
+     "totalCostUsd": 6.213149999999999
     }
    }
   },
@@ -227,7 +642,11 @@
    "runs": {
     "n": 5,
     "o0": 5,
-    "oc": 5
+    "oc": 5,
+    "v32": 5,
+    "n0": 5,
+    "p": 5,
+    "pf": 5
    },
    "epochs": [
     "2.1.305 (Claude Code)"
@@ -242,7 +661,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 1
+      "keptInSummary": 1,
+      "readBefore": 5
      },
      "o0": {
       "followed": 4,
@@ -250,7 +670,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -258,10 +679,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 2
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R2": {
      "kind": "convention",
@@ -272,7 +750,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
      },
      "o0": {
       "followed": 4,
@@ -280,7 +759,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -288,10 +768,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R3a": {
      "kind": "canon",
@@ -302,7 +839,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
      },
      "o0": {
       "followed": 4,
@@ -310,7 +848,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -318,10 +857,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R3b": {
      "kind": "canon",
@@ -332,7 +928,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
      },
      "o0": {
       "followed": 4,
@@ -340,7 +937,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -348,10 +946,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R4": {
      "kind": "canon (language)",
@@ -362,7 +1017,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 1
+      "keptInSummary": 1,
+      "readBefore": 5
      },
      "o0": {
       "followed": 4,
@@ -370,7 +1026,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -378,10 +1035,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 1
+      "keptInSummary": 1,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R5": {
      "kind": "unloaded, counter-pattern",
@@ -392,7 +1106,8 @@
       "status": "missed",
       "stopped": 1,
       "statusWithoutStopped": "missed",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 1
      },
      "o0": {
       "followed": 4,
@@ -400,7 +1115,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -408,10 +1124,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 2
+      "keptInSummary": 2,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 1,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 0
+     },
+     "p": {
+      "followed": 3,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 3
+     },
+     "pf": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      false,
+      false
+     ],
+     "reachedBy_pf": [
+      false,
+      true
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R6": {
      "kind": "convention, counter-pattern",
@@ -422,7 +1195,8 @@
       "status": "missed",
       "stopped": 1,
       "statusWithoutStopped": "missed",
-      "keptInSummary": 1
+      "keptInSummary": 1,
+      "readBefore": 5
      },
      "o0": {
       "followed": 4,
@@ -430,7 +1204,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -438,10 +1213,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 3
+      "keptInSummary": 3,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "p": {
+      "followed": 5,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "pf": {
+      "followed": 1,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      false,
+      false
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      false
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     },
     "R7": {
      "kind": "canon, unloaded, counter-pattern",
@@ -452,7 +1284,8 @@
       "status": "missed",
       "stopped": 1,
       "statusWithoutStopped": "missed",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 1
      },
      "o0": {
       "followed": 4,
@@ -460,7 +1293,8 @@
       "status": "held",
       "stopped": 1,
       "statusWithoutStopped": "held",
-      "keptInSummary": 0
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "oc": {
       "followed": 5,
@@ -468,10 +1302,67 @@
       "status": "held",
       "stopped": 0,
       "statusWithoutStopped": "held",
-      "keptInSummary": 5
+      "keptInSummary": 5,
+      "readBefore": 5
+     },
+     "v32": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
+     },
+     "n0": {
+      "followed": 1,
+      "of": 5,
+      "status": "missed",
+      "stopped": 0,
+      "statusWithoutStopped": "missed",
+      "keptInSummary": 0,
+      "readBefore": 0
+     },
+     "p": {
+      "followed": 4,
+      "of": 5,
+      "status": "held",
+      "stopped": 0,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 3
+     },
+     "pf": {
+      "followed": 2,
+      "of": 5,
+      "status": "missed",
+      "stopped": 3,
+      "statusWithoutStopped": "held",
+      "keptInSummary": 0,
+      "readBefore": 5
      },
      "lost": false,
-     "lostWithoutStopped": false
+     "lostWithoutStopped": false,
+     "reachedBy_p": [
+      true,
+      true
+     ],
+     "holds_p": [
+      true,
+      true
+     ],
+     "reachedBy_pf": [
+      false,
+      true
+     ],
+     "holds_pf": [
+      false,
+      true
+     ],
+     "lostAtv32": [
+      false,
+      false
+     ]
     }
    },
    "sessions": {
@@ -482,6 +1373,9 @@
      "compactionPostTokens": 12291,
      "deliveredBytes": 0,
      "costUsd": 3.9479528500000023,
+     "costSpread": 1.0159781200000015,
+     "tokensAll": 7350596,
+     "stopped": 1,
      "totalCostUsd": 19.212223000000005
     },
     "o0": {
@@ -491,6 +1385,9 @@
      "compactionPostTokens": null,
      "deliveredBytes": 2402,
      "costUsd": 3.6304927599999997,
+     "costSpread": 2.8769419650000008,
+     "tokensAll": 7067760,
+     "stopped": 1,
      "totalCostUsd": 16.008897875000002
     },
     "oc": {
@@ -500,7 +1397,58 @@
      "compactionPostTokens": 13632,
      "deliveredBytes": 2402,
      "costUsd": 3.874179400000001,
+     "costSpread": 1.886326295,
+     "tokensAll": 5609004,
+     "stopped": 0,
      "totalCostUsd": 17.972485275
+    },
+    "v32": {
+     "maxContextPerRequest": 189130,
+     "requests": 38,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 32545,
+     "costUsd": 3.05493158,
+     "costSpread": 3.220667900000001,
+     "tokensAll": 5024190,
+     "stopped": 0,
+     "totalCostUsd": 18.059273080000004
+    },
+    "n0": {
+     "maxContextPerRequest": 198852,
+     "requests": 60,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 0,
+     "costUsd": 3.8708663100000007,
+     "costSpread": 1.9602173999999968,
+     "tokensAll": 6809189,
+     "stopped": 0,
+     "totalCostUsd": 20.21145791
+    },
+    "p": {
+     "maxContextPerRequest": 197500,
+     "requests": 79,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 6081,
+     "costUsd": 4.6677974,
+     "costSpread": 2.159903004999997,
+     "tokensAll": 8840359,
+     "stopped": 0,
+     "totalCostUsd": 21.993242605000002
+    },
+    "pf": {
+     "maxContextPerRequest": 236951,
+     "requests": 71,
+     "compactionPreTokens": null,
+     "compactionPostTokens": null,
+     "deliveredBytes": 6308,
+     "costUsd": 5.208616299999999,
+     "costSpread": 5.429262599999999,
+     "tokensAll": 11345645,
+     "stopped": 3,
+     "totalCostUsd": 28.402278499999998
     }
    }
   }

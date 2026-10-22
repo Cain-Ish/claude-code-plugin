@@ -32,6 +32,9 @@ Frontier (rule 6): **D22** stays BLOCKED until the user ticks the checklists in 
   decision per area, and path-keyed delivery at the action.
 - Its volume check (2026-10-22) found no rule lost with 32 KB pushed at the prompt, against D13's 8 KB, in two tasks
   on Opus. That number goes to the user's budget decision.
+- Its pull check (2026-10-22): an always-on index alone reached none of the rules native misses. Adding a forced
+  decision reached P1's (read first, 5 of 5). In P2, 3 of 5 sessions stopped on a rule needing the web, which the
+  harness turns off. Attempt 3 (path-keyed delivery at the action) waits on the user's call about that.
 - D20 and D12 were re-locked on 2026-10-22: rules delivered at the prompt held across a forced compaction on Opus
   (an upper bound).
 - D19 stays LOCKED, but its context measure is reset; D20's stage 3 supplies the session-level numbers.
@@ -2363,8 +2366,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       here. D16's re-find does not flag such entries, because their quotes are still in their files.
     - *Pilots (Opus, `v32`, not counted):* P1 1.17 USD, P2 4.98 USD. Both followed every binding rule. The projection
       came to about 31 USD for the 10 counted sessions. *The user chose to run as registered (2026-10-22).*
-- **Volume check result (2026-10-22; [summary-volume.json](probes/V2-D20-adherence/results/summary-volume.json)):
-  no rule lost at 32 KB, in either reading. `v8` not run.**
+- **Volume check result (2026-10-22; [summary-stage3.json](probes/V2-D20-adherence/results/summary-stage3.json),
+  which now holds every two-turn arm): no rule lost at 32 KB, in either reading. `v8` not run.**
   - *Runs:* 10 sessions, all valid, one epoch (CLI 2.1.305, Opus 5.5), 24.35 USD. The two pilots add 6.15.
   - *Following.*
     - P1: every rule `o0` holds stayed at 5 of 5, R6 included. R2 went from 2 of 5 to 3 of 5; it is out of scope,
@@ -2372,19 +2375,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - P2: every rule held. R7 was 4 of 5 in both arms: in `o0` the miss is the session that stopped to ask, in `v32`
       a written file that missed it. The rest went from 4 of 5 to 5 of 5, since no `v32` session stopped.
   - *Cost against `o0` (D17's form: median against median plus spread):*
-    - P1: 1.28 against 1.01 USD (spread 0.46), and median tokens 779k against 624k (+25%);
-    - P2: 3.05 against 3.63 USD, and 3.4M against 6.0M tokens, both lower.
+    - P1: 1.28 against 1.01 USD (spread 0.46), and median tokens 1.41M against 1.24M (+14%);
+    - P2: 3.05 against 3.63 USD, and 5.0M against 7.1M tokens, both lower.
 
     Neither costs more by the rule. The largest context of a request rose by about the delivered size in P1, 104k
     against 86k tokens.
   - *What it means (registered consequence):* in this shape, following did not pay for 32 KB of realistic false
-    positives. The price is tokens, about a quarter more on the cheaper task.
+    positives. The price is tokens, about a seventh more on the cheaper task.
     - D13's 8 KB reads as the hook channel's cap per output, not a following budget. Several outputs carry 32 KB, as
       the smoke showed.
     - For the user's D22 decision: a task can be given its whole essential set (8 to 18 KB by the unvalidated judge)
       with room for a selector's false positives, as long as none of them contradicts a binding rule.
   - *Limits:* the contradicting entries were removed (10 in P2), so a contradiction in the delivered set is
     untested; two tasks; one session shape; no compaction; Opus only; the filler is one selector's.
+  - *Token correction (2026-10-22, found while scoring the pull check).* The token medians were first published as
+    P1 779k against 624k (+25%) and P2 3.4M against 6.0M. They came from each session's last `result` event, whose
+    `usage` covers that turn only (in some sessions, a background agent's wake-up). Session tokens now come from the
+    last result's `modelUsage`, which, like `total_cost_usd`, sums every turn and subagent. The figures above are
+    corrected. The verdict stands: the cost rule is D17's USD form, and P2 is lower either way. Single-prompt runs
+    (D19, D20 stages 1 and 2) have one result each and are unaffected.
 - **Pull check (pre-registered 2026-10-22, before any harness change or run; rethink 2's first option for D22).**
   - *Question.* With an always-on index of the repo's own documents and Vercel's instruction, does Claude read the
     documents that bind its task and follow them, without the rules' text being pushed?
@@ -2437,3 +2446,48 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       once, at the first prompt.
     - Same decision: `pf` works if it holds every rule `o0` holds.
     - If it does not, attempt 3 is path-keyed delivery at the action, registered before it runs.
+- **Pull check result (2026-10-22; [summary-stage3.json](probes/V2-D20-adherence/results/summary-stage3.json), arms
+  `n0`, `p` and `pf`): `pf` works on P1 and fails on P2 as registered. Attempt 2 fails; attempt 3 is next.**
+  - *Runs:* 30 sessions, all valid, one epoch (CLI 2.1.305, Opus 5.5), 86.12 USD. In `p` and `pf` the index was
+    logged at session start, and in `pf` the forced text once, at the first prompt.
+  - *P1* (in scope: R1 and R3 to R6, all held by `o0` in 5 of 5).
+    - `n0` misses R6 (0 of 5) and `p` misses it too (1 of 5). In neither was its source read before the first write.
+    - `pf` holds R6 in 5 of 5, and in each of the 5 the main session read its source before the first write. That
+      meets the asymmetry clause, so it is pull, not following without it: the ledger's first pass for pointers.
+    - Every other in-scope rule held in all three arms. R2 (out of scope; `o0` 2 of 5): `n0` 2, `p` 0, `pf` 1.
+  - *P2* (in scope: all 8, held by `o0`).
+    - `n0` misses R5 and R7 (1 of 5 each). In neither was the source read before the first write.
+    - `p` misses R5 (3 of 5) and holds R7 (4 of 5), so it does not work. The asymmetry clause qualifies R7: its
+      source was read first in 2 of the 4 following sessions, and the other 2 followed without pull. For R5, 1 of
+      the 3 following sessions read it first. Both of `p`'s R5 misses had the source in context and did not apply it.
+    - `pf`: 3 of 5 sessions stopped to ask and wrote nothing. As registered, every rule is therefore missed (2 of 5;
+      R6 1 of 5). Without them only 2 sessions remain, too few for D20's rule (2 or more misses of 5): one followed
+      every rule, the other missed R6 with its source in context. Neither reading shows that `pf` works.
+  - *Why P2's sessions stopped (reported).* All three asked the user to settle a canon question before writing.
+    - P2's own rules require such a fact to be checked against an outside source before any code. The harness turns
+      the web off, so that rule cannot be met. Two of the sessions said so.
+    - The forced decision made Claude read the documents that carry that rule. Stopped sessions per arm: `n` 1,
+      `o0` 1 and `oc` 0 (stage 3); `v32` 0; `n0` 0, `p` 0 and `pf` 3.
+    - So P2's verdict rests partly on a rule the setup makes impossible to follow, and that penalises reading. The
+      registered reading stands (stage 3's rule), and this is the disagreement it reports.
+  - *Cost against `o0` (D17's form).*
+    - P1: `pf` 1.25 against 1.01 USD (spread 0.46), and 1.45M against 1.24M tokens. Not more by the rule.
+    - P2: `pf` 5.21 against 3.63 USD (spread 2.88), and 11.4M against 7.1M tokens. Not more by the rule, but its
+      median mixes stopped and writing sessions. One stopped session spent 19.0M tokens, 18.3M of them in background
+      subagents on the canon question, and wrote nothing.
+    - The index is 2 KB (P1) and 6 KB (P2).
+  - *What it means.*
+    - An always-on index with a retrieval-led line (`p`) reached none of the rules native misses, in either task.
+    - The forced decision reaches them where the session can act on what it read: P1's R6 in 5 of 5, read first
+      each time. In P2 it raised stopping instead, because reading more surfaced a rule the session could not meet.
+    - Push (`o0`) is still the only arm that holds every in-scope rule in both tasks.
+  - *Attempt 3 (planned; its check is written before it runs).* Path-keyed delivery at the action.
+    - At each Write or Edit, a `PreToolUse` hook names the documents keyed to the target path. Paths, not rule text,
+      so it stays pull; rule text at the write is push, which D20's stage 2 arms measured.
+    - The keying rule is fixed in its registration.
+    - It is the third attempt (rule 4). If it fails, D22's pull option goes up to the user.
+  - *Open before attempt 3 (the user's call).* P2's build task rests on a fact that P2's rules require checked
+    against an outside source, and the harness forbids the web. The options:
+    - attempt 3 runs as is, and P2 measures stopping as much as pull;
+    - P2's arms are re-run with the web on;
+    - P2 is read without stopped sessions, topped up to 5 writing sessions per arm.

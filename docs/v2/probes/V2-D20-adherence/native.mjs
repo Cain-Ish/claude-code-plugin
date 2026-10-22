@@ -345,6 +345,9 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   return {
     turns: results.length, models, subagentModels: [...new Set(ev.filter((e) => e.type === 'assistant' && e.parent_tool_use_id).map((e) => e.message?.model))], compaction: boundary ? (boundary.compact_metadata ?? boundary.compactMetadata ?? {}) : null,
     requests: seen.size, contextPerRequest: [...seen.values()], resultCostsUsd: results.map((r) => r.total_cost_usd),
+    // a result's usage is its own turn only; its modelUsage, like total_cost_usd, sums the session and its subagents
+    tokensAll: Object.values(results.at(-1)?.modelUsage ?? {})
+      .reduce((a, u) => a + u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens + u.outputTokens, 0),
     deliveredBytes: f.deliveries.reduce((a, d) => a + (d.bytes ?? 0), 0), redelivered: f.deliveries.filter((d) => d.ev === 'SessionStart' && d.cards).length,
     summaryBytes: summary == null ? null : Buffer.byteLength(summary),
     keptInSummary: summary == null ? null : Object.fromEntries(task.rules.map((r) => [r.id, [`\\b${r.id}\\b`, r.source && esc(r.source), r.mark]
@@ -607,12 +610,12 @@ if (mode === 'checks') {
         compactionPreTokens: median(rs.map((r) => r.session.compaction?.pre_tokens ?? null)), compactionPostTokens: median(rs.map((r) => r.session.compaction?.post_tokens ?? null)),
         deliveredBytes: median(rs.map((r) => r.session.deliveredBytes)), costUsd: median(rs.map((r) => r.usage.costUsd)),
         costSpread: Math.max(...rs.map((r) => r.usage.costUsd)) - Math.min(...rs.map((r) => r.usage.costUsd)),
-        tokensAll: median(rs.map((r) => r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens)),
+        tokensAll: median(rs.map((r) => r.session.tokensAll)),
         stopped: rs.filter((r) => !r.changed?.length).length, totalCostUsd: rs.reduce((x, r) => x + (r.usage.costUsd ?? 0), 0) }])),
     };
   }
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
-  fs.writeFileSync(path.join(HERE, 'results', `summary-${cfg.summaryName ?? 'stage3'}.json`), `${JSON.stringify(out, null, 1)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', 'summary-stage3.json'), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
 } else {
   console.error('usage: node native.mjs checks|smoke|run|summary|arrival|summary2|scale|summary3 <config> [task] [runs] [first] [arm]');
