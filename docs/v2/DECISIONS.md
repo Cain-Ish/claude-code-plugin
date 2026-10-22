@@ -15,7 +15,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
 | V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
-| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3) | evidence | — |
+| V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); the `clear` and `resume` cells DEFERRED to the first slice's step 0 (phase gate) | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
@@ -27,16 +27,14 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
 
-Frontier (rule 6): **the phase gate.** Every spine decision is LOCKED, or DEFERRED with a trigger (D20's net).
-- **D22 is LOCKED** (2026-10-22). Claude sees an index of the repo's documents from session start. At the first
-  prompt, and again at the first prompt after each compaction, it is made to decide which directories bear on the
-  task and to read them. It followed every in-scope rule in both test-bed tasks. Its known weakness is cost.
-- **D15, D13 and D16 re-locked** (2026-10-22). Onboarding builds the index only. Entries hold knowledge captured from
-  work. The re-find runs when a map file is read.
-- **D20:** following stands, and the write-time net is DEFERRED. The fed-back check works when it is right, but no
-  tested source writes such checks.
-- **Step 14:** `04-architecture.md`, the eval plan's Opus section and `06-first-slice.md` are drafted. Then the
-  devils-advocate review and Gemini.
+Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
+- Every spine decision is LOCKED, or DEFERRED with a trigger: D20's write-time net, and D12's `clear` and `resume`
+  cells.
+- The gate ran the devils-advocate workflow and Gemini. 24 findings survived refutation. Each is corrected, fires a
+  named trigger, or is recorded as an accepted risk.
+- **The build phase starts with `06-first-slice.md`'s step 0 and step 1**, not with plugin code:
+  - the two missing probes (`SessionStart` on `clear` and `resume`; the read hook inside subagents);
+  - then the eval re-baselined on Opus 5.5, with the added shapes and the investigation tasks' answer assertions.
 
 ---
 
@@ -263,6 +261,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   passive index 100% vs skill 53-79%; prior-and-SOTA rule 3).
 - **Probe note:** from Git Bash, run `claude -p "/compact"` (any slash command) with `MSYS_NO_PATHCONV=1`, or MSYS
   rewrites the leading `/` into a Windows path and the model receives a path instead of the command.
+- **Trigger fired, for two cells (phase gate, 2026-10-22).** D22's route needs `SessionStart` after `/clear` and on
+  `resume`, and neither source was probed. Before the first slice, this record's nonce probe runs for both sources
+  (3 runs each), in the main session. The cells it already holds stand.
 
 ### V2-D13 — Shape of the project map
 - **Question:** node kinds (decision, convention, inventory, goal, design rule, …), file format, the always-on
@@ -612,6 +613,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - Noise was measured by one item.
 
   Attempts: 0.
+- **Accepted risk (phase gate, 2026-10-22).** The capture instruction (sha256 `37f95a64502c`) asks Claude to keep
+  rules from any document it reads. Under D22's route Claude reads the repo's own documents, so it may copy rules that
+  already live in tracked files. Those copies are what D16's re-find then has to police. This is watched by this
+  record's trigger "the first slice's eval shows kept noise". The candidate fix, untested and so not taken now, narrows
+  the instruction to knowledge no tracked document holds: spoken decisions and documents outside the repo. A1's
+  three items are exactly that kind, so A1's capture check can test it.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -2049,7 +2056,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   [results/genchecks.json](probes/V2-D20-adherence/results/genchecks.json)): fail.**
   - *Caught:* 6 of the 17 pattern rules (P1 1 of 5, P2 1 of 4, R0 4 of 8), and P1 R2 was not among them.
   - *False alarms:* 0.21 of the checks that applied to a correct sample.
-  - *Generated:* 204 checks from 10 documents, 0.71 USD. 8 were not valid JavaScript regular expressions.
+  - *Generated:* 122 checks from 10 documents (the 17 rules share them), 0.71 USD. 5 were not valid JavaScript
+    regular expressions. *Corrected at the phase gate (2026-10-22): first recorded as 204 and 8, which counted each
+    document's checks once per rule.*
   - *Why (a diagnostic, not part of the check):* of the 11 misses, 8 had a check that applied and passed the correct
     sample but also passed the wrong one, so it was too general to catch the violation. 3 had no check that applied.
   - *Consequence (registered):* even with each rule's own source given, a model does not write checks that catch these
@@ -2075,9 +2084,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     on Opus when the check is right (`pfro` 5 of 5).
   - *What does not:* every tested way of getting the check. Model-written checks caught 6 of 17, with false alarms at
     0.21. A self-review with no check fixed 0 of 5.
-  - *Reopen when* a check source catches at least 14 of D20's 17 pattern rules on their samples, with false alarms at
-    most 1 in 10. Examples: checks the project's people write and review, checks Claude writes at capture under review,
-    or the project's own linters covering its pattern rules.
+  - *Reopen when* a check source catches at least 14 of D20's 17 pattern rules on their samples, P1 R2 among them, and
+    passes a false-alarm test that the hand-written checks pass at 0. Examples: checks the project's people write and
+    review, checks Claude writes at capture under review, or the project's own linters covering its pattern rules.
+  - *The false-alarm part, corrected at the phase gate (2026-10-22).* The registered instrument scored every check of
+    a task against every rule's correct sample. Each sample is correct only for its own rule, so the hand-written
+    checks themselves score 0.16 under it (9 of 55), against a bar of 0.10. Scored on their own rules' samples, they
+    score 0 of 17. So the old bar could never fire, and the generated checks' 0.21 means little. The verdict rests on
+    recall (6 of 17) and stands. A false-alarm test is built when a candidate source exists, and validated first on
+    the hand-written checks.
   - *Until then:* the first slice ships no net (rule 1). In the eval, A2's P1 R2 cell is an expected miss. P2 R4 is
     recorded with it: a judgment rule that push and pull both missed in the compaction shape (`oc` and `pfr` 3 of 5).
   - *The rest of this record stands:* following, under D22's route.
@@ -2792,6 +2807,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - Push (`o0`) holds all 8 (R4 4 of 5).
     - `pf` holds all 8 (R4 and R7 4 of 5). It reaches R5 (5 of 5) and R7 (4 of 5), and in every session that
       followed them their source was read before the first write. By the asymmetry clause, that is pull.
+    - *Corrected at the phase gate (2026-10-22; [mainreads.mjs](probes/V2-D20-adherence/mainreads.mjs)).* The
+      harness counts a Read by any thread, and some of these reads were a subagent's.
+      - In the main thread, before the first write: R5 3 of the 5 following sessions and R7 3 of 4. The rest were
+        read only by a subagent, which then reported to the main session.
+      - Under `pfr`: R2, R5 and R7 4 of 5 each in the main thread, 1 through a subagent.
+      - P1's R6: the main thread in every session.
+
+      The asymmetry clause names no thread, so the verdicts stand. But the route reaches some P2 rules by delegated
+      reading. The untested in-session variant (D22's cost weakness) would remove that path, so it must be checked
+      on R5 and R7 before it is tried. The route note's "by hand, in the main thread" was wrong and is corrected
+      there.
   - *So the web-off failure was the harness's.* P2's sessions stopped on a rule that needs the web.
   - *Cost against `o0` (D17's form).*
     - P2: `pf` 7.33 USD against 3.19 (spread 1.72), and 16.1M tokens against 5.0M. **More by the rule**, about three
@@ -2970,6 +2996,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - a repo's index exceeds P2's (45 directories, 6 KB) and its forced decision or reads are not measured there;
     - another model or CLI epoch becomes the baseline;
     - Claude Code changes how `SessionStart` on `compact` or `UserPromptSubmit` text reaches the model.
+    - *Added at the phase gate (2026-10-22):* an automatic compaction inside a turn is followed by a write before the
+      next prompt, so the re-forced decision comes too late. Only a manual `/compact` between turns was tested. The
+      user's own sessions show it happens. The candidate fix is the forced text inside `SessionStart`'s compact
+      output, untested.
+    - *Added at the phase gate (Gemini, 2026-10-22):* a file a subagent writes misses a rule its session read. Then
+      `SubagentStart` (D12: it reaches every subagent) carrying the index and the session's yes-list is the candidate.
+  - *Gaps found at the phase gate, recorded rather than fixed by assumption:*
+    - `/clear` and `resume` fire `SessionStart` with their own source. The route matched `startup` and `compact`
+      only, so after `/clear` neither the index nor D14's capture instruction arrives. D12 probed neither source,
+      which fires its trigger ("a design depends on a context not probed here"). Before the slice: D12's nonce
+      probe for `clear` and `resume`, then the matcher includes every source that arrives, and each starts a new
+      epoch.
+    - The forced decision's per-session state (which epoch has been forced) lived in the probe's run folder. In the
+      plugin it is keyed by the hook input's session id.
+    - The eval must contain the shapes these triggers name. The eval plan's last section adds a vague first prompt,
+      two compactions, and a task switch within a session.
   - *Consequences for other decisions:*
     - **D13 and D15: REOPENED by rule 9.** Both rest on an assumption this lock finds false: that converted entries
       are what Claude is given.

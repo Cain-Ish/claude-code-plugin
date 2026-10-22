@@ -271,8 +271,15 @@ its gap targets stay. The numbers re-run in the new epoch.
   epoch, so D17's and D19's triggers apply. A1's arms M0 and M1, and A2's M1, re-run on Opus at the current CLI before
   the v2 arm runs. That is the first task of the build phase (PM1: baselines first).
 - **Session shape for A2's build tasks:** stage 3's three turns (investigate and report, `/compact`, make the change),
-  with the web on, because a project's rules may need it (P2). P2's plan task runs in its first two turns, since it
-  writes nothing.
+  with the web on, because a project's rules may need it (P2). P2's plan task runs as one turn, and its reply is
+  scored. A `/compact` turn's empty reply must not be what is scored.
+- **Shapes that D22's triggers name** (added at the phase gate, so the triggers can fire). Each build task also runs:
+  - with a vague first prompt that names a symptom, and the change only in the second prompt;
+  - in a session with two compactions;
+  - in a session that switches to the other task of the same repo after the first.
+
+  Each is scored by D20's existing checks. An automatic compaction inside a turn is added once it can be forced in
+  headless mode (a low compaction threshold), which is checked first.
 - **D22's six investigation tasks join A2** (D19's trigger). They are scored by assertions on the answer, not reach
   against a judge.
   - The assertions are written from the repos' own documents, before the Opus re-baseline, blind to every arm's
@@ -284,8 +291,10 @@ its gap targets stay. The numbers re-run in the new epoch.
     its own turn only);
   - always-on bytes per session;
   - stopped sessions, read both ways.
-- **Recorded before the v2 arm runs:**
-  - *Expected miss:* P1 R2, a pattern rule that Opus missed under every pull arm. D20's net is deferred: no
+- **Recorded before the v2 arm runs.** This is the one list of expected misses; `06-first-slice.md` cites it.
+  - *Expected miss, P1 R2:* a pattern rule that Opus missed under every pull arm. D20's net is deferred: no
     model-written check caught it, and the fed-back check needs a hand-written source.
+  - *Expected miss, P2 R4:* a judgment rule that push and pull both missed once the session compacted (`oc` and
+    `pfr` 3 of 5).
   - *Expected risk:* cost in document-heavy repos, where the route spent about three times push's tokens. That is
     D22's first reopen trigger.

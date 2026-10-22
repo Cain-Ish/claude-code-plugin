@@ -6,6 +6,11 @@
 
 ## Order (PM1: outcome before input)
 
+0. **Two probes the phase gate found missing.** Neither needs v2 code.
+   - D12's nonce probe for `SessionStart` on `clear` and `resume` (3 runs each). The matcher then includes every
+     source that arrives.
+   - A plugin `PostToolUse` hook on a Read made inside an Explore and a general-purpose subagent: what reaches the
+     subagent, and what reaches the main session. Until it passes, the labels are claimed for main-session reads only.
 1. **The eval harness, re-baselined on Opus 5.5** (05-eval-plan.md, the last section). It needs no v2 code: it is
    D17's and D20's harnesses, plus answer assertions for D22's six investigation tasks. The thresholds are set from
    these runs, by D17's rule and its gap targets, before any v2 code is written.
@@ -40,8 +45,12 @@ Not in the skeleton:
 
 ## Done means
 
-- The v2 arm meets the thresholds on A1 and A2, cost included (D17's no-worse ceiling), or the miss is recorded
-  against the trigger it fires: D22's cost trigger, or the expected miss for P1 R2.
+- The v2 arm meets the thresholds on A1 and A2 as `05-eval-plan.md` sets them, per cell:
+  - a gain where it sets a gain, cost cells included;
+  - no worse only on the cells whose spread is at least their median.
+
+  The exceptions are the expected misses in its one list. A miss elsewhere is recorded against the trigger it fires
+  (for cost, D22's).
 - Every hook is measured on Windows under 8 concurrent sessions against its budget (PM3).
 - The map stays readable and correctable with the plugin off: delete the cache, rebuild it, and the eval scores the
   same (PM4).
