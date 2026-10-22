@@ -225,7 +225,9 @@ and two private repos (P1 and P2, published as counts only). The check and its p
 - **Protocol:** as A1, by D20's harness: Sonnet 5.5, CLI 2.1.305, Bash and the web off, 10 valid runs per task. The
   epoch rule holds: another CLI or model is another baseline.
 - **Context:** recorded, with no threshold. In 57 runs (A2's and D22's native runs) the largest context of any turn
-  was at most 17% of the 1,000,000-token window. No run compacted and none used a subagent.
+  was at most 17% of the 1,000,000-token window. No run compacted and none used a subagent. *Rethink 2
+  (2026-10-22): a task's context is not a session's. The user's working sessions compacted in 7 of 11, so this
+  measure is reset when D19 reopens ([research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md)).*
 
 ### Thresholds (2026-10-22, D17's rule, against M1)
 
