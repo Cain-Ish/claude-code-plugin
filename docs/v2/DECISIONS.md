@@ -1668,6 +1668,27 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     in the first slice's eval".
   - *Seen before this check was written (reported, not counted):* every one of the 36 runs searched before its
     first write (3 to 21 Glob and Grep calls); no A1 run created a file beyond its component's own.
+- **Result, part 1 (2026-10-22; [results/part1.json](probes/V2-D21-inventory/results/part1.json)): (a) fails,
+  part 2 follows.**
+  - The judges named all 3 planted originals. Every task is informative: every run reused existing units (11 of 11,
+    10 of 10, 15 of 15).
+  - Verified duplicates occurred in 10 of the 36 runs. All 10 are in P1's task (4 of 5 native, 5 of 5 arm b, 1 of 1
+    arm d), and all are the same kind: a local constant for a cap the task states as a number, where a shared
+    package of the repo already exports that value under a name. P2's task duplicated nothing in 10 runs, and
+    neither did R0's in 15, although P2 is the repo of 6,740 scripts that raised the question. All 10 claims were
+    confirmed by reading the original at the pinned commit; none was rejected.
+  - By D17's file names, none of the 40 A1 sessions created a file beyond its component's own.
+  - *Deviation, disclosed:* the judges were told to run no commands. Their transcripts show that they used the
+    shell only to read their input and check their output, never to search the tree. All three listed the private
+    folder, so they saw the names of the key files and of the planting script; none opened them. One named them in
+    its reply. The controls were named 3 of 3 regardless.
+  - *Seen before part 2 was written (rule 2; reported, not counted):*
+    - before its first write, no duplicating run opened the package's constants file or searched for the name;
+    - 2 of the 10 had read a sibling component that re-declares the same value locally (the repo does so in 3
+      files);
+    - the one run that searched for it found it and imported it;
+    - no card delivered in stage 2 named it;
+    - the repo's own post-write hooks fired 12 to 38 times per run and flagged nothing.
 
 ### V2-D22 — Selection
 - **Question (split from D13, 2026-10-21):** how do the entries that bind a task reach Claude, without a hand-made

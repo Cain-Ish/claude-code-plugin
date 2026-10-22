@@ -1,0 +1,95 @@
+{
+ "tasks": {
+  "P1-build": {
+   "runs": 11,
+   "judgedRuns": 11,
+   "units": 43,
+   "claimed": 10,
+   "confirmed": 10,
+   "rejected": 0,
+   "unverified": 0,
+   "runsWithDuplicate": 10,
+   "runsWithReuse": 11,
+   "byArm": {
+    "native": {
+     "runs": 5,
+     "runsWithDuplicate": 4,
+     "runsWithReuse": 5
+    },
+    "b": {
+     "runs": 5,
+     "runsWithDuplicate": 5,
+     "runsWithReuse": 5
+    },
+    "d": {
+     "runs": 1,
+     "runsWithDuplicate": 1,
+     "runsWithReuse": 1
+    }
+   },
+   "controlNamed": true,
+   "informative": true
+  },
+  "P2-build": {
+   "runs": 10,
+   "judgedRuns": 10,
+   "units": 77,
+   "claimed": 0,
+   "confirmed": 0,
+   "rejected": 0,
+   "unverified": 0,
+   "runsWithDuplicate": 0,
+   "runsWithReuse": 10,
+   "byArm": {
+    "b": {
+     "runs": 5,
+     "runsWithDuplicate": 0,
+     "runsWithReuse": 5
+    },
+    "native": {
+     "runs": 5,
+     "runsWithDuplicate": 0,
+     "runsWithReuse": 5
+    }
+   },
+   "controlNamed": true,
+   "informative": true
+  },
+  "R0-build": {
+   "runs": 15,
+   "judgedRuns": 15,
+   "units": 80,
+   "claimed": 0,
+   "confirmed": 0,
+   "rejected": 0,
+   "unverified": 0,
+   "runsWithDuplicate": 0,
+   "runsWithReuse": 15,
+   "byArm": {
+    "b": {
+     "runs": 5,
+     "runsWithDuplicate": 0,
+     "runsWithReuse": 5
+    },
+    "d": {
+     "runs": 5,
+     "runsWithDuplicate": 0,
+     "runsWithReuse": 5
+    },
+    "native": {
+     "runs": 5,
+     "runsWithDuplicate": 0,
+     "runsWithReuse": 5
+    }
+   },
+   "controlNamed": true,
+   "informative": true
+  }
+ },
+ "counted": {
+  "runs": 36,
+  "runsWithDuplicate": 10
+ },
+ "controlsNamed": 3,
+ "verdict": "part 2: (b) and (c) against the duplicating runs"
+}
