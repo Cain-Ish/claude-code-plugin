@@ -1701,6 +1701,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - A Claude Code release changes how a deny reason, a block reason or `UserPromptSubmit` context reaches the model.
   - The pattern checks written at onboarding (D15) catch materially less than this probe's scoring regexes, which
     were fed back as the checks.
+  - A rule delivered at the prompt is lost after a compaction in real use or in the first slice's eval (added
+    2026-10-22, stage 3).
 
   Attempts: 0.
 - **Reopened 2026-10-22 (rule 9; [research/2026-10-22-rethink-2.md](research/2026-10-22-rethink-2.md)).**
