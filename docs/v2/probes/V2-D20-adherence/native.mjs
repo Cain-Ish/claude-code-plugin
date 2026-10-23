@@ -47,7 +47,8 @@ const median = (a) => { const s = a.filter((x) => x != null).sort((x, y) => x - 
 
 // hooks: extra hook groups by event, merged into the run's settings beside the InstructionsLoaded logger
 function makeRun(dir, log, hooks = {}, mem = null) {
-  git(task.repo, 'worktree', 'remove', '--force', dir);
+  // force twice: a run cut off inside `worktree add` leaves its worktree locked
+  git(task.repo, 'worktree', 'remove', '--force', '--force', dir);
   fs.rmSync(dir, { recursive: true, force: true });
   // chains on one repo start together (stage 3 on); git's worktree lock then fails one of them, so retry
   let r = git(task.repo, 'worktree', 'add', '-q', '--detach', dir, task.commit);
