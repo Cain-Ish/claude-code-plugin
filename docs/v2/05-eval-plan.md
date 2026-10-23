@@ -352,3 +352,11 @@ runs.
     10.76.
   - *Projected at 10 runs per task:* about 400 USD-equivalent, inside the registered range. P2-systems is about a
     quarter of it, and the investigation tasks vary the most. The remaining runs (2 to 10) go in six resumable chains.
+- **Runs cut off by the usage limit (2026-10-22, disclosed).**
+  - The account's usage limit ended sessions mid-run, and the remaining chains were stopped by hand.
+  - 35 runs were left with no success result. Most cost nothing; the others were cut partway: P2-systems run 7,
+    P2 build runs 8 and 9, R0 build run 10.
+  - They are an outage, not invalid sessions, so they are re-run under their own run numbers. None counts against
+    the two replacements per task.
+  - 4 more runs had not started yet.
+  - Done once the limit reset (2026-10-23).
