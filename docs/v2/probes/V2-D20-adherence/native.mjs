@@ -21,6 +21,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const [mode, cfgArg, taskId, runs = '1', first = '1', arm = 'a'] = process.argv.slice(2);
 const cfgPath = path.resolve(cfgArg);
 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+// a pinned binary holds the epoch: the installed `claude` updates itself between runs, auto-updater off or not
+const CLAUDE = cfg.claude ?? 'claude';
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 // cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
@@ -145,7 +147,7 @@ const claudeArgs = (model, deny = cfg.web ? 'Bash' : 'Bash,WebFetch,WebSearch', 
   '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(addDir ? ['--add-dir', addDir] : [])];
 
 function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir = null) {
-  const r = spawnSync('claude', claudeArgs(model, deny, addDir),
+  const r = spawnSync(CLAUDE, claudeArgs(model, deny, addDir),
     { cwd, input: prompt, timeout: 1_800_000, encoding: 'utf8', env: env(extraEnv), maxBuffer: 256 << 20 });
   fs.writeFileSync(raw, (r.stdout ?? '') + (r.stderr ? `\n#stderr ${r.stderr}` : ''));
   return parse(r.stdout ?? '');
@@ -162,7 +164,7 @@ const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, in
   + 'report what you found. Do not create or edit any file yet.', ...(compact ? ['/compact'] : []), 'Now make the change.'];
 function claudeTurns(cwd, turns, model, raw, addDir = null) {
   return new Promise((resolve) => {
-    const child = spawn('claude', [...claudeArgs(model, undefined, addDir), '--input-format', 'stream-json'], { cwd, env: env() });
+    const child = spawn(CLAUDE, [...claudeArgs(model, undefined, addDir), '--input-format', 'stream-json'], { cwd, env: env() });
     let out = '';
     let buf = '';
     let i = 0;
@@ -387,7 +389,7 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
 
 function epoch() {
   const h = crypto.createHash('sha256').update(JSON.stringify(task));
-  const cli = run('claude', ['--version']).stdout.trim();
+  const cli = run(CLAUDE, ['--version']).stdout.trim();
   return { cli, model: cfg.model, commit: task.commit, inputs: h.digest('hex').slice(0, 12) };
 }
 
