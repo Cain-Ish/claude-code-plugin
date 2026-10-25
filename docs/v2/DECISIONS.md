@@ -3174,9 +3174,26 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - The added shapes (2e) wait for this.
   - *The misses, split (from each run's record: whether a rule's source was read, and whether it was applied):*
     - **The route question (7 cells, where M1 is at 0 too).**
-      - A2, A3, S2, S4, S5 and C4: the anchor document was never read in 8 to 10 of v2's 10 runs, and in 10 of
-        M1's. On investigation tasks, the index and the forced decision did not bring Claude to the documents that
-        hold the answer. Selection failed there; nothing was ignored.
+      - *Corrected 2026-10-25:* the first version of this bullet said the anchor was never read in 8 to 10 runs. That
+        came from the harness's "source in context" field, which compared each read's path with the whole source,
+        heading included ("path › heading"). For every investigation rule it could never register a read (fixed in
+        native.mjs; the field is in no verdict).
+      - Read from the 120 streams directly (subagents included; counts only):
+        - *A2, A3:* the anchor is the only file in its directory. Every v2 run triaged that directory out: 3
+          explicitly, 5 under a blanket no, 2 by skipping the triage. It was read in 0 of 10 runs, in either arm.
+          Claude answered from code (about 17 code files against 2.5 documents).
+        - *S2:* its 33-file directory was marked yes in 10 of 10, and the anchor read in 1 of 10 (M1: 0). Grep showed
+          its matching lines in 7 runs, and 6 of those never opened the 410-line file.
+        - *S5:* the anchor was named on the yes line and read in full in 10 of 10, yet the assertion passed in only 2.
+          That is following, not selection.
+        - *S4:* the anchor is a code file. A document index cannot reach it.
+        - *C4:* its 15-file directory was marked yes in 10 of 10, and the anchor read in 1 of 10, the one passing run.
+          In 8 of 10 runs Claude read no file from that directory and answered from code.
+      - *The mechanism:* "read the documents in every directory you marked yes" holds for small directories (R0's skill
+        folders: about 2 of 5 read). In directories of dozens of files (P1, P2: about 67 to 70 documents across the
+        yes directories), Claude names a few files on the yes line and reads 1 to 5. So the directory-level decision
+        selects too coarsely where directories are large, and a lone document beside dismissed directories is
+        triaged out with them.
       - R0 build's R6 is the other kind: its source document was read in every run of both arms, and never applied.
         That is not selection. It is a rule Claude reads and does not follow (D20's question).
     - **D17's bar (7 cells):** R3, R5, R7, P3a, S3, B2 and E1, each missed in 1 or 2 runs where M1 had 9 or 10.

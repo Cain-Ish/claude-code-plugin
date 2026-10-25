@@ -254,7 +254,8 @@ function facts(ev, dir, logFile, base) {
     // index of the tool call by which the rule was in context; -1 = at start, Infinity = never
     contextAt(rule) {
       const at = atPrompt.has(rule.id) ? [-1] : [];
-      const src = (rule.source ?? '\0').toLowerCase();
+      // a source may name a heading ("path › heading"); a read is of its file
+      const src = (rule.source ?? '\0').split(' › ')[0].toLowerCase();
       for (const l of loads) if ((rel(dir, l.file_path) ?? '').toLowerCase() === src) at.push(loadAt(l));
       uses.forEach((u, i) => {
         if (u.name === 'Read' && (relOf(u) ?? '').toLowerCase() === src) at.push(i);
