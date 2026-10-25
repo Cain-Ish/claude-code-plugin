@@ -10,6 +10,7 @@
 //   node native.mjs summary2 <config>                 writes results/summary-stage2.json (counts only)
 // Stage 3 (V2-D20, reopened): one session in turns (investigate, /compact, make the change); arms n, o0, oc, then
 // or, od, ow (see SESSION). `run` and `smoke` take these arms like any other.
+// Build step 2b: arms sba, sbn and sbmc are the M1 arms a, n and mc plus the v2 plugin, loaded by --plugin-dir.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -23,6 +24,7 @@ const cfgPath = path.resolve(cfgArg);
 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 // a pinned binary holds the epoch: the installed `claude` updates itself between runs, auto-updater off or not
 const CLAUDE = cfg.claude ?? 'claude';
+const PLUGIN = path.join(HERE, '..', '..', '..', '..', 'plugin');
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 // cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
@@ -76,7 +78,7 @@ const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path
 
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
-  if (['a', 'm', 'mc', 'n', 'n0'].includes(arm)) return {};
+  if (['a', 'm', 'mc', 'n', 'n0', 'sba', 'sbn', 'sbmc'].includes(arm)) return {};
   if (['p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro'].includes(arm)) { // V2-D22 pull: the documents' index with Vercel's instruction, always on from session start
     const hook = path.join('..', 'V2-D21-inventory', 'inventory-hook.mjs');
     fs.copyFileSync(task.index, path.join(base, 'inventory.txt'));
@@ -145,7 +147,8 @@ function armHooks(base) {
 const claudeArgs = (model, deny = cfg.web ? 'Bash' : 'Bash,WebFetch,WebSearch', addDir = null) => ['-p', '--model', model,
   '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', deny, '--permission-mode', 'acceptEdits',
   ...(cfg.web ? ['--allowedTools', 'WebSearch,WebFetch'] : []),
-  '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(addDir ? ['--add-dir', addDir] : [])];
+  '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(addDir ? ['--add-dir', addDir] : []),
+  ...(arm.startsWith('sb') ? ['--plugin-dir', PLUGIN] : [])];
 
 function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir = null) {
   const r = spawnSync(CLAUDE, claudeArgs(model, deny, addDir),
@@ -155,8 +158,8 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 }
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
-const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false, pfc: true, pfr: true, pfrs: true, pfro: true, mc: true };
-const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro', 'mc']; // session arms that push no rule card
+const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false, pfc: true, pfr: true, pfrs: true, pfro: true, mc: true, sbn: true, sbmc: true };
+const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro', 'mc', 'sba', 'sbn', 'sbmc']; // session arms that push no rule card
 // V2-D22 pull, attempt 2: fixed before it ran (DECISIONS.md)
 const FORCE = 'Before you start: for each directory in this project\'s document index, state in one line whether its '
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
@@ -272,7 +275,7 @@ async function runOnce(i, model = cfg.model) {
   const log = path.join(base, 'instructions.jsonl');
   // V2-D19 arm m: the user's own auto memory, a fresh copy per run, writable (as D17's M1); mc: the same in the
   // three-turn session (the Opus re-baseline, 05-eval-plan.md)
-  const mem = ['m', 'mc'].includes(arm) ? path.join(base, 'memory') : null;
+  const mem = ['m', 'mc', 'sbmc'].includes(arm) ? path.join(base, 'memory') : null;
   if (mem) fs.cpSync(task.memory, mem, { recursive: true });
   makeRun(dir, log, armHooks(base), mem);
   const compact = SESSION[arm];
@@ -288,6 +291,15 @@ async function runOnce(i, model = cfg.model) {
   if (f.init?.model && !f.init.model.startsWith(model)) rec.invalid.push(`ran on ${f.init.model}`);
   const byEv = (e) => f.deliveries.filter((d) => d.ev === e);
   if (arm === 'i' && !byEv('UserPromptSubmit').some((d) => d.inventory)) rec.invalid.push('inventory not delivered at prompt');
+  if (arm.startsWith('sb')) { // the plugin's own output, once per epoch: startup, and compact in the three-turn arms
+    const out = (name, text) => ev.filter((e) => e.subtype === 'hook_response' && e.hook_event === name && String(e.output ?? '').includes(text)).length;
+    rec.plugin = { starts: out('SessionStart', 'This project keeps a map'), forced: out('UserPromptSubmit', 'Before you start: for each directory'),
+      labelled: out('PostToolUse', '[project map]') };
+    const want = compact ? 2 : 1;
+    if (!f.init?.plugins?.some((p) => p.name === 'second-brain')) rec.invalid.push('plugin not loaded');
+    if (rec.plugin.starts !== want) rec.invalid.push(`plugin session start ${rec.plugin.starts} times`);
+    if (rec.plugin.forced !== want) rec.invalid.push(`forced decision ${rec.plugin.forced} times`);
+  }
   if (mem) {
     const inMem = (p) => slash(p ?? '').toLowerCase().startsWith(`${slash(mem).toLowerCase()}/`);
     const res = new Map(blocks(ev, 'user', 'tool_result').map((c) => [c.tool_use_id, c]));
@@ -418,7 +430,7 @@ if (mode === 'checks') {
   // arms v*: every chunk arrived if Claude names the last card of the last chunk without a tool (V2-D22 volume smoke)
   if (arm.startsWith('v')) task.prompt = 'Without using any tool, reply with only the id of the last project rule listed in your context, then stop.';
   // arm p: the index arrived if Claude quotes its first sentence without a tool (V2-D22 pull smoke)
-  if (arm === 'p') task.prompt = 'Without using any tool, quote the sentence in your context that begins "IMPORTANT: Prefer retrieval-led", then stop.';
+  if (arm === 'p' || arm.startsWith('sb')) task.prompt = 'Without using any tool, quote the sentence in your context that begins "IMPORTANT: Prefer retrieval-led", then stop.';
   if (arm === 'm') task.prompt = 'Without using any tool, quote the first line of your auto memory index verbatim. Then create a file named smoke-note.md in the repository root containing the single word ok.';
   const { rec, f } = await runOnce(0, cfg.smokeModel ?? 'claude-haiku-5-5');
   task.prompt = saved;
@@ -427,7 +439,7 @@ if (mode === 'checks') {
   for (const e of ev) kinds[`${e.type}/${e.subtype ?? ''}`] = (kinds[`${e.type}/${e.subtype ?? ''}`] ?? 0) + 1;
   console.log(JSON.stringify({ valid: rec.valid, invalid: rec.invalid, skillsListed: f.init?.skills, plugins: f.init?.plugins,
     mcp: f.init?.mcp_servers, loads: rec.instructionsLoaded, logFields: Object.keys(f.loads[0] ?? {}),
-    changed: rec.changed, usage: rec.usage, delivery: rec.delivery, rules: rec.rules, eventKinds: kinds, memory: rec.memory, session: rec.session,
+    changed: rec.changed, usage: rec.usage, delivery: rec.delivery, rules: rec.rules, eventKinds: kinds, memory: rec.memory, session: rec.session, plugin: rec.plugin,
     memoryQuoted: arm === 'm' ? blocks(ev, 'assistant', 'text').map((c) => c.text).join('\n').includes(fs.readFileSync(path.join(task.memory, 'MEMORY.md'), 'utf8').split('\n')[0].trim()) : undefined,
     lastCard: arm.startsWith('v') ? { delivered: rec.delivered, chunks: chunksOf(path.join(OUT, task.id, 'run0')),
       named: blocks(ev, 'assistant', 'text').map((c) => c.text).join('\n').match(/E\d{3}/g) } : undefined }, null, 1));

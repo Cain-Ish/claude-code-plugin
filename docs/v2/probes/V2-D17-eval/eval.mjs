@@ -1,6 +1,6 @@
 // V2-D17 eval harness (05-eval-plan.md): runs one arm of scenario A1 with `claude -p` and scores it deterministically.
 // Usage: node eval.mjs <scratch-dir> <M0|M1> [runs=1] [first=1]  |  node eval.mjs --smoke  |  node eval.mjs --summary
-// (D17_MODEL=<model> D17_TAG=<suffix> for another epoch)
+// (D17_MODEL=<model> D17_TAG=<suffix> for another epoch; D17_CLAUDE=<binary> pins the CLI, as native.mjs does)
 // Run folders and raw streams stay in <scratch-dir>; the scored record (no paths, no session ids) is merged into
 // results/<arm>.json next to this script.
 import { spawnSync } from 'node:child_process';
@@ -15,6 +15,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // another epoch (05-eval-plan.md: the Opus re-baseline) sets D17_MODEL, and D17_TAG keeps its results in their own files
 const MODEL = process.env.D17_MODEL ?? 'claude-sonnet-5-5';
 const TAG = process.env.D17_TAG ?? '';
+// a pinned binary holds the epoch: the installed `claude` updates itself between runs
+const CLAUDE = process.env.D17_CLAUDE ?? 'claude';
 const CODE = /\.(tsx?|jsx?|css|scss)$/;
 
 function walk(dir, skip = [], base = dir, out = {}) {
@@ -142,7 +144,7 @@ function claude(cwd, prompt, raw, mem) {
   const args = ['-p', '--model', MODEL, '--setting-sources', 'project,local', '--strict-mcp-config',
     '--disallowedTools', 'Bash,WebFetch,WebSearch,Skill', '--permission-mode', 'acceptEdits',
     '--output-format', 'stream-json', '--verbose', ...(mem ? ['--add-dir', mem] : [])];
-  const r = spawnSync('claude', args, { cwd, input: prompt, encoding: 'utf8', env: env(), timeout: 1_200_000, maxBuffer: 256 << 20 });
+  const r = spawnSync(CLAUDE, args, { cwd, input: prompt, encoding: 'utf8', env: env(), timeout: 1_200_000, maxBuffer: 256 << 20 });
   fs.writeFileSync(raw, (r.stdout ?? '') + (r.stderr ? `\n#stderr ${r.stderr}` : ''));
   return parse(r.stdout ?? '');
 }
@@ -251,7 +253,7 @@ function epoch() {
   const h = crypto.createHash('sha256');
   for (const p of Object.keys(FIXTURE_FILES).sort()) h.update(p).update(FIXTURE_FILES[p]);
   h.update(fs.readFileSync(path.join(HERE, 'sessions.mjs'), 'utf8').replace(/\r\n/g, '\n'));
-  const cli = spawnSync('claude', ['--version'], { encoding: 'utf8', env: env() }).stdout.trim();
+  const cli = spawnSync(CLAUDE, ['--version'], { encoding: 'utf8', env: env() }).stdout.trim();
   return { cli, model: MODEL, inputs: h.digest('hex').slice(0, 12) };
 }
 

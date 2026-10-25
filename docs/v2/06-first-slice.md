@@ -148,3 +148,14 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
 - **Smoke 2** (`plugin/test/smoke.mjs`, Haiku): the onboarding command, run as `/second-brain:onboard`, reports the
   index's documents and directories.
 - **Pass:** both smokes pass. No baseline record is touched or re-run.
+
+### 2b: result (2026-10-25): pass
+
+- **`eval.mjs`** starts `D17_CLAUDE` at both CLI calls.
+- **`native.mjs`** has arms `sba`, `sbn` and `sbmc`, with the three checks.
+- **Smoke 1** (`sbn`, R0 build, Haiku): valid. Turn results were 3 of 3. The plugin was listed, its session-start
+  output arrived 2 times (startup, then compact), and the forced decision arrived 2 times. So the compact source and
+  the re-forced decision work through the CLI.
+- **Smoke 2:** `/second-brain:onboard` reported "2 documents in 2 directories", so `${CLAUDE_PLUGIN_ROOT}` also works
+  in a command's `!` line. The first smoke passed again beside it.
+- No baseline record was touched.
