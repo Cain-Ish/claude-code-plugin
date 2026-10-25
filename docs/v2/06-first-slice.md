@@ -22,7 +22,7 @@
 
 | Surface | What it does | Outcome it serves (PM6) | Decision |
 | --- | --- | --- | --- |
-| `SessionStart` hook (startup, compact), shell form once, then Node | the capture instruction; the document index | Capture; Consistency | D14, D22, D18 |
+| `SessionStart` hook (startup, clear, resume, compact: D12 step 0), shell form once, then Node | the capture instruction; the document index | Capture; Consistency | D14, D22, D18 |
 | `UserPromptSubmit` hook | the forced decision, at the first prompt and the first after each compaction | Consistency | D22 |
 | `PostToolUse` hook after a Read of a `.project-map/` file | the unreviewed label (D14) and the re-find label (D16) on the entries just read | Freshness; trust (PM5) | D14, D16, D18 |
 | onboarding command | builds the index from git's file list; checks Node and git | Onboarding | D15, D18 |
@@ -55,3 +55,53 @@ Not in the skeleton:
 - Every hook is measured on Windows under 8 concurrent sessions against its budget (PM3).
 - The map stays readable and correctable with the plugin off: delete the cache, rebuild it, and the eval scores the
   same (PM4).
+
+## Step 2 in four commits (2026-10-25)
+
+2a, the skeleton; 2b, the harnesses' v2 arm, loading the plugin with `--plugin-dir` as a user would; 2c, the v2 arm
+on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
+
+### 2a: the skeleton's check (pre-registered 2026-10-25, before any code)
+
+- **What is built:** `plugin/`, holding `.claude-plugin/plugin.json`, `hooks/hooks.json`, a library and one entry
+  script under `scripts/`, and `commands/onboard.md`. No marketplace file until a release.
+- **Surfaces:** exactly 3 hook events, 1 command, 0 agents, 0 MCP servers, 0 skills:
+  - `SessionStart` on `startup`, `clear`, `resume` and `compact`;
+  - `UserPromptSubmit`;
+  - `PostToolUse` matched on `Read`.
+- **Product lines:** at most 600 non-blank lines under `plugin/`, tests and the bench excluded. Counted in the commit.
+- **Texts, verbatim, asserted by the self-test:**
+  - D14's capture instruction (904 B, sha256 `8aa72396af72`);
+  - D22's index first line;
+  - D22's forced decision (227 B);
+  - D14's label `unreviewed, not yet committed` and D16's `unverified quote, captured <date>`;
+  - D18's missing-Node message, from its shell-form wrapper.
+- **Behaviour, by an assert-based self-test in a temporary git repo:**
+  - *The index:* tracked document files (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`, any case), grouped by directory,
+    plus untracked files under `.project-map/`. Untracked documents elsewhere and non-documents are left out.
+  - *The forced decision:* emitted once per epoch. Every `SessionStart` source starts an epoch, held as a marker file
+    in the OS temp folder keyed by the session id; nothing is written in the repo.
+  - *The read labels:* on a Read of a `.project-map/` file, an entry its `HEAD` version holds gets no D14 label, one it
+    does not hold gets it, and outside git every entry gets it. A Read of any other file exits with no output.
+- **Smoke:** pinned CLI 2.1.305, `--plugin-dir`, Haiku, not counted. One session in a temporary repo with one
+  document and a `.project-map/captured.md` holding one committed and one uncommitted entry. It must quote:
+  - the index's first sentence;
+  - the forced text;
+  - after it Reads the map file, the labels the hook added.
+
+  This also settles whether exec form with `${CLAUDE_PLUGIN_ROOT}` inside `args` works in a plugin's `hooks.json`.
+  If it does not, attempt 2 is a shell-form string.
+- **Load:** on Windows, on a worktree of P2 at its pinned commit (189 documents, the largest index), 200 calls per
+  hook at 1 and 8 concurrent, against an empty Node process. The four calls measured are session start, the prompt
+  hook, a Read of a non-map file (the frequent fast exit), and a Read of a map file.
+  - *Pass:* each hook's added p95 at 8 concurrent is at most 100 ms (D18).
+- **The cache, decided by that number:**
+  - If session start passes with the index built from `git ls-files` every time, `.project-map/.cache/` is not built,
+    and 04's row is corrected with the number.
+  - If it fails, a cache is attempt 2.
+- **Out of scope:**
+  - *D16's re-find.* Under the frozen capture instruction no captured entry carries a `verified` line, so every entry
+    is unverifiable, and the re-find would never run. D16's trigger "unverifiable entries exceed 5% of a repo" fires
+    by construction. The smoke records it, and D16 is the next decision after 2a. The skeleton labels such entries as
+    unverified with their date, the rule D16 sets for them, so none is delivered as current.
+  - D20's net, the harness arm (2b), and the v2 runs (2c, 2d).
