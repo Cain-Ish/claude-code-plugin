@@ -19,7 +19,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture) | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
@@ -1201,6 +1201,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       <source>", and Claude updates it under D14's capture instruction, committed with the work.
   - *Reopen if:* the triggers above, except the converter's; and the read hook's added p95 exceeds D18's budget.
     D18 measured "on read of a document" at the bar.
+- **REOPENED 2026-10-25 (build step 2a).**
+  - *Fired:* "unverifiable entries exceed 5% of a repo".
+  - *Observation:* in 2a's smoke, 2 of 2 captured entries were unverifiable. That holds by construction:
+    - D14's frozen capture instruction asks for no `verified` line;
+    - its `source` names a person or a document title, not an anchor;
+    - no hook writes to the map.
+  - *Meanwhile:* the skeleton labels every captured entry "unverified quote, captured <date>", the rule this record
+    sets for unverifiable entries, so none is delivered as current. The read hook adds 49 ms p95 at 8 concurrent.
+  - *Open:* how a captured entry gets an anchor the re-find can check, with the instruction's hash and D17's capture
+    arm in mind.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the

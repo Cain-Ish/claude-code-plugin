@@ -16,7 +16,7 @@ index lists too (V2-D14, D13). Everything a person needs is readable and correct
 | --- | --- | --- | --- |
 | the repo's documents (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`) | the project's own rules and knowledge | the project's people | D15, D22 |
 | `.project-map/*.md` | entries captured from work: the statement, its source (a document anchor or the session's date), its area, when it applies, `verified` | Claude, under the capture instruction; committed with the work | D11, D13, D14, D16 |
-| `.project-map/.cache/` (gitignored) | the index, rebuilt from git's file list plus the untracked files under `.project-map/`, so an entry captured and not yet committed is listed | the plugin | D15, D18 |
+| no cache (build step 2a) | the index is built at each session start from git's file list plus the untracked files under `.project-map/`, so an entry captured and not yet committed is listed: 87 ms added p95 at 8 concurrent on P2 (190 documents, 6.1 KB), under D18's 100 ms | the plugin | D15, D18 |
 
 ## Hooks
 
@@ -27,7 +27,7 @@ runs in shell form once and says when Node is missing.
 | --- | --- | --- | --- | --- |
 | `SessionStart`: `startup`, `clear`, `resume` and `compact` (all four probed: D12, build step 0) | the capture instruction; the document index (Vercel's retrieval-led line, then the documents by directory) | 904 B + 2 to 6 KB measured | the main session; re-emitted after `/compact` | Capture; Consistency |
 | `UserPromptSubmit`, the session's first prompt and the first after each compaction (state keyed by the session id) | the forced decision: per index directory yes or no, then read the yes ones before changing anything | 227 B | the main session | Consistency |
-| `PostToolUse` after a Read of a `.project-map/` file | labels the file's uncommitted entries "unreviewed, not yet committed" (D14); runs D16's re-find on its entries' anchors and labels changed or gone ones | per read | the main session (D22 run 2: 3 of 3). Subagent reads, Grep and Bash are unlabelled until probed | Freshness; trust (PM5) |
+| `PostToolUse` after a Read of a `.project-map/` file | labels the file's uncommitted entries "unreviewed, not yet committed" (D14), and every entry "unverified quote, captured <date>" (D16). The re-find is not built: no captured entry carries a `verified` line, so D16 is reopened (build step 2a) | per read | the main session (D22 run 2: 3 of 3). Subagent reads, Grep and Bash are unlabelled until probed | Freshness; trust (PM5) |
 | `PostToolUse` after a Write or Edit, and `Stop` | **Not built: D20's net is DEFERRED.** The fed-back check works when it is right, but no tested source writes such checks | | | |
 
 Not used: `PreToolUse` (D18), `SubagentStart` (deferred: subagents do not see the index), MCP, agents.
@@ -59,8 +59,8 @@ Node and git are present. A repo with no documents gets an empty index and an em
   is D14's accepted risk, watched by its noise trigger.
 - **Stale documents.** Claude reads the project's documents as they are. A stale document that contradicts a binding
   rule is not flagged: the volume check found 10 such entries in P2. D16 labels captured entries only.
-- **The index build at session start** (from git's file list) is unmeasured. The 16 to 45 ms measured so far delivered
-  a precomputed file. It is the first D18 measurement in the slice.
+- **The index build at session start** (from git's file list, no cache) adds 87 ms p95 at 8 concurrent on P2, close
+  to D18's 100 ms. A repo with a much larger file list may pass it; a cache is the fallback (build step 2a).
 - **Friction.** A forced decision at the session's first prompt and after each compaction. A new task in the same
   session gets none, which is untested. Both are measured in the first slice.
 - **Pattern rules on Opus.** P1 R2 was missed under every pull arm and under a self-review; only a hand-written check

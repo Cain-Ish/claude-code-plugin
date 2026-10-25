@@ -39,7 +39,7 @@ Not in the skeleton:
 | --- | --- | --- |
 | Always-on bytes per session | 904 B plus the index; an index past 6 KB (P2's size) is measured before it ships | D13 re-locked, D22 |
 | Bytes per forced decision | 227 B, at most once per epoch (the session's start, then after each compaction) | D22 |
-| Added hook p95 at 8 concurrent sessions, Windows | at most 100 ms per hook; the index build from git's file list at session start is measured first (unmeasured so far) | D18 |
+| Added hook p95 at 8 concurrent sessions, Windows | at most 100 ms per hook; measured in 2a: 87 ms at session start (the index from git's file list, on P2), 49 ms or less for the others | D18 |
 | Processes per hook event | 1 Node process; hooks spawn only `git` | D18 |
 | Product lines (hooks, library, command; not tests or the harness) | at most 600 | D18's runtime prototype: 331 lines covering the guards, cache and labels |
 | Surfaces | 3 hook events, 1 command, 0 agents, 0 MCP servers, 0 skills | D18, PM6 |
@@ -53,8 +53,8 @@ Not in the skeleton:
   The exceptions are the expected misses in its one list. A miss elsewhere is recorded against the trigger it fires
   (for cost, D22's).
 - Every hook is measured on Windows under 8 concurrent sessions against its budget (PM3).
-- The map stays readable and correctable with the plugin off: delete the cache, rebuild it, and the eval scores the
-  same (PM4).
+- The map stays readable and correctable with the plugin off (PM4). The skeleton keeps no cache (2a), so the map's
+  plain files are its only state in the repo.
 
 ## Step 2 in four commits (2026-10-25)
 
@@ -105,3 +105,30 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
     by construction. The smoke records it, and D16 is the next decision after 2a. The skeleton labels such entries as
     unverified with their date, the rule D16 sets for them, so none is delivered as current.
   - D20's net, the harness arm (2b), and the v2 runs (2c, 2d).
+
+### 2a: result (2026-10-25): pass on attempt 2
+
+- **Built:** `plugin/` with 3 hook events, 1 command, and no agents, skills or MCP servers, in 143 product lines.
+- **Self-test:** `plugin/test/selftest.mjs` passes. It covers the texts (the instruction's hash and bytes, the forced
+  text's 227 B, the index line, the labels), the surfaces, and each hook run as a process in a temporary repo.
+- **Smoke** (`plugin/test/smoke.mjs`, pinned CLI 2.1.305, Haiku):
+  - *Attempt 1 failed* on the index item. Asked for "the first sentence of the document index", the session quoted
+    the index line's second sentence. That sentence exists only in the hook's output, but the condition was not met.
+  - *Attempt 2 passed*, asking for the sentence that begins "IMPORTANT: Prefer retrieval-led" (D22's own smoke
+    wording). All three items were quoted word for word.
+  - All three hooks returned exit 0, with the plugin loaded as `second-brain@inline` through `--plugin-dir`.
+  - Exec form with `${CLAUDE_PLUGIN_ROOT}` inside `args` works in a plugin's `hooks.json`.
+- **Load** (`plugin/test/bench.mjs`, Windows, a worktree of P2 at its pinned commit with one uncommitted map file:
+  190 documents in 46 directories, a 6,108 B index; 200 calls per hook, paired with an empty Node process; wall clock
+  only, no in-process time). Added p95 at 8 concurrent, then at 1:
+
+  | Hook | At 8 concurrent | At 1 |
+  | --- | --- | --- |
+  | Session start | 87.3 ms | 47.2 ms |
+  | Prompt | 37.0 ms | 5.5 ms |
+  | Read of another file | 26.2 ms | 6.7 ms |
+  | Read of a map file | 49.1 ms | 28.7 ms |
+
+  No call failed. Every hook is under 100 ms, so no cache is built (04 corrected).
+- **D16's trigger fired** as expected: 2 of 2 captured entries in the smoke were unverifiable. D16 is reopened in the
+  ledger, and it is the next decision.
