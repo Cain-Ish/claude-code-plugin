@@ -26,6 +26,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
+| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | OPEN 2026-10-25 (build step 2c: T5 0 of 10; the scorer asks for a role the fixture never states) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -3151,3 +3152,34 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       its checks come from moves with D15.
   - *Attempts:* 3 failed against the judge (BLOCKED), then on the pull track: 2 failed (`p`, `pfc`), 2 ruled out by
     count (`pk`, `ph`), and 2 passed (`pf`, `pfr`).
+
+### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
+- **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
+  where it came from".
+- **Why now:** build step 2c scored T5 at 0 of 10 for v2, and M1 is 0 too. D20 left item (5) open: "A1 item (5),
+  measured by D17. It is not decided here." So no decision owns it. Rule 9 sends a lost part of the main idea back to
+  a decision.
+- **Evidence** (06, 2c: an observation; the frozen scorer stands):
+  - H1 gives the folder decision as "a decision from today's team meeting" and names no lead developer. T5's scorer
+    asks for "the developer or lead".
+  - v2's 20 T replies: 20 name the PM or client, 14 the designer, 16 the map, 0 a developer or lead.
+  - 14 of 20 name all three sources as the fixture states them (8 of 10 for the second person).
+- **Options:**
+  - (a) Keep T5. Add a plugin line asking Claude, when it finishes, to name each decision it applied and the source
+    its map entry or document gives. The line goes in the plugin's own session-start output; D14's instruction and
+    D22's forced text stay frozen. The plugin hash changes.
+  - (b) Correct T5's scorer to the sources as the fixture states them: the team meeting, the user, or a developer or
+    lead; the designer; the PM, a product manager or the client. M1 and V2 are rescored from their stored replies,
+    with no new run and no plugin change. This is a D17 attempt (rule 2): a scorer changed after a result. It is
+    disclosed, and both arms are rescored the same way.
+  - (c) Both.
+  - (d) Rewrite H1 to name the lead developer. Rejected: it changes the fixture, so every A1 baseline starts over in
+    a new epoch, for a wording fix the scorer can make.
+- **How it is settled:** a written rethink, plus a second opinion (Gemini), recorded as such (the user's standing
+  instruction, 2026-10-22).
+- **Check (pre-registered 2026-10-25, before any rescoring or run):**
+  - *Under (b) or (c):* the corrected T5 passes the gold reply and fails three planted replies, each missing one of
+    the three sources. Then it rescores every stored M1 and V2 T reply, and old and new counts are both reported.
+  - *Under (a) or (c):* a T-only re-run as the second person, on 2c's 10 committed maps, with the candidate line. T5
+    must reach at least 8 of 10 under the scorer chosen. The new plugin hash is recorded, and 2d runs on that plugin.
+  - 2d's pilots wait for this lock.

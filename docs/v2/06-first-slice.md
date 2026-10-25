@@ -323,3 +323,17 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
   - *Same person, N1 and N3 at 9 of 10.* In one run the neighbour component took the avatar's rules (over-application),
     and in one run a file sat outside its folder. The released variant (second person) passes both, 10 of 10.
 - **No D22 trigger fired,** so 2d's pilots may launch (2d's order).
+- **06's "done means" is not met on A1.** It asks for a gain on every gain cell, cost included, and A1 misses T5,
+  orientation and the three cost cells. The gains above are the result; the slice is not "done" on A1.
+- **The same person ran on the map.** Auto memory stayed empty in 9 of 10 runs (run 7 wrote 2 files): with the
+  capture instruction active, the map took the decisions auto memory would have kept. So the two variants differ
+  little, and the same person's N1 and N3 (9 of 10) are run-to-run variance more than a memory effect.
+- **T5, read before any decision on it** (an observation; the frozen scorer and its 0 of 10 stand):
+  - H1's prompt gives the folder decision as "a decision from today's team meeting" and never names a lead
+    developer. The map entries quote that source as given ("team meeting, relayed by the user"). T5's scorer asks
+    the reply to name "the developer or lead".
+  - Of the 20 T replies, 20 name the PM or client, 14 the designer, 16 the map, and 0 a developer or lead.
+  - 14 of 20 name all three sources as the fixture states them (the meeting or the user, the designer, the PM or
+    client): 8 of 10 for the second person, 6 of 10 for the same person.
+  - Whether T5 measures charter item (5) is V2-D23's question, settled before 2d's runs, in case its answer changes
+    the plugin and with it the plugin hash.

@@ -146,5 +146,10 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   then on that format is what is delivered and enforced." Under the route that worked (V2-D22), Claude reads the
   documents themselves. Under the user's scope, the converted form came to 0.91 of the documents' bytes, so it saved
   nothing.
+- **"Fewer tokens and steps" measured (2026-10-25, build step 2c).** On A1, the plugin kept and followed decisions
+  that native auto memory missed (the designer's spec: kept 10 of 10 against 2, followed 10 against 0), and reached a
+  second person. It cost the same tokens and steps as native, not fewer. D22 priced this when it chose reading the
+  documents, and capped it by the no-worse ceiling, which held. The acceptance sentence "It spends fewer tokens and
+  steps" is therefore not met on A1.
 - **"Verify each decision during the process, 3-4 runs then rethink"** became the decision record, the
   pre-registered check and the three-strike rule in 01-process.md.
