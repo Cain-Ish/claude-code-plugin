@@ -342,3 +342,25 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
   client), v2's attempt-1 replies score 1 of 10 (same person) and 0 of 10 (second person), and M1 scores 0. The frozen
   T5 (0 of 10) was never in question. 2c's attempt 1 is kept in `results/V2-opus-attempt1.json`. Attempt 2 runs on
   the plugin with D23's line.
+
+### 2c, attempt 2 (2026-10-25, after V2-D23): A1's result as a release cites it
+
+Plugin `497ba915e987` (the naming line added). 10 of 10 valid, one epoch, 13.13 USD. Attempt 1 stays in
+`results/V2-opus-attempt1.json`.
+
+| Cell | M1 | Bar | v2, second person | v2, same person |
+| --- | --- | --- | --- | --- |
+| C1 to C4 | 10, 2, 10, 10 | 10, 2, 10, 10 | 10, 10, 10, 10 | 10, 10, 10, 10 |
+| T1 to T4 (final and at the first write) | 10, 10, 0, 10 | 10, 10, 8, 10 | all 10 | all 10 |
+| T5f (D23) | 0 | 8 | **10** | **10** |
+| T5 (frozen) | 0 | 8 | 0 | 0 |
+| N1 to N3 | 10, 10, 10 | 10 | 10, 10, 10 | 10, 10, 10 |
+| Over-attribution (D23) | — | at most 1 | 0 | 0 |
+| Tool calls / files read before the first write | 12 / 10.5 | below 7 / below 5.5 | 12 / 11: no gain | 11.5 / 10.5: no gain |
+| T tokens / output / USD | 129,365 / 3,621 / 0.189 | below 66,295 / 2,401 / 0.128 | 133,724 / 4,326 / 0.203: no gain | 138,378 / 4,392 / 0.222: no gain |
+| Always-on bytes | 450 | budget | 1,553 (904 + index + 212 + 227) | 1,553 |
+
+- **Every pass item now meets its bar,** T5f included. A1 item (5) is met.
+- **"Done means" is still not met on A1:** orientation and the three cost cells show no gain. Each sits under M1's
+  no-worse ceiling, so D22's trigger did not fire. This is the cost charted in the charter's dated line.
+- 2d's pilots run on this plugin.

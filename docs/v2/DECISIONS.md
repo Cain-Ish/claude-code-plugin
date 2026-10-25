@@ -26,7 +26,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
-| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | CHECKING 2026-10-25 ((b) and (a), unconditionally, after a written rethink and a second opinion) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
+| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -3217,3 +3217,28 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     the line unconditionally.
   - *The line is in the plugin:* 212 B, appended to session start. Plugin hash `497ba915e987`, a new epoch. Part 2
     (2c, attempt 2) follows.
+- **Check, part 2 (2026-10-25): pass.** 2c, attempt 2: A1's V2 arm on the plugin with the line (hash
+  `497ba915e987`). 10 of 10 valid, 13.13 USD.
+  - Second person:
+    - T5f 10 of 10 (attempt 1: 0);
+    - C1 to C4, T1 to T4 (final and at the first write), and N1 to N3: all 10 of 10, at their bars;
+    - over-attribution: 0 runs.
+  - The same person scores the same, and its N1 and N3 are now 10 of 10 too.
+  - The frozen T5 stays at 0 of 10. It is kept as recorded, and T5f is the item D17 scores from here.
+  - Orientation and cost still show no gain, inside every no-worse ceiling. Output tokens rose with the naming
+    (median 4,326 against attempt 1's 4,078), under the ceiling of 4,841.
+- **LOCKED 2026-10-25: (b) and (a).**
+  - T5f measures A1 item (5) as the fixture states the sources.
+  - The plugin's session start carries the naming line.
+  - *Rejected:*
+    - (a) alone: the scorer stayed wrong for both arms;
+    - (b) alone: it scores 0 to 1 of 10, because naming is not a habit;
+    - (c) conditional: the second opinion's point;
+    - (d): the fixture.
+  - *Reopen if:*
+    - over-attribution reaches 2 or more of 10 runs in any A1 or A2 arm that carries the line;
+    - the line pushes output tokens above M1's no-worse ceiling on a task;
+    - the user reads item (5) differently.
+  - *D17:* this is its T5 attempt 2 (a scorer changed after a result, disclosed). Its rule is unchanged.
+
+  Attempts: 1, passed.
