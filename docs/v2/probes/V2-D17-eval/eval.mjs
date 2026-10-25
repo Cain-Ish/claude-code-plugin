@@ -402,26 +402,31 @@ function summary() {
   const med = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
   const stat = (a) => ({ median: med(a), min: Math.min(...a), max: Math.max(...a), spread: Math.max(...a) - Math.min(...a) });
   const out = {};
-  for (const arm of ['M0', 'M1']) {
+  // V2 (06, 2c) is summarised per variant: each variant's T and N stand where M1's do
+  const groups = ['M0', 'M1', 'V2'].flatMap((arm) => {
     const f = path.join(HERE, 'results', `${arm}${TAG}.json`);
-    if (!fs.existsSync(f)) continue;
+    if (!fs.existsSync(f)) return [];
     const all = JSON.parse(fs.readFileSync(f, 'utf8')).runs;
-    const runs = all.filter((r) => r.valid);
+    if (arm !== 'V2') return [[arm, arm, all, all.filter((r) => r.valid)]];
+    return ['same', 'second'].map((who) => [`V2-${who}`, arm, all, all.filter((r) => r.valid)
+      .map((r) => ({ ...r, ...r.variants[who], sessions: { ...r.sessions, T: r.sessions[`T-${who}`] } }))]);
+  });
+  for (const [key, arm, all, runs] of groups) {
     const count = (key) => runs.reduce((o, r) => {
       for (const [k, v] of Object.entries(r[key] ?? {})) o[k] = (o[k] ?? 0) + (v === true ? 1 : 0);
       return o;
     }, {});
     const t = (r) => r.sessions.T;
-    out[arm] = {
+    out[key] = {
       runs: all.length,
       validRuns: runs.length,
       epochs: [...new Set(runs.map((r) => JSON.stringify(r.epoch)))].map((e) => JSON.parse(e)),
-      capture: arm === 'M1' ? count('capture') : null,
+      capture: arm !== 'M0' ? count('capture') : null,
       test: count('test'),
       testAtFirstWrite: count('testAtFirstWrite'),
       neighbour: count('neighbour'),
       allTestAndNeighbourPass: runs.filter((r) => [...Object.values(r.test), ...Object.values(r.neighbour)].every(Boolean)).length,
-      chain: arm === 'M1' ? runs.reduce((o, r) => {
+      chain: arm !== 'M0' ? runs.reduce((o, r) => {
         for (const [d, c] of Object.entries(r.chain)) (o[d] ??= {})[c] = (o[d][c] ?? 0) + 1;
         return o;
       }, {}) : null,
@@ -436,6 +441,19 @@ function summary() {
         runCostUsd: stat(runs.map((r) => r.costUsd)),
       },
     };
+  }
+  // D17's rule (05, Thresholds): a count or token median beats M1's by more than M1's spread (where the spread is at
+  // least the median, no gain is claimed: at most median plus spread); orientation passes on either cell; a pass item
+  // needs M1's count of runs, 8 where M1 had 0
+  const m1 = out.M1;
+  for (const k of ['V2-same', 'V2-second']) {
+    const v = out[k];
+    if (!v || !m1) continue;
+    const metric = (n) => { const a = m1.metrics[n]; const b = v.metrics[n].median; return a.median - a.spread > 0 ? b < a.median - a.spread : b <= a.median + a.spread; };
+    const items = (part) => Object.fromEntries(Object.entries(m1[part]).map(([i, c]) => [i, (v[part][i] ?? 0) >= (c === 0 ? 8 : c)]));
+    v.verdict = { capture: items('capture'), test: items('test'), testAtFirstWrite: items('testAtFirstWrite'), neighbour: items('neighbour'),
+      orientation: metric('toolCallsBeforeFirstWrite') || metric('filesReadBeforeFirstWrite'),
+      cost: Object.fromEntries(['tTokensTotal', 'tOutputTokens', 'tCostUsd'].map((n) => [n, metric(n)])) };
   }
   fs.writeFileSync(path.join(HERE, 'results', `summary${TAG}.json`), `${JSON.stringify(out, null, 2)}\n`);
   console.log(JSON.stringify(out, null, 2));
@@ -465,4 +483,5 @@ for (let i = Number(first); i < Number(first) + Number(runs); i++) {
   console.log(`${arm} run ${i}: ${rec.valid ? 'valid' : `INVALID (${rec.invalid.join('; ')})`}; $${rec.costUsd?.toFixed(2)}`);
   console.log(`  capture ${pass(rec.capture)} | test ${pass(rec.test)} | first write ${pass(rec.testAtFirstWrite)} | neighbour ${pass(rec.neighbour)}`);
   if (rec.chain) console.log(`  chain ${JSON.stringify(rec.chain)}`);
+  for (const [who, v] of Object.entries(rec.variants ?? {})) console.log(`  ${who}: test ${pass(v.test)} | first write ${pass(v.testAtFirstWrite)} | neighbour ${pass(v.neighbour)} | chain ${JSON.stringify(v.chain)}`);
 }

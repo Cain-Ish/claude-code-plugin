@@ -1,0 +1,189 @@
+{
+  "plan": "../../05-eval-plan.md",
+  "runs": [
+    {
+      "arm": "V2",
+      "run": 1,
+      "date": "2026-10-25",
+      "invalid": [],
+      "sessions": {
+        "H1": {
+          "memoryWrites": 0,
+          "costUsd": 0.16523720000000003,
+          "inputTokens": 8,
+          "outputTokens": 3686,
+          "cacheReadTokens": 83706,
+          "cacheWriteTokens": 9343,
+          "turns": 13,
+          "durationMs": 31518
+        },
+        "H2": {
+          "memoryWrites": 0,
+          "costUsd": 0.21935600000000002,
+          "inputTokens": 8,
+          "outputTokens": 5646,
+          "cacheReadTokens": 91340,
+          "cacheWriteTokens": 11017,
+          "turns": 17,
+          "durationMs": 60769
+        },
+        "H3": {
+          "memoryWrites": 0,
+          "costUsd": 0.1087536,
+          "inputTokens": 6,
+          "outputTokens": 1853,
+          "cacheReadTokens": 63988,
+          "cacheWriteTokens": 7359,
+          "turns": 7,
+          "durationMs": 21257
+        },
+        "T-same": {
+          "memoryWrites": 0,
+          "costUsd": 0.225798,
+          "inputTokens": 10,
+          "outputTokens": 4451,
+          "cacheReadTokens": 120290,
+          "cacheWriteTokens": 14085,
+          "turns": 15,
+          "durationMs": 37491
+        },
+        "N-same": {
+          "memoryWrites": 0,
+          "costUsd": 0.1858432,
+          "inputTokens": 10,
+          "outputTokens": 3050,
+          "cacheReadTokens": 119456,
+          "cacheWriteTokens": 12614,
+          "turns": 14,
+          "durationMs": 28643
+        },
+        "T-second": {
+          "memoryWrites": 0,
+          "costUsd": 0.208893,
+          "inputTokens": 10,
+          "outputTokens": 4095,
+          "cacheReadTokens": 116365,
+          "cacheWriteTokens": 12960,
+          "turns": 15,
+          "durationMs": 38312
+        },
+        "N-second": {
+          "memoryWrites": 0,
+          "costUsd": 0.1649722,
+          "inputTokens": 10,
+          "outputTokens": 2811,
+          "cacheReadTokens": 116521,
+          "cacheWriteTokens": 10676,
+          "turns": 14,
+          "durationMs": 25363
+        }
+      },
+      "capture": {
+        "C1": true,
+        "C2": true,
+        "C3": true,
+        "C4": true
+      },
+      "provenance": {
+        "entries": 18,
+        "withSource": 18,
+        "leaks": 0
+      },
+      "map": {
+        "captured.md": 4745
+      },
+      "mapCommitted": 1,
+      "store": {},
+      "variants": {
+        "same": {
+          "test": {
+            "T1": true,
+            "T2": true,
+            "T3": true,
+            "T4": true,
+            "T5": false
+          },
+          "testAtFirstWrite": {
+            "T1": true,
+            "T2": true,
+            "T3": true,
+            "T4": true
+          },
+          "neighbour": {
+            "N1": true,
+            "N2": true,
+            "N3": true
+          },
+          "chain": {
+            "folder": "followed",
+            "spec": "followed",
+            "cdn": "followed"
+          },
+          "orientation": {
+            "toolCallsBeforeFirstWrite": 12,
+            "filesReadBeforeFirstWrite": 11
+          },
+          "alwaysOnBytes": 1340,
+          "newFiles": {
+            "T": [
+              "src/components/UserAvatar/index.ts",
+              "src/components/UserAvatar/UserAvatar.tsx"
+            ],
+            "N": [
+              "src/components/ProductImage/index.ts",
+              "src/components/ProductImage/ProductImage.tsx"
+            ]
+          }
+        },
+        "second": {
+          "test": {
+            "T1": true,
+            "T2": true,
+            "T3": true,
+            "T4": true,
+            "T5": false
+          },
+          "testAtFirstWrite": {
+            "T1": true,
+            "T2": true,
+            "T3": true,
+            "T4": true
+          },
+          "neighbour": {
+            "N1": true,
+            "N2": true,
+            "N3": true
+          },
+          "chain": {
+            "folder": "followed",
+            "spec": "followed",
+            "cdn": "followed"
+          },
+          "orientation": {
+            "toolCallsBeforeFirstWrite": 12,
+            "filesReadBeforeFirstWrite": 11
+          },
+          "alwaysOnBytes": 1340,
+          "newFiles": {
+            "T": [
+              "src/components/UserAvatar/index.ts",
+              "src/components/UserAvatar/UserAvatar.tsx"
+            ],
+            "N": [
+              "src/components/ProductImage/index.ts",
+              "src/components/ProductImage/ProductImage.tsx"
+            ]
+          }
+        }
+      },
+      "costUsd": 1.2788532000000001,
+      "valid": true,
+      "epoch": {
+        "cli": "2.1.305 (Claude Code)",
+        "model": "claude-opus-5-5",
+        "inputs": "108861b749cb",
+        "plugin": "a6d0217666ec"
+      }
+    }
+  ]
+}
