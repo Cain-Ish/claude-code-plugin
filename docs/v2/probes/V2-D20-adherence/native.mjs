@@ -28,7 +28,7 @@ const PLUGIN = path.join(HERE, '..', '..', '..', '..', 'plugin');
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 // cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
-const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3', 'rebase'].includes(mode) ? null : process.exit(2));
+const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3', 'rebase', 'verdict'].includes(mode) ? null : process.exit(2));
 
 const env = (extra = {}) => {
   const e = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1', ...extra };
@@ -400,13 +400,35 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   };
 }
 
+// the plugin's product files (tests left out), hashed as V2-D17-eval/eval.mjs hashes them, so both name the same plugin
+function pluginHash() {
+  const files = [];
+  const go = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.name !== 'test') (e.isDirectory() ? go : (f) => files.push(f))(path.join(d, e.name)); };
+  go(PLUGIN);
+  const h = crypto.createHash('sha256');
+  for (const f of files.map((f) => slash(path.relative(PLUGIN, f))).sort()) h.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
+  return h.digest('hex').slice(0, 12);
+}
+
 function epoch() {
   const h = crypto.createHash('sha256').update(JSON.stringify(task));
   const cli = run(CLAUDE, ['--version']).stdout.trim();
-  return { cli, model: cfg.model, commit: task.commit, inputs: h.digest('hex').slice(0, 12) };
+  return { cli, model: cfg.model, commit: task.commit, inputs: h.digest('hex').slice(0, 12), ...(arm.startsWith('sb') ? { plugin: pluginHash() } : {}) };
 }
 
 // ---------- modes ----------
+
+// rebase and verdict: a task's valid runs in an arm, and the measures the thresholds are set on
+const dirOf = (a) => (a === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', a));
+const load = (a, id) => {
+  const file = path.join(dirOf(a), `${id}.json`);
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).runs.filter((r) => r.valid) : [];
+};
+const spread = (a) => { const v = a.filter((x) => x != null); return v.length ? Math.max(...v) - Math.min(...v) : null; };
+// sessions: every turn and subagent (the last result's modelUsage); one-turn runs: that turn's own usage
+const MEASURES = { toolCallsBeforeFirstWrite: (r) => r.orientation.toolCallsBeforeFirstWrite, filesReadBeforeFirstWrite: (r) => r.orientation.filesReadBeforeFirstWrite,
+  tokensAll: (r) => r.session?.tokensAll ?? (r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens),
+  outputTokens: (r) => r.session?.outputTokensAll ?? r.usage.outputTokens, costUsd: (r) => r.usage.costUsd };
 
 if (mode === 'checks') {
   // Each rule's check must pass its correct sample and fail its wrong one (rule.test: { pass, fail }, each a map of
@@ -600,16 +622,7 @@ if (mode === 'checks') {
   // The Opus re-baseline (05-eval-plan.md): per task, its M1 arm (task.m1Arm) and the thresholds by D17's rule with
   // the gap-target forms (D17, D19): a rule M1 never follows needs 8 of 10; a cell whose spread is at least its median
   // claims no gain and gets a no-worse ceiling instead. Counts only.
-  const dirOf = (a) => (a === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', a));
-  const load = (a, id) => {
-    const file = path.join(dirOf(a), `${id}.json`);
-    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).runs.filter((r) => r.valid) : [];
-  };
-  const spread = (a) => { const v = a.filter((x) => x != null); return v.length ? Math.max(...v) - Math.min(...v) : null; };
-  // sessions: every turn and subagent (the last result's modelUsage); one-turn runs: that turn's own usage
-  const measures = { toolCallsBeforeFirstWrite: (r) => r.orientation.toolCallsBeforeFirstWrite, filesReadBeforeFirstWrite: (r) => r.orientation.filesReadBeforeFirstWrite,
-    tokensAll: (r) => r.session?.tokensAll ?? (r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens),
-    outputTokens: (r) => r.session?.outputTokensAll ?? r.usage.outputTokens, costUsd: (r) => r.usage.costUsd };
+  const measures = MEASURES;
   const out = { date: new Date().toISOString().slice(0, 10), model: cfg.model,
     rule: 'D17 against M1; at floor 0 a rule needs 8 of 10; where the spread is at least the median, no gain is claimed and v2 must stay at or below median plus spread', tasks: {} };
   for (const t of cfg.tasks) {
@@ -634,6 +647,36 @@ if (mode === 'checks') {
   const dir = path.join(HERE, '..', 'V2-D19-scale', 'results');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `rebase-${cfg.summaryName ?? 'opus'}.json`), `${JSON.stringify(out, null, 1)}\n`);
+  console.log(JSON.stringify(out, null, 1));
+} else if (mode === 'verdict') {
+  // 06, 2d: A2's v2 arm (sb + the task's M1 arm) against the Opus thresholds that `rebase` set, per task and cell, by
+  // D17's rule with the same median; 05's expected-miss list marked; stopped sessions counted both ways. Counts only.
+  const dir = path.join(HERE, '..', 'V2-D19-scale', 'results');
+  const th = JSON.parse(fs.readFileSync(path.join(dir, `rebase-${cfg.summaryName ?? 'opus'}.json`), 'utf8'));
+  const LIST = { 'P1-build': ['R2'], 'P2-build': ['R4', 'outputTokens'], 'P2-plan': ['outputTokens'], 'R0-knowledge': ['filesReadBeforeFirstWrite'] };
+  const out = { date: new Date().toISOString().slice(0, 10), model: cfg.model, list: LIST, tasks: {} };
+  for (const t of cfg.tasks) {
+    const m1 = th.tasks[t.id];
+    const v2Arm = `sb${t.m1Arm}`;
+    const rs = load(v2Arm, t.id);
+    if (!m1 || !rs.length) continue;
+    const listed = LIST[t.id] ?? [];
+    const rules = Object.fromEntries(t.rules.map((rule) => {
+      const n = rs.filter((r) => r.rules[rule.id].final).length;
+      return [rule.id, { v2: n, target: m1.rules[rule.id].target, pass: n >= m1.rules[rule.id].target, listed: listed.includes(rule.id) }];
+    }));
+    const measures = Object.fromEntries(Object.entries(MEASURES).map(([k, fn]) => {
+      const c = m1.measures[k];
+      const med = median(rs.map(fn).filter((x) => x != null));
+      return [k, !c || med == null ? null : { v2: med, pass: c.noGain ? med <= c.ceiling : med < c.below, listed: listed.includes(k) }];
+    }));
+    out.tasks[t.id] = { arm: v2Arm, validRuns: rs.length, epochs: [...new Set(rs.map((r) => `${r.epoch?.cli} ${r.epoch?.plugin}`))],
+      stopped: m1.stopped === null ? null : { v2: rs.filter((r) => !r.changed?.length).length, m1: m1.stopped },
+      rules, measures,
+      misses: [...Object.entries(rules), ...Object.entries(measures)].filter(([, c]) => c && !c.pass && !c.listed).map(([k]) => k),
+      totalCostUsd: rs.reduce((a, r) => a + (r.usage.costUsd ?? 0), 0) };
+  }
+  fs.writeFileSync(path.join(dir, `verdict-${cfg.summaryName ?? 'opus'}.json`), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
 } else if (mode === 'revalidate') {
   // Stage 3: re-apply the session checks to a task and arm's saved logs after a correction to them (recorded in
