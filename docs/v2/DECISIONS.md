@@ -1211,6 +1211,40 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     sets for unverifiable entries, so none is delivered as current. The read hook adds 49 ms p95 at 8 concurrent.
   - *Open:* how a captured entry gets an anchor the re-find can check, with the instruction's hash and D17's capture
     arm in mind.
+  - *Evidence, gathered before the check below was written (disclosed):*
+    - Source: the 10 maps of D14's M2 arm (Sonnet, A1), 88 captured entries.
+    - 79 entries have no repo anchor by nature: 34 name a person, and 45 name the designer's document, which A1 pastes
+      into a prompt.
+    - 9 name a repo file. One of them is a meeting decision that mentions the file. The other 8 quote
+      `docs/style-guide.md`: 4 word for word, 4 condensed. The file is untouched.
+    - So "unverifiable entries exceed 5%" fires on any repo with spoken decisions. It is restated below.
+    - A not-found label cannot claim "changed since" without state from capture time: on the untouched file it would
+      be false 4 times in 4.
+  - *Question:* can the read hook check a captured entry against the repo file its source names, at read time and with
+    no state from capture time, without a false claim?
+  - *Options:*
+    - (a) The skeleton as built: no re-find; every entry "unverified quote, captured <date>".
+    - (b) A re-find at read time, in the named file only, for entries whose `source` names a file that exists in the
+      repo:
+      - found word for word (D16's attempt-2 match: the quote's stretches in the file's words): no label, checked now;
+      - not found: "not found word for word in <path>; check it, captured <date>". The claim is about now, not about a
+        change.
+      - Every other entry is labelled as in (a).
+    - (c) As (b), plus git history, to tell drift from a condensed quote: the source's version at the entry's commit.
+    - (d) Change D14's instruction to demand verbatim quotes and a path. Closed: none of D14's triggers fired, and its
+      hash is in the ledger.
+  - *Check (pre-registered 2026-10-25, before any code or run).* Option (b) on copies of the 10 M2 repos:
+    - *Untouched tree.* None of the 4 entries found today gets a label. The 4 condensed ones and the meeting decision
+      that names the file get the not-found label (5). Each of the 79 others gets the unverified label.
+    - *Seeded drift.* For each of the 4 found entries, three seeds in its source file, one at a time: a word changed
+      inside the quoted text, the quoted text deleted, the file renamed. Pass: 12 of 12 get the not-found label.
+    - *Labels.* No label says "changed".
+    - *Load.* On P2's worktree, a map file of 30 entries, each quoting a different P2 document word for word. The read
+      hook's added p95 at 8 concurrent stays at most 100 ms (D18).
+    - (b) locks if all four hold. If the rate of condensed quotes makes (b)'s label mostly noise, that is D14's
+      question (the instruction says "in the words used"), not this one.
+  - *Not in (b):* a quote moved to another document. It reads as not found, which is true. D16's attempt 2 searched
+    every document file for a moved quote, and that scan would run on every read of a map file with a condensed entry.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
