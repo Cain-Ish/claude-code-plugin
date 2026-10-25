@@ -274,3 +274,13 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
 - **Not in 2e:** an automatic compaction inside a turn. 05 adds it once a check shows it can be forced headless; that
   check comes first, as its own step.
 - **Order:** 2e's runs follow 2d's verdict, because the scope comes from 2d.
+- **The vague prompts, frozen (2026-10-25, before any shape run).**
+  - Three prompts of 2 sentences each, in the private config's `vague` field, sha256 `5b9190695e86`. The hash is over
+    the JSON of [id, prompt] pairs in the order P1, P2, R0.
+  - The field sits outside the tasks, so the build tasks' input hashes still equal their baselines.
+  - *Written by a fresh agent*, given only the three build prompts (extracted to a private file) and the repos at their
+    pinned commits. It reports opening nothing else under `docs/` and searching for no rule. That is its own report,
+    not a check.
+  - *Mechanical check:* none of the 33 `must` and `mustNot` tokens of the three tasks' rules appears in its prompt.
+  - *The agent's own caveat:* P1's prompt ("when I only want a small team") points at the task's limit more than the
+    other two do. Recorded, not changed.

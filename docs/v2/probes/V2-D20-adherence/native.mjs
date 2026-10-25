@@ -169,7 +169,7 @@ const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, in
 // 06, 2e: the added shapes, with the plugin and the build task's own setup (memory where its M1 arm has it). quiet: the
 // result up to which no write may happen (the last turn that says not to edit; none in the vague shape)
 const SHAPES = {
-  sbv: { turns: (t) => [t.vague, t.prompt], quiet: 0, compactions: 0 },
+  sbv: { turns: (t) => [cfg.vague[t.id], t.prompt], quiet: 0, compactions: 0 }, // cfg.vague: kept out of the task, whose JSON is the epoch's input hash
   sbc2: { turns: (t) => [turnsOf(t.prompt, true)[0], '/compact', 'List the files you will change and why. Do not edit anything yet.', '/compact', 'Now make the change.'], quiet: 3, compactions: 2 },
   sbs: { turns: (t) => [cfg.tasks.find((o) => o.repo === t.repo && o.id !== t.id).prompt, ...turnsOf(t.prompt, true)], quiet: 2, compactions: 1 },
 };
