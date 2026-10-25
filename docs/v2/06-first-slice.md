@@ -376,3 +376,45 @@ Plugin `497ba915e987` (the naming line added). 10 of 10 valid, one epoch, 13.13 
   - Projected at 10 runs per task: about 400 USD-equivalent, against the re-baseline's 345.67.
   - One run each says nothing about the medians the verdict uses, but the cost risk on 05's list shows already.
 - Runs 2 to 10 follow in four chains, one per repo, plus P2-systems alone. Usage limits, not USD, are the gate.
+
+### 2d: result (2026-10-25): gains on build and plan rules, little on investigation; D22's trigger fired
+
+**Runs:** 100 of 100 valid, in one epoch: CLI 2.1.305, Opus 5.5, plugin `497ba915e987`. Each task's input hash equals
+its M1 baseline's. Total 324.52 USD-equivalent, against M1's 345.67. Scored by `native.mjs verdict` into
+[`V2-D19-scale/results/verdict-opus.json`](probes/V2-D19-scale/results/verdict-opus.json).
+
+**Rules (count of 10, v2 / bar; L: on 05's list):**
+
+| Task | Passes | Misses |
+| --- | --- | --- |
+| P1 build | R1, R3, R4, R5 10; **R6 10 / 8** (M1 0) | R2 3 / 6 (L) |
+| P2 build | all, incl. **R4 10 / 6** (L), **R5 9 / 3**, **R6 10 / 7**, **R7 7 / 1** | none |
+| R0 build | R1, R2a, R2b 10; R4 9 / 9 | R3, R5, R7 9 / 10; R6 0 / 8 |
+| P2 plan | **P1 9 / 5**, P3b 10, **P4 8 / 3**, **P5 10 / 6** | P3a 9 / 10 |
+| R0-knowledge | A1, A5, A6 10 | A2 1 / 8, A3 0 / 8, A4 2 / 4 |
+| R0-buddy | B1, B3, B4, B5 10 | B2 8 / 10 |
+| P1-skills | S1 6 / 6 | S2 0 / 8, S3 9 / 10, S4 0 / 8, S5 2 / 8 |
+| P1-weekly | **W2 10 / 3**, **W3 7 / 4**, W4 10, W5 9 / 8 | W1 0 / 1 |
+| P2-crafting | C1, C5 10; C2 6 / 6; **C3 10 / 8** (M1 0); **C6 6 / 2** | C4 1 / 8 |
+| P2-systems | E2 6 / 6, **E3 9 / 8**, **E4 9 / 7**, E5 10 | E1 8 / 9 |
+
+- 41 of the 57 rule cells outside 05's list pass. v2 is above M1's count in 17 cells and below it in 9.
+- Build and plan rules: 20 of 25. Investigation assertions: 21 of 32.
+- The cells M1 never reached on investigation tasks stay unreached (A3, S2, S4, C4). The route does not bring Claude
+  to them.
+
+**Measures:**
+- Orientation fails its gain bar on the build tasks, where v2 reads more before writing than M1 does (P2 build: 175
+  calls and 42 files, against 145 and 36).
+- Cost is mixed: lower than M1's median on four tasks, higher on six.
+- **P2 plan is above M1's no-worse ceiling** on files read (6 against 4) and cost (0.457 against 0.379 USD).
+
+**What fires:**
+- **D22's first trigger:** "the first slice's eval puts v2 above M1's no-worse ceiling on a task" (P2 plan).
+- **D22's investigation clause:** a cell is missed on an investigation task, outside 05's list (2d's registration).
+- So D22 is reopened. 2e's runs wait for it (rule 1), since its shapes would measure a route under reopen.
+- **"Done means" is not met on A2.**
+
+**What holds:**
+- The route is a clear gain on the build and plan rules of the two repos with prose rules (P1, P2).
+- R0 build's R6 (0 of 8) and its one-run misses, and the investigation tasks, are where it is not.

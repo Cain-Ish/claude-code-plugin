@@ -1,0 +1,815 @@
+{
+ "date": "2026-10-25",
+ "model": "claude-opus-5-5",
+ "list": {
+  "P1-build": [
+   "R2"
+  ],
+  "P2-build": [
+   "R4",
+   "outputTokens"
+  ],
+  "P2-plan": [
+   "outputTokens"
+  ],
+  "R0-knowledge": [
+   "filesReadBeforeFirstWrite"
+  ]
+ },
+ "tasks": {
+  "P1-build": {
+   "arm": "sbmc",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": {
+    "v2": 0,
+    "m1": 0
+   },
+   "rules": {
+    "R1": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R2": {
+     "v2": 3,
+     "target": 6,
+     "pass": false,
+     "listed": true
+    },
+    "R3": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R4": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R5": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R6": {
+     "v2": 10,
+     "target": 8,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "v2": 24,
+     "pass": false,
+     "listed": false
+    },
+    "filesReadBeforeFirstWrite": {
+     "v2": 12,
+     "pass": false,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 1416903,
+     "pass": false,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 19953,
+     "pass": false,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 1.851455,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "misses": [
+    "toolCallsBeforeFirstWrite",
+    "filesReadBeforeFirstWrite",
+    "tokensAll",
+    "outputTokens",
+    "costUsd"
+   ],
+   "shapes": {},
+   "totalCostUsd": 19.5750876
+  },
+  "P2-build": {
+   "arm": "sbn",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": {
+    "v2": 0,
+    "m1": 0
+   },
+   "rules": {
+    "R1": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R2": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R3a": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R3b": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R4": {
+     "v2": 10,
+     "target": 6,
+     "pass": true,
+     "listed": true
+    },
+    "R5": {
+     "v2": 9,
+     "target": 3,
+     "pass": true,
+     "listed": false
+    },
+    "R6": {
+     "v2": 10,
+     "target": 7,
+     "pass": true,
+     "listed": false
+    },
+    "R7": {
+     "v2": 7,
+     "target": 1,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "v2": 175,
+     "pass": false,
+     "listed": false
+    },
+    "filesReadBeforeFirstWrite": {
+     "v2": 42,
+     "pass": false,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 12136469,
+     "pass": true,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 90503,
+     "pass": false,
+     "listed": true
+    },
+    "costUsd": {
+     "v2": 6.254259999999998,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "misses": [
+    "toolCallsBeforeFirstWrite",
+    "filesReadBeforeFirstWrite"
+   ],
+   "shapes": {},
+   "totalCostUsd": 72.222047765
+  },
+  "R0-build": {
+   "arm": "sbn",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": {
+    "v2": 0,
+    "m1": 0
+   },
+   "rules": {
+    "R1": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R2a": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R2b": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "R3": {
+     "v2": 9,
+     "target": 10,
+     "pass": false,
+     "listed": false
+    },
+    "R4": {
+     "v2": 9,
+     "target": 9,
+     "pass": true,
+     "listed": false
+    },
+    "R5": {
+     "v2": 9,
+     "target": 10,
+     "pass": false,
+     "listed": false
+    },
+    "R6": {
+     "v2": 0,
+     "target": 8,
+     "pass": false,
+     "listed": false
+    },
+    "R7": {
+     "v2": 9,
+     "target": 10,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "v2": 47,
+     "pass": false,
+     "listed": false
+    },
+    "filesReadBeforeFirstWrite": {
+     "v2": 19,
+     "pass": false,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 3188097,
+     "pass": false,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 44748,
+     "pass": false,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 3.1798656,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "misses": [
+    "R3",
+    "R5",
+    "R6",
+    "R7",
+    "toolCallsBeforeFirstWrite",
+    "filesReadBeforeFirstWrite",
+    "tokensAll",
+    "outputTokens",
+    "costUsd"
+   ],
+   "shapes": {},
+   "totalCostUsd": 33.0824764
+  },
+  "P2-plan": {
+   "arm": "sba",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": null,
+   "rules": {
+    "P1": {
+     "v2": 9,
+     "target": 5,
+     "pass": true,
+     "listed": false
+    },
+    "P3a": {
+     "v2": 9,
+     "target": 10,
+     "pass": false,
+     "listed": false
+    },
+    "P3b": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "P4": {
+     "v2": 8,
+     "target": 3,
+     "pass": true,
+     "listed": false
+    },
+    "P5": {
+     "v2": 10,
+     "target": 6,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "v2": 6,
+     "pass": false,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 213494,
+     "pass": true,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 5025,
+     "pass": false,
+     "listed": true
+    },
+    "costUsd": {
+     "v2": 0.4571626,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "misses": [
+    "P3a",
+    "filesReadBeforeFirstWrite",
+    "costUsd"
+   ],
+   "shapes": {},
+   "totalCostUsd": 4.9920048
+  },
+  "R0-knowledge": {
+   "arm": "sba",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": null,
+   "rules": {
+    "A1": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "A2": {
+     "v2": 1,
+     "target": 8,
+     "pass": false,
+     "listed": false
+    },
+    "A3": {
+     "v2": 0,
+     "target": 8,
+     "pass": false,
+     "listed": false
+    },
+    "A4": {
+     "v2": 2,
+     "target": 4,
+     "pass": false,
+     "listed": false
+    },
+    "A5": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "A6": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "v2": 90,
+     "pass": false,
+     "listed": false
+    },
+    "filesReadBeforeFirstWrite": {
+     "v2": 19,
+     "pass": false,
+     "listed": true
+    },
+    "tokensAll": {
+     "v2": 1673747,
+     "pass": true,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 9313,
+     "pass": true,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 3.593891800000001,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "misses": [
+    "A2",
+    "A3",
+    "A4",
+    "toolCallsBeforeFirstWrite",
+    "costUsd"
+   ],
+   "shapes": {},
+   "totalCostUsd": 42.086833600000006
+  },
+  "R0-buddy": {
+   "arm": "sba",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": null,
+   "rules": {
+    "B1": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "B2": {
+     "v2": 8,
+     "target": 10,
+     "pass": false,
+     "listed": false
+    },
+    "B3": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "B4": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "B5": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "v2": 5,
+     "pass": true,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 398648,
+     "pass": false,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 7449,
+     "pass": false,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 0.5501022,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "misses": [
+    "B2",
+    "tokensAll",
+    "outputTokens",
+    "costUsd"
+   ],
+   "shapes": {},
+   "totalCostUsd": 5.5027538
+  },
+  "P1-skills": {
+   "arm": "sba",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": null,
+   "rules": {
+    "S1": {
+     "v2": 6,
+     "target": 6,
+     "pass": true,
+     "listed": false
+    },
+    "S2": {
+     "v2": 0,
+     "target": 8,
+     "pass": false,
+     "listed": false
+    },
+    "S3": {
+     "v2": 9,
+     "target": 10,
+     "pass": false,
+     "listed": false
+    },
+    "S4": {
+     "v2": 0,
+     "target": 8,
+     "pass": false,
+     "listed": false
+    },
+    "S5": {
+     "v2": 2,
+     "target": 8,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "v2": 8,
+     "pass": true,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 263924,
+     "pass": true,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 3663,
+     "pass": true,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 3.462737,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "misses": [
+    "S2",
+    "S3",
+    "S4",
+    "S5"
+   ],
+   "shapes": {},
+   "totalCostUsd": 32.79397730000001
+  },
+  "P1-weekly": {
+   "arm": "sba",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": null,
+   "rules": {
+    "W1": {
+     "v2": 0,
+     "target": 1,
+     "pass": false,
+     "listed": false
+    },
+    "W2": {
+     "v2": 10,
+     "target": 3,
+     "pass": true,
+     "listed": false
+    },
+    "W3": {
+     "v2": 7,
+     "target": 4,
+     "pass": true,
+     "listed": false
+    },
+    "W4": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "W5": {
+     "v2": 9,
+     "target": 8,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "v2": 27,
+     "pass": true,
+     "listed": false
+    },
+    "filesReadBeforeFirstWrite": {
+     "v2": 15,
+     "pass": true,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 8893393,
+     "pass": true,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 46725,
+     "pass": true,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 4.6038428,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "misses": [
+    "W1",
+    "costUsd"
+   ],
+   "shapes": {},
+   "totalCostUsd": 45.76793759999999
+  },
+  "P2-crafting": {
+   "arm": "sba",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": null,
+   "rules": {
+    "C1": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "C2": {
+     "v2": 6,
+     "target": 6,
+     "pass": true,
+     "listed": false
+    },
+    "C3": {
+     "v2": 10,
+     "target": 8,
+     "pass": true,
+     "listed": false
+    },
+    "C4": {
+     "v2": 1,
+     "target": 8,
+     "pass": false,
+     "listed": false
+    },
+    "C5": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    },
+    "C6": {
+     "v2": 6,
+     "target": 2,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "v2": 11,
+     "pass": false,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 1598881,
+     "pass": false,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 14550,
+     "pass": false,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 1.5299316,
+     "pass": false,
+     "listed": false
+    }
+   },
+   "misses": [
+    "C4",
+    "filesReadBeforeFirstWrite",
+    "tokensAll",
+    "outputTokens",
+    "costUsd"
+   ],
+   "shapes": {},
+   "totalCostUsd": 17.2358647
+  },
+  "P2-systems": {
+   "arm": "sba",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code) 497ba915e987"
+   ],
+   "stopped": null,
+   "rules": {
+    "E1": {
+     "v2": 8,
+     "target": 9,
+     "pass": false,
+     "listed": false
+    },
+    "E2": {
+     "v2": 6,
+     "target": 6,
+     "pass": true,
+     "listed": false
+    },
+    "E3": {
+     "v2": 9,
+     "target": 8,
+     "pass": true,
+     "listed": false
+    },
+    "E4": {
+     "v2": 9,
+     "target": 7,
+     "pass": true,
+     "listed": false
+    },
+    "E5": {
+     "v2": 10,
+     "target": 10,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "v2": 35,
+     "pass": true,
+     "listed": false
+    },
+    "tokensAll": {
+     "v2": 260268,
+     "pass": true,
+     "listed": false
+    },
+    "outputTokens": {
+     "v2": 4135,
+     "pass": false,
+     "listed": false
+    },
+    "costUsd": {
+     "v2": 4.904979500000003,
+     "pass": true,
+     "listed": false
+    }
+   },
+   "misses": [
+    "E1",
+    "outputTokens"
+   ],
+   "shapes": {},
+   "totalCostUsd": 51.2598155
+  }
+ }
+}
