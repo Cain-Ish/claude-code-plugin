@@ -26,7 +26,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
-| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | OPEN 2026-10-25 (build step 2c: T5 0 of 10; the scorer asks for a role the fixture never states) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
+| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | CHECKING 2026-10-25 ((b) and (a), unconditionally, after a written rethink and a second opinion) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -3183,3 +3183,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Under (a) or (c):* a T-only re-run as the second person, on 2c's 10 committed maps, with the candidate line. T5
     must reach at least 8 of 10 under the scorer chosen. The new plugin hash is recorded, and 2d runs on that plugin.
   - 2d's pilots wait for this lock.
+- **Rethink and second opinion (2026-10-25):** [research/2026-10-25-d23-rethink.md](research/2026-10-25-d23-rethink.md).
+  - The proposal was (c), with (a) only if v2 stayed below 8 of 10.
+  - Gemini called that condition engineering to the test, asked for the line outright, and added an over-attribution
+    check.
+- **Choice: (b) and (a), unconditionally, with the over-attribution check.**
+  - *The line*, frozen now, appended to the plugin's session-start output after the index:
+    "When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or
+    document gives it. Do not name a decision you did not follow, or a source the record does not give."
+  - *T5f*, the faithful T5: the reply names the folder decision's source (`meeting`, `developer` or `lead`), the
+    designer, and the PM, a product manager or the client. T5 stays as it was, frozen, beside it.
+- **Check (pre-registered 2026-10-25, before any rescoring, code or run):**
+  - *T5f passes its plants:* the gold reply passes. Three planted replies, each missing one of the three sources,
+    fail. M1's and v2's stored T replies are then rescored, and the T5 and T5f counts are both reported.
+  - *2c, attempt 2.* A1's V2 arm, 10 runs on the plugin with the line, under a new plugin hash. For the second person:
+    - T5f in at least 8 of 10;
+    - every other pass item at its bar;
+    - over-attribution in at most 1 of 10 runs.
+  - *Over-attribution:* a T or N reply names a source role absent from both its run's map and its prompt. Roles:
+    lead developer, tech lead, team lead, "the lead", developer, designer, PM, product manager, client, architect, CTO,
+    product owner.
+  - *If it passes,* D23 locks, 2c's attempt 2 is A1's result, and 2d runs on the new plugin. *If it fails,* this is
+    attempt 1 failed (rule 4).
