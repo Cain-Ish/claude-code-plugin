@@ -25,7 +25,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -3153,6 +3153,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Attempts:* 3 failed against the judge (BLOCKED), then on the pull track: 2 failed (`p`, `pfc`), 2 ruled out by
     count (`pk`, `ph`), and 2 passed (`pf`, `pfr`).
 
+- **REOPENED 2026-10-25 (build step 2d; [06-first-slice.md](06-first-slice.md), "2d: result").**
+  - *Fired:*
+    - "the first slice's eval puts v2 above M1's no-worse ceiling on a task": P2 plan, files read (6 against a
+      ceiling of 4) and cost (0.457 against 0.379 USD);
+    - "a rule in scope is missed in the eval on an investigation task": the six investigation tasks pass 21 of 32
+      cells. The cells M1 never reached stay unreached (A3, S2, S4, C4), and B2, W1 and E1 miss by one run.
+  - *What held:*
+    - On the build and plan tasks of P1 and P2, the route made Claude follow rules M1 mostly missed: P2 build R4 to
+      R7, P1 build R6 (10 of 10 against 0), and P2 plan P1, P4 and P5.
+    - 20 of 25 build and plan cells pass. v2 is above M1 in 17 rule cells and below it in 9.
+    - Total cost 324.52 against 345.67.
+  - *Where it did not hold:*
+    - investigation tasks, where reading the documents a directory index points at does not reach the answer;
+    - R0 build (R6 0 of 8; R3, R5 and R7 at 9 of 10);
+    - P2 plan's reads and cost.
+  - *Open:*
+    - what the route does for investigation tasks: keep it, change it, or let native search handle them;
+    - whether R0 build's R6 is a route miss or a rule only its code shows.
+    - The added shapes (2e) wait for this.
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
   where it came from".
