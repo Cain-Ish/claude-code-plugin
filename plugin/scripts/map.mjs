@@ -67,18 +67,37 @@ export function takeForce(id) {
 // A map file's entries: each '### ' block that quotes something, up to the next heading, as its text.
 const entries = (text) => text.replace(/\r/g, '').split(/^(?=#{1,3} )/m).filter((b) => b.startsWith('### ') && /^>/m.test(b)).map((b) => b.trim());
 
+// D16's re-find (attempt 2's match): every stretch of three or more words between ellipses is in the file's words
+const words = (s) => String(s).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+const foundIn = (quote, text) => {
+  const norm = ` ${words(text).join(' ')} `;
+  return quote.split(/…|\.\.\./).map(words).filter((w) => w.length >= 3).every((w) => norm.includes(` ${w.join(' ')} `));
+};
+// the first path an entry's source names (it has a '/' or a document extension, so "Node.js" is not one); the source
+// is text Claude wrote, so only relative paths inside the repo count
+const sourcePath = (src) => (src.match(/[\w.-]+(?:\/[\w.-]+)*\.\w+/g) ?? []).map((p) => p.replace(/^\.\//, ''))
+  .find((p) => (p.includes('/') || DOC.test(p)) && !p.split('/').includes('..'));
+const isFile = (root, p) => fs.statSync(path.join(root, p), { throwIfNoEntry: false })?.isFile();
+
 // D14: an entry the file's HEAD version does not hold, word for word, is unreviewed; outside git, or in a file HEAD
-// lacks, every entry is. D16: the capture instruction asks for no verified line, so no entry is re-found, and each
-// carries its capture date instead of being delivered as current.
+// lacks, every entry is. D16 (reopened 2026-10-25, option b): an entry whose source names a repo file is re-found in it
+// now, and one not found says so without claiming a change; any other entry carries its capture date as unverified.
 export function labels(root, file) {
   let text;
   try { text = fs.readFileSync(path.join(root, file), 'utf8'); } catch { return ''; }
   const head = git(root, ['show', `HEAD:./${file}`]);
   const held = new Set(head.status === 0 ? entries(head.stdout) : []);
-  const out = entries(text).map((b, i) => {
-    const date = /^- source:.*?(\d{4}-\d{2}-\d{2})\s*$/m.exec(b)?.[1];
-    const ls = [...(held.has(b) ? [] : [UNREVIEWED]), `unverified quote${date ? `, captured ${date}` : ''}`];
-    return `${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`;
+  const docs = new Map();
+  const doc = (p) => { if (!docs.has(p)) docs.set(p, fs.readFileSync(path.join(root, p), 'utf8')); return docs.get(p); };
+  const out = entries(text).flatMap((b, i) => {
+    const src = /^- source:(.*)$/m.exec(b)?.[1] ?? '';
+    const date = /(\d{4}-\d{2}-\d{2})\s*$/.exec(src)?.[1];
+    const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
+    const at = sourcePath(src);
+    const ls = held.has(b) ? [] : [UNREVIEWED];
+    if (!at) ls.push(`unverified quote${date ? `, captured ${date}` : ''}`);
+    else if (!isFile(root, at) || !foundIn(quote, doc(at))) ls.push(`not found word for word in ${at}; check it${date ? `, captured ${date}` : ''}`);
+    return ls.length ? [`${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`] : [];
   });
   return out.length ? `[project map] Labels on the entries of ${file}, in file order:\n${out.join('\n')}\n` : '';
 }

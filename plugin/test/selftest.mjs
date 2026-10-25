@@ -55,6 +55,29 @@ assert.equal(labels(repo, '.project-map/captured.md'), '[project map] Labels on 
 assert.equal(labels(repo, '.project-map/new.md'), '[project map] Labels on the entries of .project-map/new.md, in file order:\n'
   + `1. x: ${UNREVIEWED}; unverified quote, captured 2026-10-25\n`);
 
+// D16, option (b): a source that names a repo file is re-found in it now; a miss claims nothing about change
+put('docs/style.md', '# Style\n\nColours come only from the theme tokens. No hex values anywhere.\n');
+const cited = (area, q, src) => `### ${area}\n> ${q}\n\n- source: ${src}\n- when: ["ui"]\n`;
+put('.project-map/cited.md', [
+  cited('verbatim', 'Colours come only from the theme tokens.', 'docs/style.md (the client), 2026-10-22'),
+  cited('condensed', 'Colours: theme tokens only, never hex.', 'the client style guide, docs/style.md, 2026-10-22'),
+  cited('gone', 'Avatars load locally.', 'docs/avatars.md, 2026-10-22'),
+  cited('outside', 'Colours come only from the theme tokens.', '../repo/docs/style.md, 2026-10-22'),
+].join('\n'));
+assert.equal(labels(repo, '.project-map/cited.md'), '[project map] Labels on the entries of .project-map/cited.md, in file order:\n'
+  + `1. verbatim: ${UNREVIEWED}\n`
+  + `2. condensed: ${UNREVIEWED}; not found word for word in docs/style.md; check it, captured 2026-10-22\n`
+  + `3. gone: ${UNREVIEWED}; not found word for word in docs/avatars.md; check it, captured 2026-10-22\n`
+  + `4. outside: ${UNREVIEWED}; unverified quote, captured 2026-10-22\n`);
+git('add', '-A');
+git('commit', '-q', '-m', 'cited');
+assert.equal(labels(repo, '.project-map/cited.md'), '[project map] Labels on the entries of .project-map/cited.md, in file order:\n'
+  + '2. condensed: not found word for word in docs/style.md; check it, captured 2026-10-22\n'
+  + '3. gone: not found word for word in docs/avatars.md; check it, captured 2026-10-22\n'
+  + '4. outside: unverified quote, captured 2026-10-22\n');
+put('docs/style.md', '# Style\n\nColours come from the theme tokens. No hex values anywhere.\n');
+assert.ok(labels(repo, '.project-map/cited.md').includes('1. verbatim: not found word for word in docs/style.md; check it, captured 2026-10-22'));
+
 // each hook as a process, as Claude Code runs it
 const hook = (which, input, dir = repo) => {
   const r = spawnSync('node', [HOOK, which], { input: JSON.stringify({ cwd: dir, ...input }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });

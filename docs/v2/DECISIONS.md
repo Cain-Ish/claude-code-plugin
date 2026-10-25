@@ -19,7 +19,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a) | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
@@ -1245,6 +1245,38 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       question (the instruction says "in the words used"), not this one.
   - *Not in (b):* a quote moved to another document. It reads as not found, which is true. D16's attempt 2 searched
     every document file for a moved quote, and that scan would run on every read of a map file with a condensed entry.
+  - *Before the run, one change to (b) (disclosed):*
+    - The rename seed would have produced the unverified label, since the named file no longer exists, not the
+      not-found label the check expects.
+    - So the source's path is now taken from the source text: a token with a `/` or a document extension, relative and
+      inside the repo.
+    - A named path that is missing gets the not-found label, which is true.
+    - Made by reasoning before the check ran. The check did not change.
+- **Attempt 3 result (2026-10-25): pass** ([readfind.mjs](probes/V2-D16-freshness/readfind.mjs),
+  [results/readfind.json](probes/V2-D16-freshness/results/readfind.json); the plugin's own `labels()`).
+  - *Untouched tree:* 4 entries with no label, 5 not found, 79 unverified, as registered.
+  - *Seeds:* 12 of 12 labelled not found (edit 4, delete 4, rename 4).
+  - *Labels:* none says "changed".
+  - *Load:* on P2's worktree, a map file of 30 entries, each found in a different P2 document. The read hook added
+    66.2 ms p95 at 8 concurrent (51.9 at 1), under 100. Between two bench runs, the unchanged prompt hook moved from
+    37 to 55 ms, so the bench's run-to-run noise is about 20 ms.
+- **Re-LOCKED 2026-10-25: option (b).** Built in `plugin/scripts/map.mjs`.
+  - *Rejected:*
+    - (a) Nothing is ever checked, though a quote of a repo file can be.
+    - (c) Git history per entry to tell drift from a condensed quote. The not-found label is true without it, and it
+      costs more spawns on every map read.
+    - (d) Closed: no D14 trigger fired.
+  - *Reopen if:*
+    - a not-found label on a quote that is in its named file word for word;
+    - a drift kind other than edit, delete and rename is missed;
+    - the read hook's added p95 exceeds D18's budget;
+    - the capture instruction changes (D14).
+  - *Dropped trigger:* "unverifiable entries exceed 5% of a repo". It was written for converted maps. Spoken decisions
+    have no anchor by nature (79 of 88 in M2).
+  - *Limit:* half the quotes of a repo file in M2 were condensed, so they read as not found. Whether that is noise is
+    D14's question (its instruction says "in the words used"), watched by D14's "kept noise" trigger.
+
+  Attempts: 1 failed, 2 passed, 3 passed.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
