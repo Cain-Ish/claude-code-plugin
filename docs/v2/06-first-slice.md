@@ -364,3 +364,15 @@ Plugin `497ba915e987` (the naming line added). 10 of 10 valid, one epoch, 13.13 
 - **"Done means" is still not met on A1:** orientation and the three cost cells show no gain. Each sits under M1's
   no-worse ceiling, so D22's trigger did not fire. This is the cost charted in the charter's dated line.
 - 2d's pilots run on this plugin.
+
+### 2d: pilot gate (2026-10-25)
+
+- **All 10 pilots valid**, one epoch: CLI 2.1.305, Opus 5.5, plugin `497ba915e987`. The plugin's output arrived once
+  per epoch: 2 session starts and 2 forced decisions in the three-turn tasks, 1 and 1 in the one-turn tasks.
+- **Cost: 40.24 USD-equivalent.**
+  - Per task (v2 pilot against M1's median): P1 build 2.17 / 1.69; P2 build 7.57 / 5.17; R0 build 3.50 / 2.87;
+    P2 plan 0.57 / 0.12; R0-knowledge 8.42 / 3.85; R0-buddy 0.54 / 0.52; P1-skills 1.96 / 3.80; P1-weekly
+    3.74 / 5.11; P2-crafting 3.13 / 1.12; P2-systems 8.62 / 6.32.
+  - Projected at 10 runs per task: about 400 USD-equivalent, against the re-baseline's 345.67.
+  - One run each says nothing about the medians the verdict uses, but the cost risk on 05's list shows already.
+- Runs 2 to 10 follow in four chains, one per repo, plus P2-systems alone. Usage limits, not USD, are the gate.
