@@ -287,3 +287,39 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
 - **Shape smokes (2026-10-25, Haiku, R0 build, not counted):** all three valid. Session starts and forced decisions
   per session: vague 1 and 1, two compactions 3 and 3, task switch 2 and 2. In the switch, the build's own first turn
   got no forced decision, by design.
+
+### 2c: result (2026-10-25): A1 scored, gains on capture and following, misses on T5, orientation and cost
+
+**Runs:** 10 of 10 valid, in one epoch: CLI 2.1.305, Opus 5.5, inputs `108861b749cb`, plugin `a6d0217666ec`. Total
+12.75 USD-equivalent for 70 sessions. Scored by `eval.mjs --summary` against M1's Opus thresholds.
+
+| Cell | M1 | Bar | v2, second person | v2, same person |
+| --- | --- | --- | --- | --- |
+| C1, C3, C4 | 10, 10, 10 | 10 | 10, 10, 10 | 10, 10, 10 |
+| C2 (the avatar spec captured) | 2 | 2 | **10** | **10** |
+| T1, T2, T4 (final and at the first write) | 10, 10, 10 | 10 | 10, 10, 10 | 10, 10, 10 |
+| T3 (the spec followed) | 0 | 8 | **10** | **10** |
+| T5 (sources named in the reply) | 0 | 8 | **0, miss** | **0, miss** |
+| N1, N2, N3 | 10, 10, 10 | 10 | 10, 10, 10 | **9**, 10, **9**: misses |
+| Tool calls before the first write | 12 (spread 5) | below 7 | 12: no gain | 12: no gain |
+| Files read before it | 10.5 (spread 5) | below 5.5 | 11: no gain | 11: no gain |
+| T tokens, all kinds | 129,365 (63,070) | below 66,295 | 133,699: no gain | 112,552: no gain |
+| T output tokens | 3,621 (1,220) | below 2,401 | 4,078: no gain | 4,226: no gain |
+| T USD | 0.189 (0.061) | below 0.128 | 0.201: no gain | 0.217: no gain |
+| Always-on bytes | 450 | budget | 1,340, within 904 B + index + 227 B | 1,340 |
+
+- **What v2 gains:**
+  - The designer's spec is kept (C2: 10 against 2) and followed before the first write (T3: 10 against 0).
+  - It reaches a second person through the committed map. M1 cannot do that, because auto memory is per user.
+  - Every decision was followed in all 20 T sessions: none was "not kept", "not loaded" or "ignored".
+- **The misses, each recorded against what it fires:**
+  - *T5, 0 of 10.* Nothing in the skeleton asks Claude to name the decisions it followed and their sources. D20
+    left this open ("A1 item (5), measured by D17. It is not decided here"), so no decision owns it. Under rule 9,
+    the charter's acceptance item (5) is not met. It needs a decision of its own (V2-D23) before a release.
+  - *Orientation and cost: no gain.* Every cell sits under M1's no-worse ceiling (tool calls 17, files 15.5, tokens
+    192,435, output 4,841, USD 0.250), so D22's first trigger did not fire. The charter's "fewer tokens and steps
+    than the same task without the plugin" does not hold on A1. The forced decision reads the documents, and the
+    reads match native's. Recorded against D22 as a measured result, not an excused cell.
+  - *Same person, N1 and N3 at 9 of 10.* In one run the neighbour component took the avatar's rules (over-application),
+    and in one run a file sat outside its folder. The released variant (second person) passes both, 10 of 10.
+- **No D22 trigger fired,** so 2d's pilots may launch (2d's order).
