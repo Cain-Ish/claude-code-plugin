@@ -238,3 +238,39 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
     345.67 USD-equivalent for 100 runs; usage limits, not USD, are the gate.
 - **Not in 2d:** 05's added shapes (a vague first prompt, two compactions, a task switch). They are 2e, with their own
   registration and D22's trigger as the scorer.
+
+### 2e: the added shapes (pre-registered 2026-10-25, before any run)
+
+- **What:** 05's three shapes, each on the three build tasks, with the plugin and the task's own `sb` arm (`sbmc` for
+  P1, `sbn` for P2 and R0):
+  - *Vague.* Turn 1 is a vague prompt that names a symptom only. Turn 2 is the task's own prompt. No compaction, so
+    one epoch.
+  - *Two compactions.* The standard turns with a second compaction: investigate; `/compact`; "List the files you will
+    change and why. Do not edit anything yet."; `/compact`; "Now make the change." Three epochs.
+  - *Task switch.* Turn 1 is the repo's first other task in the config's order (P1-skills, P2 plan, R0-knowledge).
+    Then the build task's standard three turns follow in the same session. Two epochs: startup and the compaction.
+    The build's own first turn gets no forced decision, which is the untested friction in 04.
+- **Runs:** 5 sessions per shape and task, as in D22's checks, so 45 sessions. Invalid runs are replaced, up to 2 per
+  cell. Cut-offs re-run under their own number.
+- **Scope:** a rule is in scope when 2d's standard arm held it, followed in at least 8 of its 10 runs. That is D20's
+  "held: fails in at most 1 of 5", scaled, and the same figure as 05's target. D22's `o0` scope cannot serve, because
+  D22 never ran R0 build.
+- **Scorer:**
+  - D20's checks, on the build task's final files.
+  - A rule in scope is missed in a shape when it fails in 2 or more of the shape's 5 runs (D20's rule).
+  - A miss in the vague or two-compaction shape fires D22's trigger. A miss in the task switch is recorded against
+    04's friction weakness, under D22.
+  - The comparison is v2 in the shape against v2 in the standard shape. No M1 exists in these shapes.
+  - Stopped sessions are read both ways.
+- **Valid run:** the base checks, plus the plugin listed, plus a session start and a forced decision once per epoch
+  (1 plus the number of compactions).
+- **The vague prompts:**
+  - A fresh agent writes one per build task. It is given only the build task's prompt and the repo at its pinned
+    commit. It is told not to open `DECISIONS.md`, `docs/v2/research/` (its input aside), probe results or the task's
+    rules and checks.
+  - Each prompt names a symptom a user might notice, not the change.
+  - Mechanical check: no `must` or `mustNot` token of the task's rules appears in it.
+  - The prompts are kept in the private config, and their sha256 is recorded here before any run.
+- **Not in 2e:** an automatic compaction inside a turn. 05 adds it once a check shows it can be forced headless; that
+  check comes first, as its own step.
+- **Order:** 2e's runs follow 2d's verdict, because the scope comes from 2d.
