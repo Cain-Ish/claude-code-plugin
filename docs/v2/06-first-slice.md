@@ -209,3 +209,32 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
 - **Misses outside the list:**
   - Orientation and cost misses are recorded against D22's triggers (06; 04's Cost weakness). They are not excused.
   - Any other miss is recorded against the trigger it fires.
+
+### 2d: A2's v2 arm (pre-registered 2026-10-25, before any A2 v2 run)
+
+- **Arms, as each task's M1 arm plus the plugin:**
+  - `sbmc` for P1 build;
+  - `sbn` for P2 build and R0 build;
+  - `sba` for P2 plan and the six investigation tasks.
+- **Setup:** Opus 5.5 on the pinned CLI 2.1.305, the web on, Bash off. 10 valid runs per task. Invalid runs are
+  replaced, up to 2 per task. A run cut off by a usage limit re-runs under its own number. One chain per task, since
+  the harness rewrites a task's results file after each run.
+- **Valid run:** the base arm's checks plus 2b's three plugin checks.
+- **Epoch:** `native.mjs` hashes the plugin's product files as `eval.mjs` does, so both name the same plugin. A
+  plugin change between runs is a new epoch.
+- **The verdict (`native.mjs verdict`, written and committed before the first pilot):**
+  - It summarises the `sb` arms as `rebase` summarised M1, with the same median.
+  - Then, per task and cell, D17's rule as the thresholds set it:
+    - a rule passes in at least M1's count of runs (8 where M1 had 0);
+    - a gain cell's median is below M1's median minus its spread;
+    - a no-gain cell's median is at most median plus spread.
+  - Cells on 05's list are marked. Stopped sessions are counted both ways.
+  - Output: counts only, in `V2-D19-scale/results/verdict-opus.json`.
+- **D22's investigation clause** ("a rule in scope is missed … on an investigation task") is settled by this verdict
+  on the six investigation tasks: any failed cell there, outside 05's list, fires it. 2e does not score them again.
+- **Order:**
+  - The pilots launch only after 2c's result is written and no D22 trigger fired, or one that fired is handled.
+  - Pilot: one run per task, cost reported in a progress note with the projected total. The re-baseline's A2 cost
+    345.67 USD-equivalent for 100 runs; usage limits, not USD, are the gate.
+- **Not in 2d:** 05's added shapes (a vague first prompt, two compactions, a task switch). They are 2e, with their own
+  registration and D22's trigger as the scorer.
