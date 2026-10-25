@@ -159,3 +159,45 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
 - **Smoke 2:** `/second-brain:onboard` reported "2 documents in 2 directories", so `${CLAUDE_PLUGIN_ROOT}` also works
   in a command's `!` line. The first smoke passed again beside it.
 - No baseline record was touched.
+
+### 2c: A1's v2 arm and the expected-miss list (pre-registered 2026-10-25, before any v2 run)
+
+- **The arm (`V2` in `eval.mjs`):**
+  - One run starts with H1 to H3, once, in `repo-H`, with the plugin (`--plugin-dir`) and auto memory as in M1.
+  - After H3 the harness commits `repo-H`'s `.project-map/`, as the user commits the map with the work (D14).
+  - Then T and N run twice, each in a fresh copy of the fixture holding that committed map:
+    - *same person:* plus a copy of H's auto memory, as in M1;
+    - *second person:* the map only, with auto memory off.
+- **Which variant gates:**
+  - Both variants are scored against M1's A1 thresholds above.
+  - The second-person variant is the one a release cites (PM1), because it is the gap M1 cannot close (05, Arms).
+- **Capture:** C1 to C4 are scored on `.project-map/` after H3, as in M2. In the same-person variant, the auto memory
+  store's bytes are reported and not scored: a decision kept there but not in the map is a v2 capture miss.
+- **Failure chain:**
+  - *not kept:* the C item fails on the map.
+  - *not loaded:* T read no `.project-map/` file before its first write of `UserAvatar.tsx`.
+  - *ignored:* the map was read and the decision not followed.
+- **Always-on bytes:** in T, the bytes of the plugin's session-start `additionalContext` plus the forced text's, taken
+  from the `hook_response` events. They are compared with the budget row above.
+- **Valid run:**
+  - every session ends with a success result on the planned model;
+  - in every session, the plugin is listed, and its session-start output and its forced decision each arrived once
+    (no compaction in A1);
+  - in the same-person variant, no memory write was refused.
+- **Epoch:** for `V2`, `eval.mjs`'s epoch also hashes `plugin/`. `native.mjs` does the same for the `sb` arms before
+  2d. A plugin change between runs is a new epoch.
+- **Runs:**
+  - Opus 5.5 on the pinned CLI 2.1.305: `D17_CLAUDE` is the pinned binary, `D17_MODEL=claude-opus-5-5`,
+    `D17_TAG=-opus`.
+  - The pilot (run 1) is checked before runs 2 to 10: its record must carry CLI 2.1.305 and the plugin hash. Its cost
+    is reported in a progress note.
+- **The expected-miss list (06, "Done means"; the one list for A1 and A2).** It holds cells the rule makes
+  unreachable, plus the one miss 04 names as expected:
+  - R0-knowledge, files read before the first write: below 1, from a median of 18 and a spread of 17.
+  - P2 plan, output tokens: below 300, from 2,860.
+  - P2 build, output tokens: below 1,397, from 64,926.
+  - P1 build, R2 (a pattern rule): missed on Opus under every pull arm (04). Expected until D20's net reopens.
+  - A1: none. No A1 bar is near zero.
+- **Misses outside the list:**
+  - Orientation and cost misses are recorded against D22's triggers (06; 04's Cost weakness). They are not excused.
+  - Any other miss is recorded against the trigger it fires.
