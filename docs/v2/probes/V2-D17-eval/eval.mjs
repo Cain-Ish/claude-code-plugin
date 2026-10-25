@@ -72,6 +72,14 @@ const T_ITEMS = {
   },
 };
 const T5 = (reply) => /developer|\blead\b/i.test(reply) && /designer/i.test(reply) && /\bPM\b|product manager|client/i.test(reply);
+// V2-D23: T5 as the fixture states the sources. H1 gives the folder decision as a team meeting's and names no lead, so
+// "meeting" counts too. T5 stays, frozen, beside it.
+const T5F = (reply) => /\bmeeting\b|developer|\blead\b/i.test(reply) && /designer/i.test(reply) && /\bPM\b|product manager|client/i.test(reply);
+// V2-D23 over-attribution: source roles a reply names that neither its run's map nor its prompt holds
+const ROLES = { 'lead developer': /lead developer/i, 'tech lead': /tech lead/i, 'team lead': /team lead/i, 'the lead': /\bthe lead\b/i,
+  developer: /\bdeveloper\b/i, designer: /\bdesigner\b/i, PM: /\bPM\b/, 'product manager': /product manager/i, client: /\bclient\b/i,
+  architect: /\barchitect\b/i, CTO: /\bCTO\b/, 'product owner': /product owner/i };
+const overAttributed = (reply, record) => Object.entries(ROLES).filter(([, re]) => re.test(reply) && !re.test(record)).map(([k]) => k);
 const N_ITEMS = {
   N1: (f) => under(f, 'src/components/ProductImage/'),
   N2: (f) => !COLOUR.test(code(f)),
@@ -253,7 +261,7 @@ function runOnce(scratch, arm, i) {
         out[name] = { facts, files: Object.fromEntries(Object.entries(all).filter(([p]) => !(p in FIXTURE_FILES))) };
       }
       const { T, N } = out;
-      const test = { ...scoreAll(T_ITEMS, T.files), T5: T5(T.facts.result?.result ?? '') };
+      const test = { ...scoreAll(T_ITEMS, T.files), T5: T5(T.facts.result?.result ?? ''), T5f: T5F(T.facts.result?.result ?? '') };
       rec.variants[who] = {
         test,
         testAtFirstWrite: T.facts.firstWrite ? scoreAll(T_ITEMS, T.facts.firstWrite) : null,
@@ -262,6 +270,8 @@ function runOnce(scratch, arm, i) {
           !rec.capture[c] ? 'not kept' : !T.facts.mapReadBefore ? 'not loaded' : test[t] ? 'followed' : 'ignored'])),
         orientation: { toolCallsBeforeFirstWrite: T.facts.toolCallsBefore, filesReadBeforeFirstWrite: T.facts.filesReadBefore },
         alwaysOnBytes: T.facts.alwaysOnBytes,
+        overAttribution: { T: overAttributed(T.facts.result?.result ?? '', `${Object.values(map).join('\n')}\n${S.T}`),
+          N: overAttributed(N.facts.result?.result ?? '', `${Object.values(map).join('\n')}\n${S.N}`) },
         newFiles: { T: Object.keys(T.files), N: Object.keys(N.files) },
       };
     }
@@ -294,7 +304,7 @@ function runOnce(scratch, arm, i) {
 
   const { T, N } = out;
   rec.capture = memH ? scoreAll(C_ITEMS, storeText) : null;
-  rec.test = { ...scoreAll(T_ITEMS, T.files), T5: T5(T.facts.result?.result ?? '') };
+  rec.test = { ...scoreAll(T_ITEMS, T.files), T5: T5(T.facts.result?.result ?? ''), T5f: T5F(T.facts.result?.result ?? '') };
   rec.testAtFirstWrite = T.facts.firstWrite ? scoreAll(T_ITEMS, T.facts.firstWrite) : null;
   rec.neighbour = scoreAll(N_ITEMS, N.files);
   if (memH) {
@@ -334,7 +344,7 @@ function smoke() {
     reply: fs.readFileSync(path.join(HERE, 'gold', 'T-reply.txt'), 'utf8'),
     mem: Object.values(walk(path.join(HERE, 'gold', 'memory'))).join('\n'),
   };
-  const score = (x) => ({ ...scoreAll(T_ITEMS, x.T), T5: T5(x.reply), ...scoreAll(N_ITEMS, x.N), ...scoreAll(C_ITEMS, x.mem) });
+  const score = (x) => ({ ...scoreAll(T_ITEMS, x.T), T5: T5(x.reply), T5f: T5F(x.reply), ...scoreAll(N_ITEMS, x.N), ...scoreAll(C_ITEMS, x.mem) });
   const A = 'src/components/UserAvatar/UserAvatar.tsx';
   const P = 'src/components/ProductImage/ProductImage.tsx';
   const move = (files, from, to) => { files[to] = files[from]; delete files[from]; };
@@ -351,7 +361,10 @@ function smoke() {
     ['T3', (x) => sub(x, 'T', A, 'large: 64', 'large: 56')],
     ['T4', (x) => sub(x, 'T', A, '<Img local ', '<Img ')],
     ['T4', (x) => sub(x, 'T', A, 'path={user.avatarPath}', 'path={user.avatarCdnUrl ?? user.avatarPath}')],
-    ['T5', (x) => sub(x, 'reply', null, "designer's ", '')],
+    [['T5', 'T5f'], (x) => sub(x, 'reply', null, "designer's ", '')],
+    [['T5', 'T5f'], (x) => sub(x, 'reply', null, "the lead developer's decision", 'agreed earlier')],
+    [['T5', 'T5f'], (x) => { sub(x, 'reply', null, "the PM's note on the client's decision", 'a later note'); sub(x, 'reply', null, "the client's style guide", 'the style guide'); }],
+    ['T5', (x) => sub(x, 'reply', null, "the lead developer's decision", "the team meeting's decision")], // D23: faithful, so T5f holds
     ['N1', (x) => move(x.N, P, 'src/components/ProductImage.tsx')],
     ['N2', (x) => sub(x, 'N', P, "objectFit: 'cover'", "objectFit: 'cover', background: 'white'")],
     ['N3', (x) => sub(x, 'N', P, '<Img path', '<Img local path')],
@@ -364,7 +377,7 @@ function smoke() {
   for (const [item, plant] of PLANTS) {
     const x = structuredClone(gold);
     plant(x);
-    const wrong = Object.entries(score(x)).filter(([k, v]) => v !== (k !== item)).map(([k]) => k);
+    const wrong = Object.entries(score(x)).filter(([k, v]) => v !== ![].concat(item).includes(k)).map(([k]) => k);
     if (wrong.length) fail.push(`plant for ${item} misscored: ${wrong.join(', ')}`);
   }
   for (const [name, p] of S.HISTORY) if (S.CUE_WORDS.test(p)) fail.push(`${name} holds a cue word`);
@@ -453,6 +466,8 @@ function summary() {
     const items = (part) => Object.fromEntries(Object.entries(m1[part]).map(([i, c]) => [i, (v[part][i] ?? 0) >= (c === 0 ? 8 : c)]));
     v.verdict = { capture: items('capture'), test: items('test'), testAtFirstWrite: items('testAtFirstWrite'), neighbour: items('neighbour'),
       orientation: metric('toolCallsBeforeFirstWrite') || metric('filesReadBeforeFirstWrite'),
+      // D23: runs in which the T or N reply names a source role its map and prompt do not hold (at most 1 of 10)
+      overAttributedRuns: (groups.find(([g]) => g === k)?.[3] ?? []).filter((r) => r.overAttribution && (r.overAttribution.T.length || r.overAttribution.N.length)).length,
       cost: Object.fromEntries(['tTokensTotal', 'tOutputTokens', 'tCostUsd'].map((n) => [n, metric(n)])) };
   }
   fs.writeFileSync(path.join(HERE, 'results', `summary${TAG}.json`), `${JSON.stringify(out, null, 2)}\n`);
@@ -463,6 +478,24 @@ function summary() {
 
 if (process.argv[2] === '--smoke') process.exit(smoke() ? 0 : 1);
 if (process.argv[2] === '--summary') process.exit(summary() ?? 0);
+// V2-D23: T5f (and, for V2, over-attribution) added to stored records from their raw T and N replies; T5 is untouched.
+//   node eval.mjs --rescore <results file> <scratch-dir of its runs>
+if (process.argv[2] === '--rescore') {
+  const [file, scratch] = process.argv.slice(3);
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const reply = (run, name) => { const f = path.join(scratch, `${run.arm}-run${run.run}`, `${name}.jsonl`); return fs.existsSync(f) ? parse(fs.readFileSync(f, 'utf8')).findLast((e) => e.type === 'result')?.result ?? '' : null; };
+  for (const r of saved.runs.filter((x) => x.valid)) {
+    if (r.test) r.test.T5f = T5F(reply(r, 'T') ?? '');
+    for (const [who, v] of Object.entries(r.variants ?? {})) {
+      const map = Object.values(walk(path.join(scratch, `${r.arm}-run${r.run}`, 'repo-H', '.project-map'))).join('\n');
+      v.test.T5f = T5F(reply(r, `T-${who}`) ?? '');
+      v.overAttribution = { T: overAttributed(reply(r, `T-${who}`) ?? '', `${map}\n${S.T}`), N: overAttributed(reply(r, `N-${who}`) ?? '', `${map}\n${S.N}`) };
+    }
+  }
+  fs.writeFileSync(file, `${JSON.stringify(saved, null, 2)}\n`);
+  console.log(JSON.stringify(saved.runs.filter((x) => x.valid).map((r) => r.variants ? Object.fromEntries(Object.entries(r.variants).map(([w, v]) => [w, { T5: v.test.T5, T5f: v.test.T5f, over: v.overAttribution }])) : { T5: r.test.T5, T5f: r.test.T5f })));
+  process.exit(0);
+}
 const [scratch, arm, runs = '1', first = '1'] = process.argv.slice(2);
 if (!scratch || !['M0', 'M1', 'M2', 'V2'].includes(arm)) throw new Error('usage: node eval.mjs <scratch-dir> <M0|M1|M2|V2> [runs] [first]  |  --smoke');
 if (!smoke()) throw new Error('smoke check failed: no run before it passes');

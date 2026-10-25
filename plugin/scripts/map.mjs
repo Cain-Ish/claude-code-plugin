@@ -32,6 +32,10 @@ export const FORCE = 'Before you start: for each directory in this project\'s do
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
   + 'change anything.';
 
+// V2-D23: A1 item (5), the decisions followed and their sources, named when Claude finishes; frozen with D23's check
+export const NAME = 'When you finish, name each of this project\'s recorded decisions you followed and its source, as the '
+  + 'map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.';
+
 export const UNREVIEWED = 'unreviewed, not yet committed';
 
 const DOC = /\.(md|mdx|markdown|txt|rst)$/i;

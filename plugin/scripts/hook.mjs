@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { INSTRUCTION, MAP, index, openEpoch, takeForce, labels, rel } from './map.mjs';
+import { INSTRUCTION, NAME, MAP, index, openEpoch, takeForce, labels, rel } from './map.mjs';
 
 const emit = (ev, text) => { if (text) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
 const which = process.argv[2];
@@ -12,7 +12,7 @@ const root = process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd();
 if (which === 'session-start') {
   const idx = index(root);
   if (idx) openEpoch(input.session_id);
-  emit('SessionStart', idx ? `${INSTRUCTION}\n\n${idx}` : INSTRUCTION);
+  emit('SessionStart', idx ? `${INSTRUCTION}\n\n${idx}\n${NAME}` : `${INSTRUCTION}\n\n${NAME}`);
 } else if (which === 'prompt') {
   emit('UserPromptSubmit', takeForce(input.session_id));
 } else if (which === 'read') {

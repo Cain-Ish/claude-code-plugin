@@ -3205,3 +3205,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     product owner.
   - *If it passes,* D23 locks, 2c's attempt 2 is A1's result, and 2d runs on the new plugin. *If it fails,* this is
     attempt 1 failed (rule 4).
+- **Check, part 1 (2026-10-25): pass.**
+  - *Plants:* the gold reply passes T5f. Three planted replies, each missing one source, fail T5 and T5f. A reply that
+    names "the team meeting" fails T5 and holds T5f. The smoke reads "13 items, 17 plants fail only their own item".
+  - *Rescored from stored replies* (`eval.mjs --rescore`; T5 untouched):
+    - M1: T5 0, T5f 0 of 10.
+    - v2, attempt 1 (now `results/V2-opus-attempt1.json`): T5f 1 (same person) and 0 (second person) of 10.
+    - Over-attribution: 0 runs.
+  - *So the scorer alone does not meet item (5).* The rethink's "8 of 10" was an overcount: it matched "the user", as
+    the note warned. The replies almost never name the meeting as the folder decision's source. That supports taking
+    the line unconditionally.
+  - *The line is in the plugin:* 212 B, appended to session start. Plugin hash `497ba915e987`, a new epoch. Part 2
+    (2c, attempt 2) follows.

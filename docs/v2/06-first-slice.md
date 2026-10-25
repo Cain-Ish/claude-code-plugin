@@ -337,3 +337,8 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
     client): 8 of 10 for the second person, 6 of 10 for the same person.
   - Whether T5 measures charter item (5) is V2-D23's question, settled before 2d's runs, in case its answer changes
     the plugin and with it the plugin hash.
+- **Correction to the T5 observation above (2026-10-25, V2-D23).** The "14 of 20" counted any reply holding "the user",
+  which every UserAvatar reply does. Under the faithful T5f (`meeting`, `developer` or `lead`; the designer; the PM or
+  client), v2's attempt-1 replies score 1 of 10 (same person) and 0 of 10 (second person), and M1 scores 0. The frozen
+  T5 (0 of 10) was never in question. 2c's attempt 1 is kept in `results/V2-opus-attempt1.json`. Attempt 2 runs on
+  the plugin with D23's line.

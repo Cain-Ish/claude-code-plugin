@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { INSTRUCTION, HEADER, FORCE, UNREVIEWED, index, labels } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, index, labels } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
@@ -18,6 +18,8 @@ assert.equal(Buffer.byteLength(INSTRUCTION), 904);
 assert.equal(Buffer.byteLength(FORCE), 227);
 assert.equal(HEADER, "IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any task in this project. This project's documents, by directory:");
 assert.equal(UNREVIEWED, 'unreviewed, not yet committed');
+// V2-D23's line, as the ledger froze it
+assert.equal(NAME, "When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.");
 
 // the surfaces: 3 hook events, 1 command, no agents, skills or MCP servers
 const { hooks } = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8'));
@@ -85,7 +87,7 @@ const hook = (which, input, dir = repo) => {
   return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput.additionalContext : '';
 };
 const sid = `selftest-${process.pid}`;
-assert.equal(hook('session-start', { session_id: sid, source: 'startup' }), `${INSTRUCTION}\n\n${index(repo)}`);
+assert.equal(hook('session-start', { session_id: sid, source: 'startup' }), `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
 assert.equal(hook('prompt', { session_id: sid }), FORCE);
 assert.equal(hook('prompt', { session_id: sid }), '');
 hook('session-start', { session_id: sid, source: 'compact' });
@@ -98,7 +100,7 @@ const loose = path.join(tmp, 'loose');
 fs.mkdirSync(path.join(loose, '.project-map'), { recursive: true });
 fs.writeFileSync(path.join(loose, '.project-map', 'captured.md'), entry('a', 'b', '2026-10-25'));
 assert.equal(index(loose), null);
-assert.equal(hook('session-start', { session_id: `${sid}-loose` }, loose), INSTRUCTION);
+assert.equal(hook('session-start', { session_id: `${sid}-loose` }, loose), `${INSTRUCTION}\n\n${NAME}`);
 assert.equal(hook('prompt', { session_id: `${sid}-loose` }, loose), '');
 assert.ok(labels(loose, '.project-map/captured.md').includes(`1. a: ${UNREVIEWED}; unverified quote, captured 2026-10-25`));
 
@@ -107,7 +109,7 @@ const bare = path.join(tmp, 'bare');
 fs.mkdirSync(bare);
 spawnSync('git', ['init', '-q'], { cwd: bare });
 assert.equal(index(bare), '');
-assert.equal(hook('session-start', { session_id: `${sid}-bare` }, bare), INSTRUCTION);
+assert.equal(hook('session-start', { session_id: `${sid}-bare` }, bare), `${INSTRUCTION}\n\n${NAME}`);
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('selftest ok');
