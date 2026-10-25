@@ -52,6 +52,7 @@ function makeRun(dir, log, hooks = {}, mem = null) {
   // force twice: a run cut off inside `worktree add` leaves its worktree locked
   git(task.repo, 'worktree', 'remove', '--force', '--force', dir);
   fs.rmSync(dir, { recursive: true, force: true });
+  git(task.repo, 'worktree', 'prune'); // a remove that failed leaves the folder gone but still registered
   // chains on one repo start together (stage 3 on); git's worktree lock then fails one of them, so retry
   let r = git(task.repo, 'worktree', 'add', '-q', '--detach', dir, task.commit);
   for (let k = 0; k < 5 && r.status !== 0; k++) {
