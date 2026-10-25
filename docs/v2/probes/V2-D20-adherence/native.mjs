@@ -78,7 +78,7 @@ const nodeHook = (script, ...args) => ({ type: 'command', command: ['node', path
 
 // Arm (b): prompt arrival and a one-time deny before the first write in an area; (d) adds checks after writes and Stop.
 function armHooks(base) {
-  if (['a', 'm', 'mc', 'n', 'n0', 'sba', 'sbn', 'sbmc'].includes(arm)) return {};
+  if (['a', 'm', 'mc', 'n', 'n0', 'sba', 'sbn', 'sbmc', 'sbv', 'sbc2', 'sbs'].includes(arm)) return {};
   if (['p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro'].includes(arm)) { // V2-D22 pull: the documents' index with Vercel's instruction, always on from session start
     const hook = path.join('..', 'V2-D21-inventory', 'inventory-hook.mjs');
     fs.copyFileSync(task.index, path.join(base, 'inventory.txt'));
@@ -159,13 +159,20 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
 const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false, pfc: true, pfr: true, pfrs: true, pfro: true, mc: true, sbn: true, sbmc: true };
-const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro', 'mc', 'sba', 'sbn', 'sbmc']; // session arms that push no rule card
+const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro', 'mc', 'sba', 'sbn', 'sbmc', 'sbv', 'sbc2', 'sbs']; // session arms that push no rule card
 // V2-D22 pull, attempt 2: fixed before it ran (DECISIONS.md)
 const FORCE = 'Before you start: for each directory in this project\'s document index, state in one line whether its '
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
   + 'change anything.';
 const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, investigate what this task needs and `
   + 'report what you found. Do not create or edit any file yet.', ...(compact ? ['/compact'] : []), 'Now make the change.'];
+// 06, 2e: the added shapes, with the plugin and the build task's own setup (memory where its M1 arm has it). quiet: the
+// result up to which no write may happen (the last turn that says not to edit; none in the vague shape)
+const SHAPES = {
+  sbv: { turns: (t) => [t.vague, t.prompt], quiet: 0, compactions: 0 },
+  sbc2: { turns: (t) => [turnsOf(t.prompt, true)[0], '/compact', 'List the files you will change and why. Do not edit anything yet.', '/compact', 'Now make the change.'], quiet: 3, compactions: 2 },
+  sbs: { turns: (t) => [cfg.tasks.find((o) => o.repo === t.repo && o.id !== t.id).prompt, ...turnsOf(t.prompt, true)], quiet: 2, compactions: 1 },
+};
 function claudeTurns(cwd, turns, model, raw, addDir = null) {
   return new Promise((resolve) => {
     const child = spawn(CLAUDE, [...claudeArgs(model, undefined, addDir), '--input-format', 'stream-json'], { cwd, env: env() });
@@ -271,16 +278,17 @@ async function runOnce(i, model = cfg.model) {
   fs.rmSync(base, { recursive: true, force: true });
   fs.mkdirSync(base, { recursive: true });
   // stage 3 arms run side by side, so each has its own worktree
-  const dir = path.join(path.dirname(task.repo), `wt-${task.id}${SESSION[arm] === undefined ? '' : `-${arm}`}`);
+  const dir = path.join(path.dirname(task.repo), `wt-${task.id}${SESSION[arm] === undefined && !SHAPES[arm] ? '' : `-${arm}`}`);
   const log = path.join(base, 'instructions.jsonl');
   // V2-D19 arm m: the user's own auto memory, a fresh copy per run, writable (as D17's M1); mc: the same in the
   // three-turn session (the Opus re-baseline, 05-eval-plan.md)
-  const mem = ['m', 'mc', 'sbmc'].includes(arm) ? path.join(base, 'memory') : null;
+  const mem = ['m', 'mc', 'sbmc'].includes(arm) || (SHAPES[arm] && task.m1Arm === 'mc') ? path.join(base, 'memory') : null;
   if (mem) fs.cpSync(task.memory, mem, { recursive: true });
   makeRun(dir, log, armHooks(base), mem);
-  const compact = SESSION[arm];
+  const shape = SHAPES[arm];
+  const compact = shape ? shape.compactions > 0 : SESSION[arm];
   const ev = compact === undefined ? claude(dir, task.prompt, model, path.join(base, 'stream.jsonl'), {}, undefined, mem)
-    : await claudeTurns(dir, turnsOf(task.prompt, compact), model, path.join(base, 'stream.jsonl'), mem);
+    : await claudeTurns(dir, shape ? shape.turns(task) : turnsOf(task.prompt, compact), model, path.join(base, 'stream.jsonl'), mem);
   const f = facts(ev, dir, log, base);
   const { files, fresh } = changedFiles(dir);
   fs.writeFileSync(path.join(base, 'files.json'), JSON.stringify(files, null, 1));
@@ -295,7 +303,7 @@ async function runOnce(i, model = cfg.model) {
     const out = (name, text) => ev.filter((e) => e.subtype === 'hook_response' && e.hook_event === name && String(e.output ?? '').includes(text)).length;
     rec.plugin = { starts: out('SessionStart', 'This project keeps a map'), forced: out('UserPromptSubmit', 'Before you start: for each directory'),
       labelled: out('PostToolUse', '[project map]') };
-    const want = compact ? 2 : 1;
+    const want = shape ? 1 + shape.compactions : compact ? 2 : 1;
     if (!f.init?.plugins?.some((p) => p.name === 'second-brain')) rec.invalid.push('plugin not loaded');
     if (rec.plugin.starts !== want) rec.invalid.push(`plugin session start ${rec.plugin.starts} times`);
     if (rec.plugin.forced !== want) rec.invalid.push(`forced decision ${rec.plugin.forced} times`);
@@ -363,9 +371,13 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   const main = ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id && e.message?.model && e.message.model !== '<synthetic>');
   const models = [...new Set(main.map((e) => e.message.model))];
   // at least one result per turn sent: a background task Claude started wakes the session again, with its own result
-  if (results.length < (compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
-  if (ev.slice(0, first).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
-  if (!!boundary !== compact) invalid.push(compact ? 'no compaction' : 'compacted');
+  const shape = SHAPES[arm];
+  const nth = (k) => { let c = 0; return ev.findIndex((e) => e.type === 'result' && ++c === k); };
+  const quiet = shape ? (shape.quiet ? nth(shape.quiet) : 0) : first;
+  const compactions = ev.filter((e) => e.type === 'system' && e.subtype === 'compact_boundary').length;
+  if (results.length < (shape ? shape.turns(task).length : compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
+  if (ev.slice(0, quiet).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
+  if (shape ? compactions !== shape.compactions : !!boundary !== compact) invalid.push(shape ? `${compactions} compactions` : compact ? 'no compaction' : 'compacted');
   if (!NO_CARDS.includes(arm) && prompts !== expected) invalid.push(`${prompts} prompt deliveries`);
   if (['p', 'pf', 'pfc', 'pfr'].includes(arm) && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory)) invalid.push('index not delivered at session start');
   if (['pfc', 'pfr', 'pfrs', 'pfro'].includes(arm) && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory && d.source === 'compact')) invalid.push('index not delivered after the compaction');
@@ -674,6 +686,13 @@ if (mode === 'checks') {
       stopped: m1.stopped === null ? null : { v2: rs.filter((r) => !r.changed?.length).length, m1: m1.stopped },
       rules, measures,
       misses: [...Object.entries(rules), ...Object.entries(measures)].filter(([, c]) => c && !c.pass && !c.listed).map(([k]) => k),
+      // 2e: a rule the standard arm held (8 of 10) is missed in a shape when it fails in 2 or more of the shape's runs
+      shapes: Object.fromEntries(Object.keys(SHAPES).flatMap((s) => {
+        const ss = load(s, t.id);
+        const inScope = Object.entries(rules).filter(([, c]) => c.v2 >= 8).map(([id]) => id);
+        return ss.length ? [[s, { validRuns: ss.length, stopped: ss.filter((r) => !r.changed?.length).length, inScope,
+          missed: inScope.filter((id) => ss.filter((r) => !r.rules[id].final).length >= 2) }]] : [];
+      })),
       totalCostUsd: rs.reduce((a, r) => a + (r.usage.costUsd ?? 0), 0) };
   }
   fs.writeFileSync(path.join(dir, `verdict-${cfg.summaryName ?? 'opus'}.json`), `${JSON.stringify(out, null, 1)}\n`);
