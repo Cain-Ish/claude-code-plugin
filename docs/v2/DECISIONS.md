@@ -3172,6 +3172,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - what the route does for investigation tasks: keep it, change it, or let native search handle them;
     - whether R0 build's R6 is a route miss or a rule only its code shows.
     - The added shapes (2e) wait for this.
+  - *The misses, split (from each run's record: whether a rule's source was read, and whether it was applied):*
+    - **The route question (7 cells, where M1 is at 0 too).**
+      - A2, A3, S2, S4, S5 and C4: the anchor document was never read in 8 to 10 of v2's 10 runs, and in 10 of
+        M1's. On investigation tasks, the index and the forced decision did not bring Claude to the documents that
+        hold the answer. Selection failed there; nothing was ignored.
+      - R0 build's R6 is the other kind: its source document was read in every run of both arms, and never applied.
+        That is not selection. It is a rule Claude reads and does not follow (D20's question).
+    - **D17's bar (7 cells):** R3, R5, R7, P3a, S3, B2 and E1, each missed in 1 or 2 runs where M1 had 9 or 10.
+      With M1 at 10, one stray run fails v2. That is a Fog item for D17, not evidence about the route.
+    - **Small counts (2 cells):** W1 (0 against 1) and A4 (2 against 4).
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
   where it came from".
@@ -3261,3 +3271,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *D17:* this is its T5 attempt 2 (a scorer changed after a result, disclosed). Its rule is unchanged.
 
   Attempts: 1, passed.
+- **A2 check of D23's triggers (2026-10-25, build step 2d):**
+  - *Output tokens:* on the three output-token cells with a no-worse ceiling (R0-knowledge, P1-skills, P1-weekly), v2
+    stays under it. The other cells are gain cells, which have no ceiling.
+  - *Over-attribution* cannot be observed on A2: native.mjs has no measure for it. That half of the trigger can fire on
+    A1 only until A2 gains the measure. Recorded as a gap.
