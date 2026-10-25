@@ -1,5 +1,6 @@
 // V2-D17 eval harness (05-eval-plan.md): runs one arm of scenario A1 with `claude -p` and scores it deterministically.
-// Usage: node eval.mjs <scratch-dir> <M0|M1> [runs=1] [first=1]  |  node eval.mjs --smoke  |  node eval.mjs --summary
+// Usage: node eval.mjs <scratch-dir> <M0|M1|M2|V2> [runs=1] [first=1]  |  node eval.mjs --smoke  |  node eval.mjs --summary
+// V2 (06, build step 2c): the plugin from plugin/, H once, the map committed, then T and N as the same person and a second
 // (D17_MODEL=<model> D17_TAG=<suffix> for another epoch; D17_CLAUDE=<binary> pins the CLI, as native.mjs does)
 // Run folders and raw streams stay in <scratch-dir>; the scored record (no paths, no session ids) is merged into
 // results/<arm>.json next to this script.
@@ -17,6 +18,7 @@ const MODEL = process.env.D17_MODEL ?? 'claude-sonnet-5-5';
 const TAG = process.env.D17_TAG ?? '';
 // a pinned binary holds the epoch: the installed `claude` updates itself between runs
 const CLAUDE = process.env.D17_CLAUDE ?? 'claude';
+const PLUGIN = path.join(HERE, '..', '..', '..', '..', 'plugin');
 const CODE = /\.(tsx?|jsx?|css|scss)$/;
 
 function walk(dir, skip = [], base = dir, out = {}) {
@@ -124,6 +126,7 @@ function streamFacts(ev, repo, mem, name) {
     toolCallsBefore: before.length,
     filesReadBefore: new Set(before.filter((u) => u.name === 'Read' && ok(u)).map((u) => norm(u.input?.file_path))).size,
     memReadBefore: before.filter((u) => u.name === 'Read' && ok(u) && inMem(u) !== null).map(inMem),
+    mapReadBefore: before.some((u) => u.name === 'Read' && ok(u) && (inRepo(u) ?? '').startsWith('.project-map/')),
     memWrites: memWrites.length,
     memWritesRefused: memWrites.filter(refused).length,
     result: ev.findLast((e) => e.type === 'result'),
@@ -139,11 +142,12 @@ function env() {
   return e;
 }
 
-function claude(cwd, prompt, raw, mem) {
+function claude(cwd, prompt, raw, mem, plugin = false) {
   // User settings, plugins, MCP servers and skills stay out; Bash and the web are denied (static scoring, no network).
   const args = ['-p', '--model', MODEL, '--setting-sources', 'project,local', '--strict-mcp-config',
     '--disallowedTools', 'Bash,WebFetch,WebSearch,Skill', '--permission-mode', 'acceptEdits',
-    '--output-format', 'stream-json', '--verbose', ...(mem ? ['--add-dir', mem] : [])];
+    '--output-format', 'stream-json', '--verbose', ...(mem ? ['--add-dir', mem] : []),
+    ...(plugin ? ['--plugin-dir', PLUGIN, '--include-hook-events'] : [])];
   const r = spawnSync(CLAUDE, args, { cwd, input: prompt, encoding: 'utf8', env: env(), timeout: 1_200_000, maxBuffer: 256 << 20 });
   fs.writeFileSync(raw, (r.stdout ?? '') + (r.stderr ? `\n#stderr ${r.stderr}` : ''));
   return parse(r.stdout ?? '');
@@ -153,8 +157,9 @@ function claude(cwd, prompt, raw, mem) {
 const CAPTURE_HOOKS = { SessionStart: [{ hooks: [{ type: 'command',
   command: `node "${path.join(HERE, '..', 'V2-D14-capture', 'instruction.mjs').replace(/\\/g, '/')}"` }] }] };
 
-function makeRepo(dir, mem, hooks = null) {
+function makeRepo(dir, mem, hooks = null, map = null) {
   fs.cpSync(FIXTURE, dir, { recursive: true });
+  if (map) fs.cpSync(map, path.join(dir, '.project-map'), { recursive: true }); // committed with the fixture: pulled by the next session
   const settings = mem ? { autoMemoryEnabled: true, autoMemoryDirectory: mem } : { autoMemoryEnabled: false, ...(hooks ? { hooks } : {}) };
   fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), `${JSON.stringify(settings, null, 2)}\n`);
@@ -179,12 +184,23 @@ function runOnce(scratch, arm, i) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const rec = { arm, run: i, date: new Date().toISOString().slice(0, 10), invalid: [], sessions: {} };
+  const plugin = arm === 'V2';
   const session = (name, prompt, repo, mem, anchorName) => {
-    const facts = streamFacts(claude(repo, prompt, path.join(dir, `${name}.jsonl`), mem), repo, mem, anchorName ?? '\0');
+    const ev = claude(repo, prompt, path.join(dir, `${name}.jsonl`), mem, plugin);
+    const facts = streamFacts(ev, repo, mem, anchorName ?? '\0');
     const r = facts.result;
     if (!r || r.subtype !== 'success' || r.is_error) rec.invalid.push(`${name}: no success result`);
     if (facts.memWritesRefused) rec.invalid.push(`${name}: ${facts.memWritesRefused} memory write(s) refused`);
     if (facts.model && !facts.model.startsWith(MODEL)) rec.invalid.push(`${name}: ran on ${facts.model}`);
+    if (plugin) { // 06, 2c: the plugin listed; one session start and one forced decision (A1 has no compaction)
+      const out = (event, text) => ev.filter((e) => e.subtype === 'hook_response' && e.hook_event === event && String(e.output ?? '').includes(text))
+        .map((e) => JSON.parse(e.output).hookSpecificOutput.additionalContext);
+      const starts = out('SessionStart', 'This project keeps a map');
+      const forced = out('UserPromptSubmit', 'Before you start: for each directory');
+      if (!ev.find((e) => e.subtype === 'init')?.plugins?.some((p) => p.name === 'second-brain')) rec.invalid.push(`${name}: plugin not loaded`);
+      if (starts.length !== 1 || forced.length !== 1) rec.invalid.push(`${name}: plugin session start ${starts.length}, forced decision ${forced.length}`);
+      facts.alwaysOnBytes = [...starts, ...forced].reduce((a, s) => a + Buffer.byteLength(s), 0);
+    }
     rec.sessions[name] = { memoryWrites: facts.memWrites, ...usage(r) };
     return facts;
   };
@@ -202,6 +218,53 @@ function runOnce(scratch, arm, i) {
     const st = spawnSync('git', ['status', '--porcelain', '-uall'], { cwd: repoH, encoding: 'utf8' }).stdout.split('\n').filter(Boolean).map((l) => l.slice(3));
     rec.changedOutsideMap = st.filter((p) => !p.startsWith('.project-map/') && p !== '.claude/settings.local.json').length;
     rec.commits = Number(spawnSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repoH, encoding: 'utf8' }).stdout.trim());
+    rec.costUsd = Object.values(rec.sessions).reduce((a, s) => a + (s.costUsd ?? 0), 0);
+    rec.valid = rec.invalid.length === 0;
+    return rec;
+  }
+  if (arm === 'V2') {
+    // 06, 2c: H once with the plugin and auto memory; the user commits the map with the work; then T and N as the same
+    // person (the map plus auto memory) and as a second person (the map only). Capture is scored on the map.
+    const memH = path.join(dir, 'mem-H');
+    fs.mkdirSync(memH);
+    const repoH = path.join(dir, 'repo-H');
+    makeRepo(repoH, memH);
+    for (const [name, prompt] of S.HISTORY) session(name, prompt, repoH, memH);
+    const gitH = (...a) => spawnSync('git', ['-c', 'user.name=eval', '-c', 'user.email=eval@example.invalid', ...a], { cwd: repoH, encoding: 'utf8' });
+    gitH('add', '--', '.project-map');
+    gitH('commit', '-q', '-m', 'map');
+    const mapDir = path.join(repoH, '.project-map');
+    const map = walk(mapDir);
+    rec.capture = scoreAll(C_ITEMS, Object.values(map).join('\n'));
+    rec.provenance = provenanceOf(map);
+    rec.map = Object.fromEntries(Object.entries(map).map(([p, t]) => [p, Buffer.byteLength(t)]));
+    rec.mapCommitted = gitH('ls-tree', '-r', '--name-only', 'HEAD', '--', '.project-map').stdout.split('\n').filter(Boolean).length;
+    rec.store = Object.fromEntries(Object.entries(walk(memH)).map(([p, t]) => [p, Buffer.byteLength(t)])); // reported, not scored
+    rec.variants = {};
+    for (const who of ['same', 'second']) {
+      const out = {};
+      for (const [name, prompt, anchorName] of [['T', S.T, 'UserAvatar'], ['N', S.N, 'ProductImage']]) {
+        const repo = path.join(dir, `repo-${name}-${who}`);
+        const mem = who === 'same' ? path.join(dir, `mem-${name}-same`) : null;
+        if (mem) fs.cpSync(memH, mem, { recursive: true });
+        makeRepo(repo, mem, null, fs.existsSync(mapDir) ? mapDir : null);
+        const facts = session(`${name}-${who}`, prompt, repo, mem, anchorName);
+        const all = walk(repo, ['.git', '.claude', '.project-map']);
+        out[name] = { facts, files: Object.fromEntries(Object.entries(all).filter(([p]) => !(p in FIXTURE_FILES))) };
+      }
+      const { T, N } = out;
+      const test = { ...scoreAll(T_ITEMS, T.files), T5: T5(T.facts.result?.result ?? '') };
+      rec.variants[who] = {
+        test,
+        testAtFirstWrite: T.facts.firstWrite ? scoreAll(T_ITEMS, T.facts.firstWrite) : null,
+        neighbour: scoreAll(N_ITEMS, N.files),
+        chain: Object.fromEntries(Object.entries(CHAIN).map(([d, [c, t]]) => [d,
+          !rec.capture[c] ? 'not kept' : !T.facts.mapReadBefore ? 'not loaded' : test[t] ? 'followed' : 'ignored'])),
+        orientation: { toolCallsBeforeFirstWrite: T.facts.toolCallsBefore, filesReadBeforeFirstWrite: T.facts.filesReadBefore },
+        alwaysOnBytes: T.facts.alwaysOnBytes,
+        newFiles: { T: Object.keys(T.files), N: Object.keys(N.files) },
+      };
+    }
     rec.costUsd = Object.values(rec.sessions).reduce((a, s) => a + (s.costUsd ?? 0), 0);
     rec.valid = rec.invalid.length === 0;
     return rec;
@@ -249,12 +312,16 @@ function runOnce(scratch, arm, i) {
   return rec;
 }
 
-function epoch() {
+function epoch(arm) {
   const h = crypto.createHash('sha256');
   for (const p of Object.keys(FIXTURE_FILES).sort()) h.update(p).update(FIXTURE_FILES[p]);
   h.update(fs.readFileSync(path.join(HERE, 'sessions.mjs'), 'utf8').replace(/\r\n/g, '\n'));
   const cli = spawnSync(CLAUDE, ['--version'], { encoding: 'utf8', env: env() }).stdout.trim();
-  return { cli, model: MODEL, inputs: h.digest('hex').slice(0, 12) };
+  // V2: the plugin's product files too, so a plugin change between runs is a new epoch (06, 2c)
+  const p = crypto.createHash('sha256');
+  const pf = walk(PLUGIN, ['test']);
+  for (const f of Object.keys(pf).sort()) p.update(f).update(pf[f]);
+  return { cli, model: MODEL, inputs: h.digest('hex').slice(0, 12), ...(arm === 'V2' ? { plugin: p.digest('hex').slice(0, 12) } : {}) };
 }
 
 // ---------- smoke check ----------
@@ -379,9 +446,9 @@ function summary() {
 if (process.argv[2] === '--smoke') process.exit(smoke() ? 0 : 1);
 if (process.argv[2] === '--summary') process.exit(summary() ?? 0);
 const [scratch, arm, runs = '1', first = '1'] = process.argv.slice(2);
-if (!scratch || !['M0', 'M1', 'M2'].includes(arm)) throw new Error('usage: node eval.mjs <scratch-dir> <M0|M1|M2> [runs] [first]  |  --smoke');
+if (!scratch || !['M0', 'M1', 'M2', 'V2'].includes(arm)) throw new Error('usage: node eval.mjs <scratch-dir> <M0|M1|M2|V2> [runs] [first]  |  --smoke');
 if (!smoke()) throw new Error('smoke check failed: no run before it passes');
-const ep = epoch();
+const ep = epoch(arm);
 const file = path.join(HERE, 'results', `${arm}${TAG}.json`);
 const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { plan: '../../05-eval-plan.md', runs: [] };
 for (let i = Number(first); i < Number(first) + Number(runs); i++) {
