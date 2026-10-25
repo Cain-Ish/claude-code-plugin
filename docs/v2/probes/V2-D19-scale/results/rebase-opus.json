@@ -1,0 +1,681 @@
+{
+ "date": "2026-10-25",
+ "model": "claude-opus-5-5",
+ "rule": "D17 against M1; at floor 0 a rule needs 8 of 10; where the spread is at least the median, no gain is claimed and v2 must stay at or below median plus spread",
+ "tasks": {
+  "P1-build": {
+   "m1Arm": "mc",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": 0,
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "m1": 10,
+     "target": 10
+    },
+    "R2": {
+     "kind": "convention",
+     "m1": 6,
+     "target": 6
+    },
+    "R3": {
+     "kind": "convention",
+     "m1": 10,
+     "target": 10
+    },
+    "R4": {
+     "kind": "design",
+     "m1": 10,
+     "target": 10
+    },
+    "R5": {
+     "kind": "design",
+     "m1": 10,
+     "target": 10
+    },
+    "R6": {
+     "kind": "unloaded, counter-pattern",
+     "m1": 0,
+     "target": 8
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "median": 17,
+     "spread": 9,
+     "below": 8
+    },
+    "filesReadBeforeFirstWrite": {
+     "median": 9,
+     "spread": 5,
+     "below": 4
+    },
+    "tokensAll": {
+     "median": 1232866,
+     "spread": 445399,
+     "below": 787467
+    },
+    "outputTokens": {
+     "median": 16863,
+     "spread": 5336,
+     "below": 11527
+    },
+    "costUsd": {
+     "median": 1.6872888000000006,
+     "spread": 0.31760439999999956,
+     "below": 1.369684400000001
+    }
+   },
+   "totalCostUsd": 17.2581792
+  },
+  "P2-build": {
+   "m1Arm": "n",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": 0,
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "m1": 10,
+     "target": 10
+    },
+    "R2": {
+     "kind": "convention",
+     "m1": 10,
+     "target": 10
+    },
+    "R3a": {
+     "kind": "canon",
+     "m1": 10,
+     "target": 10
+    },
+    "R3b": {
+     "kind": "canon",
+     "m1": 10,
+     "target": 10
+    },
+    "R4": {
+     "kind": "canon (language)",
+     "m1": 6,
+     "target": 6
+    },
+    "R5": {
+     "kind": "unloaded, counter-pattern",
+     "m1": 3,
+     "target": 3
+    },
+    "R6": {
+     "kind": "convention, counter-pattern",
+     "m1": 7,
+     "target": 7
+    },
+    "R7": {
+     "kind": "canon, unloaded, counter-pattern",
+     "m1": 1,
+     "target": 1
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "median": 145,
+     "spread": 117,
+     "below": 28
+    },
+    "filesReadBeforeFirstWrite": {
+     "median": 36,
+     "spread": 26,
+     "below": 10
+    },
+    "tokensAll": {
+     "median": 8934782,
+     "spread": 11523981,
+     "noGain": true,
+     "ceiling": 20458763
+    },
+    "outputTokens": {
+     "median": 64926,
+     "spread": 63529,
+     "below": 1397
+    },
+    "costUsd": {
+     "median": 5.166829204999999,
+     "spread": 5.6824610849999955,
+     "noGain": true,
+     "ceiling": 10.849290289999995
+    }
+   },
+   "totalCostUsd": 55.15389500999999
+  },
+  "R0-build": {
+   "m1Arm": "n",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": 0,
+   "rules": {
+    "R1": {
+     "kind": "placement",
+     "m1": 10,
+     "target": 10
+    },
+    "R2a": {
+     "kind": "counter-pattern (stale skill)",
+     "m1": 10,
+     "target": 10
+    },
+    "R2b": {
+     "kind": "counter-pattern (stale skill)",
+     "m1": 10,
+     "target": 10
+    },
+    "R3": {
+     "kind": "convention",
+     "m1": 10,
+     "target": 10
+    },
+    "R4": {
+     "kind": "design",
+     "m1": 9,
+     "target": 9
+    },
+    "R5": {
+     "kind": "convention, counter-pattern",
+     "m1": 10,
+     "target": 10
+    },
+    "R6": {
+     "kind": "design, counter-pattern",
+     "m1": 0,
+     "target": 8
+    },
+    "R7": {
+     "kind": "unloaded (skill body only)",
+     "m1": 10,
+     "target": 10
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "median": 44,
+     "spread": 22,
+     "below": 22
+    },
+    "filesReadBeforeFirstWrite": {
+     "median": 11,
+     "spread": 4,
+     "below": 7
+    },
+    "tokensAll": {
+     "median": 3273753,
+     "spread": 1482042,
+     "below": 1791711
+    },
+    "outputTokens": {
+     "median": 40245,
+     "spread": 20704,
+     "below": 19541
+    },
+    "costUsd": {
+     "median": 2.8659026000000005,
+     "spread": 0.8464677499999986,
+     "below": 2.019434850000002
+    }
+   },
+   "totalCostUsd": 28.197344150000003
+  },
+  "P2-plan": {
+   "m1Arm": "a",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": null,
+   "rules": {
+    "P1": {
+     "kind": "design (site model)",
+     "m1": 5,
+     "target": 5
+    },
+    "P3a": {
+     "kind": "canon",
+     "m1": 10,
+     "target": 10
+    },
+    "P3b": {
+     "kind": "canon",
+     "m1": 10,
+     "target": 10
+    },
+    "P4": {
+     "kind": "design (clearing)",
+     "m1": 3,
+     "target": 3
+    },
+    "P5": {
+     "kind": "process",
+     "m1": 6,
+     "target": 6
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "median": 1,
+     "spread": 3,
+     "noGain": true,
+     "ceiling": 4
+    },
+    "tokensAll": {
+     "median": 79757,
+     "spread": 241089,
+     "noGain": true,
+     "ceiling": 320846
+    },
+    "outputTokens": {
+     "median": 2860,
+     "spread": 2560,
+     "below": 300
+    },
+    "costUsd": {
+     "median": 0.1235716,
+     "spread": 0.2555598,
+     "noGain": true,
+     "ceiling": 0.3791314
+    }
+   },
+   "totalCostUsd": 1.7580645999999998
+  },
+  "R0-knowledge": {
+   "m1Arm": "a",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": null,
+   "rules": {
+    "A1": {
+     "kind": "answer",
+     "m1": 10,
+     "target": 10
+    },
+    "A2": {
+     "kind": "answer",
+     "m1": 0,
+     "target": 8
+    },
+    "A3": {
+     "kind": "answer",
+     "m1": 0,
+     "target": 8
+    },
+    "A4": {
+     "kind": "answer",
+     "m1": 4,
+     "target": 4
+    },
+    "A5": {
+     "kind": "trap",
+     "m1": 10,
+     "target": 10
+    },
+    "A6": {
+     "kind": "trap",
+     "m1": 10,
+     "target": 10
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "median": 39,
+     "spread": 1,
+     "below": 38
+    },
+    "filesReadBeforeFirstWrite": {
+     "median": 18,
+     "spread": 17,
+     "below": 1
+    },
+    "tokensAll": {
+     "median": 2444004,
+     "spread": 4962035,
+     "noGain": true,
+     "ceiling": 7406039
+    },
+    "outputTokens": {
+     "median": 11603,
+     "spread": 15730,
+     "noGain": true,
+     "ceiling": 27333
+    },
+    "costUsd": {
+     "median": 3.847211,
+     "spread": 3.6587745999999997,
+     "below": 0.1884364000000005
+    }
+   },
+   "totalCostUsd": 42.54957099999999
+  },
+  "R0-buddy": {
+   "m1Arm": "a",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": null,
+   "rules": {
+    "B1": {
+     "kind": "answer",
+     "m1": 10,
+     "target": 10
+    },
+    "B2": {
+     "kind": "answer",
+     "m1": 10,
+     "target": 10
+    },
+    "B3": {
+     "kind": "answer",
+     "m1": 10,
+     "target": 10
+    },
+    "B4": {
+     "kind": "answer",
+     "m1": 10,
+     "target": 10
+    },
+    "B5": {
+     "kind": "trap",
+     "m1": 10,
+     "target": 10
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "median": 5,
+     "spread": 6,
+     "noGain": true,
+     "ceiling": 11
+    },
+    "tokensAll": {
+     "median": 396285,
+     "spread": 290001,
+     "below": 106284
+    },
+    "outputTokens": {
+     "median": 6160,
+     "spread": 3153,
+     "below": 3007
+    },
+    "costUsd": {
+     "median": 0.515161,
+     "spread": 0.24918499999999993,
+     "below": 0.26597600000000005
+    }
+   },
+   "totalCostUsd": 5.320239
+  },
+  "P1-skills": {
+   "m1Arm": "a",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": null,
+   "rules": {
+    "S1": {
+     "kind": "answer",
+     "m1": 6,
+     "target": 6
+    },
+    "S2": {
+     "kind": "answer",
+     "m1": 0,
+     "target": 8
+    },
+    "S3": {
+     "kind": "trap",
+     "m1": 10,
+     "target": 10
+    },
+    "S4": {
+     "kind": "answer",
+     "m1": 0,
+     "target": 8
+    },
+    "S5": {
+     "kind": "trap",
+     "m1": 0,
+     "target": 8
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "median": 8,
+     "spread": 8,
+     "noGain": true,
+     "ceiling": 16
+    },
+    "tokensAll": {
+     "median": 102745,
+     "spread": 855180,
+     "noGain": true,
+     "ceiling": 957925
+    },
+    "outputTokens": {
+     "median": 2465,
+     "spread": 7166,
+     "noGain": true,
+     "ceiling": 9631
+    },
+    "costUsd": {
+     "median": 3.795105600000002,
+     "spread": 6.708066200000003,
+     "noGain": true,
+     "ceiling": 10.503171800000004
+    }
+   },
+   "totalCostUsd": 44.53642583
+  },
+  "P1-weekly": {
+   "m1Arm": "a",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": null,
+   "rules": {
+    "W1": {
+     "kind": "answer",
+     "m1": 1,
+     "target": 1
+    },
+    "W2": {
+     "kind": "trap",
+     "m1": 3,
+     "target": 3
+    },
+    "W3": {
+     "kind": "answer",
+     "m1": 4,
+     "target": 4
+    },
+    "W4": {
+     "kind": "answer",
+     "m1": 10,
+     "target": 10
+    },
+    "W5": {
+     "kind": "answer",
+     "m1": 8,
+     "target": 8
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": {
+     "median": 28,
+     "spread": 36,
+     "noGain": true,
+     "ceiling": 64
+    },
+    "filesReadBeforeFirstWrite": {
+     "median": 13,
+     "spread": 21,
+     "noGain": true,
+     "ceiling": 34
+    },
+    "tokensAll": {
+     "median": 7495519,
+     "spread": 11227610,
+     "noGain": true,
+     "ceiling": 18723129
+    },
+    "outputTokens": {
+     "median": 42666,
+     "spread": 53571,
+     "noGain": true,
+     "ceiling": 96237
+    },
+    "costUsd": {
+     "median": 5.1066062,
+     "spread": 1.7062681999999993,
+     "below": 3.4003380000000005
+    }
+   },
+   "totalCostUsd": 51.09641620000001
+  },
+  "P2-crafting": {
+   "m1Arm": "a",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": null,
+   "rules": {
+    "C1": {
+     "kind": "answer",
+     "m1": 10,
+     "target": 10
+    },
+    "C2": {
+     "kind": "answer",
+     "m1": 6,
+     "target": 6
+    },
+    "C3": {
+     "kind": "trap",
+     "m1": 0,
+     "target": 8
+    },
+    "C4": {
+     "kind": "answer",
+     "m1": 0,
+     "target": 8
+    },
+    "C5": {
+     "kind": "trap",
+     "m1": 10,
+     "target": 10
+    },
+    "C6": {
+     "kind": "trap",
+     "m1": 2,
+     "target": 2
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "median": 8,
+     "spread": 4,
+     "below": 4
+    },
+    "tokensAll": {
+     "median": 1058172,
+     "spread": 868181,
+     "below": 189991
+    },
+    "outputTokens": {
+     "median": 10758,
+     "spread": 3207,
+     "below": 7551
+    },
+    "costUsd": {
+     "median": 1.1182348,
+     "spread": 0.47907140000000037,
+     "below": 0.6391633999999996
+    }
+   },
+   "totalCostUsd": 11.756598199999999
+  },
+  "P2-systems": {
+   "m1Arm": "a",
+   "validRuns": 10,
+   "epochs": [
+    "2.1.305 (Claude Code)"
+   ],
+   "stopped": null,
+   "rules": {
+    "E1": {
+     "kind": "answer",
+     "m1": 9,
+     "target": 9
+    },
+    "E2": {
+     "kind": "answer",
+     "m1": 6,
+     "target": 6
+    },
+    "E3": {
+     "kind": "answer",
+     "m1": 8,
+     "target": 8
+    },
+    "E4": {
+     "kind": "trap",
+     "m1": 7,
+     "target": 7
+    },
+    "E5": {
+     "kind": "trap",
+     "m1": 10,
+     "target": 10
+    }
+   },
+   "measures": {
+    "toolCallsBeforeFirstWrite": null,
+    "filesReadBeforeFirstWrite": {
+     "median": 70,
+     "spread": 103,
+     "noGain": true,
+     "ceiling": 173
+    },
+    "tokensAll": {
+     "median": 169459,
+     "spread": 242449,
+     "noGain": true,
+     "ceiling": 411908
+    },
+    "outputTokens": {
+     "median": 3493,
+     "spread": 2094,
+     "below": 1399
+    },
+    "costUsd": {
+     "median": 6.323563000000004,
+     "spread": 18.563174599999982,
+     "noGain": true,
+     "ceiling": 24.886737599999986
+    }
+   },
+   "totalCostUsd": 88.0415071
+  }
+ }
+}

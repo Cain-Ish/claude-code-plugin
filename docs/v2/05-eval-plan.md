@@ -360,3 +360,58 @@ runs.
     the two replacements per task.
   - 12 more runs had not started yet.
   - Done once the limit reset (2026-10-23).
+- **The CLI changed mid-baseline (2026-10-23, disclosed).**
+  - The installed CLI updated itself from 2.1.305 to 2.1.309 a minute before the re-run chains started. The runs'
+    own auto-updater switch did not stop it: the update came from outside the harness, and `claude` starts the newest
+    install.
+  - 39 of the 100 A2 runs (all of that day's) ran on 2.1.309, outside the registered epoch (the first run's CLI).
+    They were discarded (142.63 USD-equivalent, records kept privately) and re-run under their own run numbers on
+    2.1.305. The harness now starts a pinned binary named in the private config.
+  - The usage limit cut off two more runs during the re-run (P1-weekly run 7, R0-knowledge run 7; 3.91 USD). They
+    were re-run under their own numbers, like those of 2026-10-22.
+  - The pass condition did not change, so this is not a failed attempt.
+  - The v2 arm runs on the same pinned CLI. D17's harness (`eval.mjs`) gets the same pin first.
+- **Runs (complete 2026-10-25):** A1 20 chains, A2 100 runs, all valid, one epoch (CLI 2.1.305, Opus 5.5), one
+  input hash per task. A2's valid runs cost 345.67 USD-equivalent.
+
+### Opus thresholds (2026-10-25, by `V2-D19-scale/tables.mjs`)
+
+Computed from `V2-D17-eval/results/summary-opus.json` and `V2-D19-scale/results/rebase-opus.json` by D17's rule and
+its gap targets, as registered above. Nothing in them was set by hand.
+
+#### A1 (M1, 10 valid chains)
+
+- Pass items, M1's count of 10 (v2 needs at least that; at 0, 8): C1 10, C2 2, C3 10, C4 10, T1 10, T2 10, T3 0, target 8, T4 10, T5 0, target 8, N1 10, N2 10, N3 10.
+- Tool calls before the first write: below 7 (12, 5). Files read before it: below 5.50 (10.50, 5).
+- T tokens, all kinds: below 66,295 (129,365, 63,070). T output tokens: below 2,401 (3,621, 1,220). T USD: below 0.13 (0.19, 0.06).
+- Always-on bytes (recorded, no threshold): 450.
+
+#### A2 and the investigation tasks (M1)
+
+| Task | M1 arm, valid runs, stopped | Rules (M1's count of 10) |
+| --- | --- | --- |
+| P1-build | mc, 10, 0 | R1 10, R2 6, R3 10, R4 10, R5 10, R6 0, target 8 |
+| P2-build | n, 10, 0 | R1 10, R2 10, R3a 10, R3b 10, R4 6, R5 3, R6 7, R7 1 |
+| R0-build | n, 10, 0 | R1 10, R2a 10, R2b 10, R3 10, R4 9, R5 10, R6 0, target 8, R7 10 |
+| P2-plan | a, 10, - | P1 5, P3a 10, P3b 10, P4 3, P5 6 |
+| R0-knowledge | a, 10, - | A1 10, A2 0, target 8, A3 0, target 8, A4 4, A5 10, A6 10 |
+| R0-buddy | a, 10, - | B1 10, B2 10, B3 10, B4 10, B5 10 |
+| P1-skills | a, 10, - | S1 6, S2 0, target 8, S3 10, S4 0, target 8, S5 0, target 8 |
+| P1-weekly | a, 10, - | W1 1, W2 3, W3 4, W4 10, W5 8 |
+| P2-crafting | a, 10, - | C1 10, C2 6, C3 0, target 8, C4 0, target 8, C5 10, C6 2 |
+| P2-systems | a, 10, - | E1 9, E2 6, E3 8, E4 7, E5 10 |
+
+| Task | Tool calls before the first write | Files read before it | Tokens, all kinds | Output tokens | USD |
+| --- | --- | --- | --- | --- | --- |
+| P1-build | below 8 (17, 9) | below 4 (9, 5) | below 787,467 (1,232,866, 445,399) | below 11,527 (16,863, 5,336) | below 1.37 (1.69, 0.32) |
+| P2-build | below 28 (145, 117) | below 10 (36, 26) | no gain; at most 20,458,763 (8,934,782, 11,523,981) | below 1,397 (64,926, 63,529) | no gain; at most 10.85 (5.17, 5.68) |
+| R0-build | below 22 (44, 22) | below 7 (11, 4) | below 1,791,711 (3,273,753, 1,482,042) | below 19,541 (40,245, 20,704) | below 2.02 (2.87, 0.85) |
+| P2-plan | n/a | no gain; at most 4 (1, 3) | no gain; at most 320,846 (79,757, 241,089) | below 300 (2,860, 2,560) | no gain; at most 0.38 (0.12, 0.26) |
+| R0-knowledge | below 38 (39, 1) | below 1 (18, 17) | no gain; at most 7,406,039 (2,444,004, 4,962,035) | no gain; at most 27,333 (11,603, 15,730) | below 0.19 (3.85, 3.66) |
+| R0-buddy | n/a | no gain; at most 11 (5, 6) | below 106,284 (396,285, 290,001) | below 3,007 (6,160, 3,153) | below 0.27 (0.52, 0.25) |
+| P1-skills | n/a | no gain; at most 16 (8, 8) | no gain; at most 957,925 (102,745, 855,180) | no gain; at most 9,631 (2,465, 7,166) | no gain; at most 10.50 (3.80, 6.71) |
+| P1-weekly | no gain; at most 64 (28, 36) | no gain; at most 34 (13, 21) | no gain; at most 18,723,129 (7,495,519, 11,227,610) | no gain; at most 96,237 (42,666, 53,571) | below 3.40 (5.11, 1.71) |
+| P2-crafting | n/a | below 4 (8, 4) | below 189,991 (1,058,172, 868,181) | below 7,551 (10,758, 3,207) | below 0.64 (1.12, 0.48) |
+| P2-systems | n/a | no gain; at most 173 (70, 103) | no gain; at most 411,908 (169,459, 242,449) | below 1,399 (3,493, 2,094) | no gain; at most 24.89 (6.32, 18.56) |
+
+In brackets: M1's median and spread. Tokens and USD cover the whole session, subagents included.
