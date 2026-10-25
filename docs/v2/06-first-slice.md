@@ -132,3 +132,19 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
   No call failed. Every hook is under 100 ms, so no cache is built (04 corrected).
 - **D16's trigger fired** as expected: 2 of 2 captured entries in the smoke were unverifiable. D16 is reopened in the
   ledger, and it is the next decision.
+
+### 2b: the harnesses' v2 arm (pre-registered 2026-10-25, before any code)
+
+- **`eval.mjs` (A1):** both its CLI calls, the session and the epoch's `--version`, start the binary named by
+  `D17_CLAUDE` (default `claude`), as `native.mjs` does with its config. A1's v2 arm itself belongs to 2c, since its
+  design (how the map reaches T and N) is a choice to register there.
+- **`native.mjs` (A2):** arms `sba`, `sbn` and `sbmc` are the M1 arms `a`, `n` and `mc` plus the plugin, loaded by
+  `--plugin-dir`. Nothing else changes. On top of the base arm's checks, a run is valid only if:
+  - the init event lists the plugin;
+  - its session-start output arrived once per epoch (1 in `sba`; 2 in `sbn` and `sbmc`, at startup and compact);
+  - the forced decision arrived once per epoch (1 or 2).
+- **Smoke 1** (`native.mjs smoke`, Haiku, not counted): `sbn` on R0 build is valid by those checks. This is the first
+  time the compact source and the re-forced decision are seen through the CLI.
+- **Smoke 2** (`plugin/test/smoke.mjs`, Haiku): the onboarding command, run as `/second-brain:onboard`, reports the
+  index's documents and directories.
+- **Pass:** both smokes pass. No baseline record is touched or re-run.
