@@ -284,3 +284,6 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
   - *Mechanical check:* none of the 33 `must` and `mustNot` tokens of the three tasks' rules appears in its prompt.
   - *The agent's own caveat:* P1's prompt ("when I only want a small team") points at the task's limit more than the
     other two do. Recorded, not changed.
+- **Shape smokes (2026-10-25, Haiku, R0 build, not counted):** all three valid. Session starts and forced decisions
+  per session: vague 1 and 1, two compactions 3 and 3, task switch 2 and 2. In the switch, the build's own first turn
+  got no forced decision, by design.
