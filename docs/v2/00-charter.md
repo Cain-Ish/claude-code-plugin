@@ -151,5 +151,10 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   second person. It cost the same tokens and steps as native, not fewer. D22 priced this when it chose reading the
   documents, and capped it by the no-worse ceiling, which held. The acceptance sentence "It spends fewer tokens and
   steps" is therefore not met on A1.
+- **The first slice claims change and plan tasks (2026-10-25, V2-D22 re-locked).** On A2's questions about a
+  project ("investigation" tasks), the document index did not lead Claude to the answer, and native does not reach it
+  either. So v2's first slice claims the work of changing, creating and planning a part, where the route made Claude
+  follow rules native misses. Questions are left to ordinary search for now. This was settled by rethink and a second
+  opinion under the user's standing instruction, and is open to their override.
 - **"Verify each decision during the process, 3-4 runs then rethink"** became the decision record, the
   pre-registered check and the three-strike rule in 01-process.md.
