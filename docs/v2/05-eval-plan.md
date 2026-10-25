@@ -298,6 +298,11 @@ its gap targets stay. The numbers re-run in the new epoch.
     `pfr` 3 of 5).
   - *Expected risk:* cost in document-heavy repos, where the route spent about three times push's tokens. That is
     D22's first reopen trigger.
+  - *Added 2026-10-25, before any v2 run, from the Opus thresholds* (`06-first-slice.md`, 2c): three cells the rule
+    makes unreachable:
+    - R0-knowledge files read before the first write;
+    - P2 plan output tokens;
+    - P2 build output tokens.
 
 ### Re-baseline on Opus 5.5 (pre-registered 2026-10-22, before any assertion is written or any run)
 

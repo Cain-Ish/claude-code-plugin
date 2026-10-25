@@ -191,13 +191,21 @@ on A1; 2d, on A2. The expected-miss list is registered in 2c, before any v2 run.
     `D17_TAG=-opus`.
   - The pilot (run 1) is checked before runs 2 to 10: its record must carry CLI 2.1.305 and the plugin hash. Its cost
     is reported in a progress note.
-- **The expected-miss list (06, "Done means"; the one list for A1 and A2).** It holds cells the rule makes
-  unreachable, plus the one miss 04 names as expected:
-  - R0-knowledge, files read before the first write: below 1, from a median of 18 and a spread of 17.
-  - P2 plan, output tokens: below 300, from 2,860.
+- **The expected-miss list.** The one list is 05's ("Recorded before the v2 arm runs", phase gate, before the
+  re-baseline):
+  - expected misses: P1 R2 and P2 R4;
+  - expected risk: cost in document-heavy repos, D22's first trigger.
+
+  Added 2026-10-25, from the Opus thresholds and before any v2 run, are three cells the rule makes unreachable:
+  - R0-knowledge, files read before the first write: below 1, from a median of 18 and a spread of 17;
+  - P2 plan, output tokens: below 300, from 2,860;
   - P2 build, output tokens: below 1,397, from 64,926.
-  - P1 build, R2 (a pattern rule): missed on Opus under every pull arm (04). Expected until D20's net reopens.
-  - A1: none. No A1 bar is near zero.
+
+  A1 adds none: no A1 bar is near zero.
+
+  *Correction (2026-10-25, while A1's runs 2 to 10 ran, before any A2 v2 run):* this section first gave its own list,
+  leaving out 05's P2 R4. It now cites 05's list. A1's part is empty either way, so no v2 result bears on the
+  correction.
 - **Misses outside the list:**
   - Orientation and cost misses are recorded against D22's triggers (06; 04's Cost weakness). They are not excused.
   - Any other miss is recorded against the trigger it fires.
