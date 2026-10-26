@@ -562,6 +562,17 @@ that it works as intended.
       committed, so the entry is labelled unreviewed anyway. The question stays open for a refinement made on a later
       day.
     - No hook errors, no slow start, and no experiment text this epoch.
+    - *A later prompt in epoch 3:*
+      - The forced decision did not fire. That is correct: no session start, `/clear`, resume or compaction came before
+        it.
+      - The session first reported that it had fired, then corrected itself. The yes/no list it gave (8 yes, 3 no; two
+        directories flipped for the new task) was its own carry-over, not the hook.
+      - Unprompted, it read 3 documents before the first repo write, and 5 rule files loaded by path on their own. About
+        20 tool calls came first, and the first write was the map file.
+      - *Capture:* 3 new entries, each under its own heading with one source line and a date. None duplicates a rule
+        file, and none names a repo file. The map file is still uncommitted.
+      - No hook errors. The repo's own post-edit reminder hooks fired about 10 times on read-only commands; that is the
+        repo's noise, not the plugin's.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
