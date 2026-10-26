@@ -3371,6 +3371,33 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - (D) narrow the claim.
   - *Recommended:* (A), after an arrival probe. If the surface must not grow, (D) as a choice of scope. If (A) fails
     on selection, the selector itself reopens.
+- **User answer (2026-10-26): (A), the gate at the write,** the recommended option. The others shown were (D) narrow
+  the claim, (C) rethink 4's text again, and (B) titles.
+  - The surface may grow to a fourth hook event (`PreToolUse`) for this attempt. It is kept only if the attempt's check
+    passes: D18's "No `PreToolUse`" and 06's 3-event budget change with the re-lock, not before.
+  - The bar is the domain-keyed one, as the note states.
+- **Arrival probe for (A) (pre-registered 2026-10-26, before the probe is written or run; D12's rule).** D20 stage 2
+  showed a deny's reason reaching the main session (3 of 3, CLI 2.1.305). Two things (A) needs are unprobed: a deny
+  inside a subagent, and the hook state a subagent's calls carry.
+  - *Cells,* on the pinned CLI 2.1.305 with Haiku 5.5 and a throwaway repo, 3 runs each:
+    - *main:* Claude creates a file; a `PreToolUse` hook on Write, Edit and MultiEdit denies the first write with a
+      reason that carries a nonce from the environment and asks for it to be quoted;
+    - *subagent:* Claude is asked to have a subagent create the file; the same hook denies the first write made from
+      inside the subagent.
+  - *Pass, per cell:* in every run where the hook denied a write, the nonce appears in the text of the model that made
+    the denied call (the main reply, or the subagent's own messages in the stream). A cell passes on 3 of 3 runs that
+    fired.
+  - *Logged, no bar:*
+    - the `PreToolUse` input's fields inside a subagent (session id, any agent identity);
+    - whether `PostToolUse` after a Read fires inside a subagent, with which session id.
+
+    (A)'s rule "a Read after the deny" depends on both.
+  - *Not probed:* a deny after a compaction inside a turn.
+    - (A)'s state is keyed to the epoch, which `SessionStart` on `compact` opens. The self-test covers that.
+    - The user's own check saw that hook arrive after an automatic compaction (06, 2f).
+    - The deny itself is the same channel as in the main cell.
+  - *If the subagent cell fails:* (A) covers main-session writes only, and the subagent trigger stays open, recorded as
+    such. *If the main cell fails:* (A) stops here, and the result goes to the user.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
