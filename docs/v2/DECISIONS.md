@@ -3273,6 +3273,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - Then P2 build in the vague shape, 5 runs.
     - Pass: R5 fails in at most 1 of 5, and its document is Read in the epoch of the first code write in at least 4
       of 5.
+      - *Tightened 2026-10-26, while stage 1 ran and before any of its output was read:* the read must come before
+        that first write, not merely in its epoch. This came from Gemini's review, and it makes the bar stricter.
     - Fail: stop, with no stage 2.
   - *Stage 2:* 5 runs each, of vague P1 and R0; task switch P1, P2 and R0; standard P2; and native two compactions P2
     (arm `nc2`).
@@ -3297,6 +3299,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       and the time clause and empty-index guard.
     - Not taken: its claim that the hook's firing on self-started turns was unverified (it is verified in 2e's
       streams).
+  - *Gemini, asked once the browser reconnected (2026-10-26).* Pro was in high demand, so Gemini Flash answered. The
+    reply came after a "try again" that this session did not send. Its points, and what was done with each, are in
+    the note.
+    - Taken: the read must come before the first write (above).
+    - Taken as a consequence of listing: no release claims R4 or R6 gains outside the standard shape.
+    - Not taken: keyword search with forced injection before edits. Both halves were measured and rejected before
+      (D13's lexical ranking; D20's pre-write deny).
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

@@ -711,19 +711,19 @@ if (mode === 'checks') {
   const LISTED = { 'P1-build': ['R2'], 'P2-build': ['R4'] }; // 05's expected misses: reported, not in the no-loss set
   const fails = (rs, id) => rs.filter((r) => !r.rules[id].final).length;
   const write = (c) => ['Edit', 'Write', 'MultiEdit'].includes(c.name) && !/[\\/]\.project-map[\\/]/.test(String(c.input?.file_path ?? ''));
-  // per run: the epoch (compactions so far) of the first code write, and whether the rule's source was Read in it
+  // per run: was the rule's source Read before the first code write, in that write's epoch (compactions so far)?
   const streamOf = (a, id, n) => parse(fs.readFileSync(path.join(dirOf(a), id, `run${n}`, 'stream.jsonl'), 'utf8'));
   const epochRead = (ev, src) => {
-    let epoch = 0; let at = null; const read = new Set();
+    let epoch = 0; const read = new Set();
     for (const e of ev) {
       if (e.type === 'system' && e.subtype === 'compact_boundary') epoch++;
       for (const c of e.type === 'assistant' && Array.isArray(e.message?.content) ? e.message.content : []) {
         if (c.type !== 'tool_use') continue;
         if (c.name === 'Read' && slash(c.input?.file_path).endsWith(src)) read.add(epoch);
-        if (at === null && write(c)) at = epoch;
+        if (write(c)) return read.has(epoch);
       }
     }
-    return at !== null && read.has(at);
+    return false;
   };
   const ups = (ev, text) => ev.filter((e) => e.subtype === 'hook_response' && e.hook_event === 'UserPromptSubmit' && (!text || String(e.output ?? '').includes(text))).length;
   const out = { date: new Date().toISOString().slice(0, 10), model: cfg.model, cells: {} };
