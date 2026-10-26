@@ -1295,6 +1295,50 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
     Splitting or replacing instead of matching gives the same text, but takes 44 to 47 ms against 33.
   - The release waits for this decision (06, 2g).
+  - *Question:* how does the read hook stay within D18's budget when a map cites large documents, without changing
+    what it labels?
+  - *Options:*
+    - (a) The same labels, found faster:
+      - each cited document is lowercased once;
+      - a quote's stretch is found by searching for its first word, then reading tokens onward from each candidate
+        that starts a token;
+      - the whole document is no longer tokenized.
+
+      The output is meant to be byte-identical.
+    - (b) A cap on the bytes re-found per read, with a "not checked" label past it. This changes the labels, so it
+      needs an eval run.
+    - (c) A cache of tokenized documents outside the repo (OS temp), keyed by path, size and modification time. It
+      adds state and a risk of staleness.
+    - (d) A larger budget. That is a goalpost move, and it is not taken.
+  - *Check for (a) (pre-registered 2026-10-26, before any product change):*
+    - *Equivalence:* the old and new `labels()` give byte-identical output. Pass: 0 differences on all of:
+      - the self-test;
+      - `benchmap.mjs` maps on P1, P2 and R0, at their pinned commits;
+      - seeded variants of those maps, per entry: one word changed; the quote split by an ellipsis; a two-word quote;
+        the document's first 8 words and its last 8;
+      - a random differential of 20,000 quotes from P1's, P2's and R0's documents: runs of 3 to 12 words, half with
+        one word replaced, some joined by an ellipsis.
+    - *Load:* P2 in this record's load shape (`benchmap.mjs`), `bench.mjs` 3 times at 200 calls. Pass: the map read's
+      added p95 at 8 concurrent is at most 100 ms in each run, with 0 errors.
+    - *If the load fails* while equivalence holds, attempt 2 is chosen from (b) and (c) on attempt 1's numbers
+      (rule 4).
+  - *Session start, in the same new epoch* (D18's observation of 2026-10-26: a change within D18's lock, not a
+    reopen):
+    - `index()` lists the untracked map files from the folder itself, instead of a second git call, so it makes one
+      spawn fewer.
+    - *Pass:*
+      - the index is byte-identical to the old one on P1, P2 and R0 at their commits, with and without an uncommitted
+        map file, and in the self-test;
+      - session start's added p95 at 8 concurrent is at most 100 ms in each of 3 runs on P2.
+    - *One difference, disclosed:* a map file that `.gitignore` excludes is now listed. 04's table already says "plus
+      the untracked files under `.project-map/`".
+  - *What the new hash re-runs (PM1), fixed before the check:*
+    - A1, 10 chains on the pinned epoch (CLI 2.1.305, Opus 5.5), against 2c attempt 2's bars;
+    - the 2f live check;
+    - the self-test.
+
+    A2 is not re-run: the equivalence check shows its hook outputs unchanged, and its runs cost 325 USD-equivalent.
+    That is offered to the user, not assumed.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
