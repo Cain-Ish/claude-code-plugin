@@ -529,6 +529,20 @@ that it works as intended.
       capture instruction came again, and there were no hook errors.
     - 0 repo writes between the compaction and that prompt, so D22's trigger on a write after a compaction inside a
       turn did not fire.
+  - *Epoch 2, after that compaction:*
+    - 6 yes and 4 no of 10 directories. 5 documents were read in full before the first repo write. The 6 unread ones
+      in yes directories were deferred as not needed for the change. About 30 tool calls came before that write.
+    - *Capture:* 1 entry in a new `.project-map/captured.md`: the owner's goal, stated in passing. It does not
+      duplicate a rule file. This is the first capture in real use.
+  - *A leak from the eval into this session (2026-10-26, disclosed).*
+    - D22 rethink 4's experimental text arrived in this session once, attached to a cross-session message rather than
+      a user prompt. It was followed: binding documents named before the first edit, all already read.
+    - It came from the experiment editing `plugin/` in place, between commits `071cd5a` and `716b4cc`, about an hour.
+    - The install's marketplace is a `directory` source at this checkout. Its cached copy kept the old code
+      throughout, so the hooks evidently run from the checkout's live files.
+    - Rule from here on: an attempt runs from a copy of the plugin (`--plugin-dir` to a probe folder), never by editing
+      `plugin/` in place while an install points at the checkout.
+    - Also observed: a cross-session message delivery fires `UserPromptSubmit`, like a background task's turn.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
