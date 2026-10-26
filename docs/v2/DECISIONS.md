@@ -3342,6 +3342,27 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - What it did not secure is the read before the first code write. That fails when code is written before the
       change is named (run 3), and when naming stands in for reading (run 4).
     - The first was outside the text's reach: no prompt-time sentence can act on a write in an earlier turn.
+- **Going up a level (2026-10-26; [research/2026-10-26-d22-level-above.md](research/2026-10-26-d22-level-above.md)).**
+  The user decides the level (map item 17f3). Nothing is pre-registered yet.
+  - *The assumption, split:*
+    - timing ("at the start of an epoch") breaks in the vague and switch shapes, inside v2's claim;
+    - granularity ("per directory") breaks on 2d's investigation tasks, and shows in the user's own check as about
+      1.5 MB of yes-directory documents per epoch with 7 to 15 read.
+    - The real selector is Claude's own choice of files, made from the terms of the prompt at hand.
+  - *New counts, from the saved streams:*
+    - code written in the vague shape's symptom turn: P1 5 of 5, P2 1 of 5, R0 0 of 5;
+    - D20's deny was tested only behind prompt-time cards, so its "fixed nothing" does not transfer to the vague
+      shape. A deny's reason arrives before the write (3 of 3);
+    - turns with a main-session code write: median 1 per run (P1 vague 2), at most 2.
+  - *The bar, open:* the registered "first code write of the epoch" includes symptom-turn writes that no selection
+    can precede. Proposed for the next check: the read before the first code write after the change is requested.
+    Disclosed: under it, stage 1 would have scored 4 of 5. Stage 1 stays failed.
+  - *Options:*
+    - (A) a `PreToolUse` gate at each turn's first code write: it grows the surface to 4 hook events (D18, 06);
+    - (B) titles in the index: granularity only;
+    - (C) rethink 4's (c) under the change-turn bar;
+    - (D) narrow the claim.
+  - *Recommended:* (A), after an arrival probe. The fallback is (C).
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
