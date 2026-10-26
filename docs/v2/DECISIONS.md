@@ -3546,6 +3546,31 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       that matcher's list with every listed unread document required. Stage 1 runs under the domain bar, with a cost
       stop.
     - If neither passes, the result goes to the user, with (D) and (P) with (A2) as the choices the note names.
+- **Scope probe result (2026-10-26; [scope-probe.mjs](probes/V2-D22-selection/scope-probe.mjs), which self-tests its
+  matchers and events; [results/scope-probe.json](probes/V2-D22-selection/results/scope-probe.json)): fail, both
+  matchers, in all three repos.**
+  - *Events:* P1 57, P2 141, R0 144, from the arms registered.
+  - *Length,* the unread documents listed at a gate event, median and maximum:
+
+    | Repo | (S-a) documents | (S-a) size | (S-b) documents | (S-b) size |
+    | --- | --- | --- | --- | --- |
+    | P1 | 61, 64 | 1.4 MB | 38, 41 | 0.8 MB |
+    | P2 | 145, 151 | 1.9 MB | 90, 109 | 1.3 MB |
+    | R0 | 100, 117 | 1.2 MB | 51, 83 | 0.6 MB |
+
+    Every event in every repo is over the ceiling of 4 documents and 40 KB, for both matchers. Sizes are medians.
+  - *Recall:*
+    - P1 and R0: every rule matched.
+    - P2: R3a, R3b, R5 and R7 missed under both matchers.
+    - R5's document names neither the extension nor the language. It matches only through folder names, and some C#
+      writes share none of them.
+  - *Why:* the words that state a file's scope (its language, its extension, the folders on its path) appear in most
+    of a project's documents. A search on them lists nearly everything and still misses rules that never name their
+    scope. This repeats, with wider terms, what attempt 3's count found on 2026-10-22: "the documents state rules by
+    topic, not by path". The after-the-gate note should have cited that count, and neither it nor the second opinion
+    did.
+  - *What follows, as registered:* no combined attempt. The result goes to the user, with (D) and (P) with (A2) as
+    the choices.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

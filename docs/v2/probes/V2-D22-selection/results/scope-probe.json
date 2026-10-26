@@ -1,0 +1,141 @@
+{
+ "date": "2026-10-26",
+ "bar": {
+  "maxDocs": 4,
+  "maxBytes": 40960
+ },
+ "repos": {
+  "P1-build": {
+   "events": 57,
+   "arms": [
+    "sbv",
+    "sbc2",
+    "sbs",
+    "sbmc"
+   ],
+   "rules": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6"
+   ],
+   "matchers": {
+    "S-a": {
+     "listMedian": 61,
+     "listMax": 64,
+     "bytesMedian": 1447347,
+     "bytesMax": 1468701,
+     "eventsOverLength": 57,
+     "recallMisses": [],
+     "untested": [],
+     "pass": false
+    },
+    "S-b": {
+     "listMedian": 38,
+     "listMax": 41,
+     "bytesMedian": 873432,
+     "bytesMax": 982162,
+     "eventsOverLength": 57,
+     "recallMisses": [],
+     "untested": [],
+     "pass": false
+    }
+   }
+  },
+  "P2-build": {
+   "events": 141,
+   "arms": [
+    "sbv",
+    "sbc2",
+    "sbs",
+    "sbn"
+   ],
+   "rules": [
+    "R2",
+    "R3a",
+    "R3b",
+    "R5",
+    "R7"
+   ],
+   "matchers": {
+    "S-a": {
+     "listMedian": 145,
+     "listMax": 151,
+     "bytesMedian": 1967727,
+     "bytesMax": 2136118,
+     "eventsOverLength": 141,
+     "recallMisses": [
+      "R5",
+      "R7",
+      "R3a",
+      "R3b"
+     ],
+     "untested": [],
+     "pass": false
+    },
+    "S-b": {
+     "listMedian": 90,
+     "listMax": 109,
+     "bytesMedian": 1354855,
+     "bytesMax": 1717685,
+     "eventsOverLength": 141,
+     "recallMisses": [
+      "R5",
+      "R7",
+      "R3a",
+      "R3b"
+     ],
+     "untested": [],
+     "pass": false
+    }
+   }
+  },
+  "R0-build": {
+   "events": 144,
+   "arms": [
+    "sbv",
+    "sbc2",
+    "sbs",
+    "sbn"
+   ],
+   "rules": [
+    "R1",
+    "R2b",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "matchers": {
+    "S-a": {
+     "listMedian": 100,
+     "listMax": 117,
+     "bytesMedian": 1292823.5,
+     "bytesMax": 1458501,
+     "eventsOverLength": 144,
+     "recallMisses": [],
+     "untested": [],
+     "pass": false
+    },
+    "S-b": {
+     "listMedian": 51,
+     "listMax": 83,
+     "bytesMedian": 595053,
+     "bytesMax": 1022144,
+     "eventsOverLength": 144,
+     "recallMisses": [],
+     "untested": [],
+     "pass": false
+    }
+   }
+  }
+ },
+ "verdict": {
+  "S-a": false,
+  "S-b": false,
+  "pass": false
+ }
+}
