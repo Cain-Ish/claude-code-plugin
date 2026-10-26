@@ -365,7 +365,9 @@ const chunksOf = (base) => { const p = path.join(base, 'cards.json'); return fs.
 function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   const results = ev.filter((e) => e.type === 'result');
   const first = ev.findIndex((e) => e.type === 'result');
-  const isWrite = (c) => c.type === 'tool_use' && ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(c.name);
+  // the plugin's arms capture into .project-map/ as its instruction says; that is not a change made while investigating
+  const isWrite = (c) => c.type === 'tool_use' && ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(c.name)
+    && !(arm.startsWith('sb') && /[\\/]\.project-map[\\/]/.test(String(c.input?.file_path ?? '')));
   const boundary = ev.find((e) => e.type === 'system' && e.subtype === 'compact_boundary');
   const prompts = f.deliveries.filter((d) => d.ev === 'UserPromptSubmit' && d.cards).length;
   // the session's own model: subagents (parent_tool_use_id set) run on theirs, which the pilot showed for Opus

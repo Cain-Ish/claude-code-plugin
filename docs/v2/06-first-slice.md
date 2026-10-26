@@ -484,3 +484,11 @@ that it works as intended.
   7. At the end of a change, Claude names the decisions it followed and their sources.
   8. To remove: `claude plugin uninstall second-brain@second-brain-v2 --scope project`, then
      `claude plugin marketplace remove second-brain-v2`.
+- **A validity correction during 2e's runs (2026-10-26, disclosed).**
+  - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
+  - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
+    was being answered. No code was changed in that turn.
+  - That check exists to keep code changes out of an investigation turn. For the plugin's arms, writes under
+    `.project-map/` no longer count toward it.
+  - Saved runs are re-checked with `native.mjs revalidate`, from their streams, with no re-run.
+  - No rule score and no pass condition changes.
