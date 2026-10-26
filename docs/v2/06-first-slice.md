@@ -484,8 +484,8 @@ that it works as intended.
   7. At the end of a change, Claude names the decisions it followed and their sources.
   8. To remove: `claude plugin uninstall second-brain@second-brain-v2 --scope project`, then
      `claude plugin marketplace remove second-brain-v2`.
-- **The user's own check, interim (2026-10-26).** These are counts only, sent by the session that runs the checklist
-  in one of the user's repos.
+- **The user's own check, closing counts (2026-10-26).** These are counts only, sent by the session that ran the
+  checklist in one of the user's repos. It ran one epoch, about 150 tool calls in all.
   - *Install:* local scope. The installed copy hashes to `497ba915e987`, with an empty diff against the checkout, on
     CLI 2.1.310.
   - *Resume* (`claude --continue`): the forced decision arrived once, on the first prompt after the resume, even
@@ -513,12 +513,17 @@ that it works as intended.
     - The index is under P2's 45 directories, so D22's size trigger does not fire.
   - *Before the first write in the repo:* about 85 tool calls, with 11 documents and about 10 code files read. The
     first write was a report. A document read because its directory was marked yes framed the work.
-  - *Capture:* 0 entries. Nothing stated in the session was a project rule, so no map file exists and no labels were
-    seen.
+  - *Writes:* 2 files changed in the repo: a new report, and one index line in the project's instruction file.
+  - *Capture (items 4 and 5):* 0 entries, 0 labels; `.project-map/` was never created. The task was a one-off
+    investigation and report, and nobody stated a project rule or decision in passing. That is one data point on
+    capture during an investigation task.
+  - *Naming (item 7, D23):* the final reply ended with a decisions-followed line naming 6 decisions, each with its
+    source document as that document gives it. There were 0 invented sources and no "none" line. The interim status
+    replies carried no such line.
   - *Hooks:* no errors and no visible slow start. The repo's own path-scoped rule files also arrived unasked, when
     matching code was read (native).
-  - *Not yet seen:* D23's naming line (item 7), and `/compact` (item 6). Item 6 is reported as untested if the
-    session never compacts.
+  - *Untested:* `/compact` (item 6), since the owner did not compact and context was ample. Uninstall (item 8) was not
+    run, since the owner has not asked to remove the plugin.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
