@@ -38,7 +38,7 @@ Not in the skeleton:
 | Unit | Budget | Grounded in |
 | --- | --- | --- |
 | Always-on bytes per session | 904 B plus the index; an index past 6 KB (P2's size) is measured before it ships | D13 re-locked, D22 |
-| Bytes per forced decision | 227 B, at most once per epoch (the session's start, then after each compaction) | D22 |
+| Bytes per forced decision | 227 B, at most once per epoch (the session's start, then after each compaction). D22's rethink-4 attempt adds 255 B on each later prompt of an epoch, kept only if its check passes | D22 |
 | Added hook p95 at 8 concurrent sessions, Windows | at most 100 ms per hook; measured in 2a: 87 ms at session start (the index from git's file list, on P2), 49 ms or less for the others | D18 |
 | Processes per hook event | 1 Node process; hooks spawn only `git` | D18 |
 | Product lines (hooks, library, command; not tests or the harness) | at most 600 | D18's runtime prototype: 331 lines covering the guards, cache and labels |

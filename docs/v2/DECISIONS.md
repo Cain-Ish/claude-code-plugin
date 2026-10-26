@@ -3260,6 +3260,43 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - The second is close in spirit: a rule held 10 of 10 after one compaction was lost after two. The rethink states
       whether D20's triggers should name rules the route makes Claude read. It does not reword them after the fact.
   - *Open:* the rethink and its pre-registered check, before any run. The following misses stay with D20.
+- **Attempt check (pre-registered 2026-10-26, before any plugin change or run;
+  [research/2026-10-26-d22-rethink-4.md](research/2026-10-26-d22-rethink-4.md)).**
+  - *What changes, option (c):*
+    - The full forced decision at each epoch's first prompt stays as it is.
+    - Every later prompt of an epoch, in a session whose index opened an epoch, carries one fixed text (255 B): "If
+      this message asks you to change or create something, then before your first edit for it: name in one line the
+      documents from your yes directories that bind this change, and read the ones you have not read since the
+      session start or the last compaction."
+  - *Stage 1, the fix:*
+    - A Haiku smoke shows the text on the vague turn 2, and none on the first prompt.
+    - Then P2 build in the vague shape, 5 runs.
+    - Pass: R5 fails in at most 1 of 5, and its document is Read in the epoch of the first code write in at least 4
+      of 5.
+    - Fail: stop, with no stage 2.
+  - *Stage 2:* 5 runs each, of vague P1 and R0; task switch P1, P2 and R0; standard P2; and native two compactions P2
+    (arm `nc2`).
+    - No loss: each rule in scope that held in the cell's reference fails in at most 1 of 5. The reference is 2e's
+      same cell, or 2d's standard arm for P2 standard. 05's listed misses are out of this set.
+    - R6: native fails it in 2 or more of 5.
+  - *Valid run:* 2e's conditions, plus the text on every later prompt of the epoch and the changed plugin's hash.
+    Invalid runs are replaced, up to 2 per cell. Cut-offs re-run under their own number.
+  - *Scored by:* `native.mjs recheck` into `probes/V2-D20-adherence/results/d22-recheck.json`. It reads a private
+    config with its own output folder, and 2e's folder as the reference.
+  - *Recorded beside the scores:* what Claude names on the text's line in the vague runs; cost against 2e's medians;
+    and P2 standard against M1's no-worse ceiling (D22's first trigger applies as before).
+  - *Pass:* stage 1, no loss, and R6 listed by the control. Then D22 re-locks on (c), with its trigger as written.
+  - *Fail:* any of the three. D22 goes BLOCKED, and the assumption reopens.
+  - *Pre-run changes, disclosed:*
+    - 05's P2 R4 entry widens to every shape. 2e missed it with no compaction, and native follows it in 6 of 10.
+    - R6 in two compactions joins the list only on the control's result.
+    - 06's budget gains the later-prompt bytes.
+  - *Second opinion:* Gemini could not be reached (the browser extension was not connected). A different Claude
+    model reviewed the draft in a fresh context. Its points, and what was done with each, are in the note.
+    - Taken: the reading restated, the trigger kept as written, the control made a pass condition, the staged order,
+      and the time clause and empty-index guard.
+    - Not taken: its claim that the hook's firing on self-started turns was unverified (it is verified in 2e's
+      streams).
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

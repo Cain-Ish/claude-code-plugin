@@ -28,7 +28,7 @@ const PLUGIN = path.join(HERE, '..', '..', '..', '..', 'plugin');
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 // cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
-const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3', 'rebase', 'verdict'].includes(mode) ? null : process.exit(2));
+const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3', 'rebase', 'verdict', 'recheck'].includes(mode) ? null : process.exit(2));
 
 const env = (extra = {}) => {
   const e = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1', ...extra };
@@ -159,7 +159,7 @@ function claude(cwd, prompt, model, raw, extraEnv = {}, deny = undefined, addDir
 
 // Stage 3: arm -> whether its session compacts. One session in turns, each sent after the previous result (D12's way).
 const SESSION = { n: true, o0: false, oc: true, or: true, od: true, ow: true, v8: false, v32: false, n0: false, p: false, pf: false, ph: false, pfc: true, pfr: true, pfrs: true, pfro: true, mc: true, sbn: true, sbmc: true };
-const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro', 'mc', 'sba', 'sbn', 'sbmc', 'sbv', 'sbc2', 'sbs']; // session arms that push no rule card
+const NO_CARDS = ['n', 'n0', 'p', 'pf', 'pfc', 'pfr', 'pfrs', 'pfro', 'mc', 'sba', 'sbn', 'sbmc', 'sbv', 'sbc2', 'sbs', 'nc2']; // session arms that push no rule card
 // V2-D22 pull, attempt 2: fixed before it ran (DECISIONS.md)
 const FORCE = 'Before you start: for each directory in this project\'s document index, state in one line whether its '
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
@@ -173,6 +173,8 @@ const SHAPES = {
   sbc2: { turns: (t) => [turnsOf(t.prompt, true)[0], '/compact', 'List the files you will change and why. Do not edit anything yet.', '/compact', 'Now make the change.'], quiet: 3, compactions: 2 },
   sbs: { turns: (t) => [cfg.tasks.find((o) => o.repo === t.repo && o.id !== t.id).prompt, ...turnsOf(t.prompt, true)], quiet: 2, quietFrom: 1, compactions: 1 }, // the first task has no no-edit instruction
 };
+SHAPES.nc2 = { ...SHAPES.sbc2 }; // D22 rethink 4: native (no plugin) in two compactions, the control for P2's R6
+const RECHECK = 'If this message asks you to change'; // D22 rethink 4: the plugin's later-prompt text begins so
 function claudeTurns(cwd, turns, model, raw, addDir = null) {
   return new Promise((resolve) => {
     const child = spawn(CLAUDE, [...claudeArgs(model, undefined, addDir), '--input-format', 'stream-json'], { cwd, env: env() });
@@ -702,6 +704,70 @@ if (mode === 'checks') {
   }
   fs.writeFileSync(path.join(dir, `verdict-${cfg.summaryName ?? 'opus'}.json`), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out, null, 1));
+} else if (mode === 'recheck') {
+  // D22 rethink 4 (DECISIONS.md): the attempt's cells (this config: the changed plugin, its own outDir) against their
+  // reference cells in cfg.ref (2e's shapes; 2d's standard arm). Counts only.
+  const ref = (a, id) => { const f = path.join(path.dirname(cfgPath), cfg.ref, a, `${id}.json`); return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).runs.filter((r) => r.valid) : []; };
+  const LISTED = { 'P1-build': ['R2'], 'P2-build': ['R4'] }; // 05's expected misses: reported, not in the no-loss set
+  const fails = (rs, id) => rs.filter((r) => !r.rules[id].final).length;
+  const write = (c) => ['Edit', 'Write', 'MultiEdit'].includes(c.name) && !/[\\/]\.project-map[\\/]/.test(String(c.input?.file_path ?? ''));
+  // per run: the epoch (compactions so far) of the first code write, and whether the rule's source was Read in it
+  const streamOf = (a, id, n) => parse(fs.readFileSync(path.join(dirOf(a), id, `run${n}`, 'stream.jsonl'), 'utf8'));
+  const epochRead = (ev, src) => {
+    let epoch = 0; let at = null; const read = new Set();
+    for (const e of ev) {
+      if (e.type === 'system' && e.subtype === 'compact_boundary') epoch++;
+      for (const c of e.type === 'assistant' && Array.isArray(e.message?.content) ? e.message.content : []) {
+        if (c.type !== 'tool_use') continue;
+        if (c.name === 'Read' && slash(c.input?.file_path).endsWith(src)) read.add(epoch);
+        if (at === null && write(c)) at = epoch;
+      }
+    }
+    return at !== null && read.has(at);
+  };
+  const ups = (ev, text) => ev.filter((e) => e.subtype === 'hook_response' && e.hook_event === 'UserPromptSubmit' && (!text || String(e.output ?? '').includes(text))).length;
+  const out = { date: new Date().toISOString().slice(0, 10), model: cfg.model, cells: {} };
+  for (const t of cfg.tasks) {
+    const std = ref(`sb${t.m1Arm}`, t.id);
+    const inScope = t.rules.filter((r) => std.length && std.filter((x) => x.rules[r.id].final).length >= 8).map((r) => r.id);
+    for (const a of [`sb${t.m1Arm}`, ...Object.keys(SHAPES)]) {
+      const rs = load(a, t.id);
+      if (!rs.length) continue;
+      const base = a.startsWith('sb') ? (a === `sb${t.m1Arm}` ? std : ref(a, t.id)) : [];
+      const held = a === `sb${t.m1Arm}` ? inScope : inScope.filter((id) => base.length && fails(base, id) <= 1);
+      const evs = rs.map((r) => streamOf(a, t.id, r.run));
+      const cell = { runs: rs.length, epochs: [...new Set(rs.map((r) => `${r.epoch?.cli} ${r.epoch?.plugin ?? '-'}`))],
+        fails: Object.fromEntries(t.rules.map((r) => [r.id, fails(rs, r.id)])),
+        refFails: base.length ? Object.fromEntries(t.rules.map((r) => [r.id, fails(base, r.id)])) : null,
+        lost: held.filter((id) => !(LISTED[t.id] ?? []).includes(id) && fails(rs, id) >= 2),
+        // the later-prompt text on every UserPromptSubmit after the epoch's forced decision; a run without it is invalid
+        textMissing: a.startsWith('sb') ? rs.filter((r, k) => ups(evs[k], RECHECK) !== ups(evs[k]) - ups(evs[k], 'Before you start: for each directory')).map((r) => r.run) : [],
+        costMedian: median(rs.map((r) => r.usage.costUsd)), refCostMedian: base.length ? median(base.map((r) => r.usage.costUsd)) : null };
+      if (t.id === 'P2-build' && a === 'sbv') {
+        const src = t.rules.find((r) => r.id === 'R5').source;
+        // the main session's first text after the text arrived: did the named documents include R5's?
+        const named = (ev) => { const k = ev.findIndex((e) => e.subtype === 'hook_response' && e.hook_event === 'UserPromptSubmit' && String(e.output ?? '').includes(RECHECK));
+          const txt = ev.slice(k + 1).find((e) => e.type === 'assistant' && !e.parent_tool_use_id && e.message?.content?.some((c) => c.type === 'text'));
+          return k >= 0 && !!txt && txt.message.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n').includes(path.posix.basename(src)); };
+        cell.fix = { id: 'R5', fails: cell.fails.R5, readInWriteEpoch: evs.filter((ev) => epochRead(ev, src)).length, namedOnTextLine: evs.filter(named).length };
+      }
+      out.cells[`${t.id} ${a}`] = cell;
+    }
+  }
+  const p2 = (a) => out.cells[`P2-build ${a}`];
+  const fix = p2('sbv')?.fix;
+  const ceiling = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'V2-D19-scale', 'results', 'rebase-opus.json'), 'utf8')).tasks['P2-build'].measures.costUsd.ceiling;
+  out.verdict = {
+    fix: fix ? fix.fails <= 1 && fix.readInWriteEpoch >= 4 : null,
+    noLoss: Object.values(out.cells).every((c) => !c.lost.length),
+    textMissing: Object.fromEntries(Object.entries(out.cells).filter(([, c]) => c.textMissing.length).map(([k, c]) => [k, c.textMissing])),
+    // R6 (rethink 4): listed as an expected miss only if native misses it too in two compactions (2e: v2 2 of 5)
+    r6Listed: p2('nc2') ? p2('nc2').fails.R6 >= 2 : null,
+    p2StandardCost: p2('sbn') ? { median: p2('sbn').costMedian, ceiling, above: p2('sbn').costMedian > ceiling } : null,
+  };
+  out.verdict.pass = out.verdict.fix === true && out.verdict.noLoss && out.verdict.r6Listed === true && !Object.keys(out.verdict.textMissing).length;
+  fs.writeFileSync(path.join(HERE, 'results', 'd22-recheck.json'), `${JSON.stringify(out, null, 1)}\n`);
+  console.log(JSON.stringify(out.verdict, null, 1));
 } else if (mode === 'revalidate') {
   // Stage 3: re-apply the session checks to a task and arm's saved logs after a correction to them (recorded in
   // DECISIONS.md); everything else in the record stays as run.

@@ -296,6 +296,11 @@ its gap targets stay. The numbers re-run in the new epoch.
     model-written check caught it, and the fed-back check needs a hand-written source.
   - *Expected miss, P2 R4:* a judgment rule that push and pull both missed once the session compacted (`oc` and
     `pfr` 3 of 5).
+    - *Widened 2026-10-26 (D22 rethink 4, before its attempt runs; disclosed):* the entry now covers every shape. 2e's
+      vague shape missed R4 with no compaction (2 of 5), and native follows it in 6 of 10 (2d's M1).
+  - *Expected miss on a condition, P2 R6 in two compactions (added 2026-10-26, before the attempt runs):* listed only
+    if native, in the same shape, also misses it in 2 or more of 5 (D22's rethink-4 control). If native holds it, the
+    miss is the route's, and D22 cannot re-lock on that attempt.
   - *Expected risk:* cost in document-heavy repos, where the route spent about three times push's tokens. That is
     D22's first reopen trigger.
   - *Added 2026-10-25, before any v2 run, from the Opus thresholds* (`06-first-slice.md`, 2c): three cells the rule
