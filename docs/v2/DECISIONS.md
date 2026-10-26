@@ -25,7 +25,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -3194,6 +3194,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
         yes directories), Claude names a few files on the yes line and reads 1 to 5. So the directory-level decision
         selects too coarsely where directories are large, and a lone document beside dismissed directories is
         triaged out with them.
+      - R0 build's R6 is the other kind: its source document was read in every run of both arms, and never applied.
+        That is not selection. It is a rule Claude reads and does not follow (D20's question).
+    - **D17's bar (7 cells):** R3, R5, R7, P3a, S3, B2 and E1, each missed in 1 or 2 runs where M1 had 9 or 10.
+      With M1 at 10, one stray run fails v2. That is a Fog item for D17, not evidence about the route.
+    - **Small counts (2 cells):** W1 (0 against 1) and A4 (2 against 4).
 - **Re-LOCKED 2026-10-25, by rethink 3 and a second opinion; no new run**
   ([research/2026-10-25-d22-rethink-3.md](research/2026-10-25-d22-rethink-3.md)).
   - *Choice: the route is unchanged, and v2's claim narrows to change and plan tasks.*
@@ -3220,11 +3225,38 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Retired:* the investigation clause, since the claim no longer covers investigation tasks.
 
   Attempts on the pull track: as above, plus this re-lock by reasoning on 2d's evidence.
-      - R0 build's R6 is the other kind: its source document was read in every run of both arms, and never applied.
-        That is not selection. It is a rule Claude reads and does not follow (D20's question).
-    - **D17's bar (7 cells):** R3, R5, R7, P3a, S3, B2 and E1, each missed in 1 or 2 runs where M1 had 9 or 10.
-      With M1 at 10, one stray run fails v2. That is a Fog item for D17, not evidence about the route.
-    - **Small counts (2 cells):** W1 (0 against 1) and A4 (2 against 4).
+- **REOPENED 2026-10-26 (build step 2e; [06-first-slice.md](06-first-slice.md), "2e: result").**
+  - *Fired:* "a rule in scope is missed on a vague first prompt or in a session with more than one compaction". On P2
+    build, R4 and R5 on the vague first prompt (2 and 4 of 5 runs failed), and R6 in two compactions (2 of 5).
+  - *Held:* P1 build kept every rule in scope in all three shapes, and R0 build in the vague shape and in two
+    compactions. No session stopped.
+  - *The task switch:* its misses go to 04's friction weakness, as registered, not to this trigger. R0's four are, by
+    diagnosis, the scorer's limit: two runs extended an existing hook script, and the checks look for a new one.
+  - *The misses, split:*
+    - **Selection, 1 cell (P2 R5, vague).** At the symptom turn, the rule's directory was marked yes in 5 of 5 runs,
+      and its document was never read in 4. The task turn gets no forced decision, since the shape has one epoch. In
+      2d's standard arm the document was read in 9 of 10. This is 2d's mechanism on another shape: in a large
+      directory, the yes line leads to a few files, chosen by the prompt at hand.
+    - **Following, 2 cells under this trigger (P2 R4 vague, R6 two compactions), plus R4 and R5 in the switch.** The
+      source was in context and the written files break the rule. That is D20's question; its write-time net is
+      deferred.
+  - *Rule 4, counted:*
+    - The route locked on 2026-10-22 has now had its triggers fired by the eval twice: 2d, then 2e. The re-lock of
+      2026-10-25 was by reasoning, with no new run.
+    - Both selection findings trace to one assumption: a single yes/no decision per directory, made at the start of
+      an epoch, selects what a later change needs. It fails where directories are large, and where the change comes
+      after the first prompt.
+    - So the next attempt goes up a level to that assumption, rather than rewording the forced text. If it fails as
+      well, D22 goes BLOCKED, and the assumption is what reopens.
+  - *D20, not reopened, by the letter of its triggers.*
+    - "A judgment rule stays missed ... with its card delivered": the route delivers no card. P2 R4 is already on 05's
+      list from the push arms.
+    - "A rule delivered at the prompt is lost after a compaction ... in the first slice's eval": R6 comes from the root
+      instruction file, which Claude Code loads itself, and the route delivers no rule text at the prompt.
+    - The second is close in spirit: a rule held 10 of 10 after one compaction was lost after two. The rethink states
+      whether D20's triggers should name rules the route makes Claude read. It does not reword them after the fact.
+  - *Open:* the rethink and its pre-registered check, before any run. The following misses stay with D20.
+
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
   where it came from".
