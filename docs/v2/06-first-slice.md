@@ -451,3 +451,36 @@ that it works as intended.
   this section once the live check passes.
 - **Pass:** the install check and all three live checks hold. A failure is a 2f attempt, fixed and run again.
 - **Not in 2f:** macOS and Linux, and the missing-Node path on an installed copy.
+
+### 2f: result (2026-10-26): pass
+
+- **Install check:**
+  - the marketplace was added and the plugin installed, both at project scope in a scratch repo;
+  - `claude plugin details` lists 3 hooks and the onboard command (counted as a skill);
+  - the cached copy's product files hash to `497ba915e987`, the plugin the eval measured.
+- **Live checks** (`plugin/test/live.mjs`, the user's CLI 2.1.309, the plugin as `second-brain@second-brain-v2`):
+  1. *Delivery:* the index's first sentence, the forced decision and both map labels were quoted word for word. D23's
+     line arrived at session start.
+  2. *Onboarding:* `/second-brain:onboard` reported "2 documents in 2 directories".
+  3. *Capture (Opus):* told in passing that the tech lead decided every API handler logs its request id, the session
+     wrote a correct entry (source "the tech lead", dated) and named the decisions it followed. It also pointed out
+     the other entry still awaiting review.
+- **Observations, not misses:**
+  - D23's line adds "recorded decisions followed: none" even to replies where nothing applies, such as the onboarding
+    reply. It is harmless, but noisy.
+  - `claude plugin details` reports the hooks as having "no model context cost". Their output does reach the model:
+    1,553 B per session on A1.
+- **The user's own check, in one of their repos.** Use a branch or a scratch clone; `<v2 checkout>` is the local path
+  of this branch.
+  1. `claude plugin marketplace add <v2 checkout> --scope project`, then
+     `claude plugin install second-brain@second-brain-v2 --scope project`.
+  2. Start `claude` in that repo and give it a real task. Its first reply should state yes or no per document
+     directory, then read the yes ones before changing anything.
+  3. `/second-brain:onboard` reports the documents and directories.
+  4. State a decision in passing ("from now on …"). An entry with a source should appear in
+     `.project-map/captured.md`, uncommitted in `git diff`.
+  5. Ask Claude to read that file. The new entry is labelled "unreviewed, not yet committed".
+  6. After `/compact`, the next prompt gets the forced decision again.
+  7. At the end of a change, Claude names the decisions it followed and their sources.
+  8. To remove: `claude plugin uninstall second-brain@second-brain-v2 --scope project`, then
+     `claude plugin marketplace remove second-brain-v2`.

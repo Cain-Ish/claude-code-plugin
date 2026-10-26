@@ -1,0 +1,15 @@
+{
+  "name": "second-brain-v2",
+  "description": "Marketplace for second-brain v2 (in development): a project map for Claude Code.",
+  "owner": {
+    "name": "second-brain"
+  },
+  "plugins": [
+    {
+      "name": "second-brain",
+      "source": "./plugin",
+      "description": "A project map for Claude Code: an index of the project's own documents at session start, a forced look at the ones that bear on the task, and captured decisions labelled until they are committed.",
+      "version": "2.0.0-alpha.0"
+    }
+  ]
+}
