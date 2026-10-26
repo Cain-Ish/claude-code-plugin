@@ -1,0 +1,209 @@
+{
+ "date": "2026-10-26",
+ "cli": "2.1.305",
+ "model": "claude-haiku-5-5",
+ "cells": {
+  "main": {
+   "runs": [
+    {
+     "run": 1,
+     "fired": true,
+     "deniedInSubagent": false,
+     "valid": true,
+     "quoted": true,
+     "subagentHookCalls": 0,
+     "subagentPostReadFired": false,
+     "subagentSameSessionId": null,
+     "subagentHookKeys": [],
+     "mainHookKeys": [
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "costUsd": 0.0023633300000000003
+    },
+    {
+     "run": 2,
+     "fired": true,
+     "deniedInSubagent": false,
+     "valid": true,
+     "quoted": true,
+     "subagentHookCalls": 0,
+     "subagentPostReadFired": false,
+     "subagentSameSessionId": null,
+     "subagentHookKeys": [],
+     "mainHookKeys": [
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "costUsd": 0.0023533
+    },
+    {
+     "run": 3,
+     "fired": true,
+     "deniedInSubagent": false,
+     "valid": true,
+     "quoted": true,
+     "subagentHookCalls": 0,
+     "subagentPostReadFired": false,
+     "subagentSameSessionId": null,
+     "subagentHookKeys": [],
+     "mainHookKeys": [
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "costUsd": 0.0023633100000000004
+    }
+   ],
+   "valid": 3,
+   "quoted": 3,
+   "pass": true
+  },
+  "subagent": {
+   "runs": [
+    {
+     "run": 1,
+     "fired": true,
+     "deniedInSubagent": true,
+     "valid": true,
+     "quoted": false,
+     "subagentHookCalls": 3,
+     "subagentPostReadFired": true,
+     "subagentSameSessionId": true,
+     "subagentHookKeys": [
+      "agent_id",
+      "agent_type",
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "mainHookKeys": [
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "costUsd": 0.004790935
+    },
+    {
+     "run": 2,
+     "fired": true,
+     "deniedInSubagent": true,
+     "valid": true,
+     "quoted": false,
+     "subagentHookCalls": 3,
+     "subagentPostReadFired": true,
+     "subagentSameSessionId": true,
+     "subagentHookKeys": [
+      "agent_id",
+      "agent_type",
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "mainHookKeys": [
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "costUsd": 0.0037646750000000003
+    },
+    {
+     "run": 3,
+     "fired": true,
+     "deniedInSubagent": true,
+     "valid": true,
+     "quoted": false,
+     "subagentHookCalls": 3,
+     "subagentPostReadFired": true,
+     "subagentSameSessionId": true,
+     "subagentHookKeys": [
+      "agent_id",
+      "agent_type",
+      "cwd",
+      "duration_ms",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_response",
+      "tool_use_id",
+      "transcript_path"
+     ],
+     "mainHookKeys": [],
+     "costUsd": 0.0034640750000000005
+    }
+   ],
+   "valid": 3,
+   "quoted": 0,
+   "pass": false
+  }
+ }
+}

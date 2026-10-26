@@ -3398,6 +3398,69 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - The deny itself is the same channel as in the main cell.
   - *If the subagent cell fails:* (A) covers main-session writes only, and the subagent trigger stays open, recorded as
     such. *If the main cell fails:* (A) stops here, and the result goes to the user.
+- **Arrival probe result (2026-10-26; [gate-arrival.mjs](probes/V2-D22-selection/gate-arrival.mjs),
+  [results/gate-arrival.json](probes/V2-D22-selection/results/gate-arrival.json)).** 6 Haiku runs, about 0.02 USD.
+  - *Main: pass.* The deny fired on a main-session write in 3 of 3 runs, and the reply quoted the nonce in 3 of 3.
+  - *Subagent: fail, as registered.* The deny fired inside the subagent in 3 of 3 runs, and the subagent's own text
+    quoted the nonce in 0 of 3.
+  - *Logged:*
+    - Inside a subagent, the hook input carries the main session's id, plus `agent_id` and `agent_type`.
+    - `PostToolUse` after a Read fires there too, under the same id.
+  - *A diagnostic run, not counted:* the nonce sat in the subagent's tool result, which the model reads, and the
+    subagent then retried the write. It wrote no text of its own, so the registered criterion cannot see whether the
+    reason was read or merely obeyed.
+  - *What follows, as registered:* (A) gates main-session writes only. Hook calls that carry `agent_id` neither trip
+    the gate nor count as the Read after a deny, since a subagent's read does not reach the main session's context.
+    The subagent trigger stays open.
+- **Attempt check for (A) (pre-registered 2026-10-26, before any run on the copy and before the scorers change).**
+  - *What runs:* a copy of the plugin, [gate-plugin](probes/V2-D22-selection/gate-plugin/), passed with
+    `--plugin-dir`. `plugin/` is unchanged. The copy adds one `PreToolUse` hook on Write, Edit and MultiEdit; its
+    self-test covers each rule below.
+    - In an epoch that an index opened, the first main-session code write in each directory is denied. A code write
+      means inside the repo, not a document, and not under `.project-map/`.
+    - The reason is one fixed text, 244 B plus the directory (sha256 of `GATE('<dir>')`: `393f811a837a`): "[project
+      map] This is your first write in <dir>/ since the session start or the last compaction. Before it: name in one
+      line the documents in this project's document index that bind this change, and Read the ones you have not read.
+      Then write again."
+    - The next write in that directory passes once the main session has Read a document since the deny. Otherwise it
+      is denied again, at most twice per directory per epoch.
+    - Subagent calls neither trip the gate nor count as that Read.
+    - The forced decision, the index and everything else are unchanged.
+  - *A write, for every bar here:* a write the gate denied changed nothing. So "the first code write" means the first
+    one that went through, as `pk`'s registration put it. Both scorers apply this:
+    - `native.mjs` gains a `gatecheck` mode;
+    - A1's `eval.mjs` skips gate-denied attempts when it finds the first write, and only those.
+  - *Smoke:* one Haiku session of P2 vague on the copy (a private config with its own folder, not scored). It must show
+    a gate deny in the stream, a later write in that directory that went through, and no hook error.
+  - *Stage 1, the fix:* P2 build, vague shape, 5 runs.
+    - Pass: R5 fails in at most 1 of 5, and in at least 4 of 5 the main session Reads R5's document before its first
+      code write in R5's domain.
+    - R5's domain is its check's path (`\.cs$`): the rule forbids its old names in any C# file.
+    - Fail: stop. Stage 2 does not run.
+  - *Stage 2, no loss,* 5 runs each:
+    - cells: vague P1 and R0; task switch P1, P2 and R0; two compactions P1, P2 and R0; standard P1 (`sbmc`), P2 and
+      R0 (`sbn`);
+    - pass: each rule in scope that held in the cell's reference fails in at most 1 of 5. The reference is 2e's same
+      cell, or 2d's standard arm for the standard cells. 05's listed misses (P1 R2, P2 R4) are out of this set.
+  - *R6 (two compactions, P2):* held if (A)'s cell fails it in at most 1 of 5. If not, native in two compactions (`nc2`,
+    5 runs) runs, and R6 joins 05's list only if native fails it in 2 or more.
+  - *A1:* 10 runs on the copy, as 2c attempt 2 (`D17_TAG=-opus-gate`, the copy through `D17_PLUGIN`).
+    - Every pass item that met its bar there meets it again: C1 to C4, T1 to T4, T5f, N1 to N3, and over-attribution
+      at most 1.
+    - Orientation and cost are reported against M1's no-worse ceilings.
+  - *Valid run:* 2e's conditions (2c's for A1), the copy's hash, and at least one gate deny in every epoch that has a
+    main-session code write. Invalid runs are replaced, up to 2 per cell.
+  - *Recorded beside the scores:*
+    - denies per run, and directories that reached the 2-deny cap;
+    - in P2 vague, whether R5's document was among the reads after a deny;
+    - cost against 2e's and 2d's medians and against the no-worse ceilings (D22's first trigger applies as before).
+  - *Pass:* stage 1, no loss in stage 2 and A1, and R6 held or listed. Then:
+    - D22 re-locks on (A);
+    - D18's surface and 06's budget gain `PreToolUse`;
+    - `plugin/` takes the copy's change.
+  - *Fail:* any of them. The selector reopens (the note: granularity, titles or a search), and the result goes to the
+    user.
+  - *Size:* 60 Opus runs plus A1's 10, and 5 more if `nc2` is needed. Chains are resumable, paced to the usage limit.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

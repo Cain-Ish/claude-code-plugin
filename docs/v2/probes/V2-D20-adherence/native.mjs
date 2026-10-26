@@ -24,7 +24,9 @@ const cfgPath = path.resolve(cfgArg);
 const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 // a pinned binary holds the epoch: the installed `claude` updates itself between runs, auto-updater off or not
 const CLAUDE = cfg.claude ?? 'claude';
-const PLUGIN = path.join(HERE, '..', '..', '..', '..', 'plugin');
+// cfg.plugin (relative to the config) runs an attempt from a plugin copy: installs that point at the checkout run
+// plugin/'s live files, so plugin/ changes only after an attempt passes (06, 2f)
+const PLUGIN = cfg.plugin ? path.resolve(path.dirname(cfgPath), cfg.plugin) : path.join(HERE, '..', '..', '..', '..', 'plugin');
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 // cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
