@@ -588,6 +588,17 @@ that it works as intended.
       - As a spoken decision, it stays unverified with its date (D16).
     - *Labels:* the read hook's labels ("unreviewed, not yet committed", and the unverified quote) showed correctly on
       all 4 older entries.
+  - *Commits, reported later on 2026-10-26:*
+    - The owner made 2 commits of the work and chose to leave `.project-map/` out of both. All 6 entries stay
+      uncommitted in the working tree, so a read still labels each one unreviewed, which is correct.
+    - 2 of the 6 describe decisions that those commits carried out. The entries still hold the decision and its
+      source, unreviewed.
+    - The capture instruction says map changes "are reviewed with the commit, like any other change". Here the work was
+      committed and the map was not. So D14's review step happens only when the owner stages the map; it is not
+      automatic. Until then an entry reaches no other clone and no teammate.
+    - No D14 trigger fires: no entry was delivered without its label, and this is neither noise nor a missed capture.
+    - For the README (2f): committing `.project-map/` is the review; leaving it out keeps the entries local and
+      labelled.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
