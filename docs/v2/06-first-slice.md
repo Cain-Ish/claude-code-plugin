@@ -828,3 +828,54 @@ which ran on the user's CLI.
   - the calibration passes, then CI is green;
   - the three live checks hold;
   - the README states only what the runs show.
+
+### 2g, attempt 2: the live checks (2026-10-27)
+
+- **A change of method, disclosed.**
+  - The user's own check installs the plugin through a marketplace of the same name, `second-brain-v2` (a directory
+    source at this checkout).
+  - Claude Code registers marketplaces by name, in one file per user.
+  - So adding the GitHub marketplace in the user's config, and removing it, would have replaced or deleted the one
+    the own check runs on.
+  - The GitHub install and uninstall therefore ran in an isolated Claude config directory. Before and after each
+    step, the user's registry was compared with a backup: it matched (key order and `lastUpdated` aside).
+- **1. Install by the README's route: pass.**
+  - `claude plugin marketplace add Cain-Ish/claude-code-plugin#v2 --scope project` took 2.5 s. Project settings
+    declare the marketplace with `ref: v2`.
+  - The plugin installed at project scope. The cached copy's product files hash to `61964f9bbb40`.
+  - *A first try failed on Windows' path length limit.* The isolated config sat deep inside a temp folder, and git
+    could not write a pack file there. A short folder fixed it. A user's own config path is short.
+  - *Delivery of the downloaded files.* The cached copy's own smoke (`test/smoke.mjs`, the user's CLI 2.1.311,
+    `--plugin-dir` to the downloaded copy) passed:
+    - the index's first sentence, the forced decision and both labels were quoted word for word;
+    - every hook exited 0;
+    - onboarding reported the index.
+  - *Not run:* a session that loads the plugin through the GitHub-declared marketplace in the user's own config,
+    because of the name clash above.
+- **2. Uninstall by the README's route: pass.**
+  - The uninstall and the marketplace removal succeeded, in the isolated config.
+  - `.project-map/` and the document are byte-identical. `git status` is unchanged except for `.claude/`, which the
+    install created.
+  - A new session in the repo, in the user's config, listed no second-brain plugin, ran no hook and found no index
+    text.
+  - *Left in the repo:* `.claude/settings.json`, with empty `enabledPlugins` and `extraKnownMarketplaces` objects.
+  - *Left outside the repo:*
+    - the cached version folder, marked `.orphaned_at`. Claude Code's docs say a sweep removes it after 14 days. There
+      is no data folder.
+    - the forced decision's marker files in the OS temp folder: 3 at the time, from every session since the folder
+      was last cleaned. Each is empty, and the next first prompt of its session removes it. A session that never got
+      a prompt leaves its marker behind.
+- **The 2f live check, on `61964f9bbb40`: pass.**
+  - Run through the local marketplace at this checkout, at project scope, in a scratch repo, on CLI 2.1.311.
+  - `live.mjs` holds: delivery quoted word for word, D23's line, onboarding, and capture (an entry sourced to "the
+    tech lead", dated).
+  - The scratch install was removed afterwards.
+- **3. Node missing, on the installed copy: pass as registered** (the session answered correctly; Haiku, Node off the
+  PATH).
+  - *What the user sees:*
+    - at session start, the plugin's one line: "The project map needs Node 20 or later; install it, or disable the
+      plugin.";
+    - then a hook error, exit 1, on every prompt and on every Read: `Executable not found in $PATH: "node"`.
+  - Not fixed in 2g: a fix changes `hooks.json`, which opens a new epoch.
+  - The README says what happens, and Fog has the question. D18's trigger "Claude Code adds a way to silence a missing
+    executable" watches it.
