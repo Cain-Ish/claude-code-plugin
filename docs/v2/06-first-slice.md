@@ -493,8 +493,21 @@ that it works as intended.
     use.
   - *Index:* 10 directories and 78 documents, before any `/second-brain:onboard`.
     - 7 of the 10 directories were marked yes: 72 documents, about 1.55 MB.
-    - Claude read 11 of them, in full or in part (about 230 KB), and deferred the rest until the work reaches them.
-      Two of the yes directories hold 34 and 30 documents.
+    - Claude deferred the rest until the work reaches them. Per directory, in index order (documents, marked, read in
+      full or in part):
+
+      | Dir | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+      | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+      | Documents | 30 | 1 | 1 | 4 | 1 | 3 | 1 | 1 | 34 | 1 |
+      | Marked | yes | yes | no | yes | yes | no | yes | yes | yes | no |
+      | Read | 6 | 1 | 0 | 3 | 1 | 0 | 1 | 0 | 3 | 0 |
+
+    - 15 of the 72 were read, 12 of them by choice. Two in directory 1 arrived through the repo's own path-scoped
+      rules, and one in directory 4 was already loaded as project instructions. In directory 9, all three reads were
+      section ranges of large files.
+    - Every small yes directory was read in full except one (directory 8, 1 document). The two large ones got 6 of 30
+      and 3 of 34.
+    - The index count is 77 here and 78 in the session's first message. Both are as sent.
     - This is the mechanism 2d and 2e found, now in real use: the decision is per directory, so large directories are
       marked yes whole, and the read that follows is partial.
     - The index is under P2's 45 directories, so D22's size trigger does not fire.
