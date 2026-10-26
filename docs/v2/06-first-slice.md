@@ -500,3 +500,71 @@ that it works as intended.
   - R0 build's switch run 3 had subagent scratch writes during the first task, so it is revalidated.
   - Run 2 wrote during the build's investigation turn (a subagent's probe script outside the repo). It stays invalid
     and is replaced under its own number, the first of the two replacements allowed per cell.
+
+### 2e: result (2026-10-26): P1 holds in every shape, P2 misses in all three; D22's trigger fired
+
+**Runs:** 45 of 45 valid, in one epoch: CLI 2.1.305, Opus 5.5, plugin `497ba915e987`. Scored by `native.mjs verdict`
+(its `shapes` section) into [`V2-D19-scale/results/verdict-opus.json`](probes/V2-D19-scale/results/verdict-opus.json).
+- Cut-offs, re-run under their own numbers: 12 on 2026-10-25 (the usage limit) and 1 on 2026-10-26 (P2's switch
+  run 5, whose session ended with no result).
+- One replacement: R0's switch run 2 (above). No cell used its second.
+- Revalidated under the two corrections above: P1's switch runs 1 and 4, R0's switch runs 3 and 4. All 45 were
+  re-checked from their streams under the committed code before the verdict.
+- Stopped sessions: 0 of 45, so the two readings agree.
+
+**Scope** (rules 2d's standard arm followed in at least 8 of 10): P1 R1 and R3 to R6 (R2 is out, at 3); P2 R1 to R6
+(R7 is out, at 7); R0 R1, R2a, R2b, R3, R4, R5 and R7 (R6 is out, at 0).
+
+**Failed runs of 5 per rule in scope (bold: missed, 2 or more):**
+
+| Task | Vague first prompt | Two compactions | Task switch |
+| --- | --- | --- | --- |
+| P1 build | none | none | none |
+| P2 build | **R4 2**, **R5 4** | R5 1, **R6 2** | **R4 2**, **R5 3** |
+| R0 build | R3, R4, R5, R7 1 each (one run) | none | **R3, R4, R5, R7 2 each** (the same two runs) |
+
+**What fires:**
+- **D22's trigger** "a rule in scope is missed on a vague first prompt or in a session with more than one compaction":
+  P2's R4 and R5 in the vague shape, and P2's R6 in two compactions.
+- **The task switch:** P2's R4 and R5 and R0's R3, R4, R5 and R7 are recorded against 04's friction weakness, under
+  D22, as registered.
+
+**The misses, split** (from each run's stream and written files; a diagnosis beside the registered result, not a
+re-score):
+- *Selection, 1 cell: P2's R5 in the vague shape.*
+  - The rule's source document was never read in 4 of 5 runs; one run met it by Grep.
+  - In all 5 runs, the first turn's triage marked its directory yes. The session then read other documents in that
+    directory, chosen by the symptom.
+  - The task's own prompt, in turn 2, gets no forced decision (the shape has one epoch), so nothing sends Claude back.
+  - In 2d's standard arm, the same document was read in the first turn in 9 of 10 runs.
+  - This is 2d's mechanism again: in a large directory, the yes line leads to a few files, chosen by the prompt at
+    hand.
+- *Following, 4 cells: P2's R4 (vague), R6 (two compactions), and R4 and R5 (task switch).*
+  - The rule's source was in context: R4 and R6 come from the root instruction file, and R5's document was read in
+    the first turn of every switch run.
+  - The written files break the rule: a required pattern is absent, or the forbidden one is present.
+  - R4 is the judgment rule on 05's list, listed for a compaction. The task switch has one, so its R4 miss is the
+    listed one. The vague shape has none, so the list does not cover it there. 2e's scorer has no list exemption, so
+    both count.
+- *Nothing to apply to, 4 cells: R0 in the task switch, runs 1 and 4.*
+  - Both runs put the SessionEnd handler into an existing hook script instead of adding a new one, and left the
+    surface budget file alone.
+  - R3 to R5 check a new script, so they selected no file. R7 checks the budget file.
+  - By the sources' own text, neither run broke these rules. No new top-level file was added, so no budget bump was
+    due. The added lines append with `printf`, as R5 requires.
+  - The same design appears in 1 of 10 standard runs and in the vague shape's one failing run.
+  - As registered, these are misses. As diagnosed, they are the scorer's limit (checks written for one design): a Fog
+    item for D17, not evidence about the route.
+
+**Cost** (an observation: 2e registered no cost measure, and no M1 runs in these shapes). Median USD-equivalent per
+run, vague / two compactions / switch, against the standard arm:
+- P1 2.23 / 2.47 / 3.22, against 1.85;
+- P2 4.24 / 6.94 / 5.21, against 6.25;
+- R0 2.20 / 3.89 / 8.82, against 3.18.
+
+The task switch includes the first task's work. The 45 valid runs total 195.36 USD-equivalent.
+
+**What holds:**
+- P1 holds every rule in scope in all three shapes.
+- R0 holds in the vague shape and in two compactions.
+- No shape made a session stop to ask.
