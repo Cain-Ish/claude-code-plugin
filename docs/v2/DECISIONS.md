@@ -25,7 +25,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -3306,6 +3306,42 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - Taken as a consequence of listing: no release claims R4 or R6 gains outside the standard shape.
     - Not taken: keyword search with forced injection before edits. Both halves were measured and rejected before
       (D13's lexical ranking; D20's pre-write deny).
+    - *Provenance, corrected the same day (the user):* the browser was on an account without the intended Gemini
+      model, which is likely why the first try errored and Flash answered. Its review stands as evidence, from a weaker
+      model than intended.
+- **Stage 1 result (2026-10-26): fail. D22 is BLOCKED.**
+  - *Runs:* P2 build, vague shape, plugin `cb34b401f8d1`, 5 of 5 valid, one epoch (CLI 2.1.305). Scored by
+    `native.mjs recheck` into `probes/V2-D20-adherence/results/d22-recheck.json`. Median cost 4.60 USD-equivalent,
+    against 2e's 4.24.
+  - *Against the bar:*
+    - R5 failed in 0 of 5 (2e: 4 of 5): pass.
+    - R5's document was Read before the first code write in 3 of 5, against a bar of 4: fail.
+  - *The two misses on the read:*
+    - Run 3 wrote code in turn 1, the symptom turn, which has no no-edit instruction. It read R5's document in turn 2,
+      when the text arrived, so after that first code write.
+    - Run 4 named R5's document on the text's line and never read it: one Grep hit, in turn 1. That is the silent
+      bypass Gemini predicted: the demanded output met without the read.
+    - In both runs R5 held all the same.
+  - *Recorded, not counted:*
+    - Under the bar as first registered (a read anywhere in that epoch), the count is 4 of 5. The bar was tightened
+      before any output was read, so the tightened bar governs (rule 2).
+    - R5's document was named on the text's line in 5 of 5 runs.
+    - R4 failed in 2 of 5 (on 05's list), and R7 in 1 of 5 (2e: 3; out of scope).
+  - *Disclosed corrections, neither changing the outcome:*
+    - The scorer counted a document edit as the first code write. It now excludes the index's document set, as
+      "code write" in the registration says. Run 3's first code write still came before the read.
+    - The attempt's private config lacked its reference folder, which only the scorer reads. It was set before this
+      scoring.
+  - *What follows, as registered:*
+    - Stage 2 does not run, and the plugin change is not kept (reverted to `497ba915e987`).
+    - 05's conditional R6 entry stays unlisted, since its control never ran.
+    - D22 is BLOCKED, and the assumption reopens: *one yes/no decision per directory, made at the start of an
+      epoch, selects what a later change needs.*
+  - *For the level above (evidence, not a verdict):*
+    - The text moved the rule itself (R5 followed 5 of 5, from 1).
+    - What it did not secure is the read before the first code write. That fails when code is written before the
+      change is named (run 3), and when naming stands in for reading (run 4).
+    - The first was outside the text's reach: no prompt-time sentence can act on a write in an earlier turn.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

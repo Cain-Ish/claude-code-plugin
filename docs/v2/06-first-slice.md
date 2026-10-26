@@ -38,7 +38,7 @@ Not in the skeleton:
 | Unit | Budget | Grounded in |
 | --- | --- | --- |
 | Always-on bytes per session | 904 B plus the index; an index past 6 KB (P2's size) is measured before it ships | D13 re-locked, D22 |
-| Bytes per forced decision | 227 B, at most once per epoch (the session's start, then after each compaction). D22's rethink-4 attempt adds 255 B on each later prompt of an epoch, kept only if its check passes | D22 |
+| Bytes per forced decision | 227 B, at most once per epoch (the session's start, then after each compaction). D22's rethink-4 attempt (255 B on each later prompt of an epoch) failed its check and was not kept | D22 |
 | Added hook p95 at 8 concurrent sessions, Windows | at most 100 ms per hook; measured in 2a: 87 ms at session start (the index from git's file list, on P2), 49 ms or less for the others | D18 |
 | Processes per hook event | 1 Node process; hooks spawn only `git` | D18 |
 | Product lines (hooks, library, command; not tests or the harness) | at most 600 | D18's runtime prototype: 331 lines covering the guards, cache and labels |
@@ -522,8 +522,13 @@ that it works as intended.
     replies carried no such line.
   - *Hooks:* no errors and no visible slow start. The repo's own path-scoped rule files also arrived unasked, when
     matching code was read (native).
-  - *Untested:* `/compact` (item 6), since the owner did not compact and context was ample. Uninstall (item 8) was not
-    run, since the owner has not asked to remove the plugin.
+  - *Untested:* uninstall (item 8), since the owner has not asked to remove the plugin.
+  - *Compaction (item 6), reported later the same day:*
+    - An automatic compaction, not a typed `/compact`. As far as the session could tell, it came between turns.
+    - The compact hook's index arrived. The first prompt after it got the forced decision once, D23's line and the
+      capture instruction came again, and there were no hook errors.
+    - 0 repo writes between the compaction and that prompt, so D22's trigger on a write after a compaction inside a
+      turn did not fire.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question

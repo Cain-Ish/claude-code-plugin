@@ -301,6 +301,8 @@ its gap targets stay. The numbers re-run in the new epoch.
   - *Expected miss on a condition, P2 R6 in two compactions (added 2026-10-26, before the attempt runs):* listed only
     if native, in the same shape, also misses it in 2 or more of 5 (D22's rethink-4 control). If native holds it, the
     miss is the route's, and D22 cannot re-lock on that attempt.
+    - *Not listed (2026-10-26):* the attempt failed at stage 1, so the control never ran. R6 stays a miss of 2e's
+      two-compaction shape, under D22's BLOCKED record.
   - *Expected risk:* cost in document-heavy repos, where the route spent about three times push's tokens. That is
     D22's first reopen trigger.
   - *Added 2026-10-25, before any v2 run, from the Opus thresholds* (`06-first-slice.md`, 2c): three cells the rule

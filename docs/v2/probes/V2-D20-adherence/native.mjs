@@ -710,7 +710,9 @@ if (mode === 'checks') {
   const ref = (a, id) => { const f = path.join(path.dirname(cfgPath), cfg.ref, a, `${id}.json`); return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).runs.filter((r) => r.valid) : []; };
   const LISTED = { 'P1-build': ['R2'], 'P2-build': ['R4'] }; // 05's expected misses: reported, not in the no-loss set
   const fails = (rs, id) => rs.filter((r) => !r.rules[id].final).length;
-  const write = (c) => ['Edit', 'Write', 'MultiEdit'].includes(c.name) && !/[\\/]\.project-map[\\/]/.test(String(c.input?.file_path ?? ''));
+  // a code write, as registered: not a map file, and not a document of the index's set (plugin/scripts/map.mjs's DOC)
+  const write = (c) => ['Edit', 'Write', 'MultiEdit'].includes(c.name) && !/[\\/]\.project-map[\\/]/.test(String(c.input?.file_path ?? ''))
+    && !/\.(md|mdx|markdown|txt|rst)$/i.test(String(c.input?.file_path ?? ''));
   // per run: was the rule's source Read before the first code write, in that write's epoch (compactions so far)?
   const streamOf = (a, id, n) => parse(fs.readFileSync(path.join(dirOf(a), id, `run${n}`, 'stream.jsonl'), 'utf8'));
   const epochRead = (ev, src) => {

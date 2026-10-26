@@ -1,0 +1,50 @@
+{
+ "date": "2026-10-26",
+ "model": "claude-opus-5-5",
+ "cells": {
+  "P2-build sbv": {
+   "runs": 5,
+   "epochs": [
+    "2.1.305 (Claude Code) cb34b401f8d1"
+   ],
+   "fails": {
+    "R1": 0,
+    "R2": 0,
+    "R3a": 0,
+    "R3b": 0,
+    "R4": 2,
+    "R5": 0,
+    "R6": 0,
+    "R7": 1
+   },
+   "refFails": {
+    "R1": 0,
+    "R2": 0,
+    "R3a": 0,
+    "R3b": 0,
+    "R4": 2,
+    "R5": 4,
+    "R6": 0,
+    "R7": 3
+   },
+   "lost": [],
+   "textMissing": [],
+   "costMedian": 4.604965,
+   "refCostMedian": 4.241568400000001,
+   "fix": {
+    "id": "R5",
+    "fails": 0,
+    "readInWriteEpoch": 3,
+    "namedOnTextLine": 5
+   }
+  }
+ },
+ "verdict": {
+  "fix": false,
+  "noLoss": true,
+  "textMissing": {},
+  "r6Listed": null,
+  "p2StandardCost": null,
+  "pass": false
+ }
+}
