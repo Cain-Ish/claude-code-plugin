@@ -691,3 +691,78 @@ The task switch includes the first task's work. The 45 valid runs total 195.36 U
 - P1 holds every rule in scope in all three shapes.
 - R0 holds in the vague shape and in two compactions.
 - No shape made a session stop to ask.
+
+### 2g: the release candidate (pre-registered 2026-10-26, before any change)
+
+The release is `2.0.0-alpha.0` (V2-D05), from branch `v2`. It cites (PM1) A1 (2c, attempt 2), A2 (2d), the added
+shapes (2e) and the install check (2f). All of them ran plugin `497ba915e987` on CLI 2.1.305 and Opus 5.5, except 2f,
+which ran on the user's CLI.
+
+- **The product stays as measured.**
+  - Every file under `plugin/` except `test/` stays byte-identical, so the hash stays `497ba915e987`, and what ships
+    is what the eval ran.
+  - So there is no version bump, and the README goes at the repo root. New checks go only under `plugin/test/` and
+    `.github/`.
+  - A product change would open a new epoch, and PM1 would then need a new run.
+- **The build checks the post-mortem sets (02):**
+  - *PM1:* the release names the runs above, and the hash check holds.
+  - *PM3 and PM8, a Windows lane.* CI runs `bench.mjs` on a synthetic repo of P2's shape, built by
+    `plugin/test/fixture.mjs`:
+    - 8,057 tracked files in 768 directories;
+    - 189 documents in 45 of those directories, about 2.4 MB in all;
+    - an uncommitted map file of 30 entries, each citing one of the 30 largest documents (about 1.26 MB together).
+
+    *Pass:* 0 errors, and every hook's added p95 at 8 concurrent is at most 100 ms (D18's bar). A failure on the
+    hosted runner is a 2g attempt. The bar does not move, and the runner's numbers are disclosed. As calibration,
+    the same bench runs on the fixture on this machine, beside 2a's P2 numbers.
+  - *PM8:* `selftest.mjs` adds two budget checks:
+    - product lines (`scripts/`, `hooks/`, `commands/` and the manifest): at most 600;
+    - the fixed always-on parts: 904 B and 212 B per session, and 227 B per forced decision.
+  - *PM6:* `selftest.mjs` maps each surface (3 hook events, 1 command) to the outcome 06 names, and fails on a
+    surface without one.
+  - *PM5:* `labels()` labels every entry that is not both committed and re-found. `selftest.mjs` adds an entry with
+    no source line, which must get a label.
+  - *PM4:* there is no cache, so PM4's rebuild test has nothing to rebuild. The map's plain files are the only state,
+    and the uninstall check below shows they stay.
+  - *PM7:* fix commits on `plugin/`'s product files since 2a, counted from `git log`.
+- **Three operating systems (charter).**
+  - CI runs `selftest.mjs` on Windows, macOS and Linux, with Node 20, the floor the plugin states.
+  - `selftest.mjs` adds the `SessionStart` command, run through bash exactly as `hooks.json` gives it:
+    - with Node on the PATH, it must give the full output;
+    - without Node, it must give the one-line message.
+  - *Pass:* green on all three.
+- **Live, on the user's CLI (2.1.311 at registration), in a scratch repo, at project scope:**
+  1. *Install by the README's route:* `claude plugin marketplace add Cain-Ish/claude-code-plugin#v2 --scope project`,
+     then the install. *Pass:* the cached copy hashes to `497ba915e987`, and `live.mjs`'s delivery check holds: the
+     index's first sentence, the forced decision and both labels are quoted word for word.
+  2. *Uninstall by the README's route:* `claude plugin uninstall second-brain@second-brain-v2 --scope project`, then
+     `claude plugin marketplace remove second-brain-v2`. *Pass:*
+     - a new session's init event does not list the plugin, and the session quotes no index text;
+     - `.project-map/` is byte-identical;
+     - nothing else in the repo changed except `.claude/settings.json`, whose plugin and marketplace entries are gone.
+
+     What remains in that file, and outside the repo, is recorded.
+  3. *Node missing, on the installed copy:* a session with Node off the PATH. *Pass:* the session answers. What the
+     user sees at session start, on each prompt and on a Read is recorded as it comes. A fix would change
+     `hooks.json` and so open a new epoch, so none is made in 2g; the README says what happens.
+- **The README, at the repo root, for a user:**
+  - what the plugin does;
+  - what it was measured to do and not to do, with the numbers and the runs: the claim as D22's re-lock of 2026-10-26
+    states it, and cost the same as native, not lower;
+  - requirements, install and uninstall;
+  - what it writes: `.project-map/` (by Claude), and one marker file per session in the OS temp folder, removed at
+    the session's first prompt;
+  - that committing `.project-map/` is the review (2f's own check);
+  - that it calls no model and no network, and its hooks spawn only git;
+  - what was tested where: Windows live; macOS and Linux by the self-test only.
+- **Release review, after all of the above:** the user's devils-advocate workflow, and Gemini 4 Argon, over the
+  release candidate. Each surviving finding is fixed, or recorded as an accepted risk or a trigger. The workflow
+  needs the user's go.
+- **Publishing** (a tag and a GitHub pre-release) needs the user's yes.
+- **Pass:**
+  - the product hash is unchanged;
+  - CI is green on all three systems, with the Windows bench under the bar;
+  - the three live checks hold;
+  - the README states only what the runs show.
+
+  Each failure is a 2g attempt.
