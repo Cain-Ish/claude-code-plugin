@@ -53,8 +53,8 @@ Node and git are present. A repo with no documents gets an empty index and an em
   - *A task switch after a compaction:* R5 was missed in 3 of 5.
 
   The forced decision selects by the first prompt it sees. Bringing these cases back into scope reopens D22.
-- **Untested shapes.** Investigation tasks (outside the claim) and an index past 45 directories. These are D22's
-  triggers.
+- **Untested shapes.** Investigation tasks (outside the claim), and an index past 86 directories (R0, v1's repo, in
+  2d and 2e) or past 6.1 KB (P2). These are D22's triggers.
 - **Subagents** do not see the index, since `SessionStart` reaches only the main session (D12). The read hook does not
   reach a subagent (D12, build step 0: 0 and 1 of 3), so a map file a subagent reads, or one met by Grep or Bash,
   arrives unlabelled. That is an accepted risk.

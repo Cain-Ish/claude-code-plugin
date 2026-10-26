@@ -3610,6 +3610,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     vague first prompt is outside the claim. A selection miss after compactions falls under the second trigger above.
 
   Attempts at this level: (A) failed, then (S)'s probe; the claim narrowed by the user's choice.
+- **Correction (2026-10-26, found while preparing the release; an observation, not a reopen).**
+  - The size trigger and 04 read as if no index past P2's 45 directories had run. But R0, v1's repo, ran the plugin
+    in 2d and 2e with an index of 86 directories and 5,262 B.
+  - For comparison, P1's index is 10 directories and 1,961 B, and P2's 45 and 6,081 B. All three were counted by the
+    plugin's `index()` at each task's commit.
+  - The forced decision and the reads were measured on R0, so the trigger did not fire.
+  - The untested range is now an index past 86 directories, or past P2's 6.1 KB.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
