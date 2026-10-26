@@ -171,7 +171,7 @@ const turnsOf = (prompt, compact) => [`${prompt}\n\nBefore changing anything, in
 const SHAPES = {
   sbv: { turns: (t) => [cfg.vague[t.id], t.prompt], quiet: 0, compactions: 0 }, // cfg.vague: kept out of the task, whose JSON is the epoch's input hash
   sbc2: { turns: (t) => [turnsOf(t.prompt, true)[0], '/compact', 'List the files you will change and why. Do not edit anything yet.', '/compact', 'Now make the change.'], quiet: 3, compactions: 2 },
-  sbs: { turns: (t) => [cfg.tasks.find((o) => o.repo === t.repo && o.id !== t.id).prompt, ...turnsOf(t.prompt, true)], quiet: 2, compactions: 1 },
+  sbs: { turns: (t) => [cfg.tasks.find((o) => o.repo === t.repo && o.id !== t.id).prompt, ...turnsOf(t.prompt, true)], quiet: 2, quietFrom: 1, compactions: 1 }, // the first task has no no-edit instruction
 };
 function claudeTurns(cwd, turns, model, raw, addDir = null) {
   return new Promise((resolve) => {
@@ -379,7 +379,9 @@ function sessionFacts(ev, f, model, compact, invalid, expected = 1) {
   const quiet = shape ? (shape.quiet ? nth(shape.quiet) : 0) : first;
   const compactions = ev.filter((e) => e.type === 'system' && e.subtype === 'compact_boundary').length;
   if (results.length < (shape ? shape.turns(task).length : compact ? 3 : 2) || results.some((r) => r.subtype !== 'success' || r.is_error)) invalid.push(`turn results: ${results.map((r) => r.subtype)}`);
-  if (ev.slice(0, quiet).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
+  // the window: the turns that say not to edit (in the task switch, the build's investigation turn only)
+  const from = shape?.quietFrom ? nth(shape.quietFrom) + 1 : 0;
+  if (ev.slice(from, quiet).some((e) => e.type === 'assistant' && (e.message?.content ?? []).some(isWrite))) invalid.push('wrote in the investigation turn');
   if (shape ? compactions !== shape.compactions : !!boundary !== compact) invalid.push(shape ? `${compactions} compactions` : compact ? 'no compaction' : 'compacted');
   if (!NO_CARDS.includes(arm) && prompts !== expected) invalid.push(`${prompts} prompt deliveries`);
   if (['p', 'pf', 'pfc', 'pfr'].includes(arm) && !f.deliveries.some((d) => d.ev === 'SessionStart' && d.inventory)) invalid.push('index not delivered at session start');

@@ -492,3 +492,11 @@ that it works as intended.
     `.project-map/` no longer count toward it.
   - Saved runs are re-checked with `native.mjs revalidate`, from their streams, with no re-run.
   - No rule score and no pass condition changes.
+- **A second validity correction (2026-10-26, disclosed).**
+  - The registration says the no-write check runs "up to the last turn that says not to edit". The code checked every
+    turn from the start. In the task switch, that included the first task, which has no no-edit instruction. The vague
+    shape's first turn had already been left out for exactly that reason.
+  - Now the window covers only the turns that say not to edit: in the task switch, the build's investigation turn.
+  - R0 build's switch run 3 had subagent scratch writes during the first task, so it is revalidated.
+  - Run 2 wrote during the build's investigation turn (a subagent's probe script outside the repo). It stays invalid
+    and is replaced under its own number, the first of the two replacements allowed per cell.
