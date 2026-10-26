@@ -3507,6 +3507,45 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **User answer (2026-10-26): write the options up, have the second opinion attack them, then choose,** as at the
   level above. The other choices shown were narrowing the claim, a search that picks the documents, and fixing the cap
   to rerun stage 1. The note: [research/2026-10-26-d22-after-the-gate.md](research/2026-10-26-d22-after-the-gate.md).
+- **User answer (2026-10-26), after the note was revised for the second opinion: (S)'s static probe, then one
+  combined attempt or (D),** the recommended option. The others shown were (P) with the cap fix at once, and (D) at
+  once. The domain bar stays.
+- **Scope probe (pre-registered 2026-10-26, before the probe is written or run).** Can the hook itself find, at a
+  gated write, the documents that bind it, with lists short enough that every unread one can be required? No model
+  calls.
+  - *Documents:* the plugin's index at each testbed's eval commit (P1, P2, R0): the tracked documents. Files named
+    `CLAUDE.md` are left out of lists and of recall, since Claude Code loads them itself.
+  - *Gate events:* in the saved streams of the plugin's arms in the eval epoch, each main-session code write that is
+    the first in its directory in its epoch. Code write has the gate's meaning. Valid runs only.
+    - Streams: the vague, two-compaction and switch shapes for P1, P2 and R0; the standard arm (P1 `sbmc`, P2 and R0
+      `sbn`); stage 1's runs.
+    - A document is *unread* at an event if the main session has not Read it earlier in that epoch.
+  - *Matchers,* each tested on its own. Terms for a written file are fixed now:
+    - its extension as `.ext`;
+    - its language from a fixed table: cs → C#; ts, tsx → TypeScript; js, mjs, cjs, jsx → JavaScript; sh → bash,
+      shell; json → JSON; py → Python;
+    - the name of each folder on its repo-relative path.
+
+    Matching ignores case and requires word boundaries.
+    - (S-a) a document matches if its text contains any term;
+    - (S-b) a document matches if its front matter carries `paths:` or `globs:` patterns that match the file, or its
+      first 15 lines after any front matter contain a term.
+  - *Recall:* the build rules whose check covers code files and whose source is an indexed document other than
+    `CLAUDE.md`. That is P1 R1 to R6; P2 R2, R3a, R3b, R5 and R7; R0 R1, R2b and R3 to R7.
+    - At every gate event whose file is in a rule's check path, the rule's document is on the matcher's list (before
+      the unread filter).
+    - A rule whose check path meets no event is tested on its check's own passing example paths.
+  - *Length:* at every gate event, the unread documents on the list number at most 4 and total at most 40 KB (the
+    second opinion's figures).
+  - *Pass:* a matcher passes if it meets both recall and length at every event, in all three repos. The probe passes if
+    either matcher passes.
+  - *Recorded:* per matcher and repo, the events, the median and maximum list length and bytes, and the recall misses
+    by rule id.
+  - *Then:*
+    - If a matcher passes, the combined attempt is pre-registered next. It uses (A2)'s cap per message, (P)'s text, and
+      that matcher's list with every listed unread document required. Stage 1 runs under the domain bar, with a cost
+      stop.
+    - If neither passes, the result goes to the user, with (D) and (P) with (A2) as the choices the note names.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
