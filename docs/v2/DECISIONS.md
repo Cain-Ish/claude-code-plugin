@@ -3461,6 +3461,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Fail:* any of them. The selector reopens (the note: granularity, titles or a search), and the result goes to the
     user.
   - *Size:* 60 Opus runs plus A1's 10, and 5 more if `nc2` is needed. Chains are resumable, paced to the usage limit.
+- **Smoke result (2026-10-26): pass on the second session.**
+  - The first Haiku session wrote only the map file, which the gate passes by design. So it showed no deny, and the
+    smoke's condition was unmet. A smoke is plumbing and is not scored, so a second session ran in the same shape.
+  - The second showed 6 denies in 4 directories and no hook error.
+    - In 2 directories Claude Read documents after the deny, and the next write went through.
+    - In 2 others it retried without reading, and the second deny's cap let the third try through.
+  - That cap is a bypass of the read. `gatecheck` records it per run.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
