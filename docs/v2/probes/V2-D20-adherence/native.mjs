@@ -30,7 +30,7 @@ const PLUGIN = cfg.plugin ? path.resolve(path.dirname(cfgPath), cfg.plugin) : pa
 const STAGE1 = path.join(path.dirname(cfgPath), 'd20-stage1');
 // cfg.outDir keeps a re-run under another setup (V2-D22: P2 with the web on) apart from the runs it repeats
 const OUT = arm === 'a' ? STAGE1 : path.join(path.dirname(cfgPath), cfg.outDir ?? 'd20-stage2', arm);
-const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3', 'rebase', 'verdict', 'recheck'].includes(mode) ? null : process.exit(2));
+const task = cfg.tasks.find((t) => t.id === taskId) ?? (['checks', 'summary', 'summary2', 'scale', 'summary3', 'rebase', 'verdict', 'recheck', 'gatecheck'].includes(mode) ? null : process.exit(2));
 
 const env = (extra = {}) => {
   const e = { ...process.env, MSYS_NO_PATHCONV: '1', DISABLE_AUTOUPDATER: '1', ...extra };
@@ -771,6 +771,87 @@ if (mode === 'checks') {
   };
   out.verdict.pass = out.verdict.fix === true && out.verdict.noLoss && out.verdict.r6Listed === true && !Object.keys(out.verdict.textMissing).length;
   fs.writeFileSync(path.join(HERE, 'results', 'd22-recheck.json'), `${JSON.stringify(out, null, 1)}\n`);
+  console.log(JSON.stringify(out.verdict, null, 1));
+} else if (mode === 'gatecheck') {
+  // D22 option (A), the gate at the write (DECISIONS.md): this config's cells (the plugin copy, its own outDir) against
+  // cfg.ref. A write the gate denied changed nothing, so the first code write is the first that went through.
+  const ref = (a, id) => { const f = path.join(path.dirname(cfgPath), cfg.ref, a, `${id}.json`); return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).runs.filter((r) => r.valid) : []; };
+  const LISTED = { 'P1-build': ['R2'], 'P2-build': ['R4'] }; // 05's expected misses: reported, not in the no-loss set
+  const GATED = '[project map] This is your first write in ';
+  const fails = (rs, id) => rs.filter((r) => !r.rules[id].final).length;
+  const streamOf = (a, id, n) => parse(fs.readFileSync(path.join(dirOf(a), id, `run${n}`, 'stream.jsonl'), 'utf8'));
+  const resultText = (c) => (typeof c.content === 'string' ? c.content : (c.content ?? []).map((x) => x.text ?? '').join('\n'));
+  // the main session's tool calls in order, each with its result text
+  const mainCalls = (ev) => {
+    const res = new Map();
+    for (const e of ev) for (const c of e.type === 'user' && Array.isArray(e.message?.content) ? e.message.content : []) if (c.type === 'tool_result') res.set(c.tool_use_id, resultText(c));
+    let epoch = 0; const out = [];
+    for (const e of ev) {
+      if (e.type === 'system' && e.subtype === 'compact_boundary') epoch++;
+      if (e.type !== 'assistant' || e.parent_tool_use_id || !Array.isArray(e.message?.content)) continue;
+      for (const c of e.message.content) if (c.type === 'tool_use') out.push({ c, epoch, result: res.get(c.id) ?? '' });
+    }
+    return out;
+  };
+  const code = (c) => ['Edit', 'Write', 'MultiEdit'].includes(c.name) && !/[\\/]\.project-map[\\/]/.test(String(c.input?.file_path ?? ''))
+    && !/\.(md|mdx|markdown|txt|rst)$/i.test(String(c.input?.file_path ?? ''));
+  const gated = (x) => x.result.startsWith(GATED) || x.result.includes(GATED);
+  const gateFacts = (ev) => {
+    const calls = mainCalls(ev);
+    const denies = calls.filter((x) => code(x.c) && gated(x));
+    const dirs = denies.map((x) => x.result.slice(x.result.indexOf(GATED) + GATED.length).split('/ ')[0]);
+    const epochs = [...new Set(calls.filter((x) => code(x.c)).map((x) => x.epoch))];
+    return { calls, denies: denies.length, capped: [...new Set(dirs.filter((d, i) => dirs.indexOf(d) !== i))].length,
+      gateMissing: epochs.some((ep) => !denies.some((x) => x.epoch === ep)) };
+  };
+  // the main session Read src before its first code write (that went through) in the rule's domain
+  const readBefore = (calls, src, dom) => {
+    for (const x of calls) {
+      if (x.c.name === 'Read' && slash(x.c.input?.file_path).endsWith(src)) return true;
+      if (code(x.c) && !gated(x) && dom.test(slash(x.c.input?.file_path))) return false;
+    }
+    return false;
+  };
+  const out = { date: new Date().toISOString().slice(0, 10), model: cfg.model, cells: {} };
+  for (const t of cfg.tasks) {
+    const std = ref(`sb${t.m1Arm}`, t.id);
+    const inScope = t.rules.filter((r) => std.length && std.filter((x) => x.rules[r.id].final).length >= 8).map((r) => r.id);
+    for (const a of [`sb${t.m1Arm}`, ...Object.keys(SHAPES)]) {
+      const rs = load(a, t.id);
+      if (!rs.length) continue;
+      const base = a === `sb${t.m1Arm}` ? std : ref(a, t.id);
+      const held = a === `sb${t.m1Arm}` ? inScope : inScope.filter((id) => base.length && fails(base, id) <= 1);
+      const facts = a.startsWith('sb') ? rs.map((r) => gateFacts(streamOf(a, t.id, r.run))) : [];
+      const cell = { runs: rs.length, epochs: [...new Set(rs.map((r) => `${r.epoch?.cli} ${r.epoch?.plugin ?? '-'}`))],
+        fails: Object.fromEntries(t.rules.map((r) => [r.id, fails(rs, r.id)])),
+        refFails: base.length ? Object.fromEntries(t.rules.map((r) => [r.id, fails(base, r.id)])) : null,
+        lost: held.filter((id) => !(LISTED[t.id] ?? []).includes(id) && fails(rs, id) >= 2),
+        denies: facts.map((f) => f.denies), capped: facts.map((f) => f.capped),
+        gateMissing: rs.filter((r, k) => facts[k]?.gateMissing).map((r) => r.run),
+        costMedian: median(rs.map((r) => r.usage.costUsd)), refCostMedian: base.length ? median(base.map((r) => r.usage.costUsd)) : null };
+      if (t.id === 'P2-build' && a === 'sbv') {
+        const r5 = t.rules.find((r) => r.id === 'R5');
+        const dom = new RegExp(r5.check.path, r5.check.flags ?? '');
+        const readAfterDeny = (calls) => { const k = calls.findIndex((x) => code(x.c) && gated(x)); return k >= 0 && calls.slice(k).some((x) => x.c.name === 'Read' && slash(x.c.input?.file_path).endsWith(r5.source)); };
+        cell.fix = { id: 'R5', fails: cell.fails.R5, readBeforeDomainWrite: facts.filter((f) => readBefore(f.calls, r5.source, dom)).length,
+          readAfterDeny: facts.filter((f) => readAfterDeny(f.calls)).length };
+      }
+      out.cells[`${t.id} ${a}`] = cell;
+    }
+  }
+  const p2 = (a) => out.cells[`P2-build ${a}`];
+  const fix = p2('sbv')?.fix;
+  const ceiling = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'V2-D19-scale', 'results', 'rebase-opus.json'), 'utf8')).tasks['P2-build'].measures.costUsd.ceiling;
+  out.verdict = {
+    fix: fix ? fix.fails <= 1 && fix.readBeforeDomainWrite >= 4 : null,
+    noLoss: Object.values(out.cells).every((c) => !c.lost.length),
+    gateMissing: Object.fromEntries(Object.entries(out.cells).filter(([, c]) => c.gateMissing.length).map(([k, c]) => [k, c.gateMissing])),
+    // R6: held by the gate in two compactions, or listed because native misses it there too
+    r6: p2('sbc2') ? (p2('sbc2').fails.R6 <= 1 ? 'held' : p2('nc2') ? (p2('nc2').fails.R6 >= 2 ? 'listed' : 'lost') : 'nc2 needed') : null,
+    p2StandardCost: p2('sbn') ? { median: p2('sbn').costMedian, ceiling, above: p2('sbn').costMedian > ceiling } : null,
+  };
+  out.verdict.pass = out.verdict.fix === true && out.verdict.noLoss && ['held', 'listed'].includes(out.verdict.r6) && !Object.keys(out.verdict.gateMissing).length;
+  fs.writeFileSync(path.join(HERE, 'results', 'd22-gatecheck.json'), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify(out.verdict, null, 1));
 } else if (mode === 'revalidate') {
   // Stage 3: re-apply the session checks to a task and arm's saved logs after a correction to them (recorded in

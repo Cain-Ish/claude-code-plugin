@@ -18,7 +18,8 @@ const MODEL = process.env.D17_MODEL ?? 'claude-sonnet-5-5';
 const TAG = process.env.D17_TAG ?? '';
 // a pinned binary holds the epoch: the installed `claude` updates itself between runs
 const CLAUDE = process.env.D17_CLAUDE ?? 'claude';
-const PLUGIN = path.join(HERE, '..', '..', '..', '..', 'plugin');
+// D17_PLUGIN runs an attempt from a plugin copy (D22 option (A)): plugin/ changes only after an attempt passes
+const PLUGIN = process.env.D17_PLUGIN ? path.resolve(process.env.D17_PLUGIN) : path.join(HERE, '..', '..', '..', '..', 'plugin');
 const CODE = /\.(tsx?|jsx?|css|scss)$/;
 
 function walk(dir, skip = [], base = dir, out = {}) {
@@ -119,7 +120,9 @@ function streamFacts(ev, repo, mem, name) {
   const ok = (u) => !results.get(u.id)?.is_error;
   const inRepo = (u) => relTo(repo, u.input?.file_path);
   const inMem = (u) => (mem ? relTo(mem, u.input?.file_path) : null);
-  const isWrite = (u) => u.name === 'Write' && inRepo(u);
+  // D22 option (A): a write the gate denied changed nothing, so it is not the first write
+  const gated = (u) => textOf(results.get(u.id)).includes('[project map] This is your first write in ');
+  const isWrite = (u) => u.name === 'Write' && inRepo(u) && !gated(u);
   // "Before writing" is the first Write of <name>.tsx (any folder), else of any file whose path holds <name>.
   let anchor = uses.findIndex((u) => isWrite(u) && new RegExp(`(^|/)${name}\\.[jt]sx?$`).test(inRepo(u)));
   if (anchor < 0) anchor = uses.findIndex((u) => isWrite(u) && inRepo(u).includes(name));
