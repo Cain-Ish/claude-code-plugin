@@ -19,7 +19,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100) | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
@@ -1339,6 +1339,40 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
     A2 is not re-run: the equivalence check shows its hook outputs unchanged, and its runs cost 325 USD-equivalent.
     That is offered to the user, not assumed.
+- **Attempt (a) result (2026-10-26): pass.** Run from a plugin copy
+  ([equivalence.mjs](probes/V2-D16-freshness/equivalence.mjs),
+  [results/equivalence.json](probes/V2-D16-freshness/results/equivalence.json), `results/load-*.json`).
+  - *Equivalence:* 0 differences in 123 comparisons on P1, P2 and R0:
+    - 9 index cases;
+    - the benchmap maps and their seeds;
+    - 20,400 random quotes. Over all files, 10,824 entries were found and 10,254 not found.
+  - *Two cases added after a first run (disclosed).* That run also showed 0 differences for a deliberately broken
+    copy, one that counts every position as a word start: the random quotes never reached the word boundary. The
+    added cases:
+    - a quote whose first word is the tail of a longer word;
+    - a document of edge characters: astral letters, emoji, combining marks, a dotted capital I, final sigma, a
+      ligature, digits and underscores.
+
+    With them, that broken copy shows 6 differences, and a second one (astral letters ignored) shows 3. The real copy
+    shows 0. The pass condition did not change.
+  - *Load* (P2, the load shape, 3 runs, added p95 at 8 concurrent, 0 errors):
+    - the map read: 82.9, 84.5 and 86.3 ms, against 147.8, 133.0 and 147.6 before;
+    - session start: 82.1, 59.8 and 68.1 ms, against 112.2, 111.2 and 108.3 before.
+
+    Every hook stays under 100 ms in every run.
+- **Re-LOCKED 2026-10-26 on (a).**
+  - The read hook's labels are unchanged. A stretch is found from its first word at a word start in the lowercased
+    file, so no file is tokenized whole.
+  - The index's untracked map files come from the folder, not from a second git call.
+  - The change moved into `plugin/` after the pass. `probes/V2-D16-freshness/map-497ba915.mjs` keeps the old library,
+    so the equivalence check still runs.
+  - *Rejected:*
+    - (b): it changes the labels, and it was not needed;
+    - (c): it adds state and a risk of staleness, and it was not needed;
+    - (d): a goalpost move.
+  - *Reopen if:* the triggers above; or any input on which the old and the new match disagree.
+
+  Attempts at this reopen: 0 failed.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
@@ -1695,6 +1729,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - 04 names the fallback: a cache, or fewer spawns.
   - *The read hook's excess* is D16's trigger (D16, reopened 2026-10-26). Measured by the bytes its entries cite, it
     is arguably also this record's "bigger map". It stays under D16 unless D16's fix needs this record.
+  - *Closed the same day, within this lock.* With D16's re-lock, session start makes one git call instead of two.
+    Its index is byte-identical in D16's 9 index cases and in the self-test. On P2 it measures 82.1, 59.8 and 68.1 ms,
+    with the map read at 82.9 to 86.3 ms. No hook, spawn or cache was added.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

@@ -42,15 +42,22 @@ const DOC = /\.(md|mdx|markdown|txt|rst)$/i;
 const git = (root, args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 export const rel = (root, p) => path.relative(root, String(p ?? '')).replace(/\\/g, '/');
 
+// the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it
+const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
+  .flatMap((e) => (e.isDirectory() ? under(root, `${d}/${e.name}`) : [`${d}/${e.name}`]));
+
 // D22's index: the tracked documents, plus the map files not yet committed (D15), by directory. Empty with no
 // documents, null outside git. Untracked files are listed for the map folder only: elsewhere they can be a whole
-// unignored build tree.
+// unignored build tree. They are read from the folder, not from a second git call (D18's budget), so a map file
+// .gitignore excludes is listed too.
 export function index(root) {
   const tracked = git(root, ['ls-files', '-z', '--cached']);
   if (tracked.status !== 0) return null;
-  const fresh = git(root, ['ls-files', '-z', '--others', '--exclude-standard', '--', MAP]).stdout ?? '';
+  const known = new Set(tracked.stdout.split('\0'));
+  let fresh = [];
+  try { fresh = under(root, MAP).filter((p) => !known.has(p)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch {}
   const byDir = new Map();
-  for (const p of `${tracked.stdout}\0${fresh}`.split('\0')) {
+  for (const p of [...tracked.stdout.split('\0'), ...fresh]) {
     if (!DOC.test(p)) continue;
     const i = p.lastIndexOf('/');
     const d = i < 0 ? '.' : p.slice(0, i);
@@ -71,12 +78,26 @@ export function takeForce(id) {
 // A map file's entries: each '### ' block that quotes something, up to the next heading, as its text.
 const entries = (text) => text.replace(/\r/g, '').split(/^(?=#{1,3} )/m).filter((b) => b.startsWith('### ') && /^>/m.test(b)).map((b) => b.trim());
 
-// D16's re-find (attempt 2's match): every stretch of three or more words between ellipses is in the file's words
-const words = (s) => String(s).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-const foundIn = (quote, text) => {
-  const norm = ` ${words(text).join(' ')} `;
-  return quote.split(/…|\.\.\./).map(words).filter((w) => w.length >= 3).every((w) => norm.includes(` ${w.join(' ')} `));
+// D16's re-find (attempt 2's match): every stretch of three or more words between ellipses is in the file's words.
+// Found where the stretch's first word starts a word of the lowercased file and the words read on from there match
+// it, so the whole file is never split into words (D16, reopened 2026-10-26: the read hook's budget).
+const WORD = /[\p{L}\p{N}]+/gu;
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+const words = (s) => String(s).toLowerCase().match(WORD) ?? [];
+const startsWord = (low, i) => {
+  if (i === 0) return true;
+  const lo = low.charCodeAt(i - 1), hi = low.charCodeAt(i - 2);
+  return !WORD_CHAR.test(lo >= 0xdc00 && lo < 0xe000 && hi >= 0xd800 && hi < 0xdc00 ? low.slice(i - 2, i) : low[i - 1]);
 };
+const holds = (w, low) => {
+  for (let i = low.indexOf(w[0]); i >= 0; i = low.indexOf(w[0], i + 1)) {
+    if (!startsWord(low, i)) continue;
+    WORD.lastIndex = i;
+    if (w.every((t) => WORD.exec(low)?.[0] === t)) return true;
+  }
+  return false;
+};
+const foundIn = (quote, low) => quote.split(/…|\.\.\./).map(words).filter((w) => w.length >= 3).every((w) => holds(w, low));
 // the first path an entry's source names (it has a '/' or a document extension, so "Node.js" is not one); the source
 // is text Claude wrote, so only relative paths inside the repo count
 const sourcePath = (src) => (src.match(/[\w.-]+(?:\/[\w.-]+)*\.\w+/g) ?? []).map((p) => p.replace(/^\.\//, ''))
@@ -92,7 +113,7 @@ export function labels(root, file) {
   const head = git(root, ['show', `HEAD:./${file}`]);
   const held = new Set(head.status === 0 ? entries(head.stdout) : []);
   const docs = new Map();
-  const doc = (p) => { if (!docs.has(p)) docs.set(p, fs.readFileSync(path.join(root, p), 'utf8')); return docs.get(p); };
+  const doc = (p) => { if (!docs.has(p)) docs.set(p, fs.readFileSync(path.join(root, p), 'utf8').toLowerCase()); return docs.get(p); };
   const out = entries(text).flatMap((b, i) => {
     const src = /^- source:(.*)$/m.exec(b)?.[1] ?? '';
     const date = /(\d{4}-\d{2}-\d{2})\s*$/.exec(src)?.[1];

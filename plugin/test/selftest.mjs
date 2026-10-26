@@ -58,6 +58,12 @@ put('.project-map/new.md', entry('x', 'y', '2026-10-25'));
 
 // directories in git's path order, as D22's inventory.mjs gave them
 assert.equal(index(repo), `${HEADER}\n.project-map/: captured.md, new.md\n./: README.md\ndocs/: Guide.RST, style.md\n`);
+// the untracked map files come from the folder (D16's re-lock of 2026-10-26), so one that .gitignore excludes is listed
+put('.gitignore', '.project-map/private.md\n');
+put('.project-map/private.md', entry('y', 'z', '2026-10-26'));
+assert.equal(index(repo), `${HEADER}\n.project-map/: captured.md, new.md, private.md\n./: README.md\ndocs/: Guide.RST, style.md\n`);
+fs.rmSync(path.join(repo, '.gitignore'));
+fs.rmSync(path.join(repo, '.project-map', 'private.md'));
 assert.equal(labels(repo, '.project-map/captured.md'), '[project map] Labels on the entries of .project-map/captured.md, in file order:\n'
   + '1. components: unverified quote, captured 2026-10-20\n'
   + `2. avatars: ${UNREVIEWED}; unverified quote, captured 2026-10-24\n`);

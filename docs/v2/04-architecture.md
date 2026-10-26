@@ -16,7 +16,7 @@ index lists too (V2-D14, D13). Everything a person needs is readable and correct
 | --- | --- | --- | --- |
 | the repo's documents (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`) | the project's own rules and knowledge | the project's people | D15, D22 |
 | `.project-map/*.md` | entries captured from work: the statement, its source (a document anchor or the session's date), its area, when it applies, `verified` | Claude, under the capture instruction; committed with the work | D11, D13, D14, D16 |
-| no cache (build step 2a) | the index is built at each session start from git's file list plus the untracked files under `.project-map/`, so an entry captured and not yet committed is listed: 87 ms added p95 at 8 concurrent on P2 (190 documents, 6.1 KB), under D18's 100 ms | the plugin | D15, D18 |
+| no cache (build step 2a) | the index is built at each session start from git's file list plus the untracked files under `.project-map/`, so an entry captured and not yet committed is listed. One git call (since D16's re-lock of 2026-10-26): 60 to 82 ms added p95 at 8 concurrent on P2 (190 documents, 6.1 KB) in three runs, under D18's 100 ms. With two calls it measured 87 ms in 2a and 106 to 112 ms on 2026-10-26 | the plugin | D15, D18 |
 
 ## Hooks
 
@@ -27,7 +27,7 @@ runs in shell form once and says when Node is missing.
 | --- | --- | --- | --- | --- |
 | `SessionStart`: `startup`, `clear`, `resume` and `compact` (all four probed: D12, build step 0) | the capture instruction; the document index (Vercel's retrieval-led line, then the documents by directory) | 904 B + 2 to 6 KB measured | the main session; re-emitted after `/compact` | Capture; Consistency |
 | `UserPromptSubmit`, the session's first prompt and the first after each compaction (state keyed by the session id) | the forced decision: per index directory yes or no, then read the yes ones before changing anything | 227 B | the main session | Consistency |
-| `PostToolUse` after a Read of a `.project-map/` file | labels the file's uncommitted entries "unreviewed, not yet committed" (D14). An entry whose source names a repo file is re-found in it now: found, no label; not found, "not found word for word in <path>; check it, captured <date>". Any other entry: "unverified quote, captured <date>" (D16, re-locked 2026-10-25) | per read; 66 ms p95 at 8 concurrent with 30 re-finds on P2 | the main session (D22 run 2: 3 of 3). Subagent reads, Grep and Bash are unlabelled until probed | Freshness; trust (PM5) |
+| `PostToolUse` after a Read of a `.project-map/` file | labels the file's uncommitted entries "unreviewed, not yet committed" (D14). An entry whose source names a repo file is re-found in it now: found, no label; not found, "not found word for word in <path>; check it, captured <date>". Any other entry: "unverified quote, captured <date>" (D16, re-locked 2026-10-25) | per read; 83 to 86 ms p95 at 8 concurrent with 30 re-finds of P2's 30 largest documents (1.26 MB; D16, re-locked 2026-10-26). The cost grows with the bytes the sources hold | the main session (D22 run 2: 3 of 3). Subagent reads, Grep and Bash are unlabelled until probed | Freshness; trust (PM5) |
 | `PostToolUse` after a Write or Edit, and `Stop` | **Not built: D20's net is DEFERRED.** The fed-back check works when it is right, but no tested source writes such checks | | | |
 
 Not used: `PreToolUse` (D18), `SubagentStart` (deferred: subagents do not see the index), MCP, agents.
@@ -65,8 +65,9 @@ Node and git are present. A repo with no documents gets an empty index and an em
   is D14's accepted risk, watched by its noise trigger.
 - **Stale documents.** Claude reads the project's documents as they are. A stale document that contradicts a binding
   rule is not flagged: the volume check found 10 such entries in P2. D16 labels captured entries only.
-- **The index build at session start** (from git's file list, no cache) adds 87 ms p95 at 8 concurrent on P2, close
-  to D18's 100 ms. A repo with a much larger file list may pass it; a cache is the fallback (build step 2a).
+- **The index build at session start** (from git's file list, no cache) adds 60 to 82 ms p95 at 8 concurrent on P2
+  in three runs, with one git call since 2026-10-26. With two calls it measured 87 to 112 ms. A repo with a much
+  larger file list may pass D18's 100 ms; a cache is the fallback (build step 2a).
 - **Friction.** A forced decision at the session's first prompt and after each compaction. A new task in the same
   session gets none until the next compaction (2e's task switch, above).
 - **Pattern rules on Opus.** P1 R2 was missed under every pull arm and under a self-review; only a hand-written check
