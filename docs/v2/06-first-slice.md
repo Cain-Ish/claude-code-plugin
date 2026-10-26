@@ -574,6 +574,20 @@ that it works as intended.
         file, and none names a repo file. The map file is still uncommitted.
       - No hook errors. The repo's own post-edit reminder hooks fired about 10 times on read-only commands; that is the
         repo's noise, not the plugin's.
+  - *A new epoch, reported the evening of 2026-10-26* (the message does not say what opened it):
+    - *The forced decision fired once,* on an owner's prompt that asked for status, not a change.
+      - 2 directories were marked yes (the research notes and the map's own directory), and all others no.
+      - The session read the 2 research notes and the map file before answering: about one turn of reads, which shaped
+        the status reply.
+      - A question is outside the claim (D22's re-lock of 2026-10-25), so this counts as friction, not a claim cell.
+    - *Capture:* 2 new entries, 6 in all.
+      - Both record the owner's pick among options the session itself offered in a question. So each quote is the
+        chosen option's text, written by Claude and chosen by the owner, and the source line says so.
+      - D14 did not probe this kind of provenance. The entry is attributed to the owner, but the words are Claude's.
+        It is neither noise nor a missed capture, so D14's trigger does not fire.
+      - As a spoken decision, it stays unverified with its date (D16).
+    - *Labels:* the read hook's labels ("unreviewed, not yet committed", and the unverified quote) showed correctly on
+      all 4 older entries.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
