@@ -484,6 +484,28 @@ that it works as intended.
   7. At the end of a change, Claude names the decisions it followed and their sources.
   8. To remove: `claude plugin uninstall second-brain@second-brain-v2 --scope project`, then
      `claude plugin marketplace remove second-brain-v2`.
+- **The user's own check, interim (2026-10-26).** These are counts only, sent by the session that runs the checklist
+  in one of the user's repos.
+  - *Install:* local scope. The installed copy hashes to `497ba915e987`, with an empty diff against the checkout, on
+    CLI 2.1.310.
+  - *Resume* (`claude --continue`): the forced decision arrived once, on the first prompt after the resume, even
+    though that prompt was a bare request to continue. There was no duplicate. This is D12's `resume` cell, in real
+    use.
+  - *Index:* 10 directories and 78 documents, before any `/second-brain:onboard`.
+    - 7 of the 10 directories were marked yes: 72 documents, about 1.55 MB.
+    - Claude read 11 of them, in full or in part (about 230 KB), and deferred the rest until the work reaches them.
+      Two of the yes directories hold 34 and 30 documents.
+    - This is the mechanism 2d and 2e found, now in real use: the decision is per directory, so large directories are
+      marked yes whole, and the read that follows is partial.
+    - The index is under P2's 45 directories, so D22's size trigger does not fire.
+  - *Before the first write in the repo:* about 85 tool calls, with 11 documents and about 10 code files read. The
+    first write was a report. A document read because its directory was marked yes framed the work.
+  - *Capture:* 0 entries. Nothing stated in the session was a project rule, so no map file exists and no labels were
+    seen.
+  - *Hooks:* no errors and no visible slow start. The repo's own path-scoped rule files also arrived unasked, when
+    matching code was read (native).
+  - *Not yet seen:* D23's naming line (item 7), and `/compact` (item 6). Item 6 is reported as untested if the
+    session never compacts.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
