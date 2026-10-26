@@ -21,9 +21,16 @@ assert.equal(UNREVIEWED, 'unreviewed, not yet committed');
 // V2-D23's line, as the ledger froze it
 assert.equal(NAME, "When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.");
 
-// the surfaces: 3 hook events, 1 command, no agents, skills or MCP servers
+assert.equal(Buffer.byteLength(NAME), 212);
+
+// PM8: product lines within 06's budget (the hooks, the library, the command, the manifest)
+const lines = (d) => fs.readdirSync(path.join(PLUGIN, d)).reduce((n, f) => n + fs.readFileSync(path.join(PLUGIN, d, f), 'utf8').split('\n').length, 0);
+assert.ok(['scripts', 'hooks', 'commands', '.claude-plugin'].reduce((n, d) => n + lines(d), 0) <= 600, 'product lines');
+
+// the surfaces: 3 hook events, 1 command, no agents, skills or MCP servers; PM6: each names the outcome it serves (06)
+const OUTCOME = { SessionStart: 'Capture; Consistency', UserPromptSubmit: 'Consistency', PostToolUse: 'Freshness; trust', 'onboard.md': 'Onboarding' };
 const { hooks } = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8'));
-assert.deepEqual(Object.keys(hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse']);
+assert.deepEqual([...Object.keys(hooks), ...fs.readdirSync(path.join(PLUGIN, 'commands'))], Object.keys(OUTCOME));
 assert.equal(hooks.SessionStart[0].matcher, 'startup|clear|resume|compact');
 assert.ok(hooks.SessionStart[0].hooks[0].command.includes('The project map needs Node 20 or later; install it, or disable the plugin.'));
 assert.equal(hooks.PostToolUse[0].matcher, 'Read');
@@ -71,8 +78,11 @@ assert.equal(labels(repo, '.project-map/cited.md'), '[project map] Labels on the
   + `2. condensed: ${UNREVIEWED}; not found word for word in docs/style.md; check it, captured 2026-10-22\n`
   + `3. gone: ${UNREVIEWED}; not found word for word in docs/avatars.md; check it, captured 2026-10-22\n`
   + `4. outside: ${UNREVIEWED}; unverified quote, captured 2026-10-22\n`);
+put('.project-map/bare.md', '### pages\n> Each page has one h1.\n');
 git('add', '-A');
 git('commit', '-q', '-m', 'cited');
+// PM5: a committed entry with no source line is still labelled
+assert.equal(labels(repo, '.project-map/bare.md'), '[project map] Labels on the entries of .project-map/bare.md, in file order:\n1. pages: unverified quote\n');
 assert.equal(labels(repo, '.project-map/cited.md'), '[project map] Labels on the entries of .project-map/cited.md, in file order:\n'
   + '2. condensed: not found word for word in docs/style.md; check it, captured 2026-10-22\n'
   + '3. gone: not found word for word in docs/avatars.md; check it, captured 2026-10-22\n'
@@ -94,6 +104,18 @@ hook('session-start', { session_id: sid, source: 'compact' });
 assert.equal(hook('prompt', { session_id: sid }), FORCE);
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, 'docs', 'style.md') } }), '');
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }), labels(repo, '.project-map/captured.md'));
+
+// SessionStart's command through bash, as hooks.json gives it: the full output with Node, the one line without it
+const noNode = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^path$/i.test(k))),
+  PATH: process.env.PATH.split(path.delimiter).filter((d) => !['node', 'node.exe'].some((n) => fs.existsSync(path.join(d, n)))).join(path.delimiter) };
+const shell = (env) => {
+  const r = spawnSync('bash', ['-c', hooks.SessionStart[0].hooks[0].command], { input: JSON.stringify({ cwd: repo, session_id: `${sid}-sh` }), encoding: 'utf8', env: { ...env, CLAUDE_PLUGIN_ROOT: PLUGIN, CLAUDE_PROJECT_DIR: repo } });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+};
+assert.equal(shell(process.env).hookSpecificOutput.additionalContext, `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
+assert.equal(hook('prompt', { session_id: `${sid}-sh` }), FORCE);
+assert.deepEqual(shell(noNode), { systemMessage: 'The project map needs Node 20 or later; install it, or disable the plugin.' });
 
 // outside git: no index, no forced decision, every entry unreviewed
 const loose = path.join(tmp, 'loose');

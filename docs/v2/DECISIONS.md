@@ -19,7 +19,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
 | V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change) | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22 | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
@@ -1278,6 +1278,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     D14's question (its instruction says "in the words used"), watched by D14's "kept noise" trigger.
 
   Attempts: 1 failed, 2 passed, 3 passed.
+- **REOPENED 2026-10-26: its trigger fired** ("the read hook's added p95 exceeds D18's budget"). It was found while
+  preparing the release (06, 2g).
+  - *The observation.* A map file in this record's load shape, on P2's worktree at its pinned commit:
+    - 30 entries, each quoting word for word a run of 8 words from a different document;
+    - here the documents are the repo's 30 largest, 1,259,723 B together
+      ([benchmap.mjs](../../plugin/test/benchmap.mjs));
+    - the read hook added 147.8, 133.0 and 147.6 ms p95 at 8 concurrent in three runs, and 82.9 to 89.2 ms at 1,
+      with 0 errors (`bench.mjs`, 200 calls each).
+  - *Against the lock.* Its load run (66.2 ms) also quoted 30 different documents. Which ones was not saved, so their
+    bytes are unknown. The cost grows with those bytes: every read tokenizes each cited document in full.
+  - *In process* (one call, on P2), `labels()` takes about 55 ms:
+    - the tokenizer, about 31 ms;
+    - `git show` of the map file, about 15 ms;
+    - reading the documents, about 3 ms.
+
+    Splitting or replacing instead of matching gives the same text, but takes 44 to 47 ms against 33.
+  - The release waits for this decision (06, 2g).
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
@@ -1626,6 +1643,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     incremental rebuild.
 
   Attempts: 1 failed, 2 failed, 3 passed.
+- **Observation, 2026-10-26 (06, 2g; not one of the listed triggers).**
+  - *Session start:* the same machine, repo, Node and code as 2a. Five runs gave 105.6, 106.0, 112.2, 111.2 and
+    108.3 ms of added p95 at 8 concurrent, against 2a's 87.3.
+    - 2a's number does not reproduce. Session start sits just over the bar.
+    - Each of its two git calls takes about 18 ms in process, 13 ms of which is the spawn.
+    - 04 names the fallback: a cache, or fewer spawns.
+  - *The read hook's excess* is D16's trigger (D16, reopened 2026-10-26). Measured by the bytes its entries cite, it
+    is arguably also this record's "bigger map". It stays under D16 unless D16's fix needs this record.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

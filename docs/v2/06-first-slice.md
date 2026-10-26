@@ -766,3 +766,31 @@ which ran on the user's CLI.
   - the README states only what the runs show.
 
   Each failure is a 2g attempt.
+
+### 2g, attempt 1 (2026-10-26): failed on the calibration; D16's trigger fired
+
+- **Self-test:** the additions pass. They cover PM5 (an entry with no source line is labelled), PM6 (each surface
+  names its outcome), PM8 (product lines, 183 of 600; the fixed bytes), and the shell form with Node and without it.
+  `bench.mjs` now exits non-zero over D18's bar.
+- **The fixture** (the synthetic P2 shape) was built as registered:
+  - 8,057 tracked files in 768 directories;
+  - an index of 46 directories and 6,837 B, with the map file.
+
+  Added p95 at 8 concurrent on this machine, two runs: session start 101.9 and 87.6 ms, a map read 88.8 and 80.0 ms.
+- **Calibration against real P2**, on the same bench the same day (added p95 at 8 concurrent):
+  - *session start:* 105.6 to 112.2 ms over five runs;
+  - *a map read*, with a first map in which 20 of the 30 quotes were not found: 129.9 and 136.5 ms;
+  - *a map read in D16's load shape* (every quote found, `benchmap.mjs`): 147.8, 133.0 and 147.6 ms.
+
+  Both hooks are over D18's 100 ms bar. 2a measured session start at 87.3 ms on the same machine, repo, Node and
+  code.
+- **The fixture is lighter than P2.**
+  - Its generated text tokenizes in 8.5 ms in process, against 30.6 ms for P2's documents of the same total size.
+  - A CI lane that is green on it would not be evidence for PM3. So the workflow is not pushed, and the fixture is not
+    committed.
+- **What fires:**
+  - D16's trigger (the read hook over D18's budget): D16 is reopened.
+  - Session start is an observation under D18 (not one of its listed conditions), with 04's fallback: a cache, or
+    fewer spawns.
+- **2g's first pass condition** ("the product stays as measured") cannot survive any fix, since every fix changes the
+  hash. 2g is registered again after D16's re-decision, and with it what a new hash must re-run (PM1).

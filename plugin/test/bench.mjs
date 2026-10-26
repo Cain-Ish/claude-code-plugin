@@ -53,3 +53,5 @@ for (const c of [1, 8]) {
 }
 for (const f of fs.readdirSync(os.tmpdir())) if (/^project-map-bench-\d+\.pending$/.test(f)) fs.rmSync(path.join(os.tmpdir(), f), { force: true });
 console.log(JSON.stringify(result, null, 1));
+// D18's bar, as the Windows lane checks it (PM3): no failed call, and added p95 at most 100 ms at 8 concurrent
+process.exitCode = Object.entries(result).some(([k, v]) => v.errors || (k.endsWith('@8') && v.addedP95 > 100)) ? 1 : 0;
