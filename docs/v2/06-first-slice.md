@@ -879,3 +879,26 @@ which ran on the user's CLI.
   - Not fixed in 2g: a fix changes `hooks.json`, which opens a new epoch.
   - The README says what happens, and Fog has the question. D18's trigger "Claude Code adds a way to silence a missing
     executable" watches it.
+
+### 2g, attempt 2: A1 re-run on `61964f9bbb40` (2026-10-27): pass
+
+- **Runs:** 10 of 10 valid, in one epoch: CLI 2.1.305, Opus 5.5, inputs `108861b749cb`, plugin `61964f9bbb40`. 13.15 USD
+  in all. Results in `V2-D17-eval/results/V2-opus-d16.json`, and `summary-opus-d16.json` (scored against the Opus
+  baselines M0 and M1).
+- **Every pass item meets its bar,** for the second person and for the same person:
+  - C1 to C4: 10 each;
+  - T1 to T4, final and at the first write: 10 each;
+  - T5f: 10;
+  - N1 to N3: 10 each;
+  - over-attribution: 0 runs.
+
+  The frozen T5 stays at 0, as in attempt 2.
+- **Orientation and cost: no gain, as in 2c attempt 2,** and each sits under M1's no-worse ceiling. Medians, second
+  person and then same person, with 2c attempt 2's in brackets:
+  - tool calls before the first write: 11.5 and 11.5 (12 and 11.5);
+  - files read before it: 10.5 and 10.5 (11 and 10.5);
+  - T tokens: 132,814 and 137,650 (133,724 and 138,378);
+  - T output tokens: 4,377 and 4,568 (4,326 and 4,392);
+  - T cost: 0.206 and 0.223 USD (0.203 and 0.222).
+- **What it shows:** D16's re-lock left A1's result unchanged. The release cites this run for the plugin's own hash
+  (PM1).
