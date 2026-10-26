@@ -279,7 +279,8 @@ its gap targets stay. The numbers re-run in the new epoch.
   - in a session that switches to the other task of the same repo after the first.
 
   Each is scored by D20's existing checks. An automatic compaction inside a turn is added once it can be forced in
-  headless mode (a low compaction threshold), which is checked first.
+  headless mode (a low compaction threshold), which is checked first. Since D22's re-lock of 2026-10-26, the vague
+  first prompt and the task switch are measured but outside v2's claim (04's named weakness).
 - **D22's six investigation tasks join A2** (D19's trigger). They are scored by assertions on the answer, not reach
   against a judge.
   - The assertions are written from the repos' own documents, before the Opus re-baseline, blind to every arm's
@@ -302,7 +303,8 @@ its gap targets stay. The numbers re-run in the new epoch.
     if native, in the same shape, also misses it in 2 or more of 5 (D22's rethink-4 control). If native holds it, the
     miss is the route's, and D22 cannot re-lock on that attempt.
     - *Not listed (2026-10-26):* the attempt failed at stage 1, so the control never ran. R6 stays a miss of 2e's
-      two-compaction shape, under D22's BLOCKED record.
+      two-compaction shape. Under D22's re-lock of 2026-10-26, it is a following miss (its source was in context), so
+      it is D20's question.
   - *Expected risk:* cost in document-heavy repos, where the route spent about three times push's tokens. That is
     D22's first reopen trigger.
   - *Added 2026-10-25, before any v2 run, from the Opus thresholds* (`06-first-slice.md`, 2c): three cells the rule

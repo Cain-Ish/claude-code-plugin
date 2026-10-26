@@ -42,7 +42,7 @@ Not in the skeleton:
 | Added hook p95 at 8 concurrent sessions, Windows | at most 100 ms per hook; measured in 2a: 87 ms at session start (the index from git's file list, on P2), 49 ms or less for the others | D18 |
 | Processes per hook event | 1 Node process; hooks spawn only `git` | D18 |
 | Product lines (hooks, library, command; not tests or the harness) | at most 600 | D18's runtime prototype: 331 lines covering the guards, cache and labels |
-| Surfaces | 3 hook events, 1 command, 0 agents, 0 MCP servers, 0 skills | D18, PM6 |
+| Surfaces | 3 hook events, 1 command, 0 agents, 0 MCP servers, 0 skills. D22's option (A), a fourth event (a `PreToolUse` gate at the write), failed its check on 2026-10-26 and was not kept | D18, PM6 |
 
 ## Done means
 
@@ -51,7 +51,8 @@ Not in the skeleton:
   - no worse only on the cells whose spread is at least their median.
 
   The exceptions are the expected misses in its one list. A miss elsewhere is recorded against the trigger it fires
-  (for cost, D22's).
+  (for cost, D22's). The vague first prompt and the task switch are measured but outside the claim since D22's
+  re-lock of 2026-10-26; their misses are 04's named weakness, not cells of this list.
 - Every hook is measured on Windows under 8 concurrent sessions against its budget (PM3).
 - The map stays readable and correctable with the plugin off (PM4). The skeleton keeps no cache (2a), so the map's
   plain files are its only state in the repo.
