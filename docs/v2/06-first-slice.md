@@ -556,8 +556,11 @@ that it works as intended.
       its own entry", with its source. `labels()` reads only an entry's first source line, so a refinement merged under
       an older source line is labelled with the older capture date. An edited entry is still labelled unreviewed until
       committed (D18's key covers every field), so D14's trust policy holds. This is neither kept noise nor a missed
-      capture, so D14's trigger does not fire. Asked and not yet answered: whether the second quote has its own source
-      line.
+      capture, so D14's trigger does not fire.
+    - *The session's answers:* both quotes sit under the one source line, which names the owner and a date, and both
+      statements came that same day. So in this case no label is wrong. The map file is untracked and nothing has been
+      committed, so the entry is labelled unreviewed anyway. The question stays open for a refinement made on a later
+      day.
     - No hook errors, no slow start, and no experiment text this epoch.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
