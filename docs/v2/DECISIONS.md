@@ -3504,6 +3504,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
         and it gained on R5, so the trigger does not fire.
   - *What follows, as registered:* the selector reopens (the note: granularity, titles or a search), and the result
     goes to the user. `plugin/` is unchanged, and D18's surface and 06's budget stay at 3 hook events.
+- **User answer (2026-10-26): write the options up, have the second opinion attack them, then choose,** as at the
+  level above. The other choices shown were narrowing the claim, a search that picks the documents, and fixing the cap
+  to rerun stage 1. The note: [research/2026-10-26-d22-after-the-gate.md](research/2026-10-26-d22-after-the-gate.md).
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
