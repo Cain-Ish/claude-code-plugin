@@ -794,3 +794,37 @@ which ran on the user's CLI.
     fewer spawns.
 - **2g's first pass condition** ("the product stays as measured") cannot survive any fix, since every fix changes the
   hash. 2g is registered again after D16's re-decision, and with it what a new hash must re-run (PM1).
+
+### 2g, attempt 2: registered again for the new hash (2026-10-27, before its checks run)
+
+- **What ships:** plugin `61964f9bbb40` (D16's re-lock), version `2.0.0-alpha.0`. The release cites:
+  - *A1, re-run on `61964f9bbb40`* (D16's registered re-run, on the pinned epoch). *Pass:* every pass item at its bar,
+    as in 2c attempt 2: C1 to C4, T1 to T4, T5f at 8, N1 to N3, and over-attribution at most 1. Orientation and cost
+    are reported against the no-worse ceilings.
+  - *A2 (2d) and the added shapes (2e)*, which ran on `497ba915e987`. They carry over through D16's equivalence: the
+    hook outputs are byte-identical on P1, P2 and R0.
+  - *The 2f live check,* re-run on `61964f9bbb40` on the user's CLI.
+- **The PM3 and PM8 lane.** The fixture is attempt 1's, with two changes:
+  - its paths are longer, so its git index is at least P2's (1.16 MB against 1.02 MB);
+  - `benchmap.mjs` writes its map, in D16's load shape, instead of the fixture's own.
+
+  *Calibration comes first,* on this machine with no eval running:
+  - `bench.mjs` runs 3 times on the fixture and 3 times on P2 (a worktree at its commit, with `benchmap.mjs`'s map).
+  - *Pass:* for session start and for the map read, the fixture's median added p95 at 8 concurrent is at least P2's
+    median.
+  - A fixture lighter than P2 is made heavier and calibrated again before the lane runs. The bar never moves.
+
+  *Then* `.github/workflows/v2.yml` is pushed. *Pass:* the self-test is green on all three systems, and the load job
+  exits 0 (D18's bar on every hook, 0 errors).
+- **Unchanged from attempt 1:**
+  - the self-test's PM5, PM6 and PM8 checks, which already passed in attempt 1;
+  - PM4, and the PM7 count;
+  - the three live checks (install from GitHub, uninstall, Node missing). The install's hash check is now against
+    `61964f9bbb40`;
+  - the README;
+  - the release review and publishing, which need the user's go.
+- **Pass:**
+  - the A1 re-run meets its bars;
+  - the calibration passes, then CI is green;
+  - the three live checks hold;
+  - the README states only what the runs show.
