@@ -3354,15 +3354,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - D20's deny was tested only behind prompt-time cards, so its "fixed nothing" does not transfer to the vague
       shape. A deny's reason arrives before the write (3 of 3);
     - turns with a main-session code write: median 1 per run (P1 vague 2), at most 2.
-  - *The bar, open:* the registered "first code write of the epoch" includes symptom-turn writes that no selection
-    can precede. Proposed for the next check: the read before the first code write after the change is requested.
-    Disclosed: under it, stage 1 would have scored 4 of 5. Stage 1 stays failed.
+  - *The bar, open:*
+    - A bar keyed to the turn (the read before the first code write after the change is requested) was proposed.
+      Under it stage 1 would have scored 4 of 5. It was withdrawn after Gemini 4 Argon's review: it defines run 3 out,
+      and real sessions have no turn labels.
+    - The candidate is keyed to the rule's domain: the read before the first code write in the rule's domain, in any
+      turn, with each domain fixed from the rule's text before any run. R5 covers all C#, so stage 1 fails under it
+      too.
   - *Options:*
-    - (A) a `PreToolUse` gate at each turn's first code write: it grows the surface to 4 hook events (D18, 06);
+    - (A) a `PreToolUse` deny at the first code write per directory per epoch: names come from the whole index, and
+      the second try needs a Read after the deny. It grows the surface to 4 hook events (D18, 06), and it moves the
+      selector rather than changing it;
     - (B) titles in the index: granularity only;
-    - (C) rethink 4's (c) under the change-turn bar;
+    - (C) rethink 4's (c), naming from the whole index. Under the domain bar it meets stage 1's two failure modes
+      again;
     - (D) narrow the claim.
-  - *Recommended:* (A), after an arrival probe. The fallback is (C).
+  - *Recommended:* (A), after an arrival probe. If the surface must not grow, (D) as a choice of scope. If (A) fails
+    on selection, the selector itself reopens.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

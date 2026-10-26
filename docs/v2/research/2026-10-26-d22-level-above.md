@@ -69,42 +69,62 @@ Every option's check depends on this, so it comes first.
   a symptom-turn write in P1 5 of 5 and P2 1 of 5. Meeting it would mean reading, before any C# write, every document
   whose rule's check covers C#. That is P2's whole rule set, and at about 1.5 MB it is the read Claude already cannot
   do. So the bar measured the shape as much as the mechanism.
-- **Proposed for the next check (the user decides):** the source read before the first code write after the change is
-  requested. In the vague shape that means the task turn. In the standard shape it is the same bar as before.
-  - *Disclosed:* under this bar, stage 1 would have scored 4 of 5.
+- **First proposed, then withdrawn after the second opinion:** the source read before the first code write after the
+  change is requested. Under it, stage 1 would have scored 4 of 5.
+  - It moved the goalposts: it defines run 3 out of the count, so the failed option would pass without a byte changed.
+  - Real sessions have no "symptom" or "task" label on a turn: a turn-1 edit is a real code write.
+  - The note also contradicted itself. It treated symptom-turn writes as not needing the read, and then counted reaching
+    them as a strength of (A).
+- **The candidate now, keyed to the rule's domain rather than to the turn:** the source read before the first code
+  write in the rule's domain, in any turn.
+  - Each rule's domain is a path scope, fixed before any run from the rule's own text.
+  - Where a rule's text covers every file of a language, its domain is that language. R5 forbids its old names in any
+    C# file, so its domain is all C#, and run 3's symptom-turn write counts. Stage 1 fails under this bar too, as it
+    should.
+  - Consequence: in the vague shape, a write in a rule's domain can come in any turn, including before the change is
+    named (P2: 1 of 5 in both 2e and stage 1). Only a mechanism that acts at the write can meet this bar for such runs.
   - Stage 1 stays failed (rule 2). Its bar was fixed before it ran, and tightened before its output was read.
-  - A bar argued after a fail can govern only a new check, with fresh runs.
-  - *Is this a rule 2 move?* It would be if it re-scored stage 1, or if it were picked to make a known result pass. It
-    is argued from the charter's "when a task needs it" and from what any mechanism can reach. The second opinion is
-    asked to attack it.
 
 ## Options, by level
 
 ### (A) Selection at the write
 
-At the first code write of each turn (a prompt, or a turn Claude Code starts itself), a `PreToolUse` hook denies that
-write once. Its reason asks Claude to name the documents from its yes directories that bind this change, read the
-unread ones, then write again. The forced decision at each epoch's first prompt stays as it is.
+A `PreToolUse` hook on code writes denies the first one in each directory of an epoch, once. Its reason asks Claude to
+name the documents from the index that bind this write, read them, then write again. The second try passes only if a
+Read came after the deny. The forced decision at each epoch's first prompt stays as it is.
+
+Revised after the second opinion; the first draft had three flaws:
+- it gated only the first write of each turn, which leaves a turn's later writes in other areas ungated (count 3:
+  median 2 to 7 directories per run);
+- it accepted any Read since the epoch began, which the symptom turn's reads already satisfy;
+- it asked for names "from your yes directories", which carries a decision made on a vague prompt forward.
 
 - **Addresses:** timing, wholly. At the write, the change's terms are always in hand: the target file and the edit. It
   reaches writes that no prompt-time text reaches:
-  - the symptom-turn write (run 3);
+  - a write in a rule's domain before the change is named (run 3);
   - a write after a compaction inside a turn (a phase-gate trigger, still open);
   - subagent writes (the other open phase-gate trigger), but only if `PreToolUse` fires inside subagents. That is
     unverified: an arrival probe comes first (D12's rule).
-- **Can check the read mechanically:** the hook can see the session's Reads since the epoch began. Requiring one before
-  the second try passes would stop "naming instead of reading" (run 4) from passing silently. It opens another bypass:
-  reading some document, not the binding one. That is a check-time choice.
-- **Cannot address:** granularity (Claude still picks by name, now with the write's terms in hand), or naming nothing
-  when a document binds.
+- **Enforces a read, not only a name** (run 4's bypass): the hook sees the session's tool calls, so the second try needs
+  a Read after the deny.
+  - It still cannot tell whether the Read was of the binding document. That is the bypass left: read anything.
+- **A rule whose domain is a whole language binds every write in it.** (A) passes such a rule only if Claude names that
+  rule's document at the first such write, whatever the write is about (R5 at run 3's first write). Stage 1 measures
+  exactly this, and nothing on record predicts it.
+- **Does not change the selector.** Claude still chooses documents by name, now with the write's terms in hand and the
+  whole index to choose from. This moves the same selector to the moment the terms are present. It is not a new
+  selector, and it does nothing for granularity.
 - **Cost:**
-  - one rewrite per turn with code (count 3: median 1 or 2 per run, at most 2). D20 measured a deny's rewrite at P1's output
-    going from about 5.3k to 9k tokens;
+  - one deny and one rewrite per directory first written in an epoch: median 2 to 7 per run (count 3). D20 measured a
+    deny's rewrite taking P1's output from about 5.3k to 9k tokens;
   - a Node start per Write or Edit call (D18: 40 to 90 ms on Windows).
 - **Reopens the parent constraint:** D18's surface ("No `PreToolUse`") and 06's budget of exactly 3 hook events (PM6).
-- **Check, rough shape:** an arrival probe (Haiku, minutes); then stage 1 on P2 vague, 5 runs; then no loss across the
-  shapes and standard arms, as rethink 4's stage 2 planned. P1 vague is where it costs most, since it writes in the
-  symptom turn in 5 of 5. About 40 Opus runs.
+- **Check, rough shape:**
+  - an arrival probe (Haiku, minutes);
+  - then stage 1 on P2 vague, 5 runs, under the domain bar;
+  - then no loss across the shapes and standard arms, as rethink 4's stage 2 planned, with cost against the no-worse
+    ceilings, since this option adds a rewrite to every run;
+  - about 40 Opus runs.
 
 ### (B) Selection at document grain
 
@@ -121,14 +141,16 @@ The index gains each document's title (its first heading) in large directories: 
 
 ### (C) Re-gate at the change, at the prompt
 
-Rethink 4's (c) again, under the change-turn bar above.
+Rethink 4's (c) again, with the second opinion's change: names come from the whole index, not only the yes
+directories.
 
 - **Addresses:** timing, for prompts that carry the change.
 - **Its two failure modes are built into prompt-time text:** it cannot act on a write made before the change is
-  named, and it cannot see whether a named document was read. Under the change-turn bar, the first no longer affects
-  the score. The second remains: run 4, 1 of 5, where R5 held on a single Grep hit.
+  named, and it cannot see whether a named document was read.
+  - Under the domain bar both still count. In P2's vague shape, a domain write came before the change in 1 of 5 runs in
+    2e and in stage 1 alike, and naming stood in for reading in 1 of 5 in stage 1. That is stage 1's 3 of 5 again.
 - **Cost:** the cheapest. No new hook event, and 255 B on later prompts.
-- **Risk:** it is the failed option with the bar moved. A pass would rest entirely on the bar argument.
+- **Risk:** it passes only under a bar that leaves those runs out, which is the withdrawn change-turn bar.
 - (c'), a search in place of naming, has the same built-in limits.
 
 ### (D) Narrow the claim (the user's call)
@@ -143,17 +165,60 @@ numbers, and the claim covers changes named in an epoch's first prompt.
   - In the eval, R5's document is read in 9 of 10 runs when the change comes first, and in 1 of 5 when it comes second.
 - Rethink 4 rejected this ("a symptom first and the change second is ordinary use"). The user may override that.
 
-## Recommendation: (A), under the change-turn bar
+## Recommendation: (A) as revised, under the domain bar
 
-- It is the only option that acts where the change's terms are always present.
-- It also covers both open phase-gate triggers, the compaction inside a turn and, if the probe shows arrival, subagent
+- Under a bar that does not move, it is the only option that can reach a write made before the change is named. It is
+  also the only one that can require a read rather than a name.
+- It covers both open phase-gate triggers: the compaction inside a turn and, if the probe shows arrival, subagent
   writes.
-- Its cost is bounded by count 3: one gate per turn with code, median 1 per run.
-- It grows the surface from 3 hook events to 4, which reopens D18's surface and 06's budget. That is also the user's
+- **What it is not:** a new selector. If stage 1 fails because Claude names the wrong document at the write, timing is
+  ruled out as the cause, and the selector itself is what reopens: granularity, and (B) or a search.
+- **Cost:** a rewrite per directory first written in an epoch, median 2 to 7 per run. The check prices it against the
+  no-worse ceilings.
+- **Surface:** it grows from 3 hook events to 4, which reopens D18's surface and 06's budget. That is also the user's
   call.
-- Order: the arrival probe first (a deny inside a subagent, and after a compaction inside a turn), then the
+- **Order:** the arrival probe first (a deny inside a subagent, and after a compaction inside a turn), then the
   pre-registered check. Attempts run from a copy of the plugin, never from `plugin/` in place.
-- If the surface should not grow, the fallback is (C) under the change-turn bar, with run 4's bypass as its known
-  residual. (D) only as a deliberate choice of scope.
+- **If the surface should not grow:**
+  - (C) is no real fallback under the domain bar. It meets stage 1's two failure modes in the same runs.
+  - The honest alternative is (D), as a deliberate choice of scope, with the vague and switch numbers stated.
 
 Nothing is pre-registered here: the check follows the user's choice of level and bar.
+
+## Second opinion: Gemini 4 Argon (2026-10-26)
+
+*Channel:*
+- Antigravity CLI 1.4.7, model `gemini-4-argon-high`, plan mode, run in an empty folder holding only the brief.
+- The brief was this note as first committed, plus public context: the route's fixed texts, rule 4, rethink 4's text
+  and stage 1 result, and the options already rejected with their numbers.
+- The CLI reported status "ERROR" after 514 s, but returned the full reply, printed twice with the first copy cut off.
+- Usage: 34,463 input tokens and 17,785 output tokens, 15,641 of them thinking.
+
+Its points, and what was done with each:
+- **The change-turn bar moves the goalposts.** It defines run 3 out, so the failed option passes unchanged. Real
+  sessions have no turn labels, and the note contradicted itself on symptom-turn writes. *Taken:* that bar is
+  withdrawn.
+- **The legitimate bar is keyed to the rule's domain, in any turn.** *Taken,* with each domain fixed from the rule's
+  text before any run. A rule that covers a whole language (R5) keeps the strict reading, so stage 1 fails under this
+  bar too.
+- **Keep a mechanism bar, but the jump from 1 of 5 to 5 of 5 is real:** naming works as a retrieval cue, without read
+  enforcement. *Taken:* it matches the record, and it is why (A) enforces the read.
+- **(A)'s bypasses:** the symptom turn's reads already satisfy "a Read since the epoch began", and a first-write-per-turn
+  gate leaves a turn's later writes ungated. *Taken:* a Read after the deny is required, and the gate is per directory
+  per epoch.
+- **(B) can pass on a test rule whose title echoes the prompt.** It misses rules under subheadings, and it does nothing
+  when the prompt lacks the terms. *Noted:* (B) is not recommended, and its check would need a new measure first.
+- **(C) passes P2 vague under the change-turn bar** without fixing either failure. *Taken:* with that bar withdrawn,
+  (C) is no fallback.
+- **(D) passes by tautology,** and real epochs often start with "continue" or a symptom. *Agreed,* as the note
+  already said.
+- **(A) is not a new level, but the same selector moved to another hook.** *Taken in part.* (A) changes when and where
+  the selection happens, and enforces the read. It does not change the selector. The recommendation now says so, and
+  names what reopens if (A) fails on selection.
+- **Timing and directory scope are coupled:** a directory marked no on the vague first prompt stays excluded at the
+  change. *Taken:* (A) and (C) now name from the whole index.
+- **A missed level, compliance enforcement:** run 4 named the right document at the right time and skipped the Read.
+  *Taken:* it is what the read requirement in (A) addresses.
+- **Its choice:** (C) within the 3-hook budget, or (A) if the subagent and mid-turn writes justify reopening D18, either
+  way with the three changes above. *Weighed:* under the domain bar it endorses, (C) still meets stage 1's two failure
+  modes, so the recommendation stays (A).
