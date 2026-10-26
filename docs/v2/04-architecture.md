@@ -47,8 +47,14 @@ Node and git are present. A repo with no documents gets an empty index and an em
 
 - **Cost.** In the document-heavy repo, the route spent about three times push's tokens, mostly in subagent
   research. It reopens D22 if the first slice's eval puts v2 above M1's no-worse ceiling.
-- **Untested shapes.** Investigation tasks, a vague first prompt, several compactions, and an index past 45
-  directories. These are D22's triggers.
+- **A change named after the epoch's first prompt** (measured in 2e; outside the claim since D22's re-lock of
+  2026-10-26).
+  - *A vague first prompt:* on P2, R5 was missed in 4 of 5 runs.
+  - *A task switch after a compaction:* R5 was missed in 3 of 5.
+
+  The forced decision selects by the first prompt it sees. Bringing these cases back into scope reopens D22.
+- **Untested shapes.** Investigation tasks (outside the claim) and an index past 45 directories. These are D22's
+  triggers.
 - **Subagents** do not see the index, since `SessionStart` reaches only the main session (D12). The read hook does not
   reach a subagent (D12, build step 0: 0 and 1 of 3), so a map file a subagent reads, or one met by Grep or Bash,
   arrives unlabelled. That is an accepted risk.
@@ -62,7 +68,7 @@ Node and git are present. A repo with no documents gets an empty index and an em
 - **The index build at session start** (from git's file list, no cache) adds 87 ms p95 at 8 concurrent on P2, close
   to D18's 100 ms. A repo with a much larger file list may pass it; a cache is the fallback (build step 2a).
 - **Friction.** A forced decision at the session's first prompt and after each compaction. A new task in the same
-  session gets none, which is untested. Both are measured in the first slice.
+  session gets none until the next compaction (2e's task switch, above).
 - **Pattern rules on Opus.** P1 R2 was missed under every pull arm and under a self-review; only a hand-written check
   fed back held it. It is an expected miss until D20's net reopens. P2 R4, a judgment rule, was missed by push and
   pull alike once the session compacted.

@@ -156,5 +156,11 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   either. So v2's first slice claims the work of changing, creating and planning a part, where the route made Claude
   follow rules native misses. Questions are left to ordinary search for now. This was settled by rethink and a second
   opinion under the user's standing instruction, and is open to their override.
+- **The claim covers changes named at an epoch's start (2026-10-26, V2-D22 re-locked by the user's choice).**
+  - When a session opens on a symptom and the change comes later, or a second task follows a compaction, Claude's
+    reading follows the prompt it had at the start. On P2, a rule was then missed in 4 of 5 runs.
+  - A gate at each first write and a search for each document's scope were tried and failed their checks. The gate
+    also cost about half again per run.
+  - The user chose to name these cases as weaknesses rather than grow the plugin.
 - **"Verify each decision during the process, 3-4 runs then rethink"** became the decision record, the
   pre-registered check and the three-strike rule in 01-process.md.

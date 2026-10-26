@@ -25,7 +25,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -3571,6 +3571,45 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     did.
   - *What follows, as registered:* no combined attempt. The result goes to the user, with (D) and (P) with (A2) as
     the choices.
+- **User answer (2026-10-26): (D), narrow the claim,** the recommended option and the second opinion's. The other
+  choice shown was (P) with (A2) as one more attempt.
+- **Re-LOCKED 2026-10-26, by the user's choice of scope at the level above (rule 4); no new run.**
+  - *Choice:* the route is unchanged. `plugin/` stays at `497ba915e987`: 3 hook events, the index, the forced decision
+    once per epoch, no gate.
+  - *The claim narrows again.* On change and plan tasks, the documents that bind a change are read before it when the
+    change is named in an epoch's first prompt: the session's first, or the first after a compaction.
+  - *Named weaknesses, with 2e's numbers* (failed runs of 5, P2 build; P1 held every rule in scope in every shape):
+    - *a vague first prompt, with the change named later:* R5 failed in 4 and R4 in 2. R5's document was read in 1 of
+      5;
+    - *a task switch after a compaction:* R5 failed in 3 and R4 in 2. R0's misses there are the scorer's limit;
+    - *two compactions:* R6 failed in 2. It is a following miss (its source, the root instruction file, was in
+      context), so it is D20's question, not selection.
+    - *A rule whose scope is wider than its topic* is reached when the change touches its topic. On record, the old
+      names R5 bans were written in 16 of 35 runs, 15 of them in the new file the task asks for, and none off the
+      system R5 is about.
+  - *Rejected at this level:*
+    - (A), the gate at the write: stage 1 failed (the cap spent by batched edits, and choice by topic), at +2.20 USD
+      per P2 run;
+    - (A2) alone: predicted to fail;
+    - (S), a search keyed to scope: the probe failed;
+    - (T), a topic bar: a goalpost move;
+    - (P) with (A2): offered and not chosen. File names give Claude no hint of a rule's scope, and the gate's cost was
+      already +52%.
+  - *Unchanged:* D18's surface and 06's budget at 3 hook events. The gate copy stays under `probes/` as evidence.
+  - *Reopen if:*
+    - the user puts the vague first prompt or the task switch back in scope. Then (P) with (A2) is the next attempt,
+      on a new copy, under the domain bar;
+    - a rule in scope is missed for selection (its source not read) on a change named in an epoch's first prompt, in
+      the eval or in the user's own check;
+    - a change or plan task goes above M1's no-worse ceiling with no rule gain on that task;
+    - most of a project's binding documents declare their scope in a form a hook can read, such as `paths:` front
+      matter. Then (S-b) runs again;
+    - the standing triggers stand: index size, epochs, Claude Code's delivery, an automatic compaction inside a turn,
+      and subagent writes.
+  - *Retired:* "a rule in scope is missed on a vague first prompt or in a session with more than one compaction". The
+    vague first prompt is outside the claim. A selection miss after compactions falls under the second trigger above.
+
+  Attempts at this level: (A) failed, then (S)'s probe; the claim narrowed by the user's choice.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
