@@ -117,8 +117,15 @@ Revised after the second opinion; the first draft had three flaws:
 - **Cost:**
   - one deny and one rewrite per directory first written in an epoch: median 2 to 7 per run (count 3). D20 measured a
     deny's rewrite taking P1's output from about 5.3k to 9k tokens;
+  - priced from 2e's P2 vague streams: a late main-session call costs about 0.10 USD (0.087 to 0.099; stage 1:
+    0.098 to 0.133). A deny cycle is about 3 to 5 calls (the wasted write, the naming, 1 to 3 Reads, the rewrite), so
+    about 0.3 to 0.5 USD. At P2's median of 4 directories per run, that adds about 1.2 to 2 USD to a median of 4.24.
+    P2 build's no-worse ceiling is 10.85 USD (D19's rebase file). This is an estimate, not a measurement;
   - a Node start per Write or Edit call (D18: 40 to 90 ms on Windows).
 - **Reopens the parent constraint:** D18's surface ("No `PreToolUse`") and 06's budget of exactly 3 hook events (PM6).
+- **The margin is thin.** Stage 1's bar allows one miss in 5. If Claude does not name R5's document at a write that
+  looks unrelated, a run like run 3 (1 of 5 in both samples) uses up that miss. A read of the wrong document after a
+  deny then fails the cell. (A) is a sound attempt, not a likely fix.
 - **Check, rough shape:**
   - an arrival probe (Haiku, minutes);
   - then stage 1 on P2 vague, 5 runs, under the domain bar;
@@ -173,8 +180,12 @@ numbers, and the claim covers changes named in an epoch's first prompt.
   writes.
 - **What it is not:** a new selector. If stage 1 fails because Claude names the wrong document at the write, timing is
   ruled out as the cause, and the selector itself is what reopens: granularity, and (B) or a search.
-- **Cost:** a rewrite per directory first written in an epoch, median 2 to 7 per run. The check prices it against the
-  no-worse ceilings.
+- **Cost:** a rewrite per directory first written in an epoch, median 2 to 7 per run. Estimated at about 1.2 to 2 USD
+  per P2 run, within P2 build's ceiling. The check measures it against the no-worse ceilings.
+- **Why the forced decision stays,** although its "read every yes directory" cannot be followed at 1.5 MB:
+  - arm `p` failed without it;
+  - the standard-shape gains rest on it;
+  - one change at a time.
 - **Surface:** it grows from 3 hook events to 4, which reopens D18's surface and 06's budget. That is also the user's
   call.
 - **Order:** the arrival probe first (a deny inside a subagent, and after a compaction inside a turn), then the
