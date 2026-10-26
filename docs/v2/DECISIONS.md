@@ -3237,9 +3237,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       and its document was never read in 4. The task turn gets no forced decision, since the shape has one epoch. In
       2d's standard arm the document was read in 9 of 10. This is 2d's mechanism on another shape: in a large
       directory, the yes line leads to a few files, chosen by the prompt at hand.
-    - **Following, 2 cells under this trigger (P2 R4 vague, R6 two compactions), plus R4 and R5 in the switch.** The
-      source was in context and the written files break the rule. That is D20's question; its write-time net is
-      deferred.
+    - **A read before the compaction only (P2 R5, task switch; corrected 2026-10-26, first filed under following).**
+      The document was read during the first task. After the compaction, the directory was marked yes again. The 2
+      runs that re-read the document passed, and the 3 that did not failed. In 2d's standard arm, a read before the
+      compaction was enough in 8 of 8, where it belonged to the same task.
+    - **Following, 2 cells under this trigger (P2 R4 vague, R6 two compactions), plus R4 in the switch.** The source
+      (the root instruction file) was in context and the written files break the rule. That is D20's question; its
+      write-time net is deferred.
   - *Rule 4, counted:*
     - The route locked on 2026-10-22 has now had its triggers fired by the eval twice: 2d, then 2e. The re-lock of
       2026-10-25 was by reasoning, with no new run.

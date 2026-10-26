@@ -574,9 +574,17 @@ re-score):
   - In 2d's standard arm, the same document was read in the first turn in 9 of 10 runs.
   - This is 2d's mechanism again: in a large directory, the yes line leads to a few files, chosen by the prompt at
     hand.
-- *Following, 4 cells: P2's R4 (vague), R6 (two compactions), and R4 and R5 (task switch).*
-  - The rule's source was in context: R4 and R6 come from the root instruction file, and R5's document was read in
-    the first turn of every switch run.
+- *A read before the compaction only, 1 cell: P2's R5 in the task switch* (corrected 2026-10-26: first filed under
+  following).
+  - R5's document was read in every switch run, but during the first task, before the compaction.
+  - After the compaction, the re-forced decision marked its directory yes in every run. The 2 runs that re-read the
+    document then passed, and the 3 that did not re-read it failed.
+  - In 2d's standard arm, a read before the compaction was enough: 8 of 8 such runs passed. There, the read belonged
+    to the same task.
+  - The compaction summary does not explain the split: it kept R5 in 2 of the 3 failing runs.
+- *Following, 3 cells: P2's R4 (vague), R6 (two compactions) and R4 (task switch).*
+  - The rule's source was in context: both come from the root instruction file, which stays loaded across a
+    compaction.
   - The written files break the rule: a required pattern is absent, or the forbidden one is present.
   - R4 is the judgment rule on 05's list, listed for a compaction. The task switch has one, so its R4 miss is the
     listed one. The vague shape has none, so the list does not cover it there. 2e's scorer has no list exemption, so
