@@ -418,3 +418,36 @@ its M1 baseline's. Total 324.52 USD-equivalent, against M1's 345.67. Scored by `
 **What holds:**
 - The route is a clear gain on the build and plan rules of the two repos with prose rules (P1, P2).
 - R0 build's R6 (0 of 8) and its one-run misses, and the investigation tasks, are where it is not.
+
+### 2f: installed from a local marketplace, checked live (pre-registered 2026-10-26, before any install)
+
+The user's request: install the plugin the way a user would, through a marketplace at this local checkout, and check
+that it works as intended.
+
+- **Built:** `.claude-plugin/marketplace.json` at the repo root. Marketplace `second-brain-v2`, holding one plugin,
+  `second-brain`, from `./plugin`.
+  - v1's marketplace is named `second-brain`.
+  - v1 is not registered, installed or enabled at the user level (checked on 2026-10-26), so nothing clashes.
+- **Where:**
+  - A fresh scratch git repo, holding one document and a map file with one committed and one uncommitted entry, as
+    in 2a's smoke.
+  - The user's installed CLI (2.1.309 at registration), not the eval's pinned 2.1.305.
+  - The marketplace and the plugin both at project scope, so the user's other sessions are untouched.
+- **Install check:**
+  - `claude plugin marketplace add <checkout> --scope project` succeeds;
+  - `claude plugin install second-brain@second-brain-v2 --scope project` succeeds;
+  - the plugin shows as installed and enabled in that project;
+  - the installed product files hash to the eval's plugin hash (`497ba915e987`), so the eval measured what installs.
+- **Live check:** sessions in the scratch repo with the installed plugin, with no `--plugin-dir`. All three must hold:
+  1. *Delivery* (Haiku, 2a's smoke prompt):
+     - the init event lists the plugin;
+     - the session quotes word for word the index's first sentence, the forced decision, and the labels after it
+       reads the map file;
+     - session start also carries D23's line.
+  2. *Onboarding:* `/second-brain:onboard` reports the index's documents and directories.
+  3. *Capture* (Opus, the user's model): told a decision for the project in passing, the session writes it to
+     `.project-map/captured.md` as an entry with a `source` line.
+- **Then the user's own check:** an interactive session in one of their repos, following the checklist written into
+  this section once the live check passes.
+- **Pass:** the install check and all three live checks hold. A failure is a 2f attempt, fixed and run again.
+- **Not in 2f:** macOS and Linux, and the missing-Node path on an installed copy.
