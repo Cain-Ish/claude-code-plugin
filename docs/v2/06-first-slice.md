@@ -543,6 +543,22 @@ that it works as intended.
     - Rule from here on: an attempt runs from a copy of the plugin (`--plugin-dir` to a probe folder), never by editing
       `plugin/` in place while an install points at the checkout.
     - Also observed: a cross-session message delivery fires `UserPromptSubmit`, like a background task's turn.
+  - *Epoch 3, after a second automatic compaction:*
+    - The forced decision fired on the first prompt after the compaction, a real message from the owner.
+    - 8 yes and 3 no of 11 directories; the map's own directory is now one of them. The yes set is still about 1.5 MB.
+      7 documents were read in full or in part before the first repo write: 4 read anew this epoch, and 3 rule files
+      loaded on their own. The read is partial by size, as in epochs 1 and 2.
+    - About 35 tool calls came before the first repo write, which was the map file.
+    - *Capture:* 1, as an edit of the existing entry rather than a new one. The owner's new statement refined it, so a
+      second quote went under the same heading, with one new `when` value. It qualifies a standing rule in one of the
+      repo's rule files, and the entry names no file.
+    - *A format question this raises, not settled by the ledger.* The frozen instruction says to add each decision "as
+      its own entry", with its source. `labels()` reads only an entry's first source line, so a refinement merged under
+      an older source line is labelled with the older capture date. An edited entry is still labelled unreviewed until
+      committed (D18's key covers every field), so D14's trust policy holds. This is neither kept noise nor a missed
+      capture, so D14's trigger does not fire. Asked and not yet answered: whether the second quote has its own source
+      line.
+    - No hook errors, no slow start, and no experiment text this epoch.
 - **A validity correction during 2e's runs (2026-10-26, disclosed).**
   - P1 build's task-switch run 1 was marked invalid for "wrote in the investigation turn".
   - The write was `.project-map/captured.md`: the plugin's capture instruction at work while the first task's question
