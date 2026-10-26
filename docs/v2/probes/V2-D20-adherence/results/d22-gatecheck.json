@@ -1,0 +1,64 @@
+{
+ "date": "2026-10-26",
+ "model": "claude-opus-5-5",
+ "cells": {
+  "P2-build sbv": {
+   "runs": 5,
+   "epochs": [
+    "2.1.305 (Claude Code) 070dd2c2a429"
+   ],
+   "fails": {
+    "R1": 0,
+    "R2": 0,
+    "R3a": 0,
+    "R3b": 0,
+    "R4": 4,
+    "R5": 0,
+    "R6": 0,
+    "R7": 1
+   },
+   "refFails": {
+    "R1": 0,
+    "R2": 0,
+    "R3a": 0,
+    "R3b": 0,
+    "R4": 2,
+    "R5": 4,
+    "R6": 0,
+    "R7": 3
+   },
+   "lost": [],
+   "denies": [
+    6,
+    5,
+    8,
+    6,
+    4
+   ],
+   "capped": [
+    2,
+    2,
+    3,
+    1,
+    0
+   ],
+   "gateMissing": [],
+   "costMedian": 6.442480099999999,
+   "refCostMedian": 4.241568400000001,
+   "fix": {
+    "id": "R5",
+    "fails": 0,
+    "readBeforeDomainWrite": 0,
+    "readAfterDeny": 4
+   }
+  }
+ },
+ "verdict": {
+  "fix": false,
+  "noLoss": true,
+  "gateMissing": {},
+  "r6": null,
+  "p2StandardCost": null,
+  "pass": false
+ }
+}

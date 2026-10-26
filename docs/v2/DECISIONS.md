@@ -25,7 +25,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -3468,6 +3468,42 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - In 2 directories Claude Read documents after the deny, and the next write went through.
     - In 2 others it retried without reading, and the second deny's cap let the third try through.
   - That cap is a bypass of the read. `gatecheck` records it per run.
+- **Stage 1 result (2026-10-26): fail, as registered.** Stage 2 and A1 do not run
+  ([results/d22-gatecheck.json](probes/V2-D20-adherence/results/d22-gatecheck.json); the runs are private).
+  - *Runs:* 5 Opus runs of P2 vague on the copy (plugin hash `070dd2c2a429`, CLI 2.1.305), all valid. Every epoch with
+    a main-session code write had a deny.
+  - *The bar:*
+    - R5 failed in 0 of 5 (reference: 4 of 5). That half is met.
+    - The main session Read R5's document before its first C# write that went through in 0 of 5. The bar is 4.
+  - *Why, from the streams, with each call grouped by the assistant message that made it:*
+    - *The cap, 4 of 5 runs.* The first C# writes came as one message of 4 edits. The hook sees each call before Claude
+      sees any result. So the first two were denied, the cap let the rest through, and the writes landed before any
+      deny reached Claude.
+    - *The choice, 1 run.* In run 5 the gate worked as designed at the first C# write: a deny, then reads, then the
+      write. The two documents read after the deny were other ones, not R5's.
+    - *Across runs, R5's document was read where the change's topic matched it.*
+      - The main session read it before writing the new file the task asks for in 4 of 5. In 3 of those, the read came
+        right after that file's deny.
+      - In run 3 only a subagent read it.
+      - Claude chose documents by the topic of the file it was writing, while R5 binds every C# file. So a cap fix alone
+        would likely still miss the bar.
+  - *The smoke showed the same mechanism, and stage 1 ran anyway.*
+    - The smoke record calls its two no-read cases retries. Grouped by message, each was the same batch: two denies and
+      then passes, all in one message.
+    - The bypass was logged per run instead of being fixed before stage 1. That was a miss in this attempt's
+      preparation.
+  - *Recorded beside the scores:*
+    - denies per run: 6, 5, 8, 6, 4. Directories that reached the cap: 2, 2, 3, 1, 0;
+    - R5's document among the reads after a deny: 4 of 5. `readAfterDeny` counts a read anywhere after the first deny,
+      not a read before a write;
+    - other rules: R4 failed in 4 of 5 (reference 2; 05's listed miss), R7 in 1 (reference 3). No rule in scope was
+      lost;
+    - cost: median 6.44 USD against the reference's 4.24, so +2.20; the note priced 1.2–2 per run.
+      - One run, at 11.79, is above P2's ceiling of 10.85.
+      - D22's first trigger needs a task above the ceiling with no rule gain. This cell's median is under the ceiling,
+        and it gained on R5, so the trigger does not fire.
+  - *What follows, as registered:* the selector reopens (the note: granularity, titles or a search), and the result
+    goes to the user. `plugin/` is unchanged, and D18's surface and 06's budget stay at 3 hook events.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
