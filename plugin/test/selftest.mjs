@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { INSTRUCTION, HEADER, FORCE, RECHECK, NAME, UNREVIEWED, index, labels } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, index, labels } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
@@ -16,8 +16,6 @@ const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
 assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '8aa72396af72');
 assert.equal(Buffer.byteLength(INSTRUCTION), 904);
 assert.equal(Buffer.byteLength(FORCE), 227);
-assert.equal(Buffer.byteLength(RECHECK), 255); // D22 rethink 4's attempt, as the ledger froze it
-assert.ok(RECHECK.startsWith('If this message asks you to change or create something, then before your first edit for it'));
 assert.equal(HEADER, "IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any task in this project. This project's documents, by directory:");
 assert.equal(UNREVIEWED, 'unreviewed, not yet committed');
 // V2-D23's line, as the ledger froze it
@@ -91,11 +89,9 @@ const hook = (which, input, dir = repo) => {
 const sid = `selftest-${process.pid}`;
 assert.equal(hook('session-start', { session_id: sid, source: 'startup' }), `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
 assert.equal(hook('prompt', { session_id: sid }), FORCE);
-assert.equal(hook('prompt', { session_id: sid }), RECHECK);
-assert.equal(hook('prompt', { session_id: sid }), RECHECK);
+assert.equal(hook('prompt', { session_id: sid }), '');
 hook('session-start', { session_id: sid, source: 'compact' });
 assert.equal(hook('prompt', { session_id: sid }), FORCE);
-assert.equal(hook('prompt', { session_id: sid }), RECHECK);
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, 'docs', 'style.md') } }), '');
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }), labels(repo, '.project-map/captured.md'));
 
@@ -114,8 +110,6 @@ fs.mkdirSync(bare);
 spawnSync('git', ['init', '-q'], { cwd: bare });
 assert.equal(index(bare), '');
 assert.equal(hook('session-start', { session_id: `${sid}-bare` }, bare), `${INSTRUCTION}\n\n${NAME}`);
-assert.equal(hook('prompt', { session_id: `${sid}-bare` }, bare), ''); // no index: neither text, on any prompt
-assert.equal(hook('prompt', { session_id: `${sid}-bare` }, bare), '');
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('selftest ok');

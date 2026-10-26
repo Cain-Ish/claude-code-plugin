@@ -31,10 +31,6 @@ export const HEADER = 'IMPORTANT: Prefer retrieval-led reasoning over pre-traini
 export const FORCE = 'Before you start: for each directory in this project\'s document index, state in one line whether its '
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
   + 'change anything.';
-// D22 rethink 4: on each later prompt of an epoch, a change whose terms arrive after the decision gets its own read
-export const RECHECK = 'If this message asks you to change or create something, then before your first edit for it: name in one '
-  + 'line the documents from your yes directories that bind this change, and read the ones you have not read since the '
-  + 'session start or the last compaction.';
 
 // V2-D23: A1 item (5), the decisions followed and their sources, named when Claude finishes; frozen with D23's check
 export const NAME = 'When you finish, name each of this project\'s recorded decisions you followed and its source, as the '
@@ -65,12 +61,11 @@ export function index(root) {
 }
 
 // The forced decision's epoch: every session start opens one, the first prompt after it closes it. A marker file in
-// the OS temp folder, so nothing is written in the repo; the closed marker stays, so later prompts know an index exists.
-// shortcut: one empty file per session stays in the temp folder; remove it at SessionEnd if that ever matters.
-const marker = (id, state = 'pending') => path.join(os.tmpdir(), `project-map-${String(id).replace(/[^\w-]/g, '')}.${state}`);
+// the OS temp folder, so nothing is written in the repo.
+const marker = (id) => path.join(os.tmpdir(), `project-map-${String(id).replace(/[^\w-]/g, '')}.pending`);
 export const openEpoch = (id) => fs.writeFileSync(marker(id), '');
 export function takeForce(id) {
-  try { fs.renameSync(marker(id), marker(id, 'open')); return FORCE; } catch { return fs.existsSync(marker(id, 'open')) ? RECHECK : ''; }
+  try { fs.unlinkSync(marker(id)); return FORCE; } catch { return ''; }
 }
 
 // A map file's entries: each '### ' block that quotes something, up to the next heading, as its text.
