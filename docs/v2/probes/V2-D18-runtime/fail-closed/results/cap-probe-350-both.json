@@ -1,0 +1,19 @@
+{
+ "directories": 350,
+ "old": {
+  "cli": "2.1.311",
+  "loaded": true,
+  "sessionStartChars": [
+   13262
+  ],
+  "reply": "1. When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.\n2. packages/package-349/ (no line in the context begins with \"(\" and mentions \"more directories\", so none)"
+ },
+ "new": {
+  "cli": "2.1.311",
+  "loaded": true,
+  "sessionStartChars": [
+   10336
+  ],
+  "reply": "1. \"When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or document gives it.\"\n2. packages/package-260 — \"(89 more directories not listed: the index is past the 10,000-character limit of one hook output.)\""
+ }
+}

@@ -1,0 +1,11 @@
+{
+ "directories": 1400,
+ "old": {
+  "cli": "2.1.311",
+  "loaded": true,
+  "sessionStartChars": [
+   49362
+  ],
+  "reply": "1. none\n2. The last directory visible in my context is `packages/package-027/`, but the index is cut off after it with \"...\", so the true last directory isn't visible to me. No line beginning with \"(\" mentioning \"more directories\" appears in my context, so: none."
+ }
+}

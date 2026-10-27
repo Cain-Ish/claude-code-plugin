@@ -1,0 +1,11 @@
+{
+ "directories": 700,
+ "old": {
+  "cli": "2.1.311",
+  "loaded": true,
+  "sessionStartChars": [
+   25162
+  ],
+  "reply": "1. none\n2. Not determinable from my context. The document index is cut off at `packages/package-027/: README.md` followed by `...`, so I can't see the last directory. No line beginning with \"(\" mentioning \"more directories\" appears in the visible part."
+ }
+}

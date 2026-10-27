@@ -2,15 +2,16 @@
 // against plugin/'s, byte for byte. The attempt ran with the new library in a plugin copy, moved into plugin/ after it
 // passed. Takes worktrees of P1, P2 and R0 at their pinned commits and writes .project-map/ files in them. Prints and
 // saves counts only.   node equivalence.mjs <p1> <p2> <r0>
+// EQ_OLD, EQ_NEW (library paths) and EQ_OUT (a results name) compare another pair: D18's fixes, 06 2g attempt 3.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import * as OLD from './map-497ba915.mjs';
-import * as NEW from '../../../../plugin/scripts/map.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const OLD = await import(pathToFileURL(path.resolve(process.env.EQ_OLD ?? path.join(HERE, 'map-497ba915.mjs'))).href);
+const NEW = await import(pathToFileURL(path.resolve(process.env.EQ_NEW ?? path.join(HERE, '..', '..', '..', '..', 'plugin', 'scripts', 'map.mjs'))).href);
 const BENCHMAP = path.join(HERE, '..', '..', '..', '..', 'plugin', 'test', 'benchmap.mjs');
 const DOC = /\.(md|mdx|markdown|txt|rst)$/i;
 const WORD = /[\p{L}\p{N}]+/gu;
@@ -112,5 +113,5 @@ for (const [label, repo] of ['P1', 'P2', 'R0'].map((l, i) => [l, process.argv[2 
 out.differences = differ.length;
 out.differing = differ.slice(0, 10);
 fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
-fs.writeFileSync(path.join(HERE, 'results', 'equivalence.json'), `${JSON.stringify(out, null, 1)}\n`);
+fs.writeFileSync(path.join(HERE, 'results', `${process.env.EQ_OUT ?? 'equivalence'}.json`), `${JSON.stringify(out, null, 1)}\n`);
 console.log(JSON.stringify(out));

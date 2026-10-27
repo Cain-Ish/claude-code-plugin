@@ -1,0 +1,11 @@
+{
+ "directories": 450,
+ "old": {
+  "cli": "2.1.311",
+  "loaded": true,
+  "sessionStartChars": [
+   16662
+  ],
+  "reply": "1. none\n2. The index is cut off in my context. It shows `packages/package-000/` through `packages/package-027/` and then `...`, so I can't name the last directory. No line beginning with \"(\" mentioning \"more directories\" appears in my context."
+ }
+}

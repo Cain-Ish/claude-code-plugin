@@ -1,0 +1,36 @@
+{
+ "I1": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "I4lockWorked": true,
+ "I4": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "I4-file": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "I9": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "I11": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "I13": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "I2sizes": {
+  "old": 12813,
+  "new": 9975
+ },
+ "I2": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "pass": true
+}

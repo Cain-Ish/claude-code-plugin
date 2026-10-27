@@ -1,0 +1,11 @@
+{
+ "directories": 550,
+ "old": {
+  "cli": "2.1.311",
+  "loaded": true,
+  "sessionStartChars": [
+   20062
+  ],
+  "reply": "1. none\n2. The index in my context is truncated after `packages/package-027/: README.md`, so I can't name its last directory. No line beginning with \"(\" that mentions \"more directories\" is visible in my context."
+ }
+}

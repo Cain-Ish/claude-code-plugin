@@ -1841,6 +1841,28 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **D14:** its trigger "an injected entry is ever delivered without the unreviewed label" fired in the same three
   ways. D14's policy is not in question: the failures are in delivery, which D18 carries. D14 re-locks unchanged when
   this check passes.
+- **Check results (2026-10-27), on the plugin copy `probes/V2-D18-runtime/fail-closed/plugin` (hash `a84a31665af3`):**
+  - *Map level:* 0 differences in the same 123 comparisons
+    ([results/equivalence-fail-closed.json](probes/V2-D16-freshness/results/equivalence-fail-closed.json)).
+  - *Process level:* 0 differences in 36 comparisons. That is 6 calls in each of P1, P2 and R0, with and without the
+    map ([results/process-equivalence.json](probes/V2-D18-runtime/fail-closed/results/process-equivalence.json)).
+  - *Each intended difference* (`differences.mjs`, Windows): the old code shows the defect and the new does not, in all
+    7 cases. They are I1, I4 for one source, I4 for the whole file, I9, I11, I13 and I2. The copy's self-test carries
+    the same cases, so CI runs them on three systems.
+  - *The cap, live* (Haiku, CLI 2.1.311, `cap-probe.mjs`, `results/cap-probe-*.json`):
+    - *At 350 directories* (a session-start text of about 12,400 characters), the old copy's whole text arrived:
+      Claude quoted D23's line and named the true last directory. The new copy cut the index at 261 directories; Claude
+      quoted D23's line, the last listed directory and the cut line. So the new copy passes as registered.
+    - *Old copy at 450, 550, 700 and 1,400 directories* (about 16,300 to 49,000 characters): Claude saw a preview of
+      about 2,000 characters, cut after 28 directories, with no D23 line.
+    - *Old copy at 2,800 directories:* Claude answered in full, most likely after reading the saved file, since Read
+      was allowed.
+    - So the cliff is real. On this CLI it sits between about 12,400 and 16,300 characters, above the documented 10,000.
+  - *The guard stays at the documented 10,000.*
+    - Below the cliff, the guard loses only the index's tail, and says so.
+    - At the cliff, the whole collapse loses D23's line and all but 28 directories.
+    - The documented number is the platform's contract.
+    - *Trigger:* Claude Code documents another cap, or a probe finds the cliff below 10,000.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

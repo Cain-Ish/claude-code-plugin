@@ -1,0 +1,11 @@
+{
+ "directories": 2800,
+ "old": {
+  "cli": "2.1.311",
+  "loaded": true,
+  "sessionStartChars": [
+   98362
+  ],
+  "reply": "1. \"When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or document gives it.\"\n2. packages/package-999/. None of the lines in the document index starts with \"(\" and mentions \"more directories\", so there is no such line to quote."
+ }
+}
