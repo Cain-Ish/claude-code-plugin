@@ -21,7 +21,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms) | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); the user chose a two-part budget the same day (1 session on every machine, in CI; 8 concurrent on the reference machine, before each release) | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
@@ -1765,6 +1765,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - (c) Keep the bar as it is, and let the lane stay red as a visible weakness.
   - *Recommendation:* (a). It was proposed after the failure was seen, so under rule 2 it is the user's call, not this
     record's.
+- **User answer (2026-10-27): (a), the two-part budget.**
+- **Check for the re-lock (pre-registered 2026-10-27, before either part runs):**
+  - *CI, every machine it has:* the Windows lane's `bench.mjs` exits non-zero when any hook's added p95 at 1 session
+    is over 100 ms, or any call errors (`BENCH_GATE=1`). Pass: the lane is green on the push that sets it.
+  - *The reference machine* (the one 2a, D16 and 2g measured on; 32 logical processors): `bench.mjs` on P2 in D16's
+    load shape, 3 runs, with no eval running. Pass: every hook's added p95 at 8 concurrent is at most 100 ms in each
+    run, with 0 errors.
+  - *Before each release* the reference-machine part runs again on the release's hash, and its numbers go in the
+    release notes. That is how PM3's build check reads under this budget: CI gates one session, and the release gates
+    eight.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
