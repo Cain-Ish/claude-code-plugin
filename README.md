@@ -1,38 +1,66 @@
 # second-brain v2 (alpha)
 
-A Claude Code plugin that keeps Claude aware of what your project has already decided. Claude gets an index of the
-repo's own documents at every session start. Before it changes anything, it has to say which of them bear on the task
-and read those. Decisions stated during your sessions go into plain Markdown files that you review and commit like
-any other change.
+A Claude Code plugin that keeps Claude aware of what your project has already decided. At every session start, its
+hooks give Claude an index of the repo's own documents. At the first prompt they give it an instruction to say which
+of those documents bear on the task, and to read them before changing anything. It also tells Claude to record the
+decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
+change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.0`, a pre-release from branch `v2`, being prepared for release. It has been tested live on
-Windows, and its self-test passes on Windows, macOS and Linux in CI. v1 (0.57.1) is frozen on
-[`main`](https://github.com/Cain-Ish/claude-code-plugin).
+**Status:** `2.0.0-alpha.1`, a pre-release from branch `v2`.
+- It has been tested in live Claude Code sessions on Windows only.
+- On macOS and Linux, only its self-test has run, in CI.
+- v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
 
 ## What it does
 
 - **At session start**, and again after `/clear`, a resume or a compaction, Claude gets two things:
-  - an index of the repo's documents: every tracked `.md`, `.mdx`, `.markdown`, `.txt` and `.rst` file, by directory;
+  - an index of the repo's documents, by directory: every tracked `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`
+    file, plus every Markdown file in `.project-map/`, even one that is not committed or that `.gitignore` excludes;
   - a short instruction to keep the project's decisions in `.project-map/`.
-- **At the first prompt**, and at the first after each compaction, Claude states for each document directory whether
-  it bears on the task (yes or no). Then it reads the yes ones before it changes anything.
-- **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude adds it to
-  `.project-map/captured.md`, with its source and date.
-- **When Claude reads a map file**, a hook labels its entries:
+- **At the first prompt**, and at the first after each compaction, Claude is told to state for each document directory
+  whether it bears on the task (yes or no), and to read the yes ones before it changes anything.
+- **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude is told
+  to add it to `.project-map/captured.md`, with its source and date.
+- **When Claude reads a map file with the Read tool in the main session**, a hook labels its entries:
   - "unreviewed, not yet committed", until you commit them;
-  - an entry whose source names a repo file is checked against that file now. If its quote is not there word for
-    word, the label says so;
-  - any other entry is labelled "unverified quote", with its capture date.
-- **When it finishes a change**, Claude names the recorded decisions it followed and where each came from.
+  - an entry whose source names a repo file has each stretch of three or more words in its quote checked against that
+    file now. If the file is missing, or a stretch is not there word for word, the label says so, and a file that
+    cannot be read gets a label too. Shorter quotes, or stretches between ellipses, are not checked, and get no
+    label once committed;
+  - an entry whose source names no repo file is labelled "unverified quote", with its capture date;
+  - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
+
+  Reads by subagents, and text met through Grep or Bash, are not labelled.
+- **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
 your machine.
 
 ## What was measured, and what was not
 
-The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory. There were two
-setups: a front-end scenario run over several sessions (A1), and build, plan and question tasks in three real repos
-(two private ones, and this plugin's own v1 repo). Each cell is 10 runs.
+The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
+- *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on this release's own code.
+- *A2:* build, plan and question tasks in three real repos (two private ones, and this plugin's own v1 repo), 10 runs
+  per task.
+- *Three harder shapes,* 5 runs each: a first prompt that names a symptom, two compactions, and a task switch.
+
+A2 and the three shapes ran on an earlier build. Two later changes kept the hooks' output byte-identical on those
+repos:
+- a faster quote check: 123 library comparisons, including 20,400 random quotes;
+- this release's fixes: the same 123, plus 36 hook-process comparisons.
+
+  The one difference is by design: in 102 of the 123, a 200-entry map file's labels pass 10,000 characters, and are
+  now cut, with the rest of their text unchanged.
+
+Those changes alter the output only in edge cases that the self-test covers:
+- a session started in a subdirectory;
+- a map file or cited source that cannot be read;
+- a byte-order mark, or a UTF-16 map file;
+- a missing temp folder;
+- a map file renamed only in letter case;
+- a map file that `.gitignore` excludes;
+- a session-start text past 10,000 characters (an index of about 8,880 characters or more);
+- a map file whose labels pass 10,000 characters.
 
 **Where it helped:**
 - *A designer's spec, read in an earlier session:* kept in 10 of 10 runs (auto memory: 2), and followed in a fresh
@@ -41,7 +69,8 @@ setups: a front-end scenario run over several sessions (A1), and build, plan and
 - *A second person on the same repo* got the same decisions through the committed map. Auto memory is per user.
 - *Build and plan rules in the two repos whose rules are prose documents* were followed more often. One rule that auto
   memory never followed was followed in 10 of 10 runs.
-- *Across 57 rule cells,* the plugin was above auto memory's count in 17 and below it in 9.
+- *Across A2's 57 rule cells,* the plugin was above auto memory's count in 17 and level in 31. It was below in 9:
+  seven of those by one run of ten, two by two, and five of the nine on question tasks.
 
 **Where it did not:**
 - *Cost and steps.* They were the same as auto memory's on A1, not fewer. On the real repos they were mixed: lower on
@@ -54,53 +83,69 @@ setups: a front-end scenario run over several sessions (A1), and build, plan and
 - *Subagents* do not see the index.
 
 The results are in [docs/v2/06-first-slice.md](docs/v2/06-first-slice.md) (steps 2c to 2g), and the decisions behind
-them are in [docs/v2/DECISIONS.md](docs/v2/DECISIONS.md).
+them are in [docs/v2/DECISIONS.md](docs/v2/DECISIONS.md). The release review is in
+[docs/v2/research/2026-10-27-release-review.md](docs/v2/research/2026-10-27-release-review.md).
 
 ## Requirements
 
-- Claude Code (tested on 2.1.305 to 2.1.311);
-- Node 20 or later;
-- git. The index lists the files git tracks, so outside a git repo it is empty.
+- Claude Code: the evals ran on 2.1.305, and live checks on Windows on 2.1.305 to 2.1.311.
+- Node 20 or later.
+- git. Outside a git repo the index is empty.
+- On Windows, Git Bash: the session-start hook runs through bash, as Claude Code itself needs on Windows.
 
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.1 --scope project
 claude plugin install second-brain@second-brain-v2 --scope project
 ```
 
-`--scope project` writes `.claude/settings.json`, which your team shares once it is committed. To try the plugin only
-for yourself in one repo, use `--scope local` for both commands instead. Then start Claude in the repo.
-`/second-brain:onboard` reports what the index holds.
+- `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
+- To try the plugin only for yourself in one repo, use `--scope local` for both commands instead.
+- Start Claude at the repo's root. With a project-scope install, the plugin does not load when Claude starts in a
+  subdirectory (checked on 2.1.311). A local-scope install keeps its settings in the same root `.claude/` folder, so
+  expect the same.
+- `/second-brain:onboard` reports what the index holds.
 
 ## Review is the commit
 
 - The map is plain Markdown in `.project-map/`. Claude's changes to it stay in the working tree. You review them in
   `git diff` and commit them with the work.
-- Until an entry is committed, every read labels it unreviewed. That is how text Claude captured from a document it
-  read stays visible as unchecked.
+- Until an entry is committed, a Read of its file labels it unreviewed. That is how text Claude captured from a
+  document it read stays visible as unchecked.
 - If you leave `.project-map/` out of your commits, its entries stay in your working tree only, still labelled. No
   other clone or teammate sees them.
 - Edit or delete entries as you like. The plugin keeps no other state.
 
 ## What it writes
 
-- `.project-map/*.md` in your repo, written by Claude under the capture instruction.
-- One empty marker file per session in the OS temp folder (`project-map-<session>.pending`). The session's first
-  prompt removes it.
-
-Nothing else.
+- *At run time:*
+  - `.project-map/*.md` in your repo, written by Claude under the capture instruction;
+  - one empty marker file per session in the OS temp folder (`project-map-<session>.pending`). The session's first
+    prompt removes it, so a session that ends before any prompt leaves its marker behind.
+- *Installing and uninstalling* change `.claude/settings.json` (or `settings.local.json`) and Claude Code's plugin
+  cache.
 
 ## What it costs your machine
 
-- *Hook latency on Windows,* measured as the p95 added over an empty Node process. The repo was one of 8,057 files
-  and 190 documents, or a synthetic repo of the same shape, with map entries citing 1.26 MB of documents:
-  - *one session, on GitHub's 4-core runner* (CI gates this at 100 ms): session start 49 to 68 ms, a map read 62 to
-    80 ms, every other hook under 20 ms;
-  - *8 sessions at once, on a 32-thread machine* (checked at 100 ms before each release): session start 42 to 82 ms,
-    a map read 51 to 86 ms, every other hook under 35 ms;
-  - *8 sessions at once, on the 4-core runner:* session start and a map read take 143 to 260 ms, over the budget. On a
-    small machine running many sessions, expect each session start and map read to take a few tenths of a second.
+- *Hook latency.* "Added" is the p95 over an empty Node process. "Wall clock" includes Node's start, which each hook
+  pays. The repo had 8,057 files and 190 documents, or was a synthetic repo of the same shape, with map entries citing
+  1.26 MB of documents. Figures are ms, added / wall clock:
+
+  | Where | Session start | Map read | Other hooks |
+  | --- | --- | --- | --- |
+  | 1 session, GitHub's Windows runner (4 cores) | 65 / 113 | 73 / 122 | 18 / 66 at most |
+  | 1 session, GitHub's macOS runner (3 cores) | 33 / 73 | 44 / 88 | 14 / 64 at most |
+  | 1 session, GitHub's Linux runner (4 cores) | 21 / 43 | 25 / 47 | 8 / 31 at most |
+  | 8 at once, a 32-thread Windows machine (3 runs) | 46 to 67 / 104 to 143 | 57 to 72 / 119 to 155 | 26 / 94 at most |
+  | 8 at once, the same three runners | 75 to 201 / 168 to 396 | 110 to 230 / 213 to 447 | 87 / 247 at most |
+
+  - Session start also starts bash once, since its hook runs in shell form: about 22 ms more at one session on the
+    32-thread machine.
+  - CI fails the build when the one-session added time passes 100 ms.
+  - The 8-at-once added time on the 32-thread machine is checked at 100 ms before each release.
+  - On the small runners at 8 at once, the heavier hooks are over that budget. On a 3- or 4-core machine that runs
+    many sessions at once, expect each session start and map read to take a few tenths of a second.
 - *Context, always on:* 904 B and 212 B per session plus the index (2 to 6 KB in the tested repos), and 227 B for each
   forced decision.
 
@@ -108,8 +153,23 @@ Nothing else.
 
 - **Without Node,** session start says so once. After that, every prompt and every file read shows a hook error.
   Install Node 20 or later, or disable the plugin.
+- **A large index is cut.** Claude Code documents a 10,000-character limit for one hook's output. Once the
+  session-start text would pass it (an index of about 8,880 characters, roughly 250 one-document directories), the
+  index lists as many directories as fit, and says how many more there are. Onboarding warns. The forced decision
+  then covers only the listed directories. On 2.1.311 the real limit sat higher, between about 12,400 and 16,300
+  characters. Past it, Claude saw only a 2,000-character preview.
+- **A very large map file's labels are cut.** Past the same 10,000-character limit (about 150 or more labelled
+  entries in one file), the read hook lists as many labels as fit. It then tells Claude to treat every later entry in
+  that file as unreviewed and unverified. Splitting a long `captured.md` into several files keeps every label.
 - **The forced decision** adds a step at the start of each session and after each compaction, even for a question.
+- **An automatic compaction in the middle of a turn** lets that turn keep writing before the next prompt brings the
+  forced decision back.
 - **The closing line** about decisions followed appears even where nothing applies ("none").
+- **Letter case** is ignored on Windows and macOS when listing map files, by operating system rather than by the
+  file system. A case-sensitive macOS volume, or a case-insensitive mount under Linux, can list a file renamed only in
+  case twice, or miss the difference.
+- **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
+  name `second-brain-v2`, so only one of them can be registered on a machine.
 
 ## Uninstall
 
