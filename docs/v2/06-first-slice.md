@@ -1395,3 +1395,24 @@ the filtered code.
 - *Not run:* A1 and the live check. Records: `V2-D18-runtime/results/2g/ref-alpha2-attempt3-pair1*.json`.
 - **Three failed attempts.** 2h stops and goes back to the user, as registered. `plugin/` stays at `3c46826f115b`,
   unpublished. The published release is still `2.0.0-alpha.1`.
+
+### 2h, attempt 4: registered (2026-10-27, before any of its runs). The user's choice; the last
+
+The user chose a fourth attempt (rule 4: a near miss with a known cause), with the reference machine's reference
+state defined first (D18's record). If it fails, 2h goes back to the user, and there is no attempt 5.
+
+- **The product stays `3c46826f115b`.** Checks 1 to 5, check 8 and D18's paired check stand: they passed.
+- **Check 7, the reference machine, in its reference state:**
+  - before each pair, a 10-second CPU sample is taken. Above 10%, no pair runs; the sample repeats after a pause, for
+    at most 3 hours;
+  - in each pair, `bench.mjs` runs on P2 for alpha.1 (the control), then alpha.2;
+  - a pair is valid only when every empty-Node p95 at 8 concurrent, in both runs, is at most 100 ms;
+  - an invalid pair is repeated, not scored, up to 6 pairs. If fewer than 3 are valid, there is no result, and the
+    check waits again;
+  - *Pass:* in each of 3 valid pairs, alpha.2's hooks are each at most 100 ms added at 8 concurrent, with 0 errors. A
+    valid pair in which alpha.2 is over the bar fails the attempt. A control over the bar in a valid pair is recorded,
+    since it fires D18's trigger for the release.
+- **Check 6, A1** on `3c46826f115b`, after check 7. *Pass:* every pass item at its bar, as in 2g attempt 5.
+- **Check 9, the live check,** during A1. *Pass:* `live.mjs` passes, and the user's registry matches its backup.
+- **On a pass, publish** (the user's yes): the README, the tag `v2.0.0-alpha.2` and the pre-release in one push; then
+  an install from the tag in an isolated config, which must hash to `3c46826f115b`.
