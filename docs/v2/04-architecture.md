@@ -20,7 +20,7 @@ index lists too (V2-D14, D13). Everything a person needs is readable and correct
 
 ## Hooks
 
-Node 20, exec form, one script per event, at most 100 ms of added p95 at 8 concurrent sessions (V2-D18). `SessionStart`
+Node 20, exec form, one script per event, at most 100 ms of added p95 at 1 session on every tested machine, and at 8 concurrent sessions on the reference machine (V2-D18, re-locked 2026-10-27). `SessionStart`
 runs in shell form once and says when Node is missing.
 
 | Event | What it does | Bytes | Reaches (D12) | Outcome served |
@@ -68,6 +68,9 @@ Node and git are present. A repo with no documents gets an empty index and an em
 - **The index build at session start** (from git's file list, no cache) adds 60 to 82 ms p95 at 8 concurrent on P2
   in three runs, with one git call since 2026-10-26. With two calls it measured 87 to 112 ms. A repo with a much
   larger file list may pass D18's 100 ms; a cache is the fallback (build step 2a).
+- **Small machines with many sessions.** On a 4-core runner at 8 concurrent, session start and a map read add 143 to
+  260 ms p95, against at most 100 ms at 1 session there and at 8 concurrent on the reference machine (D18's two-part
+  budget, by the user's choice).
 - **Friction.** A forced decision at the session's first prompt and after each compaction. A new task in the same
   session gets none until the next compaction (2e's task switch, above).
 - **Pattern rules on Opus.** P1 R2 was missed under every pull arm and under a self-review; only a hand-written check

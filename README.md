@@ -93,11 +93,14 @@ Nothing else.
 
 ## What it costs your machine
 
-- *Hook latency on Windows,* measured as the p95 added over an empty Node process, with 8 sessions at once. The repo
-  had 8,057 files and 190 documents:
-  - session start: 60 to 82 ms;
-  - a read of a map file whose entries cite 1.26 MB of documents: 83 to 86 ms;
-  - every other hook: under 35 ms.
+- *Hook latency on Windows,* measured as the p95 added over an empty Node process. The repo was one of 8,057 files
+  and 190 documents, or a synthetic repo of the same shape, with map entries citing 1.26 MB of documents:
+  - *one session, on GitHub's 4-core runner* (CI gates this at 100 ms): session start 49 to 68 ms, a map read 62 to
+    80 ms, every other hook under 20 ms;
+  - *8 sessions at once, on a 32-thread machine* (checked at 100 ms before each release): session start 42 to 82 ms,
+    a map read 51 to 86 ms, every other hook under 35 ms;
+  - *8 sessions at once, on the 4-core runner:* session start and a map read take 143 to 260 ms, over the budget. On a
+    small machine running many sessions, expect each session start and map read to take a few tenths of a second.
 - *Context, always on:* 904 B and 212 B per session plus the index (2 to 6 KB in the tested repos), and 227 B for each
   forced decision.
 
