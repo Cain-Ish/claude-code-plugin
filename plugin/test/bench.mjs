@@ -54,5 +54,7 @@ for (const c of (process.env.BENCH_CONCURRENCY ?? '1,8').split(',').map(Number))
 }
 for (const f of fs.readdirSync(os.tmpdir())) if (/^project-map-bench-\d+\.pending$/.test(f)) fs.rmSync(path.join(os.tmpdir(), f), { force: true });
 console.log(JSON.stringify(result, null, 1));
-// D18's bar, as the Windows lane checks it (PM3): no failed call, and added p95 at most 100 ms at 8 concurrent
-process.exitCode = Object.entries(result).some(([k, v]) => v.errors || (k.endsWith('@8') && v.addedP95 > 100)) ? 1 : 0;
+// D18's bar (PM3): no failed call, and added p95 at most 100 ms at the gated level. D18's two-part budget (2026-10-27):
+// 8 concurrent on the reference machine before a release (the default), 1 session in CI (BENCH_GATE=1)
+const gate = `@${process.env.BENCH_GATE ?? '8'}`;
+process.exitCode = Object.entries(result).some(([k, v]) => v.errors || (k.endsWith(gate) && v.addedP95 > 100)) ? 1 : 0;

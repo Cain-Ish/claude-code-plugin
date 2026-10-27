@@ -1,5 +1,7 @@
 # second-brain v2 (06, build step 2g): the self-test on three systems at the plugin's Node floor, and D18's load bar
 # on Windows (PM3, PM8), on a synthetic repo of P2's shape that was calibrated against P2 before this lane ran.
+# D18's two-part budget (2026-10-27): this lane gates 1 session; 8 concurrent is gated on the reference machine before
+# each release, and the runner's numbers at its core count and at 8 are reported only.
 name: v2
 on:
   push:
@@ -36,8 +38,7 @@ jobs:
           node-version: 20
       - run: node plugin/test/fixture.mjs "$RUNNER_TEMP/p2-shape"
       - run: node plugin/test/benchmap.mjs "$RUNNER_TEMP/p2-shape"
-      # also at as many sessions as the runner has logical cores, reported only (D18 reopened, 2026-10-27)
       - run: |
           c=$(node -p "require('os').cpus().length")
           if [ "$c" = 1 ] || [ "$c" = 8 ]; then levels=1,8; else levels=1,$c,8; fi
-          BENCH_CONCURRENCY=$levels node plugin/test/bench.mjs "$RUNNER_TEMP/p2-shape" 200
+          BENCH_GATE=1 BENCH_CONCURRENCY=$levels node plugin/test/bench.mjs "$RUNNER_TEMP/p2-shape" 200
