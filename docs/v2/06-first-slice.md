@@ -1416,3 +1416,19 @@ state defined first (D18's record). If it fails, 2h goes back to the user, and t
 - **Check 9, the live check,** during A1. *Pass:* `live.mjs` passes, and the user's registry matches its backup.
 - **On a pass, publish** (the user's yes): the README, the tag `v2.0.0-alpha.2` and the pre-release in one push; then
   an install from the tag in an isolated config, which must hash to `3c46826f115b`.
+
+### 2h, attempt 4: check 7 passes (2026-10-27)
+
+- The driver waited about 65 minutes for a quiet machine: 29 samples between 22% and 31%, mostly the DNS client
+  service in bursts.
+- It then ran 3 pairs, all valid (CPU 4.9%, 6.7% and 6.3%; every empty-Node p95 at 8 concurrent 72.5 to 93.2 ms).
+  Added p95 at 8 concurrent, with wall clock after the slash:
+
+  | Pair | alpha.1 session start | alpha.2 session start | alpha.1 map read | alpha.2 map read | alpha.2 prompt | alpha.2 another read |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 1 | 42.1 | 44.2 / 126.2 | 63.8 | 58.3 / 135.7 | 24.5 | 25.3 |
+  | 2 | 41.6 | 41.6 / 119.7 | 62.2 | 51.0 / 136.4 | 24.5 | 24.9 |
+  | 3 | 55.9 | 37.4 / 117.8 | 82.8 | 60.6 / 135.2 | 23.5 | 25.0 |
+
+  0 errors. *Pass.* Records: `V2-D18-runtime/results/2g/reference-3c46826f115b-*.json`, the controls beside them.
+- *Check 6, A1,* started right after.

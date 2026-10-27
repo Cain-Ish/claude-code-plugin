@@ -1,0 +1,62 @@
+{
+ "calls": 200,
+ "platform": "win32",
+ "node": "v24.19.0",
+ "cores": 32,
+ "session-start@1": {
+  "errors": 0,
+  "p50": 60.2,
+  "p95": 80.5,
+  "emptyP95": 41.2,
+  "addedP95": 39.3
+ },
+ "prompt@1": {
+  "errors": 0,
+  "p50": 37.5,
+  "p95": 56.8,
+  "emptyP95": 51.6,
+  "addedP95": 5.2
+ },
+ "read-other@1": {
+  "errors": 0,
+  "p50": 36.6,
+  "p95": 39.4,
+  "emptyP95": 34,
+  "addedP95": 5.5
+ },
+ "read-map@1": {
+  "errors": 0,
+  "p50": 67.5,
+  "p95": 85.8,
+  "emptyP95": 33.7,
+  "addedP95": 52.1
+ },
+ "session-start@8": {
+  "errors": 0,
+  "p50": 93.3,
+  "p95": 117,
+  "emptyP95": 74.9,
+  "addedP95": 42.1
+ },
+ "prompt@8": {
+  "errors": 0,
+  "p50": 72,
+  "p95": 99.4,
+  "emptyP95": 75,
+  "addedP95": 24.3
+ },
+ "read-other@8": {
+  "errors": 0,
+  "p50": 73.2,
+  "p95": 101,
+  "emptyP95": 82.6,
+  "addedP95": 18.4
+ },
+ "read-map@8": {
+  "errors": 0,
+  "p50": 106.6,
+  "p95": 139.5,
+  "emptyP95": 75.7,
+  "addedP95": 63.8
+ }
+}
