@@ -1133,4 +1133,10 @@ passes. If it fails, the release stops, and 2g goes back to the user. There is n
 8. *The 2f live check:* `live.mjs` passes. The scratch install was removed, and the user's registry matched its backup.
 9. *The live label probe* at 301 entries: the labels arrived whole (10,199 characters of hook output, no spill file
    read). *Pass.*
-10. *Gemini on the diff:* running.
+10. *Gemini on the diff:* "nothing blocks", and no point fires a trigger. It checked the cut loops' bounds and counts.
+    Two cosmetic points:
+    - the labels' cut line reads "1 more labels" when one is left. It appears only past the cap, and is accepted for
+      the next version;
+    - the README's UTF-16 line is accurate as it stands, since it lists what the self-test covers.
+
+    *Pass.*
