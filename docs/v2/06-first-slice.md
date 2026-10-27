@@ -947,3 +947,6 @@ Added p95 at 8 concurrent, medians of 3 interleaved runs (fixture, then P2), on 
 - **As registered,** this is a failed 2g attempt. The bar does not move, and the numbers are disclosed here.
 - **D18's trigger fired** ("another machine"), so D18 is reopened. 2g waits for it. This is 2g's second failed attempt,
   so a third would be the last before going up a level (rule 4), and D18 is that level.
+- **The diagnostic run** (the same lane, also at the runner's 4 logical cores) is in D18's record. At 1 session every
+  hook stays under 100 ms. At 4 concurrent, session start (109.8 ms) and the map read (161.9) are over the bar. At 8
+  concurrent, even the prompt hook adds 101.4 ms. The options for D18 go to the user.

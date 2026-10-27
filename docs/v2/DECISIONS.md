@@ -1743,6 +1743,28 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *What was never stated:* the hardware the bar applies to. It was measured on one machine, and "another machine"
     was its trigger.
   - The release waits for this decision (06, 2g). Its options go to the user with a diagnostic run's numbers.
+  - *The diagnostic run (2026-10-27).* The same lane, also at as many sessions as the runner has logical cores (4).
+    Added p95 in ms, at 1 / 4 / 8 concurrent, 0 errors:
+    - session start: 67.7 / 109.8 / 259.5;
+    - prompt: 17.0 / 50.7 / 101.4;
+    - a read of another file: 15.6 / 38.1 / 120.0;
+    - the map read: 79.7 / 161.9 / 218.1.
+  - *What it shows:*
+    - Hosted runners vary: at 8 concurrent, session start measured 145.5 ms in the first run and 259.5 in this one.
+    - Even at concurrency equal to the cores, two hooks are over 100 ms.
+    - At 8 concurrent, the prompt hook, which does almost no work, adds 48 to 101 ms. So cutting git calls or caching
+      cannot bring the heavier hooks under 100 ms there.
+    - At 1 session, every hook stays under 100 ms in both runs (at most 79.7 ms).
+  - *Options:*
+    - (a) A budget in two parts: at most 100 ms at 1 session on every tested machine, which CI gates; and at most
+      100 ms at 8 concurrent on the reference machine, run locally before each release, as in 2a and D16. The
+      runner's numbers at 8 are then a stated weakness.
+    - (b) Keep 100 ms at 8 concurrent everywhere, and cut work: a cache, or no git in the hot paths. That is a new
+      epoch, with the equivalence check and A1 again, and the prompt hook's numbers say it cannot reach the bar on
+      such a runner.
+    - (c) Keep the bar as it is, and let the lane stay red as a visible weakness.
+  - *Recommendation:* (a). It was proposed after the failure was seen, so under rule 2 it is the user's call, not this
+    record's.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
