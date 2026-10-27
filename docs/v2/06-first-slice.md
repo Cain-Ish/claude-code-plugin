@@ -1024,3 +1024,21 @@ If attempt 3 fails, 2g goes back to this plan, with the user.
   repo's root, and did not load it in a subdirectory.
 - **Still to run:** A1 on `a84a31665af3`, which is running; the 2f live check; and Gemini on the diff and the final
   README.
+
+### 2g, attempt 3: result (2026-10-27): pass
+
+- **A1 on `a84a31665af3`:** 10 of 10 valid, in one epoch (CLI 2.1.305, Opus 5.5, inputs `108861b749cb`), 13.15 USD.
+  - For both variants, C1 to C4, T1 to T4 (final and at the first write), T5f, and N1 to N3 are all at 10.
+  - Over-attribution: 0 runs.
+  - Orientation and cost show no gain, as before, and stay under M1's no-worse ceilings. Medians, second person and
+    then same person: 12 and 12 tool calls before the first write; 11 and 11 files read; T tokens 133,748 and 138,179;
+    output 4,280 and 4,497; T cost 0.206 and 0.223 USD.
+  - Results: `V2-D17-eval/results/V2-opus-alpha1.json` and `summary-opus-alpha1.json`.
+- **The 2f live check on `a84a31665af3`:** `live.mjs` passes (CLI 2.1.311, project scope, local marketplace). The
+  scratch install was removed, and the user's registry matched its backup.
+- **Gemini 4 Argon on the diff and the final README:** "nothing blocks". Its points are fixed or accepted in the
+  release-review note's second round.
+- **Together with the D18 check, the reference machine and CI recorded above,** every pass condition of attempt 3
+  holds. D18 and D14 are re-locked.
+- **What is left:** the release notes go to the user. The tag and pre-release wait for their yes, then go up with the
+  README that installs from the tag.
