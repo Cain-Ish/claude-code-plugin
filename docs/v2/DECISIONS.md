@@ -1899,6 +1899,27 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *J3, live:* `label-cap-probe.mjs` at 301 entries. Pass: the label text arrives whole, under the cap, and holds the
     fail-closed line.
 - **D14** is reopened by the same trigger (J4), and re-locks unchanged when this check passes.
+- **Check results (2026-10-27),** on the copy `probes/V2-D18-runtime/fail-closed-2/plugin` (hash `da81530cb1c3`):
+  - *Each intended difference:* pass (`fail-closed-2/differences.mjs`). The old code shows the defect and the new does
+    not, in all 4:
+    - J1: the cut on 10,000 directories took 1,016 ms before and 1 ms now;
+    - J2: the map's line is now listed after a cut;
+    - J3: the labels of 301 entries went from 17,052 characters to 9,945, ending in the fail-closed line;
+    - J4: a UTF-16LE map file now gets its labels.
+
+    The copy's self-test carries the same cases, and its stronger lint caught three sabotaged copies (an
+    `execFileSync` import, a double-quoted `node:net` import, `new Function`).
+  - *Process level:* 0 differences in 36 comparisons.
+  - *J3, live:* the labels of 301 entries arrived whole (10,199 characters of hook output, no spill file read), and
+    Claude saw the 175 labels shown. Pass.
+  - *Map level: the registered condition was not met.* 102 of the 123 comparisons differ.
+    - The suite's 34 random map files per repo hold 200 entries each, so their labels pass 10,000 characters, which is
+      where J3 changes the output by design. The registration missed that.
+    - *Counted after the result (disclosed):* every one of the 102 is exactly J3's cut. The old text was past the cap;
+      the new text keeps its first label lines unchanged, then one fail-closed line (\`equivalence.mjs\` with
+      \`EQ_CUT=1\`). The other 21 comparisons are byte-identical.
+    - Under rule 2, a pass condition changed after the result counts as a failed attempt. So this check fails as a
+      near miss with a known cause.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

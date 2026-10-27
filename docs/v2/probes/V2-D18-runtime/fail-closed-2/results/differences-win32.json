@@ -1,0 +1,27 @@
+{
+ "J1ms": {
+  "old": 1016,
+  "new": 1
+ },
+ "J1": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "J2": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "J3chars": {
+  "old": 17052,
+  "new": 9945
+ },
+ "J3": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "J4": {
+  "oldShowsDefect": true,
+  "newFixed": true
+ },
+ "pass": true
+}

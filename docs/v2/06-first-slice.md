@@ -1067,3 +1067,19 @@ If attempt 3 fails, 2g goes back to this plan, with the user.
 - **The README** adds the bash start to the session-start wall clock (J5), and the labels' cut as a known issue.
 - **Then** the release notes and the user's yes, since the hash has changed again.
 - **Pass:** all of the above.
+
+### 2g, attempt 4: result (2026-10-27): failed, a near miss with a known cause; back to the user
+
+- *Passed:* D18's check passed on every part but one (D18's record):
+  - the 4 intended differences;
+  - process-level equivalence (0 of 36);
+  - the live label probe;
+  - the self-test with the new cases and the stronger lint.
+- *Failed:* the registered map-level condition, "0 differences". 102 of 123 comparisons differ. The suite's 200-entry
+  random files pass the cap, where J3 changes the output by design, and the registration missed it.
+- *Verified after the result:* every one of the 102 is exactly J3's cut, and the rest are byte-identical. That makes
+  this a failed attempt (rule 2): the third, after 1 and 2.
+- *Not run on this candidate:* the move into `plugin/`, A1, the reference machine, CI, the live check, and Gemini on
+  the diff.
+- *What attempt 4's registration says:* a failure takes 2g back to this plan, with the user. Rule 4 allows a fourth
+  failed-attempt retry only after a near miss with a known cause, which this is. Whether to take it is the user's call.

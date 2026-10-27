@@ -1,0 +1,17 @@
+{
+ "compared": 123,
+ "notFound": 10254,
+ "found": 10824,
+ "cutAtCap": 102,
+ "P1": {
+  "quotes": 6800
+ },
+ "P2": {
+  "quotes": 6800
+ },
+ "R0": {
+  "quotes": 6800
+ },
+ "differences": 0,
+ "differing": []
+}

@@ -22,7 +22,20 @@ const entry = (i, quote, src) => `### q${i}\n> ${quote}\n\n- source: ${src}, 202
 
 const out = {};
 const differ = [];
-const same = (what, a, b) => { out.compared = (out.compared ?? 0) + 1; if (a !== b) differ.push(what); };
+// EQ_CUT=1 (06, 2g attempt 4): a difference that is exactly the labels' cut at the 10,000-character cap (the old text
+// past the cap; the new one its first label lines, unchanged, then one fail-closed line) is counted apart
+const CUT_LINE = /^\(\d+ (more )?labels not shown: treat every entry (after entry \d+ )?in this file as unreviewed and unverified\.\)$/;
+const isCut = (a, b) => {
+  if (a.length <= 10_000 || b.length > 10_000) return false;
+  const [na, nb] = [a.trimEnd().split('\n'), b.trimEnd().split('\n')];
+  return CUT_LINE.test(nb.at(-1)) && nb.slice(0, -1).every((l, i) => l === na[i]) && nb.length - 1 < na.length;
+};
+const same = (what, a, b) => {
+  out.compared = (out.compared ?? 0) + 1;
+  if (a === b) return;
+  if (process.env.EQ_CUT && isCut(a, b)) out.cutAtCap = (out.cutAtCap ?? 0) + 1;
+  else differ.push(what);
+};
 const mapDir = (repo) => path.join(repo, '.project-map');
 const write = (repo, name, entries) => { fs.mkdirSync(path.dirname(path.join(mapDir(repo), name)), { recursive: true }); fs.writeFileSync(path.join(mapDir(repo), name), entries.join('\n')); };
 const compareLabels = (label, repo, name) => {
