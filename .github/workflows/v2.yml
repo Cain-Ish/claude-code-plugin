@@ -26,8 +26,13 @@ jobs:
         with:
           node-version: 20
       - run: node plugin/test/selftest.mjs
+  # on every system CI has, as D18's one-session part says (the release review's I7)
   load:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
