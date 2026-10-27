@@ -1460,3 +1460,19 @@ Every check of 2h passes:
 
 So, by the user's yes, `2.0.0-alpha.2` (`3c46826f115b`) is published: the README, the tag `v2.0.0-alpha.2` and the
 GitHub pre-release. The install-from-tag check follows.
+
+### 2h: published (2026-10-27)
+
+- The pre-release [v2.0.0-alpha.2](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.2) is
+  published, from commit `22c0258`. The README and the tag went up in one push. The release notes carry PM7's count.
+- *Install from the tag* (`claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.2`), in an isolated
+  Claude config:
+  - the cached copy is version `2.0.0-alpha.2`, and its product files hash to `3c46826f115b`, the hash every 2h check
+    ran;
+  - the uninstall and the marketplace removal succeeded;
+  - the user's registry files are unchanged (their checksums match).
+- *The step took four attempts,* none failed by the product:
+  1. a tail in one CI run;
+  2. a two-sided band;
+  3. a pair on a busy machine;
+  4. after the user defined the reference state.

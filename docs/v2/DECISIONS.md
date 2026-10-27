@@ -37,9 +37,11 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   - the two missing probes (`SessionStart` on `clear` and `resume`; the read hook inside subagents);
   - then the eval re-baselined on Opus 5.5, with the added shapes and the investigation tasks' answer assertions.
 - **The first slice is released (2026-10-27):** the pre-release
-  [v2.0.0-alpha.1](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.1), at plugin hash
-  `da81530cb1c3` (06, 2g).
-  - *Open:* the two items carried to the next version (06, 2g, published), and the standing weaknesses in 04.
+  [v2.0.0-alpha.1](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.1) at plugin hash
+  `da81530cb1c3` (06, 2g), then
+  [v2.0.0-alpha.2](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.2) at `3c46826f115b`,
+  with the two carried items (06, 2h).
+  - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
   - *Deferred:* D20's net.
 
 ---
