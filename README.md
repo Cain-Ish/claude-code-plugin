@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.1`, a pre-release from branch `v2`.
+**Status:** `2.0.0-alpha.2`, a pre-release from branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
@@ -44,20 +44,21 @@ The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Cod
   per task.
 - *Three harder shapes,* 5 runs each: a first prompt that names a symptom, two compactions, and a task switch.
 
-A2 and the three shapes ran on an earlier build. Two later changes kept the hooks' output byte-identical on those
+A2 and the three shapes ran on an earlier build. Three later changes kept the hooks' output byte-identical on those
 repos:
 - a faster quote check: 123 library comparisons, including 20,400 random quotes;
-- this release's fixes: the same 123, plus 36 hook-process comparisons.
+- alpha.1's fixes: the same 123, plus 36 hook-process comparisons.
 
   The one difference is by design: in 102 of the 123, a 200-entry map file's labels pass 10,000 characters, and are
   now cut, with the rest of their text unchanged.
+- alpha.2's changes: the same 123 and 36, with no difference.
 
 Those changes alter the output only in edge cases that the self-test covers:
 - a session started in a subdirectory;
 - a map file or cited source that cannot be read;
 - a byte-order mark, or a UTF-16 map file;
 - a missing temp folder;
-- a map file renamed only in letter case;
+- a map file renamed only in letter case, now folded as git's `core.ignorecase` says;
 - a map file that `.gitignore` excludes;
 - a session-start text past 10,000 characters (an index of about 8,880 characters or more);
 - a map file whose labels pass 10,000 characters.
@@ -96,7 +97,7 @@ them are in [docs/v2/DECISIONS.md](docs/v2/DECISIONS.md). The release review is 
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.1 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.2 --scope project
 claude plugin install second-brain@second-brain-v2 --scope project
 ```
 
@@ -134,16 +135,20 @@ claude plugin install second-brain@second-brain-v2 --scope project
 
   | Where | Session start | Map read | Other hooks |
   | --- | --- | --- | --- |
-  | 1 session, GitHub's Windows runner (4 cores) | 65 / 113 | 73 / 122 | 18 / 66 at most |
-  | 1 session, GitHub's macOS runner (3 cores) | 33 / 73 | 44 / 88 | 14 / 64 at most |
-  | 1 session, GitHub's Linux runner (4 cores) | 21 / 43 | 25 / 47 | 8 / 31 at most |
-  | 8 at once, a 32-thread Windows machine (3 runs) | 46 to 67 / 104 to 143 | 57 to 72 / 119 to 155 | 26 / 94 at most |
-  | 8 at once, the same three runners | 75 to 201 / 168 to 396 | 110 to 230 / 213 to 447 | 87 / 247 at most |
+  | 1 session, GitHub's Windows runner (4 cores, 2 runs) | 66 to 69 / 116 to 122 | 70 to 87 / 118 to 148 | 17 / 68 at most |
+  | 1 session, GitHub's macOS runner (3 cores, 2 runs) | 30 to 58 / 62 to 120 | 33 to 56 / 64 to 105 | 14 / 68 at most |
+  | 1 session, GitHub's Linux runner (4 cores, 2 runs) | 18 to 25 / 37 to 50 | 21 to 32 / 41 to 56 | 11 / 36 at most |
+  | 8 at once, a 32-thread Windows machine (3 runs) | 37 to 44 / 118 to 126 | 51 to 61 / 135 to 136 | 25 / 103 at most |
+  | 8 at once, the same three runners | 61 to 209 / 137 to 396 | 86 to 217 / 165 to 436 | 97 / 253 at most |
 
   - Session start also starts bash once, since its hook runs in shell form: about 22 ms more at one session on the
     32-thread machine.
   - CI fails the build when the one-session added time passes 100 ms.
-  - The 8-at-once added time on the 32-thread machine is checked at 100 ms before each release.
+  - The 8-at-once added time on the 32-thread machine is checked at 100 ms before each release, with the machine
+    idle: CPU at most 10% before each run.
+  - One CI run in this release's checks went over 100 ms at one session (114 ms at session start on Windows) through
+    a few slow calls; its median was as usual. Timed in pairs on the same runner, this release costs no more than
+    alpha.1.
   - On the small runners at 8 at once, the heavier hooks are over that budget. On a 3- or 4-core machine that runs
     many sessions at once, expect each session start and map read to take a few tenths of a second.
 - *Context, always on:* 904 B and 212 B per session plus the index (2 to 6 KB in the tested repos), and 227 B for each
@@ -165,9 +170,12 @@ claude plugin install second-brain@second-brain-v2 --scope project
 - **An automatic compaction in the middle of a turn** lets that turn keep writing before the next prompt brings the
   forced decision back.
 - **The closing line** about decisions followed appears even where nothing applies ("none").
-- **Letter case** is ignored on Windows and macOS when listing map files, by operating system rather than by the
-  file system. A case-sensitive macOS volume, or a case-insensitive mount under Linux, can list a file renamed only in
-  case twice, or miss the difference.
+- **Letter case** in map file names is folded as git's `core.ignorecase` says, ASCII letters only, as git does. It
+  is read from the repo's own config file, where `git init` and `git clone` set it. A value set only in your global
+  or system git config, in an included file or in `config.worktree` is not read. Only plain spellings are read: a
+  bare `ignorecase`, `true`, `yes`, `on` or a whole number other than 0 count as true. Git's other spellings of true,
+  such as `1k`, `0x1` or a value continued with `\`, count as false here, and a partly quoted value is skipped, so
+  the line above it stands.
 - **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
   name `second-brain-v2`, so only one of them can be registered on a machine.
 
