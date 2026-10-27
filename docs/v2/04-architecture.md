@@ -20,7 +20,7 @@ index lists too (V2-D14, D13). Everything a person needs is readable and correct
 
 ## Hooks
 
-Node 20, exec form, one script per event, at most 100 ms of added p95 at 1 session on every tested machine, and at 8 concurrent sessions on the reference machine (V2-D18, re-locked 2026-10-27). `SessionStart`
+Node 20, exec form, one script per event, at most 100 ms of added p95 at 1 session on every tested machine, and at 8 concurrent sessions on the reference machine in its reference state: a CPU sample of at most 10% before each run, and empty Node at most 100 ms p95 (V2-D18, its last re-lock of 2026-10-27). `SessionStart`
 runs in shell form once and says when Node is missing. Every hook takes the git toplevel (the nearest folder holding
 `.git`) as the repo's root, so a session started in a subdirectory sees the whole index (D18, 2026-10-27).
 
@@ -41,7 +41,7 @@ Node and git are present. A repo with no documents gets an empty index and an em
 ## Budgets (PM8)
 
 - Always on, per session: 904 B plus the index (2 KB in P1, 6 KB in P2), plus 227 B per forced decision.
-- Hooks: added p95 at most 100 ms at 8 concurrent, on Windows (V2-D18).
+- Hooks: added p95 at most 100 ms at 1 session on every CI machine, and at 8 concurrent on the reference machine in its reference state (V2-D18).
 - Surface: 3 hook events, 1 command, 0 agents, 0 MCP servers, 0 skills.
 
 ## Known weaknesses, each with its trigger
