@@ -950,3 +950,47 @@ Added p95 at 8 concurrent, medians of 3 interleaved runs (fixture, then P2), on 
 - **The diagnostic run** (the same lane, also at the runner's 4 logical cores) is in D18's record. At 1 session every
   hook stays under 100 ms. At 4 concurrent, session start (109.8 ms) and the map read (161.9) are over the bar. At 8
   concurrent, even the prompt hook adds 101.4 ms. The options for D18 go to the user.
+
+### 2g, attempt 2: result (2026-10-27): failed in the release review
+
+- *Passed:* A1 on `61964f9bbb40`, the live checks, the calibration, and CI at D18's two-part budget.
+- *Failed:* two of the pass conditions.
+  - "The README states only what the runs show" did not hold. Both reviews found overstatements and omissions in it
+    ([research/2026-10-27-release-review.md](research/2026-10-27-release-review.md)).
+  - The review found product defects that fire D18's and D14's triggers (I1, I4, I13), and one that falls under D22's
+    size watch (I2).
+- *A correction:* 2g registered the version as `2.0.0-alpha.0` and cited V2-D05 for it. D05 starts v2 at
+  `2.0.0-alpha.1`. The error was this record's.
+
+### 2g, attempt 3: registered (2026-10-27, before any code). The last attempt under rule 4
+
+If attempt 3 fails, 2g goes back to this plan, with the user.
+
+- **What ships:**
+  - `2.0.0-alpha.1` (V2-D05), with D18's fixes (its record: the root, fail-closed labels, the byte-order mark, the
+    marker, letter case, the cap);
+  - its new hash, recorded in the self-test.
+
+  The fixes are built in one plugin copy, then moved into `plugin/` in one step. So everything below runs once, on
+  one hash.
+- **Before the move:**
+  - D18's check: map-level equivalence; process-level equivalence on P1, P2 and R0; a self-test case for each
+    intended difference; and the live cap probe.
+  - Self-test additions:
+    - the product hash pinned;
+    - a lint that the product scripts import only Node's `fs`, `os`, `path` and `child_process`, and spawn only `git`.
+- **After the move:**
+  - *A1, re-run on the new hash* (PM1, the pinned epoch). *Pass:* every pass item at its bar, as in 2c attempt 2.
+  - *The reference machine:* P2 at 8 concurrent, 3 runs. *Pass:* each hook at most 100 ms, 0 errors. The run records
+    are committed, together with this step's earlier reference and calibration runs (I10).
+  - *CI:* the self-test on three systems, and the load lane gated at one session on all three (I7). *Pass:* green.
+  - *The 2f live check* on the new hash.
+  - *Gemini 4 Argon* on the diff of the fixes and the final README. Each surviving point is fixed, or recorded as an
+    accepted risk.
+- **The README** takes both reviews' points (the release-review note lists them):
+  - it installs from the tag `#v2.0.0-alpha.1`, and that tag goes up in the same push as the commit carrying the
+    README;
+  - only the cap and the marketplace name clash change from 'unknown' to stated issues.
+- **Then:** the release notes go to the user, and the tag and pre-release wait for their yes. The user's earlier yes
+  was given for another candidate.
+- **Pass:** all of the above.

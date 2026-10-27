@@ -17,11 +17,11 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21 | user + evidence | D11, D13 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18) | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release) | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark) | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
@@ -650,6 +650,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   record's trigger "the first slice's eval shows kept noise". The candidate fix, untested and so not taken now, narrows
   the instruction to knowledge no tracked document holds: spoken decisions and documents outside the repo. A1's
   three items are exactly that kind, so A1's capture check can test it.
+- **REOPENED 2026-10-27 by the release review: its trigger fired** ("an injected entry is ever delivered without the
+  unreviewed label").
+  - It fired three ways: a session started in a subdirectory, an unreadable cited source, and a byte-order mark
+    ([research/2026-10-27-release-review.md](research/2026-10-27-release-review.md), I1, I4, I13).
+  - The trust policy stands, and the delivery is fixed under D18. This record re-locks unchanged when D18's check
+    passes.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -1371,6 +1377,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - (c): it adds state and a risk of staleness, and it was not needed;
     - (d): a goalpost move.
   - *Reopen if:* the triggers above; or any input on which the old and the new match disagree.
+  - *A second difference, found by the release review (2026-10-27, I11):* on Windows and macOS, a tracked map file
+    renamed on disk only in letter case is listed twice. The old git call honoured `core.ignorecase` and listed it
+    once. It is fixed in 2g attempt 3: on win32 and darwin the tracked-file check ignores case.
 
   Attempts at this reopen: 0 failed.
 
@@ -1802,6 +1811,36 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     a bigger map") is replaced by this one.
 
   Attempts at this reopen: 0 failed.
+- **REOPENED 2026-10-27 by the release review: its trigger fired** ("an uncommitted entry arrives unlabelled"). It
+  fired three ways ([research/2026-10-27-release-review.md](research/2026-10-27-release-review.md)):
+  - *I1:* a session started in a repo subdirectory takes that directory as its root, so a read of the root's map file
+    gets no label;
+  - *I4:* one unreadable cited source makes the read hook exit with no output, so the whole file goes unlabelled;
+  - *I13:* a byte-order mark at the start of a map file hides its first entry from the labels.
+- **The fixes, pre-registered 2026-10-27 before any code** (06, 2g attempt 3; run from a plugin copy):
+  - the hooks take the git toplevel (the nearest folder holding `.git`) as the root;
+  - a cited source that cannot be read gets its own label ("cannot read <path>; check it"), and any error in the read
+    hook gives one fail-closed label for the whole file;
+  - a leading byte-order mark is stripped before the entries are parsed;
+  - the forced decision's marker write is caught, so a missing TEMP costs only the forced decision (I9);
+  - on win32 and darwin the tracked-file check ignores letter case (I11, D16's second difference);
+  - the session-start text is cut at a directory to fit Claude Code's 10,000-character cap, with a line saying so,
+    and onboarding warns (I2, D22's guard).
+- **Check:**
+  - *Map level:* `equivalence.mjs`, the 61964f9bbb40 library against the new one. Pass: 0 differences in the same
+    123 comparisons.
+  - *Process level:* the old and new `hook.mjs` with their libraries, run as Claude Code runs them, on P1, P2 and R0
+    at their roots with the benchmap map. The calls are `session-start`, `prompt`, a `read` of the map file and of a
+    document, and `onboard`. Pass: byte-identical stdout.
+  - *Each intended difference* has a self-test case that fails on the old code and passes on the new: I1, I4, I9,
+    I11 (on win32 and darwin), I13 and I2. Nothing else may differ.
+  - *The cap, live* (Haiku, the user's CLI): a scratch repo whose session-start text passes 10,000 characters. With
+    the old copy and with the new, the session is asked to quote D23's line and the index's last listed directory.
+    Pass: the new copy delivers both, plus the cut line. The old copy's result is recorded either way: it tests the
+    documented cliff.
+- **D14:** its trigger "an injected entry is ever delivered without the unreviewed label" fired in the same three
+  ways. D14's policy is not in question: the failures are in delivery, which D18 carries. D14 re-locks unchanged when
+  this check passes.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
@@ -3793,6 +3832,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     plugin's `index()` at each task's commit.
   - The forced decision and the reads were measured on R0, so the trigger did not fire.
   - The untested range is now an index past 86 directories, or past P2's 6.1 KB.
+- **A guard at the channel's cap (2026-10-27, the release review's I2; an observation, not a reopen).**
+  - Claude Code caps a hook's added context at 10,000 characters. Past that, it saves the text to a file and sends
+    the path and a 2,000-character preview.
+  - With the instruction and D23's line, an index past about 8,880 B would collapse that way: roughly 300
+    one-document directories.
+  - No real repo has been measured there, so the size trigger did not fire. The cliff was computed from the docs.
+  - 2g attempt 3 cuts the index at a directory to fit, says so in a line, and has onboarding warn. Its live probe
+    checks the cliff and the cut (D18's check).
+  - How the forced decision works on a cut index stays untested, one of 04's untested shapes.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
