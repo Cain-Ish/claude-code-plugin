@@ -1108,3 +1108,29 @@ passes. If it fails, the release stops, and 2g goes back to the user. There is n
 - **On a pass, publish** (by the user's yes):
   - the README that installs from the tag, the tag `v2.0.0-alpha.1`, and the GitHub pre-release, in one push;
   - then an install from the tag in an isolated config, which must hash to `da81530cb1c3`.
+
+### 2g, attempt 5: checks so far (2026-10-27)
+
+1. *Map level:* 0 differences. 102 label texts past the cap are now cut exactly, as registered
+   (`results/equivalence-attempt5.json`).
+2. *Process level:* 0 of 36 (`results/process-equivalence-attempt5.json`).
+3. *J1 to J4:* all 4 pass on `plugin/` (`fail-closed-2/results/`).
+4. *The self-test* passes, with `da81530cb1c3` pinned.
+5. *A1:* running.
+6. *The reference machine* (P2, 8 concurrent, 3 runs, 0 errors), added p95 with wall clock in brackets:
+   - session start 47.7, 66.8 and 45.9 ms (103.6, 142.8 and 106.2);
+   - prompt 19.9, 18.1 and 25.9 ms;
+   - a read of another file 24.8, 23.3 and 24.9 ms;
+   - the map read 59.7, 57.0 and 71.5 ms (118.8, 118.7 and 154.6).
+
+   *Pass.* The records are in `V2-D18-runtime/results/2g/`.
+7. *CI* (`ede4d7e`): green on all six jobs. Added p95 at 1 session, session start and then map read:
+   - Windows: 64.7 and 73.4 ms;
+   - macOS: 33.2 and 44.1 ms;
+   - Linux: 20.5 and 24.9 ms.
+
+   At 8 concurrent, reported only: 75.4 to 230.1 ms.
+8. *The 2f live check:* `live.mjs` passes. The scratch install was removed, and the user's registry matched its backup.
+9. *The live label probe* at 301 entries: the labels arrived whole (10,199 characters of hook output, no spill file
+   read). *Pass.*
+10. *Gemini on the diff:* running.
