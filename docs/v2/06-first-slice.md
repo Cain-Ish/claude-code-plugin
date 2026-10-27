@@ -1157,3 +1157,16 @@ All ten checks pass, so by the user's yes `2.0.0-alpha.1` (`da81530cb1c3`) is pu
 - the GitHub pre-release.
 
 D18 and D14 are re-locked. The install-from-tag check follows in the next record.
+
+### 2g: published (2026-10-27)
+
+- The pre-release [v2.0.0-alpha.1](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.1) is
+  published, from commit `8f7b228`. The README and the tag went up in one push.
+- *Install from the tag* (`claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.1`), in an isolated
+  Claude config:
+  - the cached copy is version `2.0.0-alpha.1`, and its product files hash to `da81530cb1c3`, the hash every attempt
+    5 check ran;
+  - the uninstall and the marketplace removal succeeded;
+  - the user's registry was unchanged.
+- *Carried to the next version* (the release-review note): the plural in the labels' cut line, and letter case folded
+  by operating system.
