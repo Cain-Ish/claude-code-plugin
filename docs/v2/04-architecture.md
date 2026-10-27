@@ -21,13 +21,14 @@ index lists too (V2-D14, D13). Everything a person needs is readable and correct
 ## Hooks
 
 Node 20, exec form, one script per event, at most 100 ms of added p95 at 1 session on every tested machine, and at 8 concurrent sessions on the reference machine (V2-D18, re-locked 2026-10-27). `SessionStart`
-runs in shell form once and says when Node is missing.
+runs in shell form once and says when Node is missing. Every hook takes the git toplevel (the nearest folder holding
+`.git`) as the repo's root, so a session started in a subdirectory sees the whole index (D18, 2026-10-27).
 
 | Event | What it does | Bytes | Reaches (D12) | Outcome served |
 | --- | --- | --- | --- | --- |
-| `SessionStart`: `startup`, `clear`, `resume` and `compact` (all four probed: D12, build step 0) | the capture instruction; the document index (Vercel's retrieval-led line, then the documents by directory) | 904 B + 2 to 6 KB measured | the main session; re-emitted after `/compact` | Capture; Consistency |
+| `SessionStart`: `startup`, `clear`, `resume` and `compact` (all four probed: D12, build step 0) | the capture instruction; the document index (Vercel's retrieval-led line, then the documents by directory). Past Claude Code's documented 10,000-character cap for one hook output, the index is cut at a directory with a line saying so (D22's guard; the live cliff on 2.1.311 sat between about 12,400 and 16,300 characters) | 904 B + 2 to 6 KB measured | the main session; re-emitted after `/compact` | Capture; Consistency |
 | `UserPromptSubmit`, the session's first prompt and the first after each compaction (state keyed by the session id) | the forced decision: per index directory yes or no, then read the yes ones before changing anything | 227 B | the main session | Consistency |
-| `PostToolUse` after a Read of a `.project-map/` file | labels the file's uncommitted entries "unreviewed, not yet committed" (D14). An entry whose source names a repo file is re-found in it now: found, no label; not found, "not found word for word in <path>; check it, captured <date>". Any other entry: "unverified quote, captured <date>" (D16, re-locked 2026-10-25) | per read; 83 to 86 ms p95 at 8 concurrent with 30 re-finds of P2's 30 largest documents (1.26 MB; D16, re-locked 2026-10-26). The cost grows with the bytes the sources hold | the main session (D22 run 2: 3 of 3). Subagent reads, Grep and Bash are unlabelled until probed | Freshness; trust (PM5) |
+| `PostToolUse` after a Read of a `.project-map/` file | labels the file's uncommitted entries "unreviewed, not yet committed" (D14). An entry whose source names a repo file is re-found in it now: found, no label; not found, "not found word for word in <path>; check it, captured <date>". Any other entry: "unverified quote, captured <date>" (D16, re-locked 2026-10-25). A source that cannot be read: "cannot read <path>; check it". Any other failure: one fail-closed label for the whole file. A leading byte-order mark is ignored (D18, 2026-10-27) | per read; 83 to 86 ms p95 at 8 concurrent with 30 re-finds of P2's 30 largest documents (1.26 MB; D16, re-locked 2026-10-26). The cost grows with the bytes the sources hold | the main session (D22 run 2: 3 of 3). Subagent reads, Grep and Bash are unlabelled until probed | Freshness; trust (PM5) |
 | `PostToolUse` after a Write or Edit, and `Stop` | **Not built: D20's net is DEFERRED.** The fed-back check works when it is right, but no tested source writes such checks | | | |
 
 Not used: `PreToolUse` (D18), `SubagentStart` (deferred: subagents do not see the index), MCP, agents.
@@ -54,7 +55,11 @@ Node and git are present. A repo with no documents gets an empty index and an em
 
   The forced decision selects by the first prompt it sees. Bringing these cases back into scope reopens D22.
 - **Untested shapes.** Investigation tasks (outside the claim), and an index past 86 directories (R0, v1's repo, in
-  2d and 2e) or past 6.1 KB (P2). These are D22's triggers.
+  2d and 2e) or past 6.1 KB (P2). These are D22's triggers. A cut index (past the hook cap) has had no forced
+  decision measured on it.
+- **Letter case** in the map folder is folded by operating system (win32 and darwin), not by the file system, so a
+  case-sensitive macOS volume or a case-insensitive Linux mount can list a renamed file wrongly. Reading
+  `core.ignorecase` would cost a git spawn at every session start.
 - **Subagents** do not see the index, since `SessionStart` reaches only the main session (D12). The read hook does not
   reach a subagent (D12, build step 0: 0 and 1 of 3), so a map file a subagent reads, or one met by Grep or Bash,
   arrives unlabelled. That is an accepted risk.
