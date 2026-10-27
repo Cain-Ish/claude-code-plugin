@@ -1140,3 +1140,20 @@ passes. If it fails, the release stops, and 2g goes back to the user. There is n
     - the README's UTF-16 line is accurate as it stands, since it lists what the self-test covers.
 
     *Pass.*
+
+### 2g, attempt 5: result (2026-10-27): pass. The release is published
+
+5. *A1 on `da81530cb1c3`:* 10 of 10 valid, in one epoch (CLI 2.1.305, Opus 5.5, inputs `108861b749cb`), 13.19 USD.
+   - For both variants, C1 to C4, T1 to T4 (final and at the first write), T5f, and N1 to N3 are all at 10.
+   - Over-attribution: 0 runs.
+   - Orientation and cost show no gain, as before, and stay under M1's no-worse ceilings. Medians, second person and
+     then same person: 12 and 11.5 tool calls before the first write; 11 and 10.5 files read; T tokens 132,996 and
+     138,507; output 4,537 and 4,438; T cost 0.207 and 0.222 USD.
+   - Results: `V2-D17-eval/results/V2-opus-da81530.json` and `summary-opus-da81530.json`.
+
+All ten checks pass, so by the user's yes `2.0.0-alpha.1` (`da81530cb1c3`) is published:
+- the README that installs from the tag;
+- the tag `v2.0.0-alpha.1`;
+- the GitHub pre-release.
+
+D18 and D14 are re-locked. The install-from-tag check follows in the next record.
