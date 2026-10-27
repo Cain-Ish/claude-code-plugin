@@ -1254,3 +1254,23 @@ One change was not in the registration, and is disclosed: only tracked paths und
 set, since only they can match a map file. Folding all 8,057 of P2's tracked paths, ASCII letters only, cost about 8 ms
 more per session start in-process. With the filter, `index()` timed level with the old one on P2. Checks 1 and 2 ran on
 the filtered code.
+
+### 2h: check 5, the release review (2026-10-27)
+
+- *The workflow, once* (23 agents): 18 findings, 2 survived, both low, and neither changes the product (the
+  release-review note, L1 and L2).
+  - *L1:* PM7's count, registered in 2g, was never reported, and the untracked-map listing had a third fix with no
+    keep-or-kill entry. *Fixed in the ledger:*
+    - the count per part (D18's record);
+    - the listing's entry, keep, under D16;
+    - the session-start cut's overdue entry under D18 (its J1 was a regression of I2's fix).
+
+    The count goes in the release notes.
+  - *L2:* the config reader takes only the plain spellings of a boolean. *Accepted;* the README states them.
+- *After the review, test-only:*
+  - the copy's self-test checks each case listing against git's own two-call listing, so CI compares the fold with
+    git on all three systems;
+  - with the old library in place of the new, the self-test fails at the case check;
+  - the hash stays `3c46826f115b`.
+- *A probe of the directory case,* which Gemini raised in alpha.1's second round: a map directory renamed only in case
+  is listed as git's two calls list it, with either setting.

@@ -65,7 +65,7 @@ a session started at the root, readable files, no byte-order mark, a writable TE
 | Point | Disposition |
 | --- | --- |
 | The cut line says "the index is past the 10,000-character limit" when it is the session-start text that passes it, and the index is cut once it reaches about 8,880 characters. Onboarding's warning says the same, and the cut line reads "1 more directories" | **Accepted for the next version.** These texts appear only past the cap, and no eval run reaches them. Changing them now would move the hash and restart A1 for wording alone |
-| Letter case is ignored by operating system, not by the file system: a case-sensitive macOS volume or a case-insensitive Linux mount behaves wrongly. Directory keys inside `.project-map/` are not folded | **Accepted:** stated as a known issue in the README. Reading `core.ignorecase` would cost a git spawn on every session start |
+| Letter case is ignored by operating system, not by the file system: a case-sensitive macOS volume or a case-insensitive Linux mount behaves wrongly. Directory keys inside `.project-map/` are not folded | **Accepted:** stated as a known issue in the README. Reading `core.ignorecase` would cost a git spawn on every session start. **Fixed in `2.0.0-alpha.2`** (06, 2h): the setting is read from the repo's config file, with no spawn. A map directory renamed only in case is listed as git lists it, with either setting (a probe on the alpha.2 copy) |
 | The README merges two equivalence steps, and the 20,400 random quotes and the gitignored case belong to the first | **Fixed:** the README names both steps |
 | Quotes shorter than three words that cite a repo file get no label once committed, and the README leaves that implicit | **Fixed:** stated (I8's D16 behaviour) |
 | The local-scope line leaves the subdirectory limit implicit | **Fixed** |
@@ -89,3 +89,17 @@ The user asked for a second workflow run before publishing. 35 agents ran. 30 fi
   in 06 as 2g attempt 4.
 - Since the hash moves anyway, the past-cap wording accepted in Gemini's second round is fixed in the same epoch: the
   cut line and onboarding's warning name the session-start text, and the count's plural is right.
+
+## alpha.2: the workflow once, on `3c46826f115b` (2026-10-27, the user's choice)
+
+The user chose to ship the two carried items as `2.0.0-alpha.2`, with the workflow and Gemini (06, 2h). The workflow
+reviewed the plugin copy `probes/V2-D18-runtime/alpha2/plugin`, its checks and the README draft. 23 agents ran.
+18 findings were raised; 2 survived and 16 were dismissed. Both survivors are low, and neither changes the product.
+
+| # | Issue | What fires | Disposition |
+| --- | --- | --- | --- |
+| L1 | PM7's count of fix commits was registered in 2g and never reported. The index's untracked-map listing was then fixed a third time with no keep-or-kill entry. D16's re-lock read it from the folder, which caused I11; I11's fix folded by operating system, which differs from git; alpha.2 reads `core.ignorecase`. Deletion was never weighed | PM7's check: a part over the line without a ledger entry blocks the release | **Fixed:** the count and the entries are in DECISIONS. The listing's entry is under D16: keep, by the user's choice and D18's budget, with kill triggers. The session-start cut, whose J1 regressed I2's fix, gets its overdue entry under D18. The count goes in alpha.2's release notes |
+| L2 | The config reader takes only the plain spellings of a boolean. For `1k`, `0x1` or a partly quoted `true`, git reads true and lists a case-only rename once, while the index lists it twice (confirmed in a scratch repo) | none: it fails toward a name listed twice | **Accepted:** the README states the spellings read. D16's entry names the one unsafe case: a later line the reader cannot parse, after a `true`, keeps the `true` |
+
+The copy's self-test also gained, after the review, a check that each case listing equals git's own two-call listing.
+CI then compares the fold with git on all three systems. It changes `test/` only, so the hash stays.

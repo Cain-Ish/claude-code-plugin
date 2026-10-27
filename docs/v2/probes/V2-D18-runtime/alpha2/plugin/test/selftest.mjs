@@ -165,10 +165,13 @@ assert.ok(labels(repo, '.project-map/bom.md').startsWith(`[project map] Labels o
 fs.rmSync(path.join(repo, '.project-map', 'bom.md'));
 // I11 and 06's 2h: a tracked map file renamed only in letter case is folded as the repo's core.ignorecase says (K2),
 // ASCII letters only, as git compares (K3), and in a linked worktree too, whose .git is a file. The setting is made
-// both ways on every system, so this checks the mechanism, not the file system.
+// both ways on every system, so this checks the mechanism, not the file system. Each listing must also be git's own,
+// from the two calls the index made before D16's re-lock.
 {
   const cs = path.join(tmp, 'case');
   const g = (cwd, ...a) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd }).status, 0);
+  const ls = (cwd, ...a) => spawnSync('git', ['ls-files', '-z', ...a], { cwd, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
+  const gits = (d) => `${HEADER}\n.project-map/: ${[...ls(d, '--cached'), ...ls(d, '--others', '--exclude-standard', '--', '.project-map')].map((p) => p.slice(13)).join(', ')}\n`;
   fs.mkdirSync(path.join(cs, '.project-map'), { recursive: true });
   for (const f of ['captured.md', 'Ärger.md']) fs.writeFileSync(path.join(cs, '.project-map', f), entry('a', 'b', '2026-10-27'));
   g(cs, 'init', '-q');
@@ -180,8 +183,10 @@ fs.rmSync(path.join(repo, '.project-map', 'bom.md'));
     fs.renameSync(path.join(d, '.project-map', 'Ärger.md'), path.join(d, '.project-map', 'ärger.md'));
     g(d, 'config', 'core.ignorecase', 'true');
     assert.equal(index(d), `${HEADER}\n.project-map/: captured.md, Ärger.md, ärger.md\n`);
+    assert.equal(index(d), gits(d));
     g(d, 'config', 'core.ignorecase', 'false');
     assert.equal(index(d), `${HEADER}\n.project-map/: captured.md, Ärger.md, Captured.md, ärger.md\n`);
+    assert.equal(index(d), gits(d));
   }
 }
 // I2: an index past the 10,000-character cap of one hook output is cut at a directory, and says so

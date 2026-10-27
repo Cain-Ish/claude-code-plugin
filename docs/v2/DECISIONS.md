@@ -1394,6 +1394,36 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     still differs from git on a case-sensitive macOS volume or a case-insensitive Linux mount. It was accepted for the
     next version. In `2.0.0-alpha.2` the fold follows the repo's `core.ignorecase`, read from its config file, ASCII
     letters only, as git compares. A probe showed git does not fold `Ä` to `ä`. The check is 06's 2h.
+  - **PM7 keep or kill, 2026-10-27: the index's untracked-map listing** (raised by alpha.2's review; 06, 2h). Three
+    product commits in three days, the last two each after the one before it regressed:
+    - `6c94c8a` (this re-lock) read untracked map files from the folder, for D18's budget. A rename only in letter
+      case was then listed twice (I11).
+    - `9a76414` (I11's fix) folded by operating system. That differs from git on non-ASCII letters and on unusual
+      mounts, which was accepted for the next version.
+    - alpha.2 folds as the repo's `core.ignorecase` says, ASCII letters only (K2, K3).
+
+    PM7 asks for this entry before the next fix. It comes after alpha.2's copy was built and before it moves into
+    `plugin/`: late, and stated.
+    - *Outcome metric:* an uncommitted map file is listed in the index (Capture, D15), as git's own listing lists it
+      (D16's equivalence).
+    - *Keep:* the folder walk with the config read. It makes one git call, and matches git's two-call listing on every
+      tested case: a repo and a linked worktree, both settings, and ASCII and non-ASCII renames. Its known differences:
+      - a map file `.gitignore` excludes is listed, by design;
+      - global, system and included config files and `config.worktree` are not read;
+      - spellings such as `1k`, `0x1` or a partly quoted value are read as false.
+
+      Each lists a name twice where git lists it once, except where git ends at false and the reader at true: a
+      `false` set only in an included file or `config.worktree`, or a later line the reader cannot parse after a
+      `true` (it keeps the `true`). On a case-sensitive file system, that could hide an untracked map file that
+      differs from a tracked one only in case.
+    - *Kill, no fold:* this deletes about 22 lines and never hides a map file. A rename only in case is then listed
+      twice on Windows and macOS, where git lists it once: I11 returns as a stated issue.
+    - *Kill, git's second call:* exact by definition, and it deletes the walk and the config read. It measured 106 to
+      112 ms added p95 at 8 concurrent on P2 (2026-10-26), past D18's 100 ms.
+    - *Choice: keep.* The user's choice of 2026-10-27 named this fix, and it is the only option that matches git
+      within D18's budget.
+    - *Kill trigger:* any further fix to this listing, or a difference from git's listing that hides a map file in a
+      common setup. Either removes the walk (git's second call, with D18's budget back to the user) or the fold.
 
   Attempts at this reopen: 0 failed.
 
@@ -1946,6 +1976,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **D14 re-locked unchanged, the same day:** a UTF-16 map file is labelled now (D14's record).
 - *Note, 2026-10-27, not a reopen (06, 2h):* the labels' cut line read "1 more labels" when one was left. It was
   accepted for the next version, and `2.0.0-alpha.2` puts it in the singular. The check is 06's 2h.
+- **PM7, 2026-10-27:** the count of fix commits on the product files since 2a, per part. 2g registered it, and
+  alpha.2's review found it never reported:
+  - *the read hook's labels:* 4 (`6c94c8a`, `9a76414`, `ede4d7e`, alpha.2). That is under PM7's 5, with no
+    regression of an earlier fix: K1 corrects the wording of J3's own new line;
+  - *the session-start cut:* 2 (`9a76414`, `ede4d7e`), with one regression. I2's cut was quadratic (J1) and cut the
+    map's line first (J2). PM7 asked for a keep-or-kill entry before `ede4d7e`, and none was written. It is recorded
+    now:
+    - *outcome metric:* D23's line and the map's line reach Claude at session start;
+    - *keep:* the guard, in one pass since `ede4d7e`;
+    - *kill, no guard:* past the platform's cliff (about 12,400 to 16,300 characters on 2.1.311), Claude saw a
+      2,000-character preview, without D23's line and with 28 directories (the cap probe above);
+    - *choice: keep;* *kill trigger:* a further fix to the cut, or Claude Code dropping its cap;
+  - *the untracked-map listing:* 3, over the line; its entry is under D16;
+  - *the others:* the root and the marker 1, onboarding's text 2, the forced decision 0 (an attempt and its revert).
+
+  The count goes in alpha.2's release notes, as PM7's check asks. alpha.1's notes left it out.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
