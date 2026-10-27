@@ -3,6 +3,7 @@
 // passed. Takes worktrees of P1, P2 and R0 at their pinned commits and writes .project-map/ files in them. Prints and
 // saves counts only.   node equivalence.mjs <p1> <p2> <r0>
 // EQ_OLD, EQ_NEW (library paths) and EQ_OUT (a results name) compare another pair: D18's fixes, 06 2g attempt 3.
+// EQ_PLURAL=1 counts alpha.2's singular apart (06, 2h).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,16 +25,24 @@ const out = {};
 const differ = [];
 // EQ_CUT=1 (06, 2g attempt 4): a difference that is exactly the labels' cut at the 10,000-character cap (the old text
 // past the cap; the new one its first label lines, unchanged, then one fail-closed line) is counted apart
-const CUT_LINE = /^\(\d+ (more )?labels not shown: treat every entry (after entry \d+ )?in this file as unreviewed and unverified\.\)$/;
+const CUT_LINE = /^\(\d+ (more )?labels? not shown: treat every entry (after entry \d+ )?in this file as unreviewed and unverified\.\)$/;
 const isCut = (a, b) => {
   if (a.length <= 10_000 || b.length > 10_000) return false;
   const [na, nb] = [a.trimEnd().split('\n'), b.trimEnd().split('\n')];
   return CUT_LINE.test(nb.at(-1)) && nb.slice(0, -1).every((l, i) => l === na[i]) && nb.length - 1 < na.length;
 };
+// EQ_PLURAL=1 (06, 2h): both texts end with the fail-closed line, the new one's count is 1 in the singular, and the old
+// one's label lines are the new one's in the same places (at a one-character boundary one more line fits)
+const isSingular = (a, b) => {
+  const [na, nb] = [a.trimEnd().split('\n'), b.trimEnd().split('\n')];
+  return CUT_LINE.test(na.at(-1)) && CUT_LINE.test(nb.at(-1)) && /^\(1 (more )?label not shown/.test(nb.at(-1))
+    && na.slice(0, -1).every((l, i) => l === nb[i]) && [0, 1].includes(nb.length - na.length);
+};
 const same = (what, a, b) => {
   out.compared = (out.compared ?? 0) + 1;
   if (a === b) return;
   if (process.env.EQ_CUT && isCut(a, b)) out.cutAtCap = (out.cutAtCap ?? 0) + 1;
+  else if (process.env.EQ_PLURAL && isSingular(a, b)) out.singular = (out.singular ?? 0) + 1;
   else differ.push(what);
 };
 const mapDir = (repo) => path.join(repo, '.project-map');

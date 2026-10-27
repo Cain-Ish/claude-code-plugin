@@ -1,0 +1,40 @@
+{
+ "platform": "win32",
+ "K1 one left": {
+  "oldGivesOldOutput": true,
+  "newGivesNewOutput": true
+ },
+ "K1 none fits": {
+  "oldGivesOldOutput": true,
+  "newGivesNewOutput": true
+ },
+ "ignorecaseSet": "false",
+ "K2 listing": {
+  "git": ".project-map/: captured.md, Captured.md",
+  "old": ".project-map/: captured.md",
+  "new": ".project-map/: captured.md, Captured.md"
+ },
+ "K2": {
+  "oldGivesOldOutput": true,
+  "newGivesNewOutput": true
+ },
+ "K2 worktree listing": {
+  "git": ".project-map/: captured.md, Captured.md",
+  "old": ".project-map/: captured.md",
+  "new": ".project-map/: captured.md, Captured.md"
+ },
+ "K2 worktree": {
+  "oldGivesOldOutput": true,
+  "newGivesNewOutput": true
+ },
+ "K3 listing": {
+  "git": ".project-map/: Ärger.md, ärger.md",
+  "old": ".project-map/: Ärger.md",
+  "new": ".project-map/: Ärger.md, ärger.md"
+ },
+ "K3": {
+  "oldGivesOldOutput": true,
+  "newGivesNewOutput": true
+ },
+ "pass": true
+}

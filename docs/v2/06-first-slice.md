@@ -1238,3 +1238,19 @@ fired; these are dated notes under D16 and D18, not reopens.
   - then an install from the tag in an isolated config, which must hash to the new value, with the user's registry
     unchanged.
 - **Pass:** checks 1 to 9. Each failure is a 2h attempt; after three (rule 4), 2h goes back to the user.
+
+### 2h: checks 1 to 4 (2026-10-27): pass, on the copy at `3c46826f115b`
+
+1. *Map level:* 0 differences in 123 comparisons, and no singular case: the suite's cut label texts leave 2 or more
+   labels each (`V2-D16-freshness/results/equivalence-alpha2.json`).
+2. *Process level:* 0 differences in 36 (`fail-closed/results/process-equivalence-alpha2.json`).
+3. *Each intended difference* (`alpha2/results/differences-win32.json`): all 5 cases pass. With `core.ignorecase` false,
+   git lists `captured.md, Captured.md`, and so does the new index, in the repo and in its linked worktree; the old one
+   listed `captured.md` alone. With it true, git lists `Ärger.md, ärger.md`, as the new index does; the old one listed
+   `Ärger.md`. Run with the old code in the new code's place, all 5 cases fail, so the probe can fail.
+4. *The self-test* of the copy passes, pinning `3c46826f115b`.
+
+One change was not in the registration, and is disclosed: only tracked paths under `.project-map/` go into the fold's
+set, since only they can match a map file. Folding all 8,057 of P2's tracked paths, ASCII letters only, cost about 8 ms
+more per session start in-process. With the filter, `index()` timed level with the old one on P2. Checks 1 and 2 ran on
+the filtered code.
