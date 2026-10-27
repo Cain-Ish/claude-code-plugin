@@ -15,9 +15,12 @@ const size = (i) => (i < LARGEST ? 42_000 : 7_360);
 const dir = (k) => (k === 0 ? '.' : `src/feature-area-${k % 12}/shared-module-${k % 97}/component-part-${k}`);
 const docName = (i) => (i === 0 ? 'README.md' : `design-notes-section-${i}.md`);
 const words = ['the', 'project', 'keeps', 'each', 'part', 'in', 'its', 'own', 'place', 'and', 'names', 'it', 'once'];
+// seeded, not periodic: a run of words from the middle of a document first occurs there, as in P2 (calibration, 2g)
 const text = (i) => {
+  let seed = 0x9e3779b9 ^ i;
+  const rand = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32; };
   let s = `# Section ${i}\n\n`;
-  for (let w = 0; s.length < size(i); w++) s += words[(w * 7 + i) % words.length] + ((w % 12 === 11) ? '.\n' : ' ');
+  for (let w = 0; s.length < size(i); w++) s += words[Math.floor(rand() * words.length)] + ((w % 12 === 11) ? '.\n' : ' ');
   return s;
 };
 const put = (f, s) => { fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); fs.writeFileSync(path.join(repo, f), s); };

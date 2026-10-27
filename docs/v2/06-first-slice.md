@@ -902,3 +902,25 @@ which ran on the user's CLI.
   - T cost: 0.206 and 0.223 USD (0.203 and 0.222).
 - **What it shows:** D16's re-lock left A1's result unchanged. The release cites this run for the plugin's own hash
   (PM1).
+
+### 2g, attempt 2: the fixture's calibration (2026-10-27): pass on round 3
+
+Added p95 at 8 concurrent, medians of 3 interleaved runs (fixture, then P2), on this machine with no eval running:
+
+| Round | Session start: fixture / P2 | Map read: fixture / P2 | Verdict |
+| --- | --- | --- | --- |
+| 1 | 50.2 / 44.9 | 44.7 / 24.5 | invalid |
+| 2 | 48.6 / 44.7 | 46.2 / 54.2 | fixture lighter on the map read |
+| 3 | 44.4 / 44.2 | 58.7 / 55.5 | pass |
+
+- *Round 1 was invalid.* D16's equivalence re-run had deleted P2's bench map, so P2's map read had nothing to read.
+  Both maps were rebuilt and checked (30 entries each) before round 2.
+- *Round 2: the fixture was lighter on the map read.* Its text repeated every 13 words, so a run of words from the
+  middle of a document first occurred near its start, and the search stopped there. In P2 the run first occurs
+  where it was taken.
+- *For round 3, the fixture's text is seeded instead of periodic.* Nothing else changed, and the bar did not move.
+- *Session start passes by 0.2 ms,* which is within the bench's noise. The registered rule is met, and the margin is
+  stated here.
+- *The read of another file* (19.9 / 22.4) is not in the rule. That hook does no work in the repo.
+- *All three rounds sit far below the morning's numbers* (map read 83 to 86 ms, session start 60 to 82). The same code
+  and machine vary by time of day. The paired runs are what the calibration compares.

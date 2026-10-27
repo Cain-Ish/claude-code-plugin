@@ -1,0 +1,39 @@
+# second-brain v2 (06, build step 2g): the self-test on three systems at the plugin's Node floor, and D18's load bar
+# on Windows (PM3, PM8), on a synthetic repo of P2's shape that was calibrated against P2 before this lane ran.
+name: v2
+on:
+  push:
+    branches: [v2]
+    paths: ['plugin/**', '.claude-plugin/**', '.github/workflows/v2.yml']
+  pull_request:
+    branches: [v2]
+  workflow_dispatch:
+jobs:
+  selftest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - run: node plugin/test/selftest.mjs
+  load:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - run: node plugin/test/fixture.mjs "$RUNNER_TEMP/p2-shape"
+      - run: node plugin/test/benchmap.mjs "$RUNNER_TEMP/p2-shape"
+      - run: node plugin/test/bench.mjs "$RUNNER_TEMP/p2-shape" 200
