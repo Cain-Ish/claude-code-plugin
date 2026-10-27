@@ -1390,6 +1390,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *A second difference, found by the release review (2026-10-27, I11):* on Windows and macOS, a tracked map file
     renamed on disk only in letter case is listed twice. The old git call honoured `core.ignorecase` and listed it
     once. It is fixed in 2g attempt 3: on win32 and darwin the tracked-file check ignores case.
+  - *Note, 2026-10-27, not a reopen (06, 2h):* that fix folds by operating system, which Gemini's second round showed
+    still differs from git on a case-sensitive macOS volume or a case-insensitive Linux mount. It was accepted for the
+    next version. In `2.0.0-alpha.2` the fold follows the repo's `core.ignorecase`, read from its config file, ASCII
+    letters only, as git compares. A probe showed git does not fold `Ä` to `ä`. The check is 06's 2h.
 
   Attempts at this reopen: 0 failed.
 
@@ -1940,6 +1944,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
   Attempts at this reopen: 1 failed (attempt 4's map-level condition), 1 passed.
 - **D14 re-locked unchanged, the same day:** a UTF-16 map file is labelled now (D14's record).
+- *Note, 2026-10-27, not a reopen (06, 2h):* the labels' cut line read "1 more labels" when one was left. It was
+  accepted for the next version, and `2.0.0-alpha.2` puts it in the singular. The check is 06's 2h.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

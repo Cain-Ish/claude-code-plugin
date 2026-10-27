@@ -1175,3 +1175,66 @@ D18 and D14 are re-locked. The install-from-tag check follows in the next record
   - the user's registry was unchanged.
 - *Carried to the next version* (the release-review note): the plural in the labels' cut line, and letter case folded
   by operating system.
+
+### 2h: `2.0.0-alpha.2` (pre-registered 2026-10-27, before any code)
+
+The user chose (2026-10-27) to ship the two items carried from alpha.1 as `2.0.0-alpha.2`: the fixes, the full release
+checks, the devils-advocate workflow and Gemini, then the tag `v2.0.0-alpha.2` and a GitHub pre-release. No trigger
+fired; these are dated notes under D16 and D18, not reopens.
+
+- **The intended differences from `da81530cb1c3`, and nothing else:**
+  - *K1:* the labels' cut line puts "label" in the singular when one is left: "(1 more label not shown: …", and
+    "(1 label not shown: …" when not even one line fits.
+  - *K2:* the index's check of untracked map files against tracked ones folds letter case by the repo's
+    `core.ignorecase`, not by operating system. It is read from the repo's config file, with no second git call
+    (D18's budget). A `.git` file (a linked worktree or a submodule) is followed through `gitdir:` and `commondir`.
+    Unset, false, or unreadable means no fold, which is git's default: a name listed twice loses nothing, and a fold
+    the file system does not make can hide an untracked map file. Global, system and included config files, and
+    `config.worktree`, are not read, and the README says so.
+  - *K3:* the fold covers ASCII letters only, as git compares under `core.ignorecase`. Probe (2026-10-27, Windows,
+    git's own listing): with `core.ignorecase` true, a tracked `Ärger.md` renamed to `ärger.md` is listed as untracked,
+    while `captured.md` renamed to `Captured.md` is not. Folding as git does makes the index match the two-call code
+    that D16 measured (`497ba915e987`), so D16's second difference goes.
+  - The version: `2.0.0-alpha.2` in both manifests.
+- **Built in a copy,** `probes/V2-D18-runtime/alpha2/plugin`, with `da81530cb1c3` kept beside it as `old/`. It moves
+  into `plugin/` in one step, after checks 1 to 5.
+- **Checks on the copy:**
+  1. *Map level:* `equivalence.mjs`, `da81530cb1c3` against the copy, on P1, P2 and R0 (123 comparisons). *Pass:* 0
+     differences. One kind is counted apart: both texts end with the fail-closed line, the new one's count is 1 in the
+     singular, and the old text's label lines are the new one's in the same places. (At a one-character boundary the
+     shorter word lets one more label line fit.) The classifier is changed for this before the run, and its `CUT_LINE`
+     accepts the singular.
+  2. *Process level:* `process-equivalence.mjs`, `da81530cb1c3` against the copy. *Pass:* 0 differences in 36.
+  3. *Each intended difference* (`alpha2/differences.mjs`, Windows). In every case the old code gives the old output
+     and the new code the new one:
+     - K1, a map file whose cut leaves one label: "1 more labels" before, "1 more label" now;
+     - K1, a single label line past the cap: "1 labels not shown" before, "1 label not shown" now;
+     - K2, in a repo whose `core.ignorecase` is set against the platform's default, with a tracked `captured.md`
+       renamed on disk to `Captured.md`. The new index lists the map files exactly as git's two calls do
+       (`ls-files --cached`, then `ls-files --others --exclude-standard` under `.project-map/`); the old one does not;
+     - K2, the same in a linked worktree, where `.git` is a file and the config sits in the common directory;
+     - K3, with `core.ignorecase` true, a tracked `Ärger.md` renamed to `ärger.md`: the new index matches git's
+       listing, and the old one does not.
+  4. *The self-test* of the copy, pinning the copy's hash. The platform gate on I11's case goes. The repo sets
+     `core.ignorecase` true, then false, and the fold must follow on every system, so CI checks the mechanism on all
+     three (not each file system's truth). It adds K1's two lines, K3 and a linked worktree. *Pass:* it passes here.
+  5. *The release review:* the devils-advocate workflow on the copy and these records, then Gemini 4 Argon on the diff
+     from `da81530cb1c3` and the README's changes (public text only).
+     - Each surviving finding fires a trigger, or is fixed, or is recorded as an accepted risk.
+     - A finding that changes the product makes the next attempt, registered before its code, with checks 1 to 4 again
+       and Gemini on its diff.
+     - The workflow runs once, unless the user asks again.
+- **After the move into `plugin/`** (the trial session is told the new hash):
+  6. *A1 on the new hash* (CLI 2.1.305, Opus 5.5). *Pass:* every pass item at its bar, as in 2g attempt 5.
+  7. *The reference machine:* P2 at 8 concurrent, 3 runs. *Pass:* each hook at most 100 ms added, 0 errors.
+  8. *CI:* the self-test and the load lane, gated at one session, on all three systems. *Pass:* green.
+  9. *The 2f live check.* *Pass:* `live.mjs` passes, and the user's registry matches its backup afterwards.
+- **Not re-run:** the live label probe at 301 entries. Its 126 hidden labels keep the plural, so its label text is
+  byte-identical, and check 3 covers K1.
+- **The README:** installs from `#v2.0.0-alpha.2`; the letter-case known issue goes, and the config files not read are
+  stated; this hash's numbers. 04 and the release-review note move with it.
+- **On a pass, publish** (the user's yes, 2026-10-27):
+  - the README, the tag `v2.0.0-alpha.2` and the GitHub pre-release, in one push;
+  - then an install from the tag in an isolated config, which must hash to the new value, with the user's registry
+    unchanged.
+- **Pass:** checks 1 to 9. Each failure is a 2h attempt; after three (rule 4), 2h goes back to the user.

@@ -1,0 +1,16 @@
+{
+  "platform": "win32",
+  "git": "git version 2.45.0.windows.1",
+  "initIgnorecase": "true",
+  "onDisk": [
+    "Captured.md",
+    "ärger.md"
+  ],
+  "untracked, ignorecase true": [
+    ".project-map/ärger.md"
+  ],
+  "untracked, ignorecase false": [
+    ".project-map/Captured.md",
+    ".project-map/ärger.md"
+  ]
+}
