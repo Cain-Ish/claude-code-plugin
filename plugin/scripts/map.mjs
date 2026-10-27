@@ -40,6 +40,9 @@ export const UNREVIEWED = 'unreviewed, not yet committed';
 
 const DOC = /\.(md|mdx|markdown|txt|rst)$/i;
 const git = (root, args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+// UTF-16 with its byte-order mark (Windows PowerShell 5.1's Out-File and > write it), else UTF-8 (D18, J4)
+const decode = (b) => (b[0] === 0xff && b[1] === 0xfe ? b.toString('utf16le')
+  : b[0] === 0xfe && b[1] === 0xff ? Buffer.from(b.subarray(0, b.length & ~1)).swap16().toString('utf16le') : b.toString('utf8'));
 export const rel = (root, p) => path.relative(root, String(p ?? '')).replace(/\\/g, '/');
 
 // The repo's root: the nearest folder at or above where Claude started that holds .git (a folder, or a worktree's
@@ -80,15 +83,21 @@ export function index(root) {
 
 // Session start's text. Claude Code caps a hook's added context at 10,000 characters: past it, the text goes to a
 // file and Claude sees a 2,000-character preview. So a larger index is cut at a directory, and says so (D22's guard).
+// When cut, the map folder's line goes first, so captured decisions stay listed (D18, the second review's J2).
 export const CAP = 10_000;
+const notListed = (n) => `(${n} more ${n === 1 ? 'directory' : 'directories'} not listed: session start is past the `
+  + '10,000-character limit of one hook output.)';
 export function startText(idx) {
   const full = idx ? `${INSTRUCTION}\n\n${idx}\n${NAME}` : `${INSTRUCTION}\n\n${NAME}`;
-  const [head, ...dirs] = (idx ?? '').trimEnd().split('\n');
+  let [head, ...dirs] = (idx ?? '').trimEnd().split('\n');
   if (full.length <= CAP) return { text: full, listed: dirs.length, total: dirs.length };
-  const at = (k) => `${INSTRUCTION}\n\n${[head, ...dirs.slice(0, k)].join('\n')}\n(${dirs.length - k} more directories `
-    + 'not listed: the index is past the 10,000-character limit of one hook output.)\n\n' + NAME;
-  let k = dirs.length;
-  while (k > 0 && at(k).length > CAP) k--;
+  const m = dirs.findIndex((l) => l.startsWith(`${MAP}/: `));
+  if (m > 0) dirs = [dirs[m], ...dirs.slice(0, m), ...dirs.slice(m + 1)];
+  const at = (k) => `${INSTRUCTION}\n\n${[head, ...dirs.slice(0, k)].join('\n')}\n${notListed(dirs.length - k)}\n\n${NAME}`;
+  // one forward pass (J1): each directory listed adds its line and takes at most one digit off the count
+  const fixed = INSTRUCTION.length + 2 + head.length + 1 + 2 + NAME.length;
+  let k = 0;
+  for (let used = fixed; k < dirs.length && used + dirs[k].length + 1 + notListed(dirs.length - k - 1).length <= CAP; k++) used += dirs[k].length + 1;
   return { text: at(k), listed: k, total: dirs.length };
 }
 
@@ -136,11 +145,11 @@ const isFile = (root, p) => fs.statSync(path.join(root, p), { throwIfNoEntry: fa
 export function labels(root, file) {
   let text;
   // a missing file has nothing to label; any other failure throws, and the read hook labels the file as a whole
-  try { text = fs.readFileSync(path.join(root, file), 'utf8'); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
-  const head = git(root, ['show', `HEAD:./${file}`]);
-  const held = new Set(head.status === 0 ? entries(head.stdout) : []);
+  try { text = decode(fs.readFileSync(path.join(root, file))); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
+  const head = spawnSync('git', ['show', `HEAD:./${file}`], { cwd: root, maxBuffer: 64 << 20 });
+  const held = new Set(head.status === 0 ? entries(decode(head.stdout)) : []);
   const docs = new Map();
-  const doc = (p) => { if (!docs.has(p)) docs.set(p, fs.readFileSync(path.join(root, p), 'utf8').toLowerCase()); return docs.get(p); };
+  const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
   const out = entries(text).flatMap((b, i) => {
     const src = /^- source:(.*)$/m.exec(b)?.[1] ?? '';
     const date = /(\d{4}-\d{2}-\d{2})\s*$/.exec(src)?.[1];
@@ -157,5 +166,14 @@ export function labels(root, file) {
     }
     return ls.length ? [`${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`] : [];
   });
-  return out.length ? `[project map] Labels on the entries of ${file}, in file order:\n${out.join('\n')}\n` : '';
+  if (!out.length) return '';
+  const top = `[project map] Labels on the entries of ${file}, in file order:\n`;
+  const all = `${top}${out.join('\n')}\n`;
+  if (all.length <= CAP) return all;
+  // past the cap, Claude would see only a preview, so the labels are cut at a line and the rest fail closed (D18, J3)
+  const tail = (k) => (k ? `(${out.length - k} more labels not shown: treat every entry after entry ${parseInt(out[k - 1], 10)} `
+    : `(${out.length} labels not shown: treat every entry `) + 'in this file as unreviewed and unverified.)\n';
+  let k = 0;
+  for (let used = top.length; k < out.length && used + out[k].length + 1 + tail(k + 1).length <= CAP; k++) used += out[k].length + 1;
+  return `${top}${out.slice(0, k).map((l) => `${l}\n`).join('')}${tail(k)}`;
 }

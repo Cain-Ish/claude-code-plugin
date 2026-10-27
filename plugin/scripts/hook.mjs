@@ -35,7 +35,7 @@ if (which === 'session-start') {
     gitVersion ?? 'git not found: the project map needs git',
     idx === null ? 'Not a git repository: the index lists the files git tracks, so it is empty here.'
       : `Index: ${fit.total ? idx.split('\n').slice(1, -1).reduce((n, l) => n + l.split(', ').length, 0) : 0} documents in ${fit.total} directories, ${Buffer.byteLength(idx)} bytes at session start.`,
-    ...(fit.listed < fit.total ? [`Warning: the index is past the 10,000-character limit of one hook output, so session start lists ${fit.listed} of its ${fit.total} directories.`] : []),
+    ...(fit.listed < fit.total ? [`Warning: session start is past the 10,000-character limit of one hook output, so it lists ${fit.listed} of the index's ${fit.total} directories.`] : []),
     `Map: ${mapFiles} file(s) in ${MAP}/.`,
   ].join('\n'));
 }

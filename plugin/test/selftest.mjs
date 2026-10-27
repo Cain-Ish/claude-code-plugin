@@ -37,12 +37,19 @@ assert.equal(hooks.PostToolUse[0].matcher, 'Read');
 assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'commands')), ['onboard.md']);
 for (const d of ['agents', 'skills', '.mcp.json']) assert.ok(!fs.existsSync(path.join(PLUGIN, d)), d);
 
-// D18: no model and no network, and hooks spawn only git. The product scripts import only these and run no other code
+// D18: no model and no network, and hooks spawn only git. A tripwire over the product scripts' source, not a proof:
+// imports in either quote style (side-effect ones too) from these modules only; from child_process only spawnSync,
+// always on git; and no code loaded or built at run time
 for (const f of ['hook.mjs', 'map.mjs']) {
   const src = fs.readFileSync(path.join(PLUGIN, 'scripts', f), 'utf8');
-  for (const [, m] of src.matchAll(/^import .* from '([^']+)';$/gm)) assert.ok(['node:fs', 'node:os', 'node:path', 'node:child_process', './map.mjs'].includes(m), `${f} imports ${m}`);
-  assert.equal((src.match(/\bspawn(Sync)?\(/g) ?? []).length, (src.match(/\bspawn(Sync)?\('git'/g) ?? []).length, `${f} spawns only git`);
-  assert.ok(!/\b(fetch|eval|require|import)\s*\(/.test(src), `${f} loads or fetches nothing at run time`);
+  const imports = [...src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
+  assert.equal(imports.length, (src.match(/^\s*import\b/gm) ?? []).length, `${f}: every import has a module path`);
+  for (const m of imports) assert.ok(['node:fs', 'node:os', 'node:path', 'node:child_process', './map.mjs'].includes(m), `${f} imports ${m}`);
+  for (const [, names] of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]node:child_process['"]/g)) assert.deepEqual(names.split(',').map((n) => n.trim()), ['spawnSync'], `${f}: only spawnSync`);
+  // a bare call, so a RegExp's .exec() is not one
+  assert.ok(!/(?<![.\w$])(exec|execSync|execFile|execFileSync|fork|spawn)\s*\(/.test(src), `${f} starts processes only with spawnSync`);
+  assert.equal((src.match(/\bspawnSync\(/g) ?? []).length, (src.match(/\bspawnSync\('git'/g) ?? []).length, `${f} spawns only git`);
+  assert.ok(!/\b(fetch|eval|require|import|Function)\s*\(|process\.binding|globalThis\[/.test(src), `${f} loads or builds no code at run time`);
 }
 
 // the measured product (06, 2g): what installs hashes to what the eval ran. A product change fails here until this
@@ -52,7 +59,7 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-assert.equal(product.digest('hex').slice(0, 12), 'a84a31665af3', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'da81530cb1c3', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -169,6 +176,28 @@ if (['win32', 'darwin'].includes(process.platform)) {
   assert.ok(text.length <= CAP && total === 400 && listed > 0 && listed < 400 && text.endsWith(`\n\n${NAME}`));
   assert.ok(text.includes(`packages/package-${listed - 1}/: README.md\n(${400 - listed} more directories not listed`));
   assert.equal(startText(index(repo)).text, `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
+  // the second review's J2: when cut, the map folder's line comes first; J1: one pass, so 10,000 directories are quick
+  const withMap = big.replace(/\n$/, '\n.project-map/: captured.md\n');
+  assert.ok(startText(withMap).text.includes(`${HEADER}\n.project-map/: captured.md\npackages/package-0/: README.md\n`));
+  const huge = `${HEADER}\n${Array.from({ length: 10_000 }, (_, i) => `packages/package-${i}/: README.md`).join('\n')}\n`;
+  const t = performance.now();
+  assert.ok(startText(huge).text.length <= CAP && performance.now() - t < 100, 'the cut takes one pass');
+}
+// J3: past the cap, the labels are cut at a line and every entry after the last one shown fails closed
+{
+  put('.project-map/many.md', Array.from({ length: 301 }, (_, i) => entry(`decision ${i + 1}`, `Rule ${i + 1} applies here.`, '2026-10-27')).join('\n'));
+  const l = labels(repo, '.project-map/many.md');
+  const shown = (l.match(/^\d+\. /gm) ?? []).length;
+  assert.ok(l.length <= CAP && shown > 0 && shown < 301);
+  assert.ok(l.endsWith(`(${301 - shown} more labels not shown: treat every entry after entry ${shown} in this file as unreviewed and unverified.)\n`));
+  fs.rmSync(path.join(repo, '.project-map', 'many.md'));
+}
+// J4: a UTF-16 map file (Windows PowerShell 5.1's Out-File and >) gets its labels
+{
+  const text = `${entry('first', 'A rule.', '2026-10-27')}\n${entry('second', 'Another rule.', '2026-10-27')}`;
+  fs.writeFileSync(path.join(repo, '.project-map', 'wide.md'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]));
+  assert.equal(labels(repo, '.project-map/wide.md'), `[project map] Labels on the entries of .project-map/wide.md, in file order:\n1. first: ${UNREVIEWED}; unverified quote, captured 2026-10-27\n2. second: ${UNREVIEWED}; unverified quote, captured 2026-10-27\n`);
+  fs.rmSync(path.join(repo, '.project-map', 'wide.md'));
 }
 
 // SessionStart's command through bash, as hooks.json gives it: the full output with Node, the one line without it
