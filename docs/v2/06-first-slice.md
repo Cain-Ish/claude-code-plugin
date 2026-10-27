@@ -924,3 +924,26 @@ Added p95 at 8 concurrent, medians of 3 interleaved runs (fixture, then P2), on 
 - *The read of another file* (19.9 / 22.4) is not in the rule. That hook does no work in the repo.
 - *All three rounds sit far below the morning's numbers* (map read 83 to 86 ms, session start 60 to 82). The same code
   and machine vary by time of day. The paired runs are what the calibration compares.
+
+### 2g, attempt 2: CI (2026-10-27): the self-test passes on three systems; the Windows lane fails D18's bar
+
+- **The self-test** (`selftest.mjs`, Node 20) passed on `ubuntu-latest`, `macos-latest` and `windows-latest`. That
+  covers the libraries, each hook as a process, and the `SessionStart` command through bash, with and without Node.
+  It is the first test of the plugin on macOS and Linux.
+- **The load job's first run failed on plumbing,** before it measured anything. The runner's `core.autocrlf` made
+  `git add` warn once per file, past `spawnSync`'s buffer. The fixture now turns that conversion off, as the local
+  build had. Its files are byte-identical to the calibrated ones.
+- **The load job's second run failed D18's bar,** with 0 errors. Added p95, on GitHub's hosted runner with Node
+  20.20.2:
+
+  | Hook | At 1 | At 8 concurrent |
+  | --- | --- | --- |
+  | Session start | 49.1 ms | **145.5 ms** |
+  | Prompt | 14.9 ms | 48.1 ms |
+  | Read of another file | 12.8 ms | 47.5 ms |
+  | Read of a map file (D16's load shape) | 62.3 ms | **147.0 ms** |
+
+  An empty Node process there has a p95 of about 142 ms at 8 concurrent.
+- **As registered,** this is a failed 2g attempt. The bar does not move, and the numbers are disclosed here.
+- **D18's trigger fired** ("another machine"), so D18 is reopened. 2g waits for it. This is 2g's second failed attempt,
+  so a third would be the last before going up a level (rule 4), and D18 is that level.

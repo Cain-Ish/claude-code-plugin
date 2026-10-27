@@ -6,7 +6,7 @@ and read those. Decisions stated during your sessions go into plain Markdown fil
 any other change.
 
 **Status:** `2.0.0-alpha.0`, a pre-release from branch `v2`, being prepared for release. It has been tested live on
-Windows; macOS and Linux are not tested yet. v1 (0.57.1) is frozen on
+Windows, and its self-test passes on Windows, macOS and Linux in CI. v1 (0.57.1) is frozen on
 [`main`](https://github.com/Cain-Ish/claude-code-plugin).
 
 ## What it does
