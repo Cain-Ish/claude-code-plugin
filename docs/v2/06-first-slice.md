@@ -1365,3 +1365,33 @@ the filtered code.
   unchanged (its record).
 - *Check 8* is dispatched next. Its two runs use v2's head, since a dispatch takes a branch, not a commit. The head's
   `plugin/`, `.claude-plugin/` and `v2.yml` are byte-identical to `3eec4f3`.
+
+### 2h, attempt 3: result (2026-10-27): failed on check 7; back to the user (rule 4)
+
+- *Check 8:* pass. Two fresh `v2.yml` runs (40539877232, 40539882507) are green on all six jobs. Session start added
+  68.8 and 66.1 ms at 1 session on Windows.
+- *Check 7:* **failed on pair 1.** The 10-second CPU sample before it averaged 28.9%. At 8 concurrent:
+
+  | Pair 1, added p95 (ms) | session start | prompt | another read | map read | empty Node p95 |
+  | --- | --- | --- | --- | --- | --- |
+  | alpha.1, the control | 97.3 | 25.9 | 49.4 | 89.6 | 96.7 to 112.2 |
+  | alpha.2 | 75.4 | 32.8 | 14.7 | **101.6** | 104.8 to 128.6 |
+
+  The control passed the bar, so the pair was valid as registered. alpha.2's map read was over it, which fails the
+  attempt.
+- *Why it is not read as a cost of the product* (after the result, so it changes nothing):
+  - for this input the map read runs the same code in both builds, since K1 changes text past the cap only and this
+    map has 30 entries;
+  - paired within one job on three runners, its cost was -2.1 to +0.4 ms (D18's check);
+  - the machine was loaded. The control's session start and map read were 97.3 and 89.6 ms, against attempt 5's
+    46 to 67 and 57 to 72, and empty Node's p95 was about twice attempt 5's.
+- *What failed in the method:*
+  - the validity rule, "the control passes the bar", let in a pair whose control was near the bar;
+  - the run started at 28% CPU, which was not a quiet machine.
+
+  Both are this record's errors.
+- D18's trigger fired by its letter again (a hook over 100 ms at 8 concurrent on the reference machine). Its question
+  goes with 2h to the user.
+- *Not run:* A1 and the live check. Records: `V2-D18-runtime/results/2g/ref-alpha2-attempt3-pair1*.json`.
+- **Three failed attempts.** 2h stops and goes back to the user, as registered. `plugin/` stays at `3c46826f115b`,
+  unpublished. The published release is still `2.0.0-alpha.1`.
