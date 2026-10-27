@@ -1,0 +1,25 @@
+# second-brain v2 (06, 2h attempt 3; V2-D18 reopened): the old and new hooks timed in pairs within one job, so the
+# runner's speed cancels. Dispatched by hand only.
+name: v2-paired
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paired:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - run: node plugin/test/fixture.mjs "$RUNNER_TEMP/p2-shape"
+      - run: node plugin/test/benchmap.mjs "$RUNNER_TEMP/p2-shape"
+      - run: node docs/v2/probes/V2-D18-runtime/alpha2/paired.mjs "$RUNNER_TEMP/p2-shape" 200
