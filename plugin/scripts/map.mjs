@@ -42,6 +42,15 @@ const DOC = /\.(md|mdx|markdown|txt|rst)$/i;
 const git = (root, args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 export const rel = (root, p) => path.relative(root, String(p ?? '')).replace(/\\/g, '/');
 
+// The repo's root: the nearest folder at or above where Claude started that holds .git (a folder, or a worktree's
+// file), so a session started in a subdirectory still sees the whole index and labels the root's map (D18, 2g)
+export function toplevel(dir) {
+  for (let d = path.resolve(dir); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, '.git'))) return d;
+    if (path.dirname(d) === d) return path.resolve(dir);
+  }
+}
+
 // the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it
 const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
   .flatMap((e) => (e.isDirectory() ? under(root, `${d}/${e.name}`) : [`${d}/${e.name}`]));
@@ -53,9 +62,11 @@ const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: t
 export function index(root) {
   const tracked = git(root, ['ls-files', '-z', '--cached']);
   if (tracked.status !== 0) return null;
-  const known = new Set(tracked.stdout.split('\0'));
+  // letter case is ignored where the file system ignores it, as git's core.ignorecase does (D16's second difference)
+  const fold = ['win32', 'darwin'].includes(process.platform) ? (p) => p.toLowerCase() : (p) => p;
+  const known = new Set(tracked.stdout.split('\0').map(fold));
   let fresh = [];
-  try { fresh = under(root, MAP).filter((p) => !known.has(p)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch {}
+  try { fresh = under(root, MAP).filter((p) => !known.has(fold(p))).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch {}
   const byDir = new Map();
   for (const p of [...tracked.stdout.split('\0'), ...fresh]) {
     if (!DOC.test(p)) continue;
@@ -67,6 +78,20 @@ export function index(root) {
   return byDir.size ? `${HEADER}\n${[...byDir].map(([d, f]) => `${d}/: ${f.join(', ')}`).join('\n')}\n` : '';
 }
 
+// Session start's text. Claude Code caps a hook's added context at 10,000 characters: past it, the text goes to a
+// file and Claude sees a 2,000-character preview. So a larger index is cut at a directory, and says so (D22's guard).
+export const CAP = 10_000;
+export function startText(idx) {
+  const full = idx ? `${INSTRUCTION}\n\n${idx}\n${NAME}` : `${INSTRUCTION}\n\n${NAME}`;
+  const [head, ...dirs] = (idx ?? '').trimEnd().split('\n');
+  if (full.length <= CAP) return { text: full, listed: dirs.length, total: dirs.length };
+  const at = (k) => `${INSTRUCTION}\n\n${[head, ...dirs.slice(0, k)].join('\n')}\n(${dirs.length - k} more directories `
+    + 'not listed: the index is past the 10,000-character limit of one hook output.)\n\n' + NAME;
+  let k = dirs.length;
+  while (k > 0 && at(k).length > CAP) k--;
+  return { text: at(k), listed: k, total: dirs.length };
+}
+
 // The forced decision's epoch: every session start opens one, the first prompt after it closes it. A marker file in
 // the OS temp folder, so nothing is written in the repo.
 const marker = (id) => path.join(os.tmpdir(), `project-map-${String(id).replace(/[^\w-]/g, '')}.pending`);
@@ -75,8 +100,9 @@ export function takeForce(id) {
   try { fs.unlinkSync(marker(id)); return FORCE; } catch { return ''; }
 }
 
-// A map file's entries: each '### ' block that quotes something, up to the next heading, as its text.
-const entries = (text) => text.replace(/\r/g, '').split(/^(?=#{1,3} )/m).filter((b) => b.startsWith('### ') && /^>/m.test(b)).map((b) => b.trim());
+// A map file's entries: each '### ' block that quotes something, up to the next heading, as its text. A leading
+// byte-order mark (Windows PowerShell 5.1 writes one) would hide the first entry, so it goes (D18, 2g).
+const entries = (text) => text.replace(/^﻿/, '').replace(/\r/g, '').split(/^(?=#{1,3} )/m).filter((b) => b.startsWith('### ') && /^>/m.test(b)).map((b) => b.trim());
 
 // D16's re-find (attempt 2's match): every stretch of three or more words between ellipses is in the file's words.
 // Found where the stretch's first word starts a word of the lowercased file and the words read on from there match
@@ -109,7 +135,8 @@ const isFile = (root, p) => fs.statSync(path.join(root, p), { throwIfNoEntry: fa
 // now, and one not found says so without claiming a change; any other entry carries its capture date as unverified.
 export function labels(root, file) {
   let text;
-  try { text = fs.readFileSync(path.join(root, file), 'utf8'); } catch { return ''; }
+  // a missing file has nothing to label; any other failure throws, and the read hook labels the file as a whole
+  try { text = fs.readFileSync(path.join(root, file), 'utf8'); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
   const head = git(root, ['show', `HEAD:./${file}`]);
   const held = new Set(head.status === 0 ? entries(head.stdout) : []);
   const docs = new Map();
@@ -121,7 +148,13 @@ export function labels(root, file) {
     const at = sourcePath(src);
     const ls = held.has(b) ? [] : [UNREVIEWED];
     if (!at) ls.push(`unverified quote${date ? `, captured ${date}` : ''}`);
-    else if (!isFile(root, at) || !foundIn(quote, doc(at))) ls.push(`not found word for word in ${at}; check it${date ? `, captured ${date}` : ''}`);
+    else {
+      // a source that exists but cannot be read gets its own label, so one locked file costs no other entry its label
+      let found;
+      try { found = isFile(root, at) && foundIn(quote, doc(at)); } catch { found = null; }
+      if (found === null) ls.push(`cannot read ${at}; check it${date ? `, captured ${date}` : ''}`);
+      else if (!found) ls.push(`not found word for word in ${at}; check it${date ? `, captured ${date}` : ''}`);
+    }
     return ls.length ? [`${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`] : [];
   });
   return out.length ? `[project map] Labels on the entries of ${file}, in file order:\n${out.join('\n')}\n` : '';

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, index, labels } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, CAP, index, labels, startText } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
@@ -36,6 +36,23 @@ assert.ok(hooks.SessionStart[0].hooks[0].command.includes('The project map needs
 assert.equal(hooks.PostToolUse[0].matcher, 'Read');
 assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'commands')), ['onboard.md']);
 for (const d of ['agents', 'skills', '.mcp.json']) assert.ok(!fs.existsSync(path.join(PLUGIN, d)), d);
+
+// D18: no model and no network, and hooks spawn only git. The product scripts import only these and run no other code
+for (const f of ['hook.mjs', 'map.mjs']) {
+  const src = fs.readFileSync(path.join(PLUGIN, 'scripts', f), 'utf8');
+  for (const [, m] of src.matchAll(/^import .* from '([^']+)';$/gm)) assert.ok(['node:fs', 'node:os', 'node:path', 'node:child_process', './map.mjs'].includes(m), `${f} imports ${m}`);
+  assert.equal((src.match(/\bspawn(Sync)?\(/g) ?? []).length, (src.match(/\bspawn(Sync)?\('git'/g) ?? []).length, `${f} spawns only git`);
+  assert.ok(!/\b(fetch|eval|require|import)\s*\(/.test(src), `${f} loads or fetches nothing at run time`);
+}
+
+// the measured product (06, 2g): what installs hashes to what the eval ran. A product change fails here until this
+// value moves with a new epoch and its runs.
+const files = [];
+const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.name !== 'test') (e.isDirectory() ? walk : (p) => files.push(p))(path.join(d, e.name)); };
+walk(PLUGIN);
+const product = crypto.createHash('sha256');
+for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
+assert.equal(product.digest('hex').slice(0, 12), 'a84a31665af3', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -112,6 +129,47 @@ hook('session-start', { session_id: sid, source: 'compact' });
 assert.equal(hook('prompt', { session_id: sid }), FORCE);
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, 'docs', 'style.md') } }), '');
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }), labels(repo, '.project-map/captured.md'));
+
+// the release review's fixes (06, 2g attempt 3; D18 reopened 2026-10-27)
+// I1: a session started in a subdirectory takes the git toplevel as its root
+const docs = path.join(repo, 'docs');
+assert.equal(hook('session-start', { session_id: `${sid}-sub` }, docs), `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
+hook('prompt', { session_id: `${sid}-sub` }, docs);
+assert.equal(hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }, docs), labels(repo, '.project-map/captured.md'));
+// I4: a cited source that cannot be read gets its own label; anything else that fails labels the file as a whole
+{
+  const read = fs.readFileSync;
+  fs.readFileSync = (p, ...a) => { if (String(p).endsWith('style.md')) throw Object.assign(new Error('denied'), { code: 'EPERM' }); return read(p, ...a); };
+  try { assert.ok(labels(repo, '.project-map/cited.md').includes('1. verbatim: cannot read docs/style.md; check it, captured 2026-10-22')); } finally { fs.readFileSync = read; }
+}
+fs.mkdirSync(path.join(repo, '.project-map', 'folder.md'));
+assert.match(hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'folder.md') } }), /could not be computed: treat every entry in it as unreviewed/);
+fs.rmSync(path.join(repo, '.project-map', 'folder.md'), { recursive: true });
+// I9: a missing TEMP costs only the forced decision
+{
+  const gone = path.join(tmp, 'no-such-temp');
+  const r = spawnSync('node', [HOOK, 'session-start'], { input: JSON.stringify({ cwd: repo, session_id: `${sid}-t` }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo, TEMP: gone, TMP: gone, TMPDIR: gone } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
+}
+// I13: a byte-order mark does not hide the first entry
+put('.project-map/bom.md', `﻿${entry('first', 'A rule.', '2026-10-27')}`);
+assert.ok(labels(repo, '.project-map/bom.md').startsWith(`[project map] Labels on the entries of .project-map/bom.md, in file order:\n1. first: ${UNREVIEWED}`));
+fs.rmSync(path.join(repo, '.project-map', 'bom.md'));
+// I11: where the file system ignores letter case, a tracked map file renamed only in case is listed once
+if (['win32', 'darwin'].includes(process.platform)) {
+  fs.renameSync(path.join(repo, '.project-map', 'captured.md'), path.join(repo, '.project-map', 'Captured.md'));
+  assert.equal((index(repo).match(/aptured\.md/g) ?? []).length, 1);
+  fs.renameSync(path.join(repo, '.project-map', 'Captured.md'), path.join(repo, '.project-map', 'captured.md'));
+}
+// I2: an index past the 10,000-character cap of one hook output is cut at a directory, and says so
+{
+  const big = `${HEADER}\n${Array.from({ length: 400 }, (_, i) => `packages/package-${i}/: README.md`).join('\n')}\n`;
+  const { text, listed, total } = startText(big);
+  assert.ok(text.length <= CAP && total === 400 && listed > 0 && listed < 400 && text.endsWith(`\n\n${NAME}`));
+  assert.ok(text.includes(`packages/package-${listed - 1}/: README.md\n(${400 - listed} more directories not listed`));
+  assert.equal(startText(index(repo)).text, `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
+}
 
 // SessionStart's command through bash, as hooks.json gives it: the full output with Node, the one line without it
 const noNode = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^path$/i.test(k))),

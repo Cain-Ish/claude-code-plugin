@@ -1,6 +1,7 @@
 // V2-D18 reopened (2026-10-27, 06 step 2g attempt 3): each intended difference between the 61964f9bbb40 hooks (old/)
 // and the fixed ones, run as Claude Code runs them. The old code must show the defect and the new must not.
-//   node differences.mjs [new plugin dir, default ./plugin]     Prints and saves counts and verdicts only.
+//   node differences.mjs [new plugin dir, default the repo's plugin/]     Prints and saves counts and verdicts only.
+// The attempt ran against a plugin copy here, moved into plugin/ after it passed.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OLD = path.join(HERE, 'old', 'scripts', 'hook.mjs');
-const NEW = path.join(path.resolve(process.argv[2] ?? path.join(HERE, 'plugin')), 'scripts', 'hook.mjs'); // after the move: plugin/
+const NEW = path.join(path.resolve(process.argv[2] ?? path.join(HERE, '..', '..', '..', '..', '..', 'plugin')), 'scripts', 'hook.mjs');
 const NAME_START = 'When you finish, name each';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-diff-'));
 const run = (hook, which, input, dir, env = {}) => {
