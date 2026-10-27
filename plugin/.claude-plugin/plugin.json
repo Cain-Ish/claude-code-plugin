@@ -1,6 +1,6 @@
 {
   "name": "second-brain",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.2",
   "description": "A project map for Claude Code: an index of the project's own documents at session start, a forced look at the ones that bear on the task, and captured decisions labelled until they are committed.",
   "license": "MIT"
 }

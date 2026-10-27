@@ -58,6 +58,27 @@ export function toplevel(dir) {
 const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
   .flatMap((e) => (e.isDirectory() ? under(root, `${d}/${e.name}`) : [`${d}/${e.name}`]));
 
+// git's core.ignorecase, read from the repo's config file, so session start keeps one git call (D18). A .git file (a
+// linked worktree, a submodule) names the git folder, whose commondir holds the shared config. Unset, false or
+// unreadable means no fold, as in git: a name listed twice loses nothing (06, 2h).
+// shortcut: global, system and included config files and config.worktree are not read; read them if a repo sets the
+// value there
+function ignoreCase(root) {
+  try {
+    let dir = path.join(root, '.git');
+    if (fs.statSync(dir).isFile()) dir = path.resolve(root, /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dir, 'utf8'))[1]);
+    try { dir = path.resolve(dir, fs.readFileSync(path.join(dir, 'commondir'), 'utf8').trim()); } catch {}
+    let core = false, on = false;
+    for (let line of fs.readFileSync(path.join(dir, 'config'), 'utf8').split(/\r?\n/)) {
+      const s = /^\s*\[([^\]]*)\](.*)$/.exec(line);
+      if (s) [core, line] = [s[1].trim().toLowerCase() === 'core', s[2]];
+      const kv = /^\s*ignorecase\s*(?:=\s*("?)([^"#;]*)\1)?\s*(?:[#;].*)?$/i.exec(line);
+      if (core && kv) on = kv[2] === undefined || /^(true|yes|on|[+-]?0*[1-9]\d*)$/i.test(kv[2].trim());
+    }
+    return on;
+  } catch { return false; }
+}
+
 // D22's index: the tracked documents, plus the map files not yet committed (D15), by directory. Empty with no
 // documents, null outside git. Untracked files are listed for the map folder only: elsewhere they can be a whole
 // unignored build tree. They are read from the folder, not from a second git call (D18's budget), so a map file
@@ -65,9 +86,10 @@ const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: t
 export function index(root) {
   const tracked = git(root, ['ls-files', '-z', '--cached']);
   if (tracked.status !== 0) return null;
-  // letter case is ignored where the file system ignores it, as git's core.ignorecase does (D16's second difference)
-  const fold = ['win32', 'darwin'].includes(process.platform) ? (p) => p.toLowerCase() : (p) => p;
-  const known = new Set(tracked.stdout.split('\0').map(fold));
+  // letter case is folded as git folds it under core.ignorecase, ASCII letters only (D16's second difference; 06, 2h)
+  const fold = ignoreCase(root) ? (p) => p.replace(/[A-Z]+/g, (s) => s.toLowerCase()) : (p) => p;
+  // only a tracked map file can match one, so only those are folded (D18's budget)
+  const known = new Set(tracked.stdout.split('\0').filter((p) => p.slice(0, MAP.length + 1).toLowerCase() === `${MAP}/`).map(fold));
   let fresh = [];
   try { fresh = under(root, MAP).filter((p) => !known.has(fold(p))).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch {}
   const byDir = new Map();
@@ -171,8 +193,8 @@ export function labels(root, file) {
   const all = `${top}${out.join('\n')}\n`;
   if (all.length <= CAP) return all;
   // past the cap, Claude would see only a preview, so the labels are cut at a line and the rest fail closed (D18, J3)
-  const tail = (k) => (k ? `(${out.length - k} more labels not shown: treat every entry after entry ${parseInt(out[k - 1], 10)} `
-    : `(${out.length} labels not shown: treat every entry `) + 'in this file as unreviewed and unverified.)\n';
+  const tail = (k, n = out.length - k) => (k ? `(${n} more ${n === 1 ? 'label' : 'labels'} not shown: treat every entry after entry ${parseInt(out[k - 1], 10)} `
+    : `(${n} ${n === 1 ? 'label' : 'labels'} not shown: treat every entry `) + 'in this file as unreviewed and unverified.)\n';
   let k = 0;
   for (let used = top.length; k < out.length && used + out[k].length + 1 + tail(k + 1).length <= CAP; k++) used += out[k].length + 1;
   return `${top}${out.slice(0, k).map((l) => `${l}\n`).join('')}${tail(k)}`;

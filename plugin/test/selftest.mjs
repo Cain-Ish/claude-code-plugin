@@ -59,7 +59,7 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-assert.equal(product.digest('hex').slice(0, 12), 'da81530cb1c3', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '3c46826f115b', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -163,11 +163,31 @@ fs.rmSync(path.join(repo, '.project-map', 'folder.md'), { recursive: true });
 put('.project-map/bom.md', `﻿${entry('first', 'A rule.', '2026-10-27')}`);
 assert.ok(labels(repo, '.project-map/bom.md').startsWith(`[project map] Labels on the entries of .project-map/bom.md, in file order:\n1. first: ${UNREVIEWED}`));
 fs.rmSync(path.join(repo, '.project-map', 'bom.md'));
-// I11: where the file system ignores letter case, a tracked map file renamed only in case is listed once
-if (['win32', 'darwin'].includes(process.platform)) {
-  fs.renameSync(path.join(repo, '.project-map', 'captured.md'), path.join(repo, '.project-map', 'Captured.md'));
-  assert.equal((index(repo).match(/aptured\.md/g) ?? []).length, 1);
-  fs.renameSync(path.join(repo, '.project-map', 'Captured.md'), path.join(repo, '.project-map', 'captured.md'));
+// I11 and 06's 2h: a tracked map file renamed only in letter case is folded as the repo's core.ignorecase says (K2),
+// ASCII letters only, as git compares (K3), and in a linked worktree too, whose .git is a file. The setting is made
+// both ways on every system, so this checks the mechanism, not the file system. Each listing must also be git's own,
+// from the two calls the index made before D16's re-lock.
+{
+  const cs = path.join(tmp, 'case');
+  const g = (cwd, ...a) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd }).status, 0);
+  const ls = (cwd, ...a) => spawnSync('git', ['ls-files', '-z', ...a], { cwd, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
+  const gits = (d) => `${HEADER}\n.project-map/: ${[...ls(d, '--cached'), ...ls(d, '--others', '--exclude-standard', '--', '.project-map')].map((p) => p.slice(13)).join(', ')}\n`;
+  fs.mkdirSync(path.join(cs, '.project-map'), { recursive: true });
+  for (const f of ['captured.md', 'Ärger.md']) fs.writeFileSync(path.join(cs, '.project-map', f), entry('a', 'b', '2026-10-27'));
+  g(cs, 'init', '-q');
+  g(cs, 'add', '-A');
+  g(cs, 'commit', '-q', '-m', 'init');
+  g(cs, 'worktree', 'add', '-q', path.join(tmp, 'case-wt'));
+  for (const d of [cs, path.join(tmp, 'case-wt')]) {
+    fs.renameSync(path.join(d, '.project-map', 'captured.md'), path.join(d, '.project-map', 'Captured.md'));
+    fs.renameSync(path.join(d, '.project-map', 'Ärger.md'), path.join(d, '.project-map', 'ärger.md'));
+    g(d, 'config', 'core.ignorecase', 'true');
+    assert.equal(index(d), `${HEADER}\n.project-map/: captured.md, Ärger.md, ärger.md\n`);
+    assert.equal(index(d), gits(d));
+    g(d, 'config', 'core.ignorecase', 'false');
+    assert.equal(index(d), `${HEADER}\n.project-map/: captured.md, Ärger.md, Captured.md, ärger.md\n`);
+    assert.equal(index(d), gits(d));
+  }
 }
 // I2: an index past the 10,000-character cap of one hook output is cut at a directory, and says so
 {
@@ -191,6 +211,12 @@ if (['win32', 'darwin'].includes(process.platform)) {
   assert.ok(l.length <= CAP && shown > 0 && shown < 301);
   assert.ok(l.endsWith(`(${301 - shown} more labels not shown: treat every entry after entry ${shown} in this file as unreviewed and unverified.)\n`));
   fs.rmSync(path.join(repo, '.project-map', 'many.md'));
+  // 06's 2h (K1): one label left is "label"; so is one label line that does not fit at all
+  put('.project-map/long.md', Array.from({ length: 5 }, (_, i) => entry(`${i + 1}${'x'.repeat(2300)}`, 'A rule.', '2026-10-27')).join('\n'));
+  assert.ok(labels(repo, '.project-map/long.md').endsWith('\n(1 more label not shown: treat every entry after entry 4 in this file as unreviewed and unverified.)\n'));
+  put('.project-map/long.md', entry('x'.repeat(10_000), 'A rule.', '2026-10-27'));
+  assert.equal(labels(repo, '.project-map/long.md'), '[project map] Labels on the entries of .project-map/long.md, in file order:\n(1 label not shown: treat every entry in this file as unreviewed and unverified.)\n');
+  fs.rmSync(path.join(repo, '.project-map', 'long.md'));
 }
 // J4: a UTF-16 map file (Windows PowerShell 5.1's Out-File and >) gets its labels
 {

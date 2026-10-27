@@ -16,7 +16,7 @@ index lists too (V2-D14, D13). Everything a person needs is readable and correct
 | --- | --- | --- | --- |
 | the repo's documents (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`) | the project's own rules and knowledge | the project's people | D15, D22 |
 | `.project-map/*.md` | entries captured from work: the statement, its source (a document anchor or the session's date), its area, when it applies, `verified` | Claude, under the capture instruction; committed with the work | D11, D13, D14, D16 |
-| no cache (build step 2a) | the index is built at each session start from git's file list plus the untracked files under `.project-map/`, so an entry captured and not yet committed is listed. One git call (since D16's re-lock of 2026-10-26): 60 to 82 ms added p95 at 8 concurrent on P2 (190 documents, 6.1 KB) in three runs, under D18's 100 ms. With two calls it measured 87 ms in 2a and 106 to 112 ms on 2026-10-26 | the plugin | D15, D18 |
+| no cache (build step 2a) | the index is built at each session start from git's file list plus the untracked files under `.project-map/`, so an entry captured and not yet committed is listed. A map file renamed only in letter case is matched as git's `core.ignorecase` says (06, 2h). One git call (since D16's re-lock of 2026-10-26): 60 to 82 ms added p95 at 8 concurrent on P2 (190 documents, 6.1 KB) in three runs, under D18's 100 ms. With two calls it measured 87 ms in 2a and 106 to 112 ms on 2026-10-26 | the plugin | D15, D18 |
 
 ## Hooks
 
@@ -57,9 +57,9 @@ Node and git are present. A repo with no documents gets an empty index and an em
 - **Untested shapes.** Investigation tasks (outside the claim), and an index past 86 directories (R0, v1's repo, in
   2d and 2e) or past 6.1 KB (P2). These are D22's triggers. A cut index (past the hook cap) has had no forced
   decision measured on it.
-- **Letter case** in the map folder is folded by operating system (win32 and darwin), not by the file system, so a
-  case-sensitive macOS volume or a case-insensitive Linux mount can list a renamed file wrongly. Reading
-  `core.ignorecase` would cost a git spawn at every session start.
+- **Letter case** in the map folder is folded as the repo's `core.ignorecase` says, ASCII letters only, as git
+  compares (06, 2h). It is read from the repo's config file, with no git spawn, so a value set only in a global, system
+  or included config file, or in `config.worktree`, is not read.
 - **Subagents** do not see the index, since `SessionStart` reaches only the main session (D12). The read hook does not
   reach a subagent (D12, build step 0: 0 and 1 of 3), so a map file a subagent reads, or one met by Grep or Bash,
   arrives unlabelled. That is an accepted risk.

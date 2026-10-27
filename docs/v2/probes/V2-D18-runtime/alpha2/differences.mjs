@@ -1,7 +1,8 @@
 // 06, 2h (2026-10-27): each intended difference between the da81530cb1c3 library (old/) and alpha.2's. In every case
 // the old code must give the old output and the new code the new one. Git's own listing is D16's two-call index()
 // (map-497ba915.mjs: ls-files --cached, then ls-files --others --exclude-standard under .project-map/).
-//   node differences.mjs [new plugin dir, default the copy here]     Prints and saves counts and verdicts only.
+//   node differences.mjs [new plugin dir, default the repo's plugin/]     Prints and saves counts and verdicts only.
+// The attempt ran against a plugin copy here, moved into plugin/ after it passed.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const NEW_DIR = path.resolve(process.argv[2] ?? path.join(HERE, 'plugin'));
+const NEW_DIR = path.resolve(process.argv[2] ?? path.join(HERE, '..', '..', '..', '..', '..', 'plugin'));
 const OLD = await import(pathToFileURL(path.join(HERE, 'old', 'scripts', 'map.mjs')).href);
 const NEW = await import(pathToFileURL(path.join(NEW_DIR, 'scripts', 'map.mjs')).href);
 const GIT = await import(pathToFileURL(path.join(HERE, '..', '..', 'V2-D16-freshness', 'map-497ba915.mjs')).href);
