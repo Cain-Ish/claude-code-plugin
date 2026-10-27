@@ -994,3 +994,33 @@ If attempt 3 fails, 2g goes back to this plan, with the user.
 - **Then:** the release notes go to the user, and the tag and pre-release wait for their yes. The user's earlier yes
   was given for another candidate.
 - **Pass:** all of the above.
+
+### 2g, attempt 3: results so far (2026-10-27)
+
+- **D18's check, on the plugin copy:** pass (D18's record).
+  - 0 differences at the map level (123 comparisons) and at the process level (36).
+  - The old code shows the defect and the new does not, in all 7 intended differences.
+  - The live cap probe passes, and it located Claude Code's real cliff (between about 12,400 and 16,300 characters).
+- **The move:** `plugin/` is `2.0.0-alpha.1`, hash `a84a31665af3`, pinned in the self-test. The differences probe
+  passes on it.
+- **The reference machine** (P2, 8 concurrent, 3 runs, 0 errors), added p95 with wall clock in brackets:
+  - session start 47.0, 40.5 and 42.0 ms (104.9, 104.3 and 112.4);
+  - prompt 23.0, 24.4 and 22.4 ms;
+  - a read of another file 22.1, 23.3 and 30.0 ms;
+  - the map read 56.6, 55.9 and 59.1 ms (116.8, 116.7 and 123.8).
+
+  *Pass.* The records are in `V2-D18-runtime/results/2g/`, with the earlier reference and calibration runs (I10).
+- **CI** (`375987e`): green. The self-test passed on all three systems, and so did the load lane, gated at one session
+  on all three (I7). Added p95 at 1 session (wall clock):
+
+  | Runner | Session start | Map read |
+  | --- | --- | --- |
+  | Windows, 4 cores | 66.8 (117.4) | 68.7 (117.6) |
+  | macOS, 3 cores | 41.5 (90.9) | 39.2 (79.5) |
+  | Linux, 4 cores | 27.5 (55.5) | 30.8 (55.3) |
+
+  At 8 concurrent, reported only, session start took 84.7 to 170.7 ms and the map read 120.4 to 203.1 ms.
+- **A check of a README claim:** with a project-scope install, a live session on 2.1.311 loaded the plugin at the
+  repo's root, and did not load it in a subdirectory.
+- **Still to run:** A1 on `a84a31665af3`, which is running; the 2f live check; and Gemini on the diff and the final
+  README.

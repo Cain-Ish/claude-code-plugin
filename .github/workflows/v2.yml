@@ -1,5 +1,5 @@
 # second-brain v2 (06, build step 2g): the self-test on three systems at the plugin's Node floor, and D18's load bar
-# on Windows (PM3, PM8), on a synthetic repo of P2's shape that was calibrated against P2 before this lane ran.
+# on three systems (PM3, PM8), on a synthetic repo of P2's shape that was calibrated against P2 before this lane ran.
 # D18's two-part budget (2026-10-27): this lane gates 1 session; 8 concurrent is gated on the reference machine before
 # each release, and the runner's numbers at its core count and at 8 are reported only.
 name: v2
