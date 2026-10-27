@@ -1042,3 +1042,28 @@ If attempt 3 fails, 2g goes back to this plan, with the user.
   holds. D18 and D14 are re-locked.
 - **What is left:** the release notes go to the user. The tag and pre-release wait for their yes, then go up with the
   README that installs from the tag.
+
+### 2g, attempt 4: registered (2026-10-27, before any code), after the user's second review
+
+- **Why there is an attempt 4.**
+  - Attempt 3 passed its registered checks.
+  - The user then said yes to publishing, but asked for the workflow to run again first. That run found fail-open
+    label paths (J3, J4) that fire D18's trigger, plus J1 and J2 (the release-review note).
+  - Failed attempts so far: 1 and 2. If this one fails, 2g goes back to this plan, with the user.
+- **What ships:** `2.0.0-alpha.1`, with D18's new fixes (D18's record) and a new hash pinned in the self-test.
+  - The version stays, since nothing was published under it.
+  - The fixes are built in a plugin copy, `probes/V2-D18-runtime/fail-closed-2/`, with `a84a31665af3` kept beside it.
+    They move into `plugin/` in one step.
+- **Before the move:**
+  - D18's check;
+  - the self-test with J1 to J4's cases;
+  - the lint covering every child_process function, both quote styles, side-effect imports and `Function` (J6).
+- **After the move,** as in attempt 3:
+  - A1 on the new hash;
+  - the reference machine at 8 concurrent;
+  - CI on three systems;
+  - the 2f live check;
+  - Gemini 4 Argon on the diff.
+- **The README** adds the bash start to the session-start wall clock (J5), and the labels' cut as a known issue.
+- **Then** the release notes and the user's yes, since the hash has changed again.
+- **Pass:** all of the above.

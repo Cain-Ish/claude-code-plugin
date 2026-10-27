@@ -17,11 +17,11 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass) | user + evidence | D11, D13 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled) | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3) | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled) | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
@@ -1874,6 +1874,31 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
   Attempts at this reopen: 0 failed.
 - **D14 re-locked unchanged, the same day:** delivery now labels all three cases (D14's record).
+- **REOPENED again 2026-10-27, by the second workflow review (the user's call): its re-lock trigger fired.** That
+  trigger is "a map file's uncommitted entry reaches Claude unlabelled".
+  - *J3:* past Claude Code's cap, the read hook's labels spill to a file with a 2,000-character preview, and the newest
+    uncommitted entry's label is the last line. Observed live on CLI 2.1.311, with 301 entries and 17,431 characters.
+  - *J4:* a UTF-16 map file gets no labels at all.
+
+  Details: [research/2026-10-27-release-review.md](research/2026-10-27-release-review.md).
+- **The fixes, pre-registered before any code** (06, 2g attempt 4; run from a plugin copy):
+  - past the cap, the labels are cut at a line, and the last line says to treat every entry after the last one shown
+    as unreviewed and unverified;
+  - a UTF-16 file, marked by its byte-order mark, is decoded as UTF-16: the map file, its HEAD version, and cited
+    sources;
+  - the session-start cut finds its point in one forward pass, with the same output (J1);
+  - when the index is cut, the map folder's line goes first (J2);
+  - the cut line and onboarding's warning name the session-start text, and the count's plural is right.
+- **Check:**
+  - *Map level and process level:* `a84a31665af3` against the new code, as before. Pass: 0 differences.
+  - *Each intended difference* has a case in which `a84a31665af3` fails and the new code passes:
+    - J1: `startText` on 10,000 directories in under 100 ms;
+    - J2: the map's line is listed after a cut;
+    - J3: the labels of 301 entries stay within 10,000 characters and end with the fail-closed line;
+    - J4: a UTF-16LE map file gets its labels.
+  - *J3, live:* `label-cap-probe.mjs` at 301 entries. Pass: the label text arrives whole, under the cap, and holds the
+    fail-closed line.
+- **D14** is reopened by the same trigger (J4), and re-locks unchanged when this check passes.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

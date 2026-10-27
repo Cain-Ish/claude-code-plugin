@@ -69,3 +69,22 @@ a session started at the root, readable files, no byte-order mark, a writable TE
 | Quotes shorter than three words that cite a repo file get no label once committed, and the README leaves that implicit | **Fixed:** stated (I8's D16 behaviour) |
 | The local-scope line leaves the subdirectory limit implicit | **Fixed** |
 | The cap wording in the known issues | **Fixed:** the plugin cuts the session-start text at the documented 10,000, and the measured cliff is stated |
+
+## The workflow again, on `a84a31665af3` (2026-10-27, the user's call)
+
+The user asked for a second workflow run before publishing. 35 agents ran. 30 findings were raised; 15 survived and
+15 were dismissed. The survivors come down to 6 issues.
+
+| # | Issue (survivors) | What fires | Disposition |
+| --- | --- | --- | --- |
+| J1 | The guard's cut is quadratic: its loop rebuilds the whole text for every directory it drops. Session start takes about 0.8 s at 8,000 document directories and about 1.2 s at 10,000; the old code was linear there. Each `CMakeLists.txt` counts as a document (1, 5, 12) | D18's "a hook's added p95 exceeds 100 ms at 1 session", on repos far past P2's shape | **Fix:** one forward pass. The output is unchanged, since the text grows with every directory added |
+| J2 | Past the cap, a `.project-map/` with no commit yet is listed last, so it is the first line cut. A repo adopting the plugin would then not see its captured decisions in the index (2, 13) | none: an order the guard made load-bearing | **Fix:** when the index is cut, the map's line goes first |
+| J3 | The read hook's labels have no cap guard. A map file of about 150 entries or more puts the labels past 10,000 characters, and the newest uncommitted entry's label is the last line (3, 4, 10). **Live** (CLI 2.1.311, 301 entries, 17,431 characters): the text was saved to a file and Claude got a preview; it found entry 301's label only by reading that file, because the prompt asked for it | D18's re-lock trigger: an uncommitted entry reaches Claude unlabelled through the main session's Read | **Fix:** past the cap, the labels are cut at a line, and the last line says to treat every entry after the last one shown as unreviewed and unverified |
+| J4 | A UTF-16 map file gets no labels. Windows PowerShell 5.1's `Out-File` and `>` write UTF-16LE: the hook reads UTF-8, finds no entries, and prints nothing, while Claude's Read shows the decoded entries. Reproduced (6, 9) | D18's and D14's unlabelled triggers | **Fix:** a file with a UTF-16 byte-order mark is decoded as UTF-16, for the map file, its HEAD version and cited sources |
+| J5 | The README's wall clock for session start leaves out the bash start that the shell-form hook pays (7). Measured here: about 22 ms more at 1 session (p95 85.1 against 63.3 ms) | none | **Fix:** the README states it |
+| J6 | The "spawns only git" lint can be bypassed: `execFileSync` and `fork` from the allowed module, double-quoted or side-effect imports, `new Function` (8, 11, 14, 15) | none: a tripwire weaker than its claim | **Fix:** the lint covers every child_process function, both quote styles, side-effect imports and `Function`. It is described as a tripwire, not a proof |
+
+- J3 and J4 fire D18's trigger. Their fixes, and J1's and J2's, change the plugin, so they make a new epoch, registered
+  in 06 as 2g attempt 4.
+- Since the hash moves anyway, the past-cap wording accepted in Gemini's second round is fixed in the same epoch: the
+  cut line and onboarding's warning name the session-start text, and the count's plural is right.
