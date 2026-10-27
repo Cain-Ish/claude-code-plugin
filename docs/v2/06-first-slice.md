@@ -1083,3 +1083,28 @@ If attempt 3 fails, 2g goes back to this plan, with the user.
   the diff.
 - *What attempt 4's registration says:* a failure takes 2g back to this plan, with the user. Rule 4 allows a fourth
   failed-attempt retry only after a near miss with a known cause, which this is. Whether to take it is the user's call.
+
+### 2g, attempt 5: registered (2026-10-27, before any check runs). The user's choice; the last
+
+The user chose one more attempt on attempt 4's fixes (rule 4: a near miss with a known cause), and to publish if it
+passes. If it fails, the release stops, and 2g goes back to the user. There is no attempt 6.
+
+- **Candidate:** `2.0.0-alpha.1` at hash `da81530cb1c3`: attempt 4's copy, moved into `plugin/` in one step.
+- **Checks, all on `plugin/` after the move:**
+  1. *Map level* (`equivalence.mjs`, `EQ_CUT=1`, against `a84a31665af3`). *Pass:* 0 differences. A label text that the
+     old code put past the 10,000-character cap, and the new code cuts to exactly its first lines plus the fail-closed
+     line, is counted as a cut, not as a difference. Every other output must be byte-identical.
+  2. *Process level,* against `a84a31665af3`. *Pass:* 0 differences in 36.
+  3. *J1 to J4* (`fail-closed-2/differences.mjs`). *Pass:* all 4.
+  4. *The self-test.* It pins `da81530cb1c3`.
+  5. *A1 on `da81530cb1c3`* (the pinned epoch). *Pass:* every pass item at its bar, as in 2c attempt 2.
+  6. *The reference machine:* P2 at 8 concurrent, 3 runs. *Pass:* each hook at most 100 ms added, 0 errors.
+  7. *CI:* the self-test and the load lane, gated at one session, on all three systems. *Pass:* green.
+  8. *The 2f live check.* *Pass:* `live.mjs` passes.
+  9. *The live label probe* at 301 entries. *Pass:* the label text arrives whole and under the cap.
+  10. *Gemini 4 Argon on the diff* from `a84a31665af3`. *Pass:* no point that fires a trigger; any other point is fixed
+      in the README or recorded as accepted.
+- **The README:** J5's bash start, the labels' cut as a known issue, and this hash's numbers.
+- **On a pass, publish** (by the user's yes):
+  - the README that installs from the tag, the tag `v2.0.0-alpha.1`, and the GitHub pre-release, in one push;
+  - then an install from the tag in an isolated config, which must hash to `da81530cb1c3`.
