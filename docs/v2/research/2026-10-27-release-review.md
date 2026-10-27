@@ -52,8 +52,9 @@ Severity is the verifier's. Four survivors are medium (#1, #2 and #5, #3 and its
 
 - I1, I4 and I13 fire D18's trigger and D14's. I2 fires D22's size trigger. The fixes change the plugin, so the
   release candidate moves to `2.0.0-alpha.1` with a new hash. That is 06's 2g attempt 3, registered before any code.
-- The workflow is not run again on the fixed hash: the user opted in once, and rule 8 reviews once. The fixes get
-  their own checks, plus Gemini on the diff and the final README. A second workflow run is offered to the user.
+- The workflow was not rerun by default on the fixed hash: the user opted in once, and rule 8 reviews once. The fixes
+  got their own checks, plus Gemini on the diff and the final README, and a second run was offered. The user chose it.
+  It is recorded below, under "The workflow again".
 
 ## Gemini 4 Argon, second round: the fixes' diff and the final README (2026-10-27)
 

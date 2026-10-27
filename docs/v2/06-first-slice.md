@@ -56,6 +56,11 @@ Not in the skeleton:
 - Every hook is measured on Windows under 8 concurrent sessions against its budget (PM3).
 - The map stays readable and correctable with the plugin off (PM4). The skeleton keeps no cache (2a), so the map's
   plain files are its only state in the repo.
+- **At release (2026-10-27): not met in full, and stated.** Orientation and cost show no gain on A1 (2c, 2c attempt 2,
+  and 2g's A1 re-runs) or on parts of A2 (2d).
+  - Those cells sit under M1's no-worse ceilings. They are stated as no gain in the README and in the charter's dated
+    cost line.
+  - The slice shipped as `2.0.0-alpha.1` by the user's choice to publish. It did not ship because the bar was met.
 
 ## Step 2 in four commits (2026-10-25)
 
