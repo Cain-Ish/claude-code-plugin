@@ -62,6 +62,8 @@ assert.equal(index(repo), `${HEADER}\n.project-map/: captured.md, new.md\n./: RE
 put('.gitignore', '.project-map/private.md\n');
 put('.project-map/private.md', entry('y', 'z', '2026-10-26'));
 assert.equal(index(repo), `${HEADER}\n.project-map/: captured.md, new.md, private.md\n./: README.md\ndocs/: Guide.RST, style.md\n`);
+// and its entries are labelled like any uncommitted one (the release review, 2026-10-27)
+assert.equal(labels(repo, '.project-map/private.md'), `[project map] Labels on the entries of .project-map/private.md, in file order:\n1. y: ${UNREVIEWED}; unverified quote, captured 2026-10-26\n`);
 fs.rmSync(path.join(repo, '.gitignore'));
 fs.rmSync(path.join(repo, '.project-map', 'private.md'));
 assert.equal(labels(repo, '.project-map/captured.md'), '[project map] Labels on the entries of .project-map/captured.md, in file order:\n'
@@ -138,6 +140,11 @@ fs.mkdirSync(bare);
 spawnSync('git', ['init', '-q'], { cwd: bare });
 assert.equal(index(bare), '');
 assert.equal(hook('session-start', { session_id: `${sid}-bare` }, bare), `${INSTRUCTION}\n\n${NAME}`);
+// a map file in a repo with no commit yet (no HEAD): listed, and every entry unreviewed
+fs.mkdirSync(path.join(bare, '.project-map'));
+fs.writeFileSync(path.join(bare, '.project-map', 'captured.md'), entry('a', 'b', '2026-10-27'));
+assert.equal(index(bare), `${HEADER}\n.project-map/: captured.md\n`);
+assert.equal(hook('read', { tool_input: { file_path: path.join(bare, '.project-map', 'captured.md') } }, bare), `[project map] Labels on the entries of .project-map/captured.md, in file order:\n1. a: ${UNREVIEWED}; unverified quote, captured 2026-10-27\n`);
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('selftest ok');
