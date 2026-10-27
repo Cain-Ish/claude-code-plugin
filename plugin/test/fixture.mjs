@@ -24,7 +24,8 @@ const text = (i) => {
   return s;
 };
 const put = (f, s) => { fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); fs.writeFileSync(path.join(repo, f), s); };
-const git = (...a) => { const r = spawnSync('git', ['-c', 'user.name=bench', '-c', 'user.email=bench@example.invalid', ...a], { cwd: repo, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+// no line-ending conversion: a runner's core.autocrlf warns once per file, 8,057 times, past spawnSync's buffer
+const git = (...a) => { const r = spawnSync('git', ['-c', 'user.name=bench', '-c', 'user.email=bench@example.invalid', '-c', 'core.autocrlf=false', ...a], { cwd: repo, encoding: 'utf8', maxBuffer: 64 << 20 }); assert.equal(r.status, 0, r.stderr); };
 
 fs.rmSync(repo, { recursive: true, force: true });
 fs.mkdirSync(repo, { recursive: true });
