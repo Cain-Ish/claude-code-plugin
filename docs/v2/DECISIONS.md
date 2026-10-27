@@ -1410,12 +1410,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       tested case: a repo and a linked worktree, both settings, and ASCII and non-ASCII renames. Its known differences:
       - a map file `.gitignore` excludes is listed, by design;
       - global, system and included config files and `config.worktree` are not read;
-      - spellings such as `1k`, `0x1` or a partly quoted value are read as false.
+      - spellings such as `1k`, `0x1` or a value continued with `\` are read as false, and a partly quoted value is
+        skipped (Gemini, alpha.2).
 
-      Each lists a name twice where git lists it once, except where git ends at false and the reader at true: a
-      `false` set only in an included file or `config.worktree`, or a later line the reader cannot parse after a
-      `true` (it keeps the `true`). On a case-sensitive file system, that could hide an untracked map file that
-      differs from a tracked one only in case.
+      Each lists a name twice where git lists it once, except where the reader ends at true and git does not: a
+      `false` set only in an included file or `config.worktree`; a partly quoted `false` after a `true` (the `true`
+      stands); or a line continued with `\` from the one above that reads like `ignorecase = true`. On a
+      case-sensitive file system, that could hide an untracked map file that differs from a tracked one only in case.
+      `git init` and `git clone` write a plain `true`; the other forms come only from a hand edit or `git config`.
     - *Kill, no fold:* this deletes about 22 lines and never hides a map file. A rename only in case is then listed
       twice on Windows and macOS, where git lists it once: I11 returns as a stated issue.
     - *Kill, git's second call:* exact by definition, and it deletes the walk and the config read. It measured 106 to

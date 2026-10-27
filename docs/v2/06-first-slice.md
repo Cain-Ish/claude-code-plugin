@@ -1274,3 +1274,7 @@ the filtered code.
   - the hash stays `3c46826f115b`.
 - *A probe of the directory case,* which Gemini raised in alpha.1's second round: a map directory renamed only in case
   is listed as git's two calls list it, with either setting.
+- *Gemini 4 Argon* on the diff and the README draft: "nothing blocks". Two low points on the config reader's
+  spellings and continued lines are accepted, and stated in the README and D16's entry. The singular's
+  one-character boundary was already registered. Details are in the release-review note.
+- *Check 5 passes.* No finding changes the product, so the candidate stays `3c46826f115b`.

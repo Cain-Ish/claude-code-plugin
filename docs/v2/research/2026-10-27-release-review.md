@@ -103,3 +103,18 @@ reviewed the plugin copy `probes/V2-D18-runtime/alpha2/plugin`, its checks and t
 
 The copy's self-test also gained, after the review, a check that each case listing equals git's own two-call listing.
 CI then compares the fold with git on all three systems. It changes `test/` only, so the hash stays.
+
+## alpha.2: Gemini 4 Argon on the diff and the README draft (2026-10-27)
+
+A 21.5 KB brief: the product diff from `da81530cb1c3`, the self-test's diff, the README's diff and its known issues
+as they will ship, and the workflow's two dispositions. Verdict: "nothing blocks". It checked the config reader
+against git's syntax: section names and case, subsections, booleans, comments, whole-value quoting, CRLF, a key on
+the header line, and the `.git` file with `commondir` for worktrees and submodules. It found them right, except as
+below. The brief held a stale fragment of an earlier README diff after a code fence, which Gemini flagged. The known
+issues it judged were given whole.
+
+| Point | Disposition |
+| --- | --- |
+| The README's spellings line was inexact: a bare `ignorecase` also reads as true, and a partly quoted value is skipped (an earlier `true` stands), not read as false | **Fixed:** the README states both. D16's entry lists the skipped line as a case where the reader ends at true and git does not |
+| Lines continued with `\` are not joined: `ignorecase = \` then `true` reads as false, and a continued line of another key that reads `ignorecase = true` would read as true | **Accepted:** the README and D16's entry state both. `git init` and `git clone` write a plain `true` |
+| At a one-character boundary, the shorter singular lets one more label line fit, so a "(2 more labels" text becomes one more line and "(1 more label" | **Already registered** in 2h's check 1 |
