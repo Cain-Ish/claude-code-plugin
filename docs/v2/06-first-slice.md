@@ -1432,3 +1432,10 @@ state defined first (D18's record). If it fails, 2h goes back to the user, and t
 
   0 errors. *Pass.* Records: `V2-D18-runtime/results/2g/reference-3c46826f115b-*.json`, the controls beside them.
 - *Check 6, A1,* started right after.
+- *Check 9, the live check* (CLI 2.1.311), during A1:
+  - installed from the checkout at project scope, the copy is `2.0.0-alpha.2` at `3c46826f115b`;
+  - `live.mjs` passes: the index line, the forced decision, the read labels, D23's line, onboarding, and a captured
+    decision with its source;
+  - after the uninstall, the user's registry matches its backup.
+
+  *Pass.*
