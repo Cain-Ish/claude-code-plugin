@@ -1439,3 +1439,24 @@ state defined first (D18's record). If it fails, 2h goes back to the user, and t
   - after the uninstall, the user's registry matches its backup.
 
   *Pass.*
+
+### 2h, attempt 4: result (2026-10-27): pass. alpha.2 is published
+
+6. *A1 on `3c46826f115b`:* 10 of 10 valid, in one epoch (CLI 2.1.305, Opus 5.5, inputs `108861b749cb`), 13.21 USD.
+   - For both variants, C1 to C4, T1 to T4 (final and at the first write), T5f, and N1 to N3 are all at 10.
+   - Over-attribution: 0 runs.
+   - Orientation and cost are as before, under M1's no-worse ceilings. Medians, second person and then same person:
+     12 and 12 tool calls before the first write; 11 and 11 files read; T tokens 133,839 and 138,350; output 4,464 and
+     4,461; T cost 0.207 and 0.222 USD.
+   - Results: `V2-D17-eval/results/V2-opus-3c46826.json` and `summary-opus-3c46826.json`.
+
+Every check of 2h passes:
+- checks 1 to 5 on the copy;
+- D18's paired check;
+- check 8 (CI);
+- check 7 in the reference state;
+- check 9 (live);
+- A1.
+
+So, by the user's yes, `2.0.0-alpha.2` (`3c46826f115b`) is published: the README, the tag `v2.0.0-alpha.2` and the
+GitHub pre-release. The install-from-tag check follows.
