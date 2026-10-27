@@ -1,7 +1,11 @@
 # second-brain v2 (06, 2h attempt 3; V2-D18 reopened): the old and new hooks timed in pairs within one job, so the
-# runner's speed cancels. Dispatched by hand only.
+# runner's speed cancels. Dispatched by hand; a push of this file also runs it, since GitHub dispatches only workflows
+# it knows from the default branch or from a run.
 name: v2-paired
 on:
+  push:
+    branches: [v2]
+    paths: ['.github/workflows/v2-paired.yml']
   workflow_dispatch:
 permissions:
   contents: read
