@@ -36,4 +36,8 @@ jobs:
           node-version: 20
       - run: node plugin/test/fixture.mjs "$RUNNER_TEMP/p2-shape"
       - run: node plugin/test/benchmap.mjs "$RUNNER_TEMP/p2-shape"
-      - run: node plugin/test/bench.mjs "$RUNNER_TEMP/p2-shape" 200
+      # also at as many sessions as the runner has logical cores, reported only (D18 reopened, 2026-10-27)
+      - run: |
+          c=$(node -p "require('os').cpus().length")
+          if [ "$c" = 1 ] || [ "$c" = 8 ]; then levels=1,8; else levels=1,$c,8; fi
+          BENCH_CONCURRENCY=$levels node plugin/test/bench.mjs "$RUNNER_TEMP/p2-shape" 200

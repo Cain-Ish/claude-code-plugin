@@ -34,8 +34,9 @@ async function pool(jobs, c) {
   return out;
 }
 
-const result = { calls: N, platform: process.platform, node: process.version };
-for (const c of [1, 8]) {
+const result = { calls: N, platform: process.platform, node: process.version, cores: os.cpus().length };
+// BENCH_CONCURRENCY adds levels to report (D18 reopened, 2026-10-27); the bar below stays keyed to 8
+for (const c of (process.env.BENCH_CONCURRENCY ?? '1,8').split(',').map(Number)) {
   for (const [kind, make] of Object.entries(KINDS)) {
     const jobs = [];
     for (let i = 0; i < N; i++) {
