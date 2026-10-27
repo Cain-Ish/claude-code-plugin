@@ -1333,3 +1333,27 @@ the filtered code.
 - **Check 6, A1** on `3c46826f115b`, after check 7, since A1 loads the machine. *Pass:* as registered in 2h.
 - **Check 9, the live check,** during A1. *Pass:* as registered in 2h.
 - **Checks 1 to 5** stand, since the product is unchanged.
+
+### 2h, attempt 2: result (2026-10-27): failed on the registered band; a near miss with a known cause
+
+- *Check 8:* the four paired runs are green. By D18's check as written, the result is "anything else", so the attempt
+  fails.
+  - alpha.2's second run was faster throughout, and its session-start median, 87.8 ms, fell below a band that should
+    only have had an upper edge (D18's record).
+  - The two alpha.2 runs' medians differ by 21 ms, so a band across runs cannot resolve a 5 ms cost.
+- *Not run:* checks 7, 6 and 9.
+- Failed attempts: 2 of 3. Rule 4 allows a third, and this is the last.
+
+### 2h, attempt 3: registered (2026-10-27, before any of its runs). The last under rule 4
+
+- **The product stays `3c46826f115b`.**
+- **D18's check, second attempt** (its record): `alpha2/paired.mjs` in `v2-paired.yml`, twice. It pairs the old and
+  new hooks within one job on each system, so the runner's speed cancels. *Pass:* outcome A, every job's cost at most
+  5 ms on session start and the map read.
+- **Check 8, CI:** two fresh runs of `v2.yml` on `3eec4f3`, dispatched after the paired runs. *Pass:* both green.
+  The runs attempt 2 saw are not reused.
+- **Check 7, the reference machine,** with alpha.1 as the control in each pair, as attempt 2 registered: the CPU sample
+  before each session, pairs valid only when alpha.1 passes the bar, at most 6 pairs. *Pass:* in each of 3 valid
+  pairs, alpha.2's hooks are each at most 100 ms added at 8 concurrent, 0 errors.
+- **Check 6, A1,** after check 7, and **check 9, the live check,** during A1, as registered in 2h.
+- **If this attempt fails,** 2h goes back to the user. Rule 4 allows no fourth attempt without the user.

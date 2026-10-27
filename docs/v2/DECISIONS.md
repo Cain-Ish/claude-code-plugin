@@ -2010,6 +2010,27 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - *B, a cost in the product:* both alpha.2 runs red, or its median more than 5 ms above that range. The cost is
       found in a copy, which makes a new hash and a new attempt;
     - *anything else:* 2h attempt 2 fails, and the cause is sought as in B.
+  - *Result (2026-10-27): anything else, so this check fails.* All four runs are green.
+    - alpha.1's session start at 1 session added 60.8 and 66.8 ms, with medians of 101.7 and 103.7 ms;
+    - alpha.2's added 71.7 and 67.0, with medians of 108.8 and 87.8.
+
+    The band, 5 ms around alpha.1's medians of 101.7 to 108.7, is 96.7 to 113.7. alpha.2's second run was faster
+    throughout (its empty Node and map read too), and its median falls below the band.
+    - The band was two-sided, though only a median above it can show a cost. Read as one median of the two runs
+      (98.3), it would sit inside; the per-run reading is taken, since it is the stricter one.
+    - The same build's medians differ by 21 ms between runs, so medians from different runs cannot resolve 5 ms.
+    - A near miss with a known cause. The next check pairs the two builds within one job.
+  - *Check, second attempt (06, 2h attempt 3, written before it runs):* `alpha2/paired.mjs`, in a workflow dispatched by
+    hand (`v2-paired.yml`).
+    - It runs on Windows, macOS and Linux runners, on CI's fixture with `benchmap.mjs`'s map.
+    - Each job times the old (`da81530cb1c3`) and new session-start and map-read hooks, interleaved, one call at a
+      time, 200 calls each. The cost is the new median minus the old.
+    - The workflow runs twice.
+    - *B:* a session-start or map-read cost above 5 ms in any Windows job. *A:* every job at most 5 ms on both hooks.
+      Anything else counts as B.
+    - On A, D18 re-locks unchanged. On B, 2h's last attempt fails.
+
+  Attempts at this reopen: 1 failed.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
