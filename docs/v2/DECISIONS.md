@@ -1994,6 +1994,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *the others:* the root and the marker 1, onboarding's text 2, the forced decision 0 (an attempt and its revert).
 
   The count goes in alpha.2's release notes, as PM7's check asks. alpha.1's notes left it out.
+- **REOPENED 2026-10-27 (06, 2h attempt 1): its trigger fired,** "a hook's added p95 exceeds 100 ms at 1 session on
+  any machine". On GitHub's Windows runner, alpha.2's candidate (`3eec4f3`, plugin `3c46826f115b`) added 113.7 ms at
+  session start. The reference machine's runs at 8 concurrent were over the bar too, under outside load.
+  - *Seen before this check was written:* the failing run's session-start median was level with alpha.1's three earlier
+    runs, and only its p95 rose. Interleaved local timing found the two builds level.
+  - *Check, written before the paired runs below were read.* They were dispatched before this was written, and finished
+    unread. alpha.1's tag (plugin `da81530cb1c3`) ran twice and alpha.2's candidate twice, all four at the same time
+    (runs 40537679012 and 40537693494 for alpha.1, 40537684871 and 40537700835 for alpha.2). The outcomes, in this
+    order:
+    - *C, the runner moved:* any alpha.1 run over 100 ms at 1 session. D18's CI leg goes back to the user;
+    - *A, a tail event:* both alpha.2 runs green, and alpha.2's session-start median at 1 session within 5 ms of the
+      range of alpha.1's medians (these runs and the three before). D18 re-locks unchanged, and these two alpha.2 runs
+      are 2h attempt 2's CI check;
+    - *B, a cost in the product:* both alpha.2 runs red, or its median more than 5 ms above that range. The cost is
+      found in a copy, which makes a new hash and a new attempt;
+    - *anything else:* 2h attempt 2 fails, and the cause is sought as in B.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

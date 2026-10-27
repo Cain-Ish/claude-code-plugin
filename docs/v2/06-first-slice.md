@@ -1278,3 +1278,58 @@ the filtered code.
   spellings and continued lines are accepted, and stated in the README and D16's entry. The singular's
   one-character boundary was already registered. Details are in the release-review note.
 - *Check 5 passes.* No finding changes the product, so the candidate stays `3c46826f115b`.
+
+### 2h, attempt 1: result (2026-10-27): failed on CI's Windows load lane
+
+- *Check 8, CI* (`3eec4f3`):
+  - the self-test is green on all three systems, so the fold matches git's own listing on macOS and Linux too;
+  - the load lane is green on macOS and Linux, and **red on Windows**: session start added 113.7 ms p95 at 1 session,
+    against the bar of 100.
+  - Earlier Windows runs gave 66.8, 66.5 and 64.7 ms. The other hooks at 1 session, and every hook at 4 and 8, were
+    level with alpha.1's last run:
+
+    | Windows CI, added p95 (ms) | session start | prompt | another read | map read |
+    | --- | --- | --- | --- | --- |
+    | alpha.1, 1 session | 64.7 | 17.5 | 17.4 | 73.4 |
+    | alpha.2, 1 session | **113.7** | 17.7 | 17.9 | 70.7 |
+    | alpha.1, 4 at once | 109.8 | 29 | 31.5 | 125 |
+    | alpha.2, 4 at once | 111.9 | 30.7 | 29.1 | 118.7 |
+    | alpha.1, 8 at once | 200.9 | 61.3 | 84.5 | 230.1 |
+    | alpha.2, 8 at once | 198.7 | 72.8 | 79.9 | 228.2 |
+
+  - *Read after the result:* the failing number is a tail. Session start's median at 1 session was 106.2 ms, against
+    104.5 to 108.7 in the three earlier runs; its p95 was 170.3, against 113.4 to 118.5.
+- *Check 7, the reference machine:* runs 1 and 2 were over the bar. At 8 concurrent, session start added 123.3 and
+  131.8 ms, and the map read 131.8 and 125.5. Run 3 was stopped. They ran under outside load:
+  - sampled during them, a system service used about 22% of the 32 threads and a game about 9%;
+  - the prompt hook, which alpha.2 does not touch, added 40.6 and 49.6 ms, against 18 to 26 before.
+
+  The records are kept as loaded runs (`V2-D18-runtime/results/2g/ref-alpha2-loaded-*.json`). They do not score
+  either way.
+- *Diagnosis, local:* old and new session-start hooks were timed interleaved, one at a time, 60 calls each.
+  - Medians on P2: 105.0 (old) and 104.0 ms (new).
+  - Medians on CI's fixture: 101.1 and 104.1 ms.
+  - The tails are noisy under the load. No cost of the change is found.
+- *Not run:* A1 (stopped before its first run, so no run happened on a hash that might change) and the live check.
+- **This fails the attempt** (registration: each failure is a 2h attempt). Failed attempts: 1 of 3. CI's number also
+  fires D18's trigger, "a hook's added p95 exceeds 100 ms at 1 session on any machine", so D18 reopens (its record).
+
+### 2h, attempt 2: registered (2026-10-27, before the paired CI runs were read)
+
+- **The product stays `3c46826f115b`,** unless D18's check (its record) ends in outcome B.
+- **Check 8, CI:** D18's paired runs. *Pass:* outcome A, which makes alpha.2's two dispatched runs the CI check (both
+  green).
+- **Check 7, the reference machine, with a control.** Attempt 1's runs show that outside load can move every hook,
+  so:
+  - before each session, total CPU is sampled for 10 s and recorded;
+  - `bench.mjs` runs on P2 in pairs: alpha.1 (a scratch copy of `da81530cb1c3` with the same `bench.mjs`), then
+    alpha.2, three pairs in a row;
+  - a pair is valid only when alpha.1's run in it passes the bar (each hook at most 100 ms added at 8 concurrent, 0
+    errors). The released build passing there is what shows the machine is in its reference state;
+  - an invalid pair is repeated, not scored, up to 6 pairs. If fewer than 3 are valid, there is no result, and the
+    check waits for a quiet machine.
+  - *Pass:* in each of 3 valid pairs, alpha.2 has each hook at most 100 ms added at 8 concurrent, with 0 errors. A
+    valid pair in which alpha.2 is over the bar fails the attempt.
+- **Check 6, A1** on `3c46826f115b`, after check 7, since A1 loads the machine. *Pass:* as registered in 2h.
+- **Check 9, the live check,** during A1. *Pass:* as registered in 2h.
+- **Checks 1 to 5** stand, since the product is unchanged.
