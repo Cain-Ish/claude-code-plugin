@@ -54,3 +54,18 @@ Severity is the verifier's. Four survivors are medium (#1, #2 and #5, #3 and its
   release candidate moves to `2.0.0-alpha.1` with a new hash. That is 06's 2g attempt 3, registered before any code.
 - The workflow is not run again on the fixed hash: the user opted in once, and rule 8 reviews once. The fixes get
   their own checks, plus Gemini on the diff and the final README. A second workflow run is offered to the user.
+
+## Gemini 4 Argon, second round: the fixes' diff and the final README (2026-10-27)
+
+A 22 KB brief: the fixes' diff from `4c5527b` to `a84a31665af3` (the `plugin/` product files), and the README as it
+will ship. Verdict: "nothing blocks". It confirmed that none of the six fixes can change the output in a normal case:
+a session started at the root, readable files, no byte-order mark, a writable TEMP, and an index under the cap.
+
+| Point | Disposition |
+| --- | --- |
+| The cut line says "the index is past the 10,000-character limit" when it is the session-start text that passes it, and the index is cut once it reaches about 8,880 characters. Onboarding's warning says the same, and the cut line reads "1 more directories" | **Accepted for the next version.** These texts appear only past the cap, and no eval run reaches them. Changing them now would move the hash and restart A1 for wording alone |
+| Letter case is ignored by operating system, not by the file system: a case-sensitive macOS volume or a case-insensitive Linux mount behaves wrongly. Directory keys inside `.project-map/` are not folded | **Accepted:** stated as a known issue in the README. Reading `core.ignorecase` would cost a git spawn on every session start |
+| The README merges two equivalence steps, and the 20,400 random quotes and the gitignored case belong to the first | **Fixed:** the README names both steps |
+| Quotes shorter than three words that cite a repo file get no label once committed, and the README leaves that implicit | **Fixed:** stated (I8's D16 behaviour) |
+| The local-scope line leaves the subdirectory limit implicit | **Fixed** |
+| The cap wording in the known issues | **Fixed:** the plugin cuts the session-start text at the documented 10,000, and the measured cliff is stated |
