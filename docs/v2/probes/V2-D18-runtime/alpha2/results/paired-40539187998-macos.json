@@ -1,0 +1,38 @@
+{
+ "calls": 200,
+ "platform": "darwin",
+ "node": "v20.20.2",
+ "cores": 3,
+ "session-start": {
+  "old": {
+   "p50": 51.3,
+   "p95": 62
+  },
+  "new": {
+   "p50": 50.4,
+   "p95": 62.1
+  },
+  "empty": {
+   "p50": 27.9,
+   "p95": 34.2
+  },
+  "costP50": -0.9,
+  "sameOutput": true
+ },
+ "read-map": {
+  "old": {
+   "p50": 57.5,
+   "p95": 67.3
+  },
+  "new": {
+   "p50": 57.4,
+   "p95": 66.3
+  },
+  "empty": {
+   "p50": 29.4,
+   "p95": 32.3
+  },
+  "costP50": -0.1,
+  "sameOutput": true
+ }
+}

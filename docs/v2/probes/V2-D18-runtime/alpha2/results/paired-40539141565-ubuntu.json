@@ -1,0 +1,38 @@
+{
+ "calls": 200,
+ "platform": "linux",
+ "node": "v20.20.2",
+ "cores": 4,
+ "session-start": {
+  "old": {
+   "p50": 47.4,
+   "p95": 51.9
+  },
+  "new": {
+   "p50": 48.2,
+   "p95": 52.6
+  },
+  "empty": {
+   "p50": 22.8,
+   "p95": 25.6
+  },
+  "costP50": 0.8,
+  "sameOutput": true
+ },
+ "read-map": {
+  "old": {
+   "p50": 54.9,
+   "p95": 59
+  },
+  "new": {
+   "p50": 54.7,
+   "p95": 58.5
+  },
+  "empty": {
+   "p50": 23.1,
+   "p95": 25.6
+  },
+  "costP50": -0.2,
+  "sameOutput": true
+ }
+}

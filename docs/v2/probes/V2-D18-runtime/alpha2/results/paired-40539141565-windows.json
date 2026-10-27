@@ -1,0 +1,38 @@
+{
+ "calls": 200,
+ "platform": "win32",
+ "node": "v20.20.2",
+ "cores": 4,
+ "session-start": {
+  "old": {
+   "p50": 82,
+   "p95": 95
+  },
+  "new": {
+   "p50": 81.4,
+   "p95": 129.3
+  },
+  "empty": {
+   "p50": 36.3,
+   "p95": 42.5
+  },
+  "costP50": -0.6,
+  "sameOutput": true
+ },
+ "read-map": {
+  "old": {
+   "p50": 85,
+   "p95": 95.7
+  },
+  "new": {
+   "p50": 84.9,
+   "p95": 92.5
+  },
+  "empty": {
+   "p50": 35.5,
+   "p95": 39.3
+  },
+  "costP50": -0.1,
+  "sameOutput": true
+ }
+}

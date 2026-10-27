@@ -21,7 +21,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled); re-LOCKED 2026-10-27 (labels cut fail-closed at the cap, UTF-16 decoded; 2g attempt 5 passed at da81530cb1c3) | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled); re-LOCKED 2026-10-27 (labels cut fail-closed at the cap, UTF-16 decoded; 2g attempt 5 passed at da81530cb1c3); REOPENED 2026-10-27 (2h: session start added 113.7 ms at 1 session on the Windows runner); re-LOCKED unchanged 2026-10-27 (old and new paired within one job: at most 0.8 ms of cost on any runner; the 113.7 was one run's tail) | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
@@ -2029,8 +2029,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - *B:* a session-start or map-read cost above 5 ms in any Windows job. *A:* every job at most 5 ms on both hooks.
       Anything else counts as B.
     - On A, D18 re-locks unchanged. On B, 2h's last attempt fails.
+  - *Result (2026-10-27): A.* Two runs (40539141565, 40539187998), each on three systems, with 200 calls per hook.
+    Every cost is at most 5 ms, and the two builds' outputs are identical in every job
+    (`alpha2/results/paired-*.json`):
 
-  Attempts at this reopen: 1 failed.
+    | Runner | Session start: run 1, run 2 (ms) | Map read: run 1, run 2 (ms) |
+    | --- | --- | --- |
+    | Windows (4 cores) | -0.6, -1.2 | -0.1, +0.4 |
+    | macOS (3 cores) | -3.6, -0.9 | -2.1, -0.1 |
+    | Linux (4 cores) | +0.8, +0.8 | -0.2, +0.3 |
+
+    The workflow was meant to be dispatched by hand only. GitHub dispatches only workflows on the default branch or
+    ones that have run, so a push of its own file started run 1, and run 2 was dispatched.
+- **Re-LOCKED 2026-10-27, unchanged.** Paired within one job, alpha.2 costs nothing measurable over alpha.1 on any
+  runner. Attempt 1's 113.7 ms was a tail in one run: its median was level, and its p95 rose.
+  - The trigger stands as written.
+  - A CI gate on the p95 of 200 calls at 1 session can be crossed by a tail on the 4-core runner, as here. The
+    observation is recorded; the user's budget is not changed.
+
+  Attempts at this reopen: 1 failed, 1 passed.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

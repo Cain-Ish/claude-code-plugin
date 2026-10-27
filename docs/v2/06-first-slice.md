@@ -1357,3 +1357,11 @@ the filtered code.
   pairs, alpha.2's hooks are each at most 100 ms added at 8 concurrent, 0 errors.
 - **Check 6, A1,** after check 7, and **check 9, the live check,** during A1, as registered in 2h.
 - **If this attempt fails,** 2h goes back to the user. Rule 4 allows no fourth attempt without the user.
+
+### 2h, attempt 3: D18's check passes (2026-10-27)
+
+- *D18's check:* outcome A. Paired within one job on each runner, twice, alpha.2's cost over alpha.1 is -3.6 to
+  +0.8 ms at session start and -2.1 to +0.4 ms on the map read, and their outputs are identical. D18 re-locks
+  unchanged (its record).
+- *Check 8* is dispatched next. Its two runs use v2's head, since a dispatch takes a branch, not a commit. The head's
+  `plugin/`, `.claude-plugin/` and `v2.yml` are byte-identical to `3eec4f3`.
