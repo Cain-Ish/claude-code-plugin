@@ -1621,3 +1621,25 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
 - **On a pass:** D14 re-locks unchanged; 04's accepted-risk row and the README follow; `2.0.0-alpha.4` is tagged and
   pushed. 2i's check 3 stays separate: it reads the user's sessions after a move.
 - **On a failure:** the cause is recorded as a 2j attempt; after three (rule 4), 2j goes back to the user.
+
+### 2j, attempt 1: checks 1 and 2 pass; check 3 failed in the harness (2026-10-29)
+
+- *Check 1:* the new cases failed on `808154d15653` (a Bash read of a map file got nothing) and pass on the new code,
+  `f18d83e328b4`; every existing case passes. CI's self-test is green on all three systems.
+- *Check 2,* the smoke on 2.1.312 and on the pinned 2.1.305: pass on both.
+  - The Read hook on a non-map file showed in the stream with empty output, so a started handler is seen.
+  - `git status --short` and `echo $HOME` started no handler; `tail -5 .project-map/captured.md` started it, and Haiku
+    quoted its labels word for word. Every hook exited 0.
+  - `echo $(…)` was refused by the session's permissions on both CLIs, even with its inner command allowed, so the
+    fallback for `$()` is not observed. For `$VAR` it did not fire.
+- *Check 3,* CI's load lane: Windows and Linux green; *macOS failed, in the harness:* `bench.mjs` wrote to the empty
+  Node process's input after that process had exited, and the unhandled `EPIPE` ended the run. No hook failed; the
+  added p95 at one session was, for `bash-map` and `bash-other`, 76.5 and 17.8 ms on Windows and 33.8 and 11.2 ms on
+  Linux (`read-map`: 72.7 and 34.2).
+
+### 2j, attempt 2: registered (2026-10-29, before the re-run)
+
+- *The change:* `bench.mjs` ignores an error on a child's input pipe. A hook that fails still counts through its exit
+  code, so nothing the bar measures changes. Test code only; the product hash stays `f18d83e328b4`.
+- *Check 3 again:* CI's load lane on this push. *Pass:* green on all three systems, gated at one session.
+- Checks 1 and 2 stand: the product is unchanged.

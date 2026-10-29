@@ -26,6 +26,9 @@ const time = (args, input) => new Promise((resolve) => {
   const c = spawn('node', args, { cwd: repo, env });
   c.stdout.resume();
   c.on('close', (code) => resolve({ ms: performance.now() - t, code }));
+  // the empty process exits without reading its input, so the write can meet a closed pipe (EPIPE, macOS CI, 06 2j
+  // attempt 1); a hook that fails still shows in its exit code
+  c.stdin.on('error', () => {});
   c.stdin.end(input);
 });
 const p = (a, q) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)]; };
