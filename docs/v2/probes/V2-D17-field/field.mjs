@@ -129,7 +129,8 @@ function scan(file) {
           // an append through Bash (cat >> map file <<'EOF' ... EOF) is a capture write too (C6)
           const here = cmd.match(/>>\s*\S*\.project-map\/\S+\.md\s*<<-?\s*'?(\w+)'?\n([\s\S]*?)\n\1/);
           if (here) for (const e of entries(here[2])) S.entries.push({ at: r.timestamp, ms, file: '.project-map (bash)', ...e, build: build(ms), excluded: excluded(ms), by: 'bash' });
-          const kindOf = here ? 'append' : /python|>\s*\S*\.project-map/.test(cmd) ? 'other-write' : /\b(cat|tail|head|sed|grep|less|more|type)\b/.test(cmd) || x.name === 'Grep' ? 'read' : 'other';
+          // a read names the map folder in the read command's own words, not elsewhere in the line (corrected after the run)
+          const kindOf = here ? 'append' : /python|>\s*\S*\.project-map/.test(cmd) ? 'other-write' : /\b(cat|tail|head|sed|grep|less|more|type)\b[^|;&\n]*\.project-map/.test(cmd) || x.name === 'Grep' ? 'read' : 'other';
           S.mapOther.push({ at: r.timestamp, name: x.name, kind: kindOf });
         }
       }

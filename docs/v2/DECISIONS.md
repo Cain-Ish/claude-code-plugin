@@ -670,13 +670,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - D18's attempt 5 passed, and such a file is labelled now (`probes/V2-D18-runtime/fail-closed-2/`).
 - **Observation (2026-10-29, the field check; not a reopen yet).**
   - *What the user's sessions showed* ([probes/V2-D17-field](probes/V2-D17-field/README.md), C5): every map entry
-    was uncommitted. 10 of 12 reads of the map went through Bash or Grep, which no hook labels. The Read tool's 2
-    reads were labelled correctly.
+    was uncommitted. 5 of 7 reads of map entries went through Bash, which no hook labels: one `cat` of the whole file,
+    one `grep` of its headings, and three `tail`s just after Claude's own append. The Read tool's 2 reads were labelled
+    correctly. None went through the Grep tool. (Corrected the same day from "10 of 12": the scanner had counted any
+    Bash line that named the folder and held a read verb; see the field note.)
   - *Whether the trigger fired:* 04 lists that channel as an accepted risk, so "an injected entry is ever delivered
     without the unreviewed label" was not taken as fired there. Read literally, as on 2026-10-27, it is met. The
     accepted risk has turned out to be the common path.
-  - *Recommended:* reopen, with the delivery fixed under D18. The candidate is a `PostToolUse` handler on Bash and
-    Grep, narrowed by the hook's `if` field to calls that name the map folder
+  - *Recommended:* reopen, with the delivery fixed under D18. The candidate is a `PostToolUse` handler on Bash (Grep
+    was not seen reading the map), narrowed by the hook's `if` field to calls that name the map folder
     ([research/2026-10-29-review-md-and-native.md](research/2026-10-29-review-md-and-native.md)), with D18's budget
     measured. The user decides.
   - *Also seen* (C6): when the owner picks an option from Claude's question, the entry quotes Claude's option text as

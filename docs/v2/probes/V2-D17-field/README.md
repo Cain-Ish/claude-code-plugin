@@ -75,7 +75,7 @@ appended through Bash (`cat >> … <<EOF`), and a source path that exists on dis
 | C2 | 8 forces in 10 epochs; the 2 others had no prompt. **1 force landed on a message from another session**, the first turn after an automatic compaction. The next human prompt got none | **defect** |
 | C3 | 7 of 7 forces on a human prompt answered per directory (5 of 5 in-claim). One answer left out 1 of 11 directories | pass |
 | C4 | 3 in-claim epochs changed repo files in the forced turn. Each marked 6 to 8 directories yes (73 to 76 documents). Before the first change, the Read tool opened documents from 0 to 3 of them (0, 2 and 3 directories; 0 to 4 documents); counting Bash reads, natively loaded rule files and the root CLAUDE.md, 3 to 4. Lenient 0 of 3, strict 0 of 3 | **fail** |
-| C5 | 2 of 2 Read-tool map reads labelled, every entry "unreviewed, not yet committed". **10 more map reads went through Bash or Grep, unlabelled**; 8 map writes went through Bash | pass, see observations |
+| C5 | 2 of 2 Read-tool map reads labelled, every entry "unreviewed, not yet committed". **5 more reads of map entries went through Bash, unlabelled** (10 before the correction below); 8 map writes went through Bash | pass, see observations |
 | C6 | 15 entries (8 appended through Bash). (a) 15 of 15 in format; (b) 0 with a session id, email or absolute path; (c) 11 verbatim, 4 not verbatim, all traced to the session: two joined statements of the owner, a yes to a question, and **two options the owner chose, whose descriptions (written by Claude) are quoted as the owner's words**. 0 unsourced | pass, see observations |
 | C7 | 43 paths named after a change; 0 invented (one hit was a scratch file mentioned in passing, not a source) | pass |
 | C8 | 0 hook errors | pass |
@@ -92,7 +92,7 @@ unasked is not shown by this corpus.
 - *D22 (C4):* the forced answer marks whole directories yes, and the read stays partial. 2e found the same on P2 and
   D22's measure is the binding document read, not every yes directory, so C4 alone fires none of D22's triggers. Whether
   a rule in scope was missed for selection in these epochs was not judged.
-- *D14 (C5):* 10 of 12 map reads arrived through Bash or Grep, unlabelled, while every entry was uncommitted. 04 lists
+- *D14 (C5):* 5 of 7 reads of map entries arrived through Bash, unlabelled, while every entry was uncommitted. 04 lists
   this channel as an accepted risk. D14's trigger "an injected entry is ever delivered without the unreviewed label",
   read literally, is met. The accepted risk turns out to be the common path.
 - *D14 (C6):* an option the owner picks from Claude's question is captured with Claude's own option text as the owner's
@@ -105,3 +105,11 @@ unasked is not shown by this corpus.
 `c4.mjs` first ran. The primary reading is the Read tool, before the first write to a repo file. Every reading
 reported (primary, any write, and the broad one with Bash reads, rule files and CLAUDE.md) gives 0 of 3, so the verdict
 does not depend on the choice.
+
+**Corrected after the run (2026-10-29), C5's count of Bash reads.** The scanner called a Bash command a map read when
+it mentioned `.project-map` and held a read verb anywhere in the line. Shaping D14's candidate hook meant reading the
+commands themselves, and 5 of the 10 showed no map entry: a folder listing piped to `head`, a file count over several
+folders, a size check beside a `grep` of another file, a commit that excludes the folder, and a `cat` into a scratch
+file. `field.mjs` now needs the read verb and the folder in the same command; the re-run gives 5 reads, the hand count,
+and every other count is unchanged. The 5: one `cat` of the whole file, one `grep` of its headings, and three `tail`s
+of its end, each just after Claude appended to it. No map read went through the Grep tool. C5's verdict does not change.
