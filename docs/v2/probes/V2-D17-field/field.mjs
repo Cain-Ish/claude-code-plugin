@@ -129,8 +129,10 @@ function scan(file) {
           // an append through Bash (cat >> map file <<'EOF' ... EOF) is a capture write too (C6)
           const here = cmd.match(/>>\s*\S*\.project-map\/\S+\.md\s*<<-?\s*'?(\w+)'?\n([\s\S]*?)\n\1/);
           if (here) for (const e of entries(here[2])) S.entries.push({ at: r.timestamp, ms, file: '.project-map (bash)', ...e, build: build(ms), excluded: excluded(ms), by: 'bash' });
-          // a read names the map folder in the read command's own words, not elsewhere in the line (corrected after the run)
-          const kindOf = here ? 'append' : /python|>\s*\S*\.project-map/.test(cmd) ? 'other-write' : /\b(cat|tail|head|sed|grep|less|more|type)\b[^|;&\n]*\.project-map/.test(cmd) || x.name === 'Grep' ? 'read' : 'other';
+          // a read: a part of the command (between |, ;, & or a line break) with a read verb that names a map file and does
+          // not redirect into the folder; one command can append and then read (corrected twice after the run, see Result)
+          const reads = cmd.split(/[|;&\n]/).some((p) => /\b(cat|head|tail|sed|grep|less|more|awk)\b/.test(p) && /\.project-map\/\S+\.md/.test(p) && !/>\s*['"]?[^\s'"]*\.project-map\//.test(p));
+          const kindOf = reads || x.name === 'Grep' ? 'read' : here ? 'append' : /python|>\s*\S*\.project-map/.test(cmd) ? 'other-write' : 'other';
           S.mapOther.push({ at: r.timestamp, name: x.name, kind: kindOf });
         }
       }

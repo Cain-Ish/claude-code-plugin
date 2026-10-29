@@ -17,7 +17,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes) | user + evidence | D11, D13 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j) | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
@@ -672,10 +672,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - D18's attempt 5 passed, and such a file is labelled now (`probes/V2-D18-runtime/fail-closed-2/`).
 - **Observation (2026-10-29, the field check; not a reopen yet).**
   - *What the user's sessions showed* ([probes/V2-D17-field](probes/V2-D17-field/README.md), C5): every map entry
-    was uncommitted. 5 of 7 reads of map entries went through Bash, which no hook labels: one `cat` of the whole file,
-    one `grep` of its headings, and three `tail`s just after Claude's own append. The Read tool's 2 reads were labelled
-    correctly. None went through the Grep tool. (Corrected the same day from "10 of 12": the scanner had counted any
-    Bash line that named the folder and held a read verb; see the field note.)
+    was uncommitted. 9 of 11 reads of map entries went through Bash, which no hook labels: one `cat` of the whole file,
+    one `grep` of its headings, and seven `tail`s just after Claude's own write. The Read tool's 2 reads were labelled
+    correctly. None went through the Grep tool. (Corrected the same day, twice: the scanner's "10 of 12" held 5 false
+    reads and missed 4; a first correction to "5 of 7" read only each command's first line. See the field note.)
   - *Whether the trigger fired:* 04 lists that channel as an accepted risk, so "an injected entry is ever delivered
     without the unreviewed label" was not taken as fired there. Read literally, as on 2026-10-27, it is met. The
     accepted risk has turned out to be the common path.
@@ -685,6 +685,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     measured. The user decides.
   - *Also seen* (C6): when the owner picks an option from Claude's question, the entry quotes Claude's option text as
     the owner's words. Nothing was invented (0 unsourced of 15), so the noise trigger did not fire.
+- **REOPENED 2026-10-29: its trigger fired, read literally as on 2026-10-27** ("an injected entry is ever delivered
+  without the unreviewed label"): 9 of 11 reads of map entries in the user's sessions came through Bash, unlabelled.
+  The user's go-ahead is of the same day. The trust policy stands; the delivery is fixed in 06's step 2j, a `PostToolUse`
+  handler on Bash narrowed by the `if` field. This record re-locks unchanged when 2j's checks pass.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's

@@ -178,8 +178,8 @@ claude plugin install second-brain@second-brain-v2 --scope project
 - **Claude often reads only some of the directories it marks yes.** In two real sessions with alpha.2, each of three
   checked context windows marked 6 to 8 directories yes. Before changing code, Claude opened documents from 0 to 3 of
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
-- **Map reads through Bash or Grep get no label.** In the same sessions, Claude read map entries 7 times: 2 through
-  the Read tool, labelled, and 5 through Bash (`cat`, `tail`, `grep`), which reached it without "unreviewed".
+- **Map reads through Bash or Grep get no label.** In the same sessions, Claude read map entries 11 times: 2 through
+  the Read tool, labelled, and 9 through Bash (`cat`, `tail`, `grep`), which reached it without "unreviewed".
 - **A turn nobody typed** is told apart by its first words, as Claude Code's transcripts record them: a background
   subagent's report or another session's message. If Claude Code passes such a turn in another form, it takes the
   forced decision, as in alpha.2, and your next prompt gets none. If the first turn after a compaction is a

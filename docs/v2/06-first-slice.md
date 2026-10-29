@@ -1558,7 +1558,9 @@ lane runs on the push anyway; its result is recorded and does not gate.
   and not a gate, was green on all three too.
 - *A correction before the tag:* shaping D14's candidate hook from the field sessions' own commands showed that the
   field check had counted 10 Bash map reads where 5 showed map entries. The scanner, the field note, D14's observation
-  and the README were corrected (`17b121f`); no verdict changed.
+  and the README were corrected (`17b121f`); no verdict changed. *That correction was itself wrong,* found while
+  shaping 2j's cases from the whole commands: 9 show map entries (four `tail`s close longer commands). Corrected
+  after the tag; the tagged README says 5 of 7, and the branch's README now says 9 of 11.
 - *The tag* [`v2.0.0-alpha.3`](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.3) is on `17b121f`,
   pushed with the branch. *The GitHub pre-release page was not created:* the session's permission check refused it as
   a public surface, so it waits for the user. Installs come from the tag and do not need it.
