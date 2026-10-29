@@ -1523,3 +1523,27 @@ changes a decision: each makes the code do what D22 and the charter already say.
   In the field corpus no epoch began with such a report; the one machine turn that took a force was another session's
   message, with no work after it. *The variant, offered as 2i attempt 2 for the user to choose:* on a turn nobody typed,
   give the force and keep the marker; spend it only on a typed prompt. The cost is a second force in such an epoch.
+
+### 2i: published as `2.0.0-alpha.3` (registered 2026-10-29, before the version moves)
+
+The user chose (2026-10-29) to ship 2i as built (L1, not the variant), as `2.0.0-alpha.3`. The checks dropped on
+2026-10-29 stay dropped: A1 on the new hash, the reference bench, the release review and Gemini do not run. CI's load
+lane runs on the push anyway; its result is recorded and does not gate.
+
+- **The intended difference from 2i's `07816eb8bcd2`, and nothing else:** the version `2.0.0-alpha.3` in both
+  manifests. `plugin.json` is inside the hashed product, so the hash moves with it.
+- **Checks:**
+  1. *The tree:* `git diff 7298b41 -- plugin/ .claude-plugin/` at the release commit. *Pass:* outside `plugin/test/`,
+     only the two version lines differ; inside it, only the pinned hash and its comment.
+  2. *The self-test and the smoke run,* with the new hash pinned. *Pass:* both pass.
+  3. *CI on the push of branch `v2`* (before the tag). *Pass:* the self-test is green on all three systems.
+  4. *Install from the tag* in an isolated Claude config in a short folder. *Pass:* the cached copy is version
+     `2.0.0-alpha.3` and hashes to the pinned value; the uninstall and the marketplace removal succeed; the user's
+     registry files are unchanged by checksum.
+- **Publish, after check 3:** the README, the tag `v2.0.0-alpha.3` and the GitHub pre-release. Then check 4. Then the
+  user's install in their other repo moves to the new tag, by the route of 2026-10-29 (marketplace removed, added at
+  the tag, the plugin installed at local scope), and its cached copy must hash to the pinned value.
+- **The README:** installs from `#v2.0.0-alpha.3`; says that A1, the bench and the release review ran on alpha.2's
+  code, not this one; L1's limit, the wrapper match unverified until 2i's check 3, and the field check's two open
+  findings (map reads through Bash or Grep get no label; directories marked yes are often not read) as known issues.
+- **On a failure** of checks 1 to 3, nothing is tagged; the cause is recorded as an attempt.
