@@ -1571,3 +1571,53 @@ lane runs on the push anyway; its result is recorded and does not gate.
   `2.0.0-alpha.3`, the cached copy at `808154d15653`. The rest of that repo's local settings is unchanged. alpha.2's
   cached copy stays, so a session already running there keeps working until it restarts.
 - *Next:* 2i's check 3, `field.mjs` on the user's sessions started after the move.
+
+### 2j: map entries read through Bash get the Read hook's labels (registered 2026-10-29, before any code)
+
+D14 reopened the same day (its trigger, read literally; the user's go-ahead): in the user's sessions, 9 of 11 reads
+of map entries came through Bash, unlabelled (probes/V2-D17-field, C5 as corrected). The trust policy stands; this
+fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
+
+- **The intended differences from alpha.3's `808154d15653`, and nothing else:**
+  - *B1:* a `PostToolUse` handler on Bash with `"if": "Bash(*.project-map*)"`, running `hook.mjs bash`. The `if`
+    field (Claude Code 2.1.85 on; compound commands from 2.1.89) spawns it only for a command that names the map
+    folder, best effort: the hooks reference says a pattern that "specify more than the command name" also runs the
+    hook on `$()`, backticks or `$VAR`, and it is not documented whether a leading `*` counts. In the field sessions
+    20 of 1,004 Bash calls named the folder, and 232 others held `$()`, a backtick or a variable.
+  - *B2:* the handler finds the map files a command reads: a part of the command, between `|`, `;`, `&` or a line
+    break, that holds a read verb (`cat`, `head`, `tail`, `sed`, `grep`, `less`, `more`, `awk`), names a
+    `.project-map/…​.md` file, and does not redirect into the folder. Each such file, once and in order of mention,
+    gets exactly the text the Read hook gives it, with the same fail-closed line on an error. Otherwise nothing.
+  - The version `2.0.0-alpha.4`.
+- **Still not labelled (04's accepted risk, named in the README):** the Grep tool; a command that names the folder
+  but no file; a repo-wide search; a script (Python, Node) that reads the file; PowerShell; subagents; a Claude Code
+  before 2.1.85, which ignores `if` and spawns the handler on every Bash call (it still labels only map reads).
+- **The context cost:** each Bash read of a map file now carries that file's labels, as a Read does. In the field
+  session, 7 `tail`s right after Claude's own write would each have carried them.
+- **Checks:**
+  1. *The self-test,* with cases added before the code:
+     - `bash` on `tail -5 .project-map/captured.md` gives, byte for byte, what `read` gives on that file;
+     - the field's 20 command shapes that name the folder, rebuilt with placeholder paths and text: labels for exactly
+       the 9 that read, nothing for the 11 others;
+     - two map files in one command, and one file named twice: each file's labels once, in order;
+     - a map file that cannot be read: the fail-closed line, as `read` gives it.
+
+     *Pass:* the new cases fail on `808154d15653` and pass on the new code; every existing case passes unchanged.
+  2. *Live, the smoke* (Haiku, `--plugin-dir`), extended with a session that may run Bash. On the user's CLI and on the
+     pinned 2.1.305:
+     - Claude runs `tail -5 .project-map/captured.md` and quotes the labels a hook added: *pass* if word for word;
+     - Claude runs `git status`: *pass* if no `PostToolUse` hook ran for it. First confirmed: a spawned handler with
+       empty output shows in the stream (the Read hook on a non-map file, in the same session);
+     - Claude runs `echo $HOME`: whether the handler ran is recorded, not a gate. It settles the fallback above.
+
+     Every hook exits 0.
+  3. *D18:* `bench.mjs` gets `bash-map` (the `tail` above) and `bash-other` (a command that names no map file, as a
+     fallback spawn would run). *Pass:* CI's load lane, gated at one session, is green on three systems. The
+     8-concurrent reference bench is not run, by the user's choice of 2026-10-29.
+  4. *Release checks, as alpha.3's:* the tree against this step's code, the self-test and smoke with the new pin, CI's
+     self-test before the tag, an install from the tag in an isolated config, then the user's install moved to it.
+- **Not run, by the user's choice of 2026-10-29:** A1 on the new hash, the reference bench, the release review and
+  Gemini.
+- **On a pass:** D14 re-locks unchanged; 04's accepted-risk row and the README follow; `2.0.0-alpha.4` is tagged and
+  pushed. 2i's check 3 stays separate: it reads the user's sessions after a move.
+- **On a failure:** the cause is recorded as a 2j attempt; after three (rule 4), 2j goes back to the user.
