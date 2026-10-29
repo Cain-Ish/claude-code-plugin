@@ -59,8 +59,9 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// 2i's hash: checked by this self-test and the field re-check only; A1 not re-run on it, by the user's choice (06, 2i)
-assert.equal(product.digest('hex').slice(0, 12), '07816eb8bcd2', 'the product changed: record its hash with a new epoch (06)');
+// alpha.3: 2i's 07816eb8bcd2 plus the version; checked by this self-test and the field re-check only, A1 not re-run on
+// it, by the user's choice (06, 2i)
+assert.equal(product.digest('hex').slice(0, 12), '808154d15653', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
