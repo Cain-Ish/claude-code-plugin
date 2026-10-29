@@ -40,7 +40,9 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   [v2.0.0-alpha.1](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.1) at plugin hash
   `da81530cb1c3` (06, 2g), then
   [v2.0.0-alpha.2](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.2) at `3c46826f115b`,
-  with the two carried items (06, 2h).
+  with the two carried items (06, 2h), then
+  [v2.0.0-alpha.3](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.3) at `808154d15653`, with the
+  field check's delivery fix and control characters in index paths (06, 2i; 2026-10-29).
   - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
   - *Deferred:* D20's net.
 

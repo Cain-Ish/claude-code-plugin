@@ -1547,3 +1547,25 @@ lane runs on the push anyway; its result is recorded and does not gate.
   code, not this one; L1's limit, the wrapper match unverified until 2i's check 3, and the field check's two open
   findings (map reads through Bash or Grep get no label; directories marked yes are often not read) as known issues.
 - **On a failure** of checks 1 to 3, nothing is tagged; the cause is recorded as an attempt.
+
+### 2i: published as `2.0.0-alpha.3` (2026-10-29)
+
+- *Check 1, the tree:* against `7298b41`, only the two version lines differ outside `plugin/test/`, and inside it only
+  the pin and its comment. *Pass.*
+- *Check 2:* the self-test and the smoke run pass with `808154d15653` pinned, which is 2i's `07816eb8bcd2` plus the
+  version string. *Pass.*
+- *Check 3:* CI on the push of `9ebb874`: the self-test is green on all three systems. *Pass.* The load lane, recorded
+  and not a gate, was green on all three too.
+- *A correction before the tag:* shaping D14's candidate hook from the field sessions' own commands showed that the
+  field check had counted 10 Bash map reads where 5 showed map entries. The scanner, the field note, D14's observation
+  and the README were corrected (`17b121f`); no verdict changed.
+- *The tag* [`v2.0.0-alpha.3`](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.3) is on `17b121f`,
+  pushed with the branch. *The GitHub pre-release page was not created:* the session's permission check refused it as
+  a public surface, so it waits for the user. Installs come from the tag and do not need it.
+- *Check 4, install from the tag* in an isolated config: the cached copy is version `2.0.0-alpha.3` and hashes to
+  `808154d15653`; the uninstall and the marketplace removal succeeded; the user's registry files are unchanged by
+  checksum. *Pass.*
+- *The user's install* in their other repo moved to the tag by the route of 2026-10-29: local scope, version
+  `2.0.0-alpha.3`, the cached copy at `808154d15653`. The rest of that repo's local settings is unchanged. alpha.2's
+  cached copy stays, so a session already running there keeps working until it restarts.
+- *Next:* 2i's check 3, `field.mjs` on the user's sessions started after the move.
