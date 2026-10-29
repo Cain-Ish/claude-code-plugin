@@ -1508,3 +1508,12 @@ changes a decision: each makes the code do what D22 and the charter already say.
   the reference bench, CI's load lane, the release review and Gemini. The added cost is one regular expression on the
   prompt and one per listed path, not measured. They are offered again before a release.
 - **On a pass:** commit, with no version bump, tag or push. A release (`2.0.0-alpha.3`) is the user's call.
+
+### 2i: result (2026-10-29): checks 1 and 2 pass; check 3 waits for a release
+
+- *Check 1:* the new cases failed on `3c46826f115b` before the code (the force went to another session's message) and
+  pass on the new code: four wrappers, the typed prompt that mentions one, and the path with a newline and a tab
+  (added to git's index with `core.protectNTFS=false`, which Windows needs for such a name).
+- *Check 2:* every existing case passes unchanged; the smoke run passes.
+- *Product hash:* `07816eb8bcd2`, pinned in the self-test with a line saying A1 was not re-run on it.
+- *Check 3* runs on the user's sessions after a release. Nothing is tagged or pushed.

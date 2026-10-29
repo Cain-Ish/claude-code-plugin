@@ -59,7 +59,8 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-assert.equal(product.digest('hex').slice(0, 12), '3c46826f115b', 'the product changed: record its hash with a new epoch (06)');
+// 2i's hash: checked by this self-test and the field re-check only; A1 not re-run on it, by the user's choice (06, 2i)
+assert.equal(product.digest('hex').slice(0, 12), '07816eb8bcd2', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -136,6 +137,16 @@ hook('session-start', { session_id: sid, source: 'compact' });
 assert.equal(hook('prompt', { session_id: sid }), FORCE);
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, 'docs', 'style.md') } }), '');
 assert.equal(hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }), labels(repo, '.project-map/captured.md'));
+// 2i, L1: the force waits for a prompt a person typed; a turn nobody typed (the wrappers as transcripts record them)
+// gets nothing and leaves the epoch's marker
+['Another Claude session sent a message:\n<cross-session-message from="x">hi</cross-session-message>', '<task-notification>\n<task-id>b1</task-id>',
+  '<cross-session-message from="x">hi</cross-session-message>', '  <agent-message from="x">done</agent-message>'].forEach((prompt, i) => {
+  hook('session-start', { session_id: `${sid}-machine-${i}` });
+  assert.equal(hook('prompt', { session_id: `${sid}-machine-${i}`, prompt }), '', prompt);
+  assert.equal(hook('prompt', { session_id: `${sid}-machine-${i}`, prompt: 'create a UserAvatar component' }), FORCE);
+});
+hook('session-start', { session_id: `${sid}-typed` });
+assert.equal(hook('prompt', { session_id: `${sid}-typed`, prompt: 'why does the <task-notification> parser fail?' }), FORCE);
 
 // the release review's fixes (06, 2g attempt 3; D18 reopened 2026-10-27)
 // I1: a session started in a subdirectory takes the git toplevel as its root
@@ -258,6 +269,13 @@ fs.mkdirSync(path.join(bare, '.project-map'));
 fs.writeFileSync(path.join(bare, '.project-map', 'captured.md'), entry('a', 'b', '2026-10-27'));
 assert.equal(index(bare), `${HEADER}\n.project-map/: captured.md\n`);
 assert.equal(hook('read', { tool_input: { file_path: path.join(bare, '.project-map', 'captured.md') } }, bare), `[project map] Labels on the entries of .project-map/captured.md, in file order:\n1. a: ${UNREVIEWED}; unverified quote, captured 2026-10-27\n`);
+// 2i, L2: a control character in a tracked path is printed as ?, so the path stays on its line. Added to git's index
+// only: no file system takes a newline or a tab in a name everywhere
+{
+  const g = (args, input) => { const r = spawnSync('git', ['-c', 'core.protectNTFS=false', ...args], { cwd: bare, input, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  g(['update-index', '--add', '--cacheinfo', `100644,${g(['hash-object', '-w', '--stdin'], 'x')},docs/a\nb\tc.md`]);
+  assert.equal(index(bare), `${HEADER}\ndocs/: a?b?c.md\n.project-map/: captured.md\n`);
+}
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('selftest ok');

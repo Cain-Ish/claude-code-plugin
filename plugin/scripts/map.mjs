@@ -100,7 +100,9 @@ export function index(root) {
     if (!byDir.has(d)) byDir.set(d, []);
     byDir.get(d).push(p.slice(i + 1));
   }
-  return byDir.size ? `${HEADER}\n${[...byDir].map(([d, f]) => `${d}/: ${f.join(', ')}`).join('\n')}\n` : '';
+  // a control character in a committed name is printed as ?, so a path cannot add a line or break one (06, 2i)
+  const safe = (s) => s.replace(/[\x00-\x1f\x7f]/g, '?');
+  return byDir.size ? `${HEADER}\n${[...byDir].map(([d, f]) => `${safe(d)}/: ${f.map(safe).join(', ')}`).join('\n')}\n` : '';
 }
 
 // Session start's text. Claude Code caps a hook's added context at 10,000 characters: past it, the text goes to a

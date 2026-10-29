@@ -15,7 +15,9 @@ if (which === 'session-start') {
   if (idx) try { openEpoch(input.session_id); } catch {}
   emit('SessionStart', startText(idx).text);
 } else if (which === 'prompt') {
-  emit('UserPromptSubmit', takeForce(input.session_id));
+  // the hook also fires on a background subagent's report and another session's message: the force waits for a typed
+  // prompt (06, 2i). shortcut: matched on the wrappers transcripts record; another form spends the force as before
+  if (!/^\s*(Another Claude session sent a message:|<(task-notification|cross-session-message|agent-message)[\s>])/.test(input.prompt ?? '')) emit('UserPromptSubmit', takeForce(input.session_id));
 } else if (which === 'read') {
   const file = rel(root, input.tool_input?.file_path);
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) {
