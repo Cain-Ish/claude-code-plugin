@@ -1517,3 +1517,9 @@ changes a decision: each makes the code do what D22 and the charter already say.
 - *Check 2:* every existing case passes unchanged; the smoke run passes.
 - *Product hash:* `07816eb8bcd2`, pinned in the self-test with a line saying A1 was not re-run on it.
 - *Check 3* runs on the user's sessions after a release. Nothing is tagged or pushed.
+- *A limit of L1, recorded after the review of this step:* when the first turn after a compaction is a background
+  subagent's report and Claude resumes work on it, L1 gives that turn no force, so those changes come before the
+  epoch's forced decision. The old code forced that turn, then left the typed prompt without one. Neither is complete.
+  In the field corpus no epoch began with such a report; the one machine turn that took a force was another session's
+  message, with no work after it. *The variant, offered as 2i attempt 2 for the user to choose:* on a turn nobody typed,
+  give the force and keep the marker; spend it only on a typed prompt. The cost is a second force in such an epoch.

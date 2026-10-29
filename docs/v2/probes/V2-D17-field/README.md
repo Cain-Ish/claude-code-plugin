@@ -100,3 +100,8 @@ unasked is not shown by this corpus.
 - *D18 (C9):* subagents were used in 6 cases, the condition of the deferred `SubagentStart` trigger. None wrote a repo
   file.
 - No compaction happened inside a turn with tools after it: all 9 compactions were automatic, at a prompt.
+
+**Disclosed after the run:** C4's two open readings were fixed after the judgment pack had been printed and before
+`c4.mjs` first ran. The primary reading is the Read tool, before the first write to a repo file. Every reading
+reported (primary, any write, and the broad one with Bash reads, rule files and CLAUDE.md) gives 0 of 3, so the verdict
+does not depend on the choice.
