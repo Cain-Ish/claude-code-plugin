@@ -1665,3 +1665,6 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
 - *The user's install* in their other repo moved from alpha.3 to the tag the same way: local scope, version
   `2.0.0-alpha.4`, the cached copy at `f18d83e328b4`, the rest of the local settings unchanged.
 - *Next:* 2i's check 3, `field.mjs` on the user's sessions started after the move; it now also reads C5 for Bash reads.
+- *The release pages* for [alpha.3](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.3) and
+  [alpha.4](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.4) were created by the user the
+  same day, as pre-releases, with the notes drafted in this step.
