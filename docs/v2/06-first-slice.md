@@ -1643,3 +1643,11 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
   code, so nothing the bar measures changes. Test code only; the product hash stays `f18d83e328b4`.
 - *Check 3 again:* CI's load lane on this push. *Pass:* green on all three systems, gated at one session.
 - Checks 1 and 2 stand: the product is unchanged.
+
+### 2j, attempt 2: result (2026-10-29): pass
+
+- *Check 3:* CI's load lane on `c4f7702` is green on all three systems. Added p95 at one session (Linux, Windows,
+  macOS): `bash-map` 24.9, 70.4 and 48.5 ms, with `read-map` at 25.5, 71.4 and 71.0; `bash-other` 7.3, 17.1 and 12.6
+  ms. At 8 concurrent, reported only: `bash-map` 87.9, 192.1 and 192.5; `bash-other` 21.9, 66.3 and 104.0.
+- Checks 1 and 2 stand from attempt 1, on the same product hash `f18d83e328b4`.
+- D14 re-locks unchanged. 04's row and accepted risks, and the README, follow. Next: the release checks (check 4).

@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.3`, a pre-release from branch `v2`.
+**Status:** `2.0.0-alpha.4`, a pre-release from branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
@@ -22,7 +22,8 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   background subagent's report or another Claude session's message does not count as that prompt.
 - **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude is told
   to add it to `.project-map/captured.md`, with its source and date.
-- **When Claude reads a map file with the Read tool in the main session**, a hook labels its entries:
+- **When Claude reads a map file in the main session**, with the Read tool or a Bash command such as `cat`, `tail` or
+  `grep`, a hook labels its entries:
   - "unreviewed, not yet committed", until you commit them;
   - an entry whose source names a repo file has each stretch of three or more words in its quote checked against that
     file now. If the file is missing, or a stretch is not there word for word, the label says so, and a file that
@@ -31,7 +32,8 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   - an entry whose source names no repo file is labelled "unverified quote", with its capture date;
   - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
 
-  Reads by subagents, and text met through Grep or Bash, are not labelled.
+  Reads by subagents, and map text met through the Grep tool, a script, or a command that names only the folder, are
+  not labelled.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
@@ -41,7 +43,7 @@ your machine.
 
 The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
 - *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's
-  two fixes were checked by the self-test only.
+  and alpha.4's changes were checked by the self-test, a live smoke session and CI only.
 - *A2:* build, plan and question tasks in three real repos (two private ones, and this plugin's own v1 repo), 10 runs
   per task.
 - *Three harder shapes,* 5 runs each: a first prompt that names a symptom, two compactions, and a task switch.
@@ -54,7 +56,8 @@ repos:
   The one difference is by design: in 102 of the 123, a 200-entry map file's labels pass 10,000 characters, and are
   now cut, with the rest of their text unchanged.
 - alpha.2's changes: the same 123 and 36, with no difference.
-- alpha.3's changes were not run through those comparisons. The self-test's existing cases pass unchanged.
+- alpha.3's and alpha.4's changes were not run through those comparisons. The self-test's existing cases pass
+  unchanged.
 
 Those changes alter the output only in edge cases that the self-test covers:
 - a session started in a subdirectory;
@@ -66,7 +69,8 @@ Those changes alter the output only in edge cases that the self-test covers:
 - a session-start text past 10,000 characters (an index of about 8,880 characters or more);
 - a map file whose labels pass 10,000 characters;
 - a document path holding a control character, now listed with `?` in its place;
-- a turn that is a subagent's report or another session's message, which no longer takes the forced decision.
+- a turn that is a subagent's report or another session's message, which no longer takes the forced decision;
+- a map file read through Bash, which now gets the labels a Read gets.
 
 **Where it helped:**
 - *A designer's spec, read in an earlier session:* kept in 10 of 10 runs (auto memory: 2), and followed in a fresh
@@ -90,9 +94,9 @@ Those changes alter the output only in edge cases that the self-test covers:
 
 The results are in [docs/v2/06-first-slice.md](docs/v2/06-first-slice.md) (steps 2c to 2g), and the decisions behind
 them are in [docs/v2/DECISIONS.md](docs/v2/DECISIONS.md). The release review is in
-[docs/v2/research/2026-10-27-release-review.md](docs/v2/research/2026-10-27-release-review.md). alpha.3 had no
-release review, by the user's choice. Its two fixes come from a check of the plugin in the user's own sessions, in
-[docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field/README.md).
+[docs/v2/research/2026-10-27-release-review.md](docs/v2/research/2026-10-27-release-review.md). alpha.3 and
+alpha.4 had no release review, by the user's choice. Their fixes come from a check of the plugin in the user's own
+sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field/README.md).
 
 ## Requirements
 
@@ -104,7 +108,7 @@ release review, by the user's choice. Its two fixes come from a check of the plu
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.3 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.4 --scope project
 claude plugin install second-brain@second-brain-v2 --scope project
 ```
 
@@ -137,6 +141,8 @@ claude plugin install second-brain@second-brain-v2 --scope project
 ## What it costs your machine
 
 - *Hook latency,* measured on alpha.2. alpha.3 adds one pattern match per prompt and one per listed path, not timed.
+  alpha.4's Bash handler was timed in CI at one session (Linux, Windows, macOS): a map read through Bash added 25, 70
+  and 49 ms, as a Read of it does; a command that names the folder but reads no map file, 7, 17 and 13 ms.
   "Added" is the p95 over an empty Node process. "Wall clock" includes Node's start, which each hook
   pays. The repo had 8,057 files and 190 documents, or was a synthetic repo of the same shape, with map entries citing
   1.26 MB of documents. Figures are ms, added / wall clock:
@@ -160,7 +166,7 @@ claude plugin install second-brain@second-brain-v2 --scope project
   - On the small runners at 8 at once, the heavier hooks are over that budget. On a 3- or 4-core machine that runs
     many sessions at once, expect each session start and map read to take a few tenths of a second.
 - *Context, always on:* 904 B and 212 B per session plus the index (2 to 6 KB in the tested repos), and 227 B for each
-  forced decision.
+  forced decision. Each read of a map file, through the Read tool or Bash, adds that file's labels.
 
 ## Known issues
 
@@ -178,8 +184,13 @@ claude plugin install second-brain@second-brain-v2 --scope project
 - **Claude often reads only some of the directories it marks yes.** In two real sessions with alpha.2, each of three
   checked context windows marked 6 to 8 directories yes. Before changing code, Claude opened documents from 0 to 3 of
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
-- **Map reads through Bash or Grep get no label.** In the same sessions, Claude read map entries 11 times: 2 through
-  the Read tool, labelled, and 9 through Bash (`cat`, `tail`, `grep`), which reached it without "unreviewed".
+- **Some map reads get no label:** through the Grep tool, a script that reads the file, a command that names only the
+  folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11 times: 2 through the Read tool and
+  9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds.
+- **Each Bash read of a map file repeats its labels**, as a Read does. Claude often checks the end of the file after a
+  capture, and each such check carries the file's labels again.
+- **Before Claude Code 2.1.85,** which ignores the hook's `if` field, the Bash handler starts on every Bash command. It
+  still labels only map reads.
 - **A turn nobody typed** is told apart by its first words, as Claude Code's transcripts record them: a background
   subagent's report or another session's message. If Claude Code passes such a turn in another form, it takes the
   forced decision, as in alpha.2, and your next prompt gets none. If the first turn after a compaction is a
