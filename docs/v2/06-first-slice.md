@@ -1476,3 +1476,35 @@ GitHub pre-release. The install-from-tag check follows.
   2. a two-sided band;
   3. a pair on a busy machine;
   4. after the user defined the reference state.
+
+### 2i: two fixes from 2026-10-29 (registered before any code)
+
+The field check (probes/V2-D17-field) found one delivery defect. The code reading of the same day
+(research/2026-10-29-code-graph-tools.md) found one gap against the charter's "untrusted text is data". Neither
+changes a decision: each makes the code do what D22 and the charter already say.
+
+- **The intended differences from `3c46826f115b`, and nothing else:**
+  - *L1 (field check, C2):* the forced decision goes to the epoch's first prompt a person typed. `UserPromptSubmit` also
+    fires on a background subagent's report and on another session's message (hooks reference). A prompt that starts
+    with the wrapper of such a turn, as the transcripts record it (`Another Claude session sent a message:`,
+    `<task-notification>`, `<cross-session-message`, `<agent-message`), gets nothing and leaves the epoch's marker in
+    place. A scheduled task's prompt is the user's own text and still takes the force. The hook's input has no field
+    for a prompt's source, so the match is on the text; if Claude Code passes another form, the force is spent as
+    before.
+  - *L2 (code reading):* the index prints a control character in a path (U+0000 to U+001F, U+007F) as `?`, so a
+    committed file name cannot add a line to the index or break one. Paths without one are printed as before.
+- **Built in place in `plugin/`:** the user's installs come from the GitHub tag since 2026-10-29
+  (`known_marketplaces.json`: source github, ref `v2.0.0-alpha.2`), so the checkout's files reach no real session.
+- **Checks:**
+  1. *The self-test,* with cases added before the code: for each of the four wrappers, a machine prompt after a session
+     start returns nothing and the next typed prompt returns the force; a typed prompt that mentions a wrapper after
+     its first word takes the force; a tracked document whose name holds a newline and a tab is listed on one line,
+     with `?` in their place. *Pass:* the self-test passes here.
+  2. *Output unchanged elsewhere:* on this repo, session start's text from the new code equals the old code's
+     (`git show 3c46826f115b`'s tree is not needed: the self-test's existing cases compare against `index()` and the
+     frozen texts). *Pass:* the existing cases pass unchanged.
+  3. *The field re-check:* after a release, `field.mjs` on the user's next sessions. *Pass:* no force on a machine turn.
+- **Not run, by the user's choice of 2026-10-29 (no further tests; they check in real sessions):** A1 on the new hash,
+  the reference bench, CI's load lane, the release review and Gemini. The added cost is one regular expression on the
+  prompt and one per listed path, not measured. They are offered again before a release.
+- **On a pass:** commit, with no version bump, tag or push. A release (`2.0.0-alpha.3`) is the user's call.
