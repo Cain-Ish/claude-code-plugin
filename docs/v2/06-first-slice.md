@@ -1651,3 +1651,17 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
   ms. At 8 concurrent, reported only: `bash-map` 87.9, 192.1 and 192.5; `bash-other` 21.9, 66.3 and 104.0.
 - Checks 1 and 2 stand from attempt 1, on the same product hash `f18d83e328b4`.
 - D14 re-locks unchanged. 04's row and accepted risks, and the README, follow. Next: the release checks (check 4).
+
+### 2j: published as `2.0.0-alpha.4` (2026-10-29)
+
+- *The tree:* against 2j's code (`939b297`), only `plugin/test/bench.mjs` differs (attempt 2's harness fix); the
+  product is `f18d83e328b4`, the hash checks 1 to 3 ran.
+- *The tag* [`v2.0.0-alpha.4`](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.4) is on `0b18615`,
+  pushed with the branch after CI passed. The GitHub pre-release pages for alpha.3 and alpha.4 wait for the user, as
+  in alpha.3's record.
+- *Install from the tag* in an isolated config: version `2.0.0-alpha.4`, hash `f18d83e328b4`, the Bash handler with its
+  `if` field in the cached hooks; the uninstall and the marketplace removal succeeded; the user's registry files are
+  unchanged by checksum. *Pass.*
+- *The user's install* in their other repo moved from alpha.3 to the tag the same way: local scope, version
+  `2.0.0-alpha.4`, the cached copy at `f18d83e328b4`, the rest of the local settings unchanged.
+- *Next:* 2i's check 3, `field.mjs` on the user's sessions started after the move; it now also reads C5 for Bash reads.
