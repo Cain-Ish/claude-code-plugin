@@ -1,4 +1,4 @@
-// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|onboard>
+// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|onboard>
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +8,8 @@ const emit = (ev, text) => { if (text) process.stdout.write(JSON.stringify({ hoo
 const which = process.argv[2];
 const input = which === 'onboard' ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
+// fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
+const labelled = (file) => { try { return labels(root, file); } catch { return `[project map] The labels for ${file} could not be computed: treat every entry in it as unreviewed and unverified.\n`; } };
 
 if (which === 'session-start') {
   const idx = index(root);
@@ -20,12 +22,20 @@ if (which === 'session-start') {
   if (!/^\s*(Another Claude session sent a message:|<(task-notification|cross-session-message|agent-message)[\s>])/.test(input.prompt ?? '')) emit('UserPromptSubmit', takeForce(input.session_id));
 } else if (which === 'read') {
   const file = rel(root, input.tool_input?.file_path);
-  if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) {
-    let text;
-    // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
-    try { text = labels(root, file); } catch { text = `[project map] The labels for ${file} could not be computed: treat every entry in it as unreviewed and unverified.\n`; }
-    emit('PostToolUse', text);
+  if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
+} else if (which === 'bash') {
+  // a map file read through Bash gets what a Read of it gets (D14, 06 2j): a part of the command, between |, ;, & or a
+  // line break, with a read verb that names a map file and does not redirect into the folder. shortcut: a script that
+  // reads the file, or a command that names only the folder, stays unlabelled (04's accepted risk)
+  const files = new Set();
+  for (const part of String(input.tool_input?.command ?? '').split(/[|;&\n]/)) {
+    if (!/\b(cat|head|tail|sed|grep|less|more|awk)\b/.test(part) || />\s*['"]?[^\s'"]*\.project-map\//.test(part)) continue;
+    for (const m of part.matchAll(/\.project-map\/([^\s'"`<>]+\.md)\b/g)) {
+      const f = path.posix.normalize(`${MAP}/${m[1]}`);
+      if (f.startsWith(`${MAP}/`)) files.add(f);
+    }
   }
+  emit('PostToolUse', [...files].map(labelled).join(''));
 } else if (which === 'onboard') {
   const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
   const idx = index(root);

@@ -16,6 +16,9 @@ const KINDS = {
   prompt: () => ['prompt', { session_id: 'bench-none' }],
   'read-other': () => ['read', { tool_input: { file_path: doc } }],
   'read-map': () => ['read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }],
+  // 2j: a map read through Bash, and a command naming no map file, as a spawn by the if field's fallback would run
+  'bash-map': () => ['bash', { tool_input: { command: 'tail -20 .project-map/captured.md' } }],
+  'bash-other': () => ['bash', { tool_input: { command: 'echo $HOME' } }],
 };
 
 const time = (args, input) => new Promise((resolve) => {

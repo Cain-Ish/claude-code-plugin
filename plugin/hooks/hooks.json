@@ -21,6 +21,10 @@
       {
         "matcher": "Read",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "read"] }]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "if": "Bash(*.project-map*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash"] }]
       }
     ]
   }
