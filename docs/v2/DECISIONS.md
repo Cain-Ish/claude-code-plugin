@@ -668,6 +668,19 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **REOPENED and re-LOCKED unchanged, the same day.**
   - The second review found a UTF-16 map file delivered unlabelled, D18's J4.
   - D18's attempt 5 passed, and such a file is labelled now (`probes/V2-D18-runtime/fail-closed-2/`).
+- **Observation (2026-10-29, the field check; not a reopen yet).**
+  - *What the user's sessions showed* ([probes/V2-D17-field](probes/V2-D17-field/README.md), C5): every map entry
+    was uncommitted. 10 of 12 reads of the map went through Bash or Grep, which no hook labels. The Read tool's 2
+    reads were labelled correctly.
+  - *Whether the trigger fired:* 04 lists that channel as an accepted risk, so "an injected entry is ever delivered
+    without the unreviewed label" was not taken as fired there. Read literally, as on 2026-10-27, it is met. The
+    accepted risk has turned out to be the common path.
+  - *Recommended:* reopen, with the delivery fixed under D18. The candidate is a `PostToolUse` handler on Bash and
+    Grep, narrowed by the hook's `if` field to calls that name the map folder
+    ([research/2026-10-29-review-md-and-native.md](research/2026-10-29-review-md-and-native.md)), with D18's budget
+    measured. The user decides.
+  - *Also seen* (C6): when the owner picks an option from Claude's question, the entry quotes Claude's option text as
+    the owner's words. Nothing was invented (0 unsourced of 15), so the noise trigger did not fire.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -2070,6 +2083,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       state.
 
   Attempts at this reopen: 0 failed.
+- **Observation (2026-10-29, the field check: the condition of the deferred `SubagentStart`'s trigger).** Subagents
+  were used 6 times in the user's own sessions ([probes/V2-D17-field](probes/V2-D17-field/README.md), C9), which meets
+  "the first slice logs subagent use". None received the index, and none wrote a repo file, so no rule was missed
+  through one. What `SubagentStart` would carry, and its check, are open.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
@@ -4070,6 +4087,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - 2g attempt 3 cuts the index at a directory to fit, says so in a line, and has onboarding warn. Its live probe
     checks the cliff and the cut (D18's check).
   - How the forced decision works on a cut index stays untested, one of 04's untested shapes.
+- **Two observations from the field check (2026-10-29, [probes/V2-D17-field](probes/V2-D17-field/README.md)).**
+  - *C2, a delivery defect:* `UserPromptSubmit` also fires on a background subagent's report and on another
+    session's message. The plugin spent one epoch's forced decision on such a turn, after an automatic compaction, and
+    the person's next prompt got none. Fixed in 06, 2i (L1), in the code only: the decision is unchanged.
+  - *C4:* 3 epochs began with a prompt that named a change. In each, Claude answered per directory, marked 6 to 8
+    directories yes (73 to 76 documents), and read documents of 0 to 4 of them before its first change. 2e saw the
+    same on P2. D22's measure is the binding document read, not every yes directory, and the field check did not judge
+    whether a rule in scope was missed. So no trigger fires on it.
+  - No compaction in the field fell inside a turn with tools after it.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
