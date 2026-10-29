@@ -1586,7 +1586,7 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
     20 of 1,004 Bash calls named the folder, and 232 others held `$()`, a backtick or a variable.
   - *B2:* the handler finds the map files a command reads: a part of the command, between `|`, `;`, `&` or a line
     break, that holds a read verb (`cat`, `head`, `tail`, `sed`, `grep`, `less`, `more`, `awk`), names a
-    `.project-map/…​.md` file, and does not redirect into the folder. Each such file, once and in order of mention,
+    `.project-map/….md` file, and does not redirect into the folder. Each such file, once and in order of mention,
     gets exactly the text the Read hook gives it, with the same fail-closed line on an error. Otherwise nothing.
   - The version `2.0.0-alpha.4`.
 - **Still not labelled (04's accepted risk, named in the README):** the Grep tool; a command that names the folder
