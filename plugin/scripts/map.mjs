@@ -94,7 +94,10 @@ export function index(root) {
   try { fresh = under(root, MAP).filter((p) => !known.has(fold(p))).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch {}
   const byDir = new Map();
   for (const p of [...tracked.stdout.split('\0'), ...fresh]) {
-    if (!DOC.test(p)) continue;
+    // Claude Code loads the root's .claude/rules/ itself (unscoped at launch, paths: on a matching read, write or
+    // edit), so the forced decision does not ask about it (D22's 17m, 06 2k). shortcut: the root's folder only;
+    // whether Claude Code loads a nested .claude/rules/ was not checked, so one stays listed
+    if (!DOC.test(p) || p.startsWith('.claude/rules/')) continue;
     const i = p.lastIndexOf('/');
     const d = i < 0 ? '.' : p.slice(0, i);
     if (!byDir.has(d)) byDir.set(d, []);

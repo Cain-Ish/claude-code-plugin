@@ -61,9 +61,9 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// alpha.4: 2j's Bash labels; checked by this self-test, the smoke and CI only, A1 not re-run on it, by the user's choice
-// (06, 2j)
-assert.equal(product.digest('hex').slice(0, 12), 'f18d83e328b4', 'the product changed: record its hash with a new epoch (06)');
+// alpha.5: 2k leaves the root's .claude/rules/ to Claude Code; checked by this self-test, the smoke and CI, A1 and P1
+// build not re-run on it, by the user's choice of 2026-10-29 (06, 2k)
+assert.equal(product.digest('hex').slice(0, 12), '62929fea5ecf', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -311,6 +311,30 @@ assert.equal(hook('read', { tool_input: { file_path: path.join(bare, '.project-m
   const g = (args, input) => { const r = spawnSync('git', ['-c', 'core.protectNTFS=false', ...args], { cwd: bare, input, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
   g(['update-index', '--add', '--cacheinfo', `100644,${g(['hash-object', '-w', '--stdin'], 'x')},docs/a\nb\tc.md`]);
   assert.equal(index(bare), `${HEADER}\ndocs/: a?b?c.md\n.project-map/: captured.md\n`);
+}
+// 2k: the root's .claude/rules/ is Claude Code's, so it is left out; a look-alike folder and a nested one stay listed
+{
+  const rules = path.join(tmp, 'rules');
+  const put2 = (f, s) => { fs.mkdirSync(path.dirname(path.join(rules, f)), { recursive: true }); fs.writeFileSync(path.join(rules, f), s); };
+  const g = (...a) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: rules, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  fs.mkdirSync(rules);
+  g('init', '-q');
+  put2('.claude/rules/a.md', '---\npaths:\n  - src/**\n---\nx\n');
+  put2('.claude/rules/sub/b.md', 'x\n');
+  g('add', '-A');
+  g('commit', '-q', '-m', 'rules');
+  // only rules: an empty index, the instruction and the naming line alone, and no forced decision
+  assert.equal(index(rules), '');
+  assert.equal(hook('session-start', { session_id: `${sid}-rules` }, rules), `${INSTRUCTION}\n\n${NAME}`);
+  assert.equal(hook('prompt', { session_id: `${sid}-rules`, prompt: 'add a feature' }, rules), '');
+  // an untracked map file beside the rules is listed
+  put2('.project-map/captured.md', entry('a', 'b', '2026-11-03'));
+  assert.equal(index(rules), `${HEADER}\n.project-map/: captured.md\n`);
+  put2('.claude/rulesets/c.md', 'x\n');
+  put2('pkg/.claude/rules/d.md', 'x\n');
+  g('add', '.claude/rulesets/c.md', 'pkg/.claude/rules/d.md');
+  g('commit', '-q', '-m', 'more');
+  assert.equal(index(rules), `${HEADER}\n.claude/rulesets/: c.md\npkg/.claude/rules/: d.md\n.project-map/: captured.md\n`);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

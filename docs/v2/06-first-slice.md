@@ -1736,3 +1736,14 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
      The field repo is P1's successor, with the same rule folder, so this is P1's cell in real use.
 - **On a pass of 1 to 3:** commit, with no tag. The release and the move of the user's install are the user's call.
   D22 re-locks when check 5 passes, or check 4 if it runs.
+
+### 2k: result (2026-11-03): checks 1 and 2 pass, 3 passes locally; CI on the push
+
+- *The attempt ran from a copy first.* The user's install comes from the GitHub tag, as `known_marketplaces.json`
+  shows.
+- *Check 1:* the new cases fail on `f18d83e328b4`: its index lists the rules folder where the case expects an empty
+  one. They pass on the new code, and every existing case passes unchanged. Product hash `62929fea5ecf`, pinned.
+- *Check 2:* session start's text is byte-identical on P2 (`c19bf0d2`), R0 (`2a21b45`) and the A1 fixture. On P1
+  (`f20f2af`) and the field repo, it differs only by the removed `.claude/rules/` line.
+- *Check 3:* the smoke passes on the copy with the pinned CLI 2.1.305. CI's self-test runs on the push.
+- *Check 4* (P1 build) not run, and *check 5* (the field) waits for a release, both as registered.
