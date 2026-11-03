@@ -1748,3 +1748,25 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
 - *Check 3:* the smoke passes on the copy with the pinned CLI 2.1.305. CI on `648144d`: the self-test and the load
   lane are green on Windows, macOS and Linux.
 - *Check 4* (P1 build) not run, and *check 5* (the field) waits for a release, both as registered.
+
+### 2k: published as `2.0.0-alpha.5` (registered 2026-11-03, before the tag)
+
+The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 build).
+
+- **Checks:**
+  1. *The tree:* `git diff 648144d -- plugin/ .claude-plugin/` at the release commit is empty, so the product is the
+     one checks 1 to 3 ran (`62929fea5ecf`). The release commit changes documents only, so CI's path filter does not
+     run it again; CI on `648144d` stands.
+  2. *Install from the tag* in an isolated Claude config in a short folder. *Pass:* the cached copy is version
+     `2.0.0-alpha.5` and hashes to `62929fea5ecf`; the uninstall and the marketplace removal succeed; the user's
+     registry files are unchanged by checksum.
+  3. *The user's install* in their other repo moves to the tag by alpha.4's route (marketplace removed, added at the
+     tag, the plugin installed at local scope). *Pass:* the install record says `2.0.0-alpha.5`, its cached copy
+     hashes to `62929fea5ecf`, and the rest of that repo's local settings are unchanged.
+- **The README:** installs from `#v2.0.0-alpha.5`; says the index leaves the root's `.claude/rules/` to Claude Code,
+  that this changes session start in any repo that has that folder (not an edge case), and how alpha.5 was checked
+  (the self-test, a byte comparison on the test repos, the smoke, CI; no eval run); adds 04's new weaknesses (a
+  rules-only repo, a nested rule folder, an edit after a compaction) as known issues.
+- **The release page:** notes drafted here; created by the session if allowed, otherwise by the user, as before.
+- **On a failure** of check 1 or 2, the tag is deleted before the install moves, and the cause is recorded.
+- *Next:* 2k's check 5 on the user's sessions started after the move.

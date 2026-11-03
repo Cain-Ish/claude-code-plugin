@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.4`, a pre-release from branch `v2`.
+**Status:** `2.0.0-alpha.5`, a pre-release from branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
@@ -15,7 +15,9 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
 
 - **At session start**, and again after `/clear`, a resume or a compaction, Claude gets two things:
   - an index of the repo's documents, by directory: every tracked `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`
-    file, plus every Markdown file in `.project-map/`, even one that is not committed or that `.gitignore` excludes;
+    file, plus every Markdown file in `.project-map/`, even one that is not committed or that `.gitignore` excludes.
+    Files under the root's `.claude/rules/` are left out: Claude Code loads those itself, at launch or, for a rule
+    with `paths:`, when Claude reads, writes or edits a matching file;
   - a short instruction to keep the project's decisions in `.project-map/`.
 - **At the first prompt you type**, and at the first after each compaction, Claude is told to state for each document
   directory whether it bears on the task (yes or no), and to read the yes ones before it changes anything. A
@@ -42,8 +44,8 @@ your machine.
 ## What was measured, and what was not
 
 The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
-- *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's
-  and alpha.4's changes were checked by the self-test, a live smoke session and CI only.
+- *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's,
+  alpha.4's and alpha.5's changes were checked by the self-test, a live smoke session and CI only.
 - *A2:* build, plan and question tasks in three real repos (two private ones, and this plugin's own v1 repo), 10 runs
   per task.
 - *Three harder shapes,* 5 runs each: a first prompt that names a symptom, two compactions, and a task switch.
@@ -58,8 +60,14 @@ repos:
 - alpha.2's changes: the same 123 and 36, with no difference.
 - alpha.3's and alpha.4's changes were not run through those comparisons. The self-test's existing cases pass
   unchanged.
+- alpha.5's change was compared on the test repos' session-start text: byte-identical on two of the three real repos
+  and on A1's fixture. On the third, which keeps its rule files in `.claude/rules/`, only that folder's line is
+  gone.
 
-Those changes alter the output only in edge cases that the self-test covers:
+alpha.5's change is not an edge case: in any repo with a root `.claude/rules/` folder, the index and the forced
+decision no longer list it. In the user's own repo, where every one of 30 rule files declares `paths:`, Claude Code
+had delivered the rule before the write in 64 of 92 cases, and Claude's reads prompted by the forced decision reached
+4 more. The other changes alter the output only in edge cases that the self-test covers:
 - a session started in a subdirectory;
 - a map file or cited source that cannot be read;
 - a byte-order mark, or a UTF-16 map file;
@@ -108,7 +116,7 @@ sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.4 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.5 --scope project
 claude plugin install second-brain@second-brain-v2 --scope project
 ```
 
@@ -195,6 +203,12 @@ claude plugin install second-brain@second-brain-v2 --scope project
   subagent's report or another session's message. If Claude Code passes such a turn in another form, it takes the
   forced decision, as in alpha.2, and your next prompt gets none. If the first turn after a compaction is a
   subagent's report and Claude goes on working from it, that work comes before the forced decision.
+- **Rules in `.claude/rules/` reach Claude only through Claude Code** (alpha.5). Claude Code delivers a `paths:` rule
+  when Claude reads, writes or edits a matching file. After a compaction, an edit made without a new read of the file
+  gets no delivery: in the user's own sessions, 22 of 92 rule cases. The forced decision had not covered them either.
+- **A repo whose only documents are in `.claude/rules/`** gets an empty index and no forced decision.
+- **A `.claude/rules/` folder below the root** (`pkg/.claude/rules/`) stays in the index, since whether Claude Code
+  loads one was not checked.
 - **An automatic compaction in the middle of a turn** lets that turn keep writing before the next prompt brings the
   forced decision back.
 - **The closing line** about decisions followed appears even where nothing applies ("none").
