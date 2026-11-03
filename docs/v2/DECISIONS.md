@@ -45,6 +45,7 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   field check's delivery fix and control characters in index paths (06, 2i; 2026-10-29), then
   [v2.0.0-alpha.4](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.4) at `f18d83e328b4`, with map
   entries read through Bash labelled (06, 2j; D14 reopened and re-locked unchanged the same day).
+  - *Reopened:* D22, 2026-11-03, by its `paths:` trigger in the field re-check (map issue, step 17m).
   - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
   - *Deferred:* D20's net.
 
