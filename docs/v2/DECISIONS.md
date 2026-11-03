@@ -4254,3 +4254,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Then:* a second opinion on the count and the choice. A choice other than (a) changes the frozen line: a new
     plugin hash, run from a copy, with D23's own check on it before `plugin/` changes (A1's V2 arm, 10 runs: T5f at
     least 8 of 10, every other pass item at its bar, over-attribution at most 1 of 10). D23 reopens on that choice.
+  - *Result (2026-11-03; [research/2026-11-03-d23-rethink-2.md](research/2026-11-03-d23-rethink-2.md)):* N0 50, N1 21,
+    N2 0, N3 0. Noise 0 of 71: **the rule chooses (a).**
+    - Every long finishing report names its decisions (21 of 22 task-completion reports). No status line does, and
+      neither short typed question does. "Short ones included" is not borne out.
+    - *Second opinion (Gemini):* keep (a); (b) and (c) do not touch the real cost, standing decisions repeated report
+      after report. It named (d), naming only decisions not yet named in the session, and flagged the padded
+      denominator, reply-level judging and one lenient rater.
+    - *A blind rater* (a subagent, without the options or the rule): N0 49, N1 22, N2 0, N3 0, one inline naming read
+      differently. Per named decision, 99 of 109 applied and 10 restated (9%), in 7 of 22 lists.
+  - **Choice: (a), the line stays frozen. D23 is not reopened**: the user delegated the reading, and the delegated
+    rethink keeps it.
+    - *Rejected:* (b) and (c), a new build and a 10-run re-run for noise neither reader found, leaving the repetition
+      as it is. (d), session-scoped naming: each report loses its standalone audit, and after a compaction "not yet
+      named" cannot be followed reliably. It is the candidate if the repetition is shown to cost the reader.
+    - *Recorded:* 9% of named decisions restated (the baseline); one under-naming miss in 22 reports; the repetition
+      of standing decisions.
+  - *Reopen if* (added to the three above, counted in the field):
+    - short typed questions carry names in 2 or more of 10 counted;
+    - under-naming reaches 2 or more of 20 task-completion reports;
+    - restated decisions pass 20% of those named, in a count of at least 20 lists;
+    - the user finds the repeated standing decisions cost them reading (then (d) is the next attempt).
