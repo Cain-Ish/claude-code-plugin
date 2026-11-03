@@ -1770,3 +1770,21 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
 - **The release page:** notes drafted here; created by the session if allowed, otherwise by the user, as before.
 - **On a failure** of check 1 or 2, the tag is deleted before the install moves, and the cause is recorded.
 - *Next:* 2k's check 5 on the user's sessions started after the move.
+
+### 2k: published as `2.0.0-alpha.5` (2026-11-03)
+
+- *Check 1, the tree:* `git diff 648144d -- plugin/ .claude-plugin/` at `a36d49a` is empty. The self-test passes
+  there. *Pass.*
+- *The tag* [`v2.0.0-alpha.5`](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.5) is on `a36d49a`,
+  pushed with the branch. The
+  [pre-release page](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.5) was created by the
+  session this time, with the notes drafted in this step.
+- *Check 2, install from the tag* in an isolated config (CLI 2.1.317): version `2.0.0-alpha.5`, hash `62929fea5ecf`;
+  the uninstall and the marketplace removal succeeded; the user's registry files are unchanged by checksum. *Pass.*
+- *Check 3, the user's install* in their other repo moved from alpha.4 by the same route: local scope, version
+  `2.0.0-alpha.5` at `a36d49a`, the cached copy at `62929fea5ecf`; the local settings differ only in the marketplace's
+  `ref`. *Pass.* alpha.4's cached copy stays, held by two running sessions' in-use markers.
+  - *A hashing note:* a cached copy holds an `.in_use/` folder of process markers, outside the product. The hash
+    leaves it out; with it, alpha.4's copy hashed `046240f48ae5`, without it `f18d83e328b4` as published.
+- *Next:* 2k's check 5, `field-scope.mjs` and `field.mjs` on the user's sessions started after 17:05Z. D22 re-locks
+  on its pass.
