@@ -89,10 +89,12 @@ export function events(ev, root) {
   return out;
 }
 
-const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
+export const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
 
-const [mode, ...args] = process.argv.slice(2);
-if (mode === 'selftest') {
+// run as a script only: 17m's field-scope.mjs imports the matchers (2026-11-03)
+const main = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const [mode, ...args] = main ? process.argv.slice(2) : [];
+if (!main) { /* imported */ } else if (mode === 'selftest') {
   const ok = (c, m) => { if (!c) { console.error(`FAIL ${m}`); process.exitCode = 1; } };
   ok(JSON.stringify(terms('src/game/Foo.cs')) === JSON.stringify(['.cs', 'C#', 'src', 'game']), 'terms');
   ok(hit('Use C# here.', ['C#']) && hit('every .cs file', ['.cs']) && !hit('the docs folder', ['.cs']), 'hit');

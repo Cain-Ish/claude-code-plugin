@@ -4128,6 +4128,44 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Also seen, no trigger:* a peer session's review in that repo (2026-11-03) found the forced read cannot be done
     in full when the yes directories hold more than 1 MB, as C4 and 2d recorded. Its proposals are triaged in the map
     issue; the ones that re-open rejected options ((b), (c), the write-time hook) change nothing here (rule 3).
+- **Step 17m's check (pre-registered 2026-11-03, before the run; only event and pair counts seen).** (S-b) again, on
+  the repo that fired the trigger, beside Claude Code's own path delivery
+  ([field-scope.mjs](probes/V2-D17-field/field-scope.mjs), which self-tests).
+  - *The question:* do the documents a change binds by their own `paths:` reach Claude before the change through
+    Claude Code alone? Then the forced read covering their directories buys nothing.
+  - *Options:*
+    - (N) use what Claude Code already does: such directories are left to its path delivery;
+    - (S-b) a plugin list of the matching unread documents;
+    - (K) the route unchanged.
+  - *Corpus:* the 4 main sessions in that repo since the plugin's install there, rethink 4's window left out. The
+    documents are read at each session start's commit, `CLAUDE.md` left out as in the scope probe. Rule files were
+    edited during the sessions, so a declared set can lag the file.
+  - *Gate events:* as the scope probe defines them: each main-session code write, first in its directory in its
+    epoch. 51 events: 44 edits and 7 new files, from the tool's result text.
+  - *The declared set* of an event: the documents whose `paths:` cover the written file, read as Claude Code reads
+    them. In this corpus's deliveries, a bare folder covers everything under it (11 of 97 deliveries are explained
+    only so). 50 events have one, 92 (event, document) pairs: 85 at edits, 7 at new files.
+  - *Each pair, within the event's epoch and before the write:*
+    - D, delivered by Claude Code (a `nested_memory` record, which holds the rule's full text);
+    - R, not delivered but Read by Claude (a Read through Bash is not counted, as in the scope probe);
+    - X, neither. An X pair delivered with the write itself (after it, before the next assistant message) re-checks
+      D12's new-file cell.
+
+    Deliveries and reads reset at each compaction.
+  - *Rule:*
+    - **R at most 10% of the pairs (9 of 92): (N).** The forced read's coverage of `paths:` directories bought at most
+      that. A product attempt is registered next with its own check, before any `plugin/` change; its shape is that
+      step's registration, not this one's.
+    - **R above 10%: (K).** The forced read reaches path rules before changes that Claude Code had not delivered. D22
+      re-locks unchanged with these counts.
+    - *X is a gap under both arms.* It picks neither. Above 10% of the pairs, it is recorded as an observation for D22's
+      selection-miss trigger, which needs each miss judged against its change (a later step).
+    - *The 7 new-file pairs* are reported alone. They are too few for a bar of their own.
+  - *(S-b) as registered:* its unread list at most 4 documents and 40 KB at every event. Recall is measured against
+    the declared set. Its own glob reads a bare folder as one path, so declared documents off its list count as recall
+    misses. Also reported, the cost of a plugin pointer here: the list with Claude Code's deliveries counted as read.
+    - If (S-b) passes and (N) does not hold, the combined attempt is registered next, as on 2026-10-26.
+    - Under (N), no plugin list is built for documents Claude Code delivers.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
