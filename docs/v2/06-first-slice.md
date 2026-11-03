@@ -1668,3 +1668,27 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
 - *The release pages* for [alpha.3](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.3) and
   [alpha.4](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.4) were created by the user the
   same day, as pre-releases, with the notes drafted in this step.
+
+### 2i, check 3: the field re-check (2026-11-03): pass, neither path exercised
+
+- *Corpus:* the user's sessions in their other repo started after the move to alpha.4 (the install record: version
+  `2.0.0-alpha.4`, 2026-10-29 20:26Z). Two sessions, 7 epochs (2 starts, 5 automatic compactions), CLI 2.1.314 and
+  2.1.316. The second was still running when read. Run as `field.mjs`; the per-unit record is in `research/raw/`.
+- *No force on a machine turn: pass.* 6 forces, each on its epoch's first typed prompt; none missing (the one epoch
+  without a force had no prompt), none twice. The 7 epochs held 26 machine turns, and none came before an epoch's
+  first typed prompt, so L1's skip never had to act. The pass does not show L1 working in the field.
+- *C5 for Bash reads: pass.* 4 Reads of the map file, each with the plugin's labels (the one Read that had to say
+  unreviewed did). 3 Bash commands named the map folder: `git status` and `git diff --stat`, read whole. None reads
+  an entry, so none owes labels and none got them. No map entry was read through Bash, so 2j's handler is not shown
+  working in the field either.
+- *Reported, outside check 3's pass:*
+  - C1: the plugin's context at 7 of 7 epoch starts. C8: no hook error.
+  - C6: 13 capture writes scanned. 5 are Edit fragments of existing entries (the scanner reads an Edit's new text as
+    an entry), and the 3 quotes not found are those fragments, which hold no quote. The map file holds 21 entries,
+    each with its quote, source and `when`; none holds a session id, email address or absolute path.
+  - C7: 12 paths named after a change; the 2 not found are a website's `robots.txt`, named while reading that site,
+    not a decision's source. None invented.
+  - C9: 1 subagent, without the index, wrote 2 repo files (a script and a research note). Recorded under D18.
+  - `field.mjs` names every unit after the GitHub move `tag v2.0.0-alpha.2`, its build when written; the counts do not
+    depend on it.
+- *Also from this corpus:* D22's `paths:` trigger fired (see D22, 2026-11-03).

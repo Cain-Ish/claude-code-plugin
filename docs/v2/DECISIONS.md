@@ -25,7 +25,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -2099,6 +2099,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   were used 6 times in the user's own sessions ([probes/V2-D17-field](probes/V2-D17-field/README.md), C9), which meets
   "the first slice logs subagent use". None received the index, and none wrote a repo file, so no rule was missed
   through one. What `SubagentStart` would carry, and its check, are open.
+- **Observation (2026-11-03, the field re-check, 06's 2i check 3).** 1 subagent, without the index, wrote 2 repo files
+  (a script and a research note). Whether a rule was missed through it was not judged. The same question stays open.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
@@ -4108,6 +4110,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     same on P2. D22's measure is the binding document read, not every yes directory, and the field check did not judge
     whether a rule in scope was missed. So no trigger fires on it.
   - No compaction in the field fell inside a turn with tools after it.
+- **REOPENED 2026-11-03 by its trigger "most of a project's binding documents declare their scope in a form a hook can
+  read, such as `paths:` front matter. Then (S-b) runs again"** (the field re-check's corpus, 06's 2i check 3).
+  - *The observation,* in the user's other repo: the plugin's index lists 81 documents in 11 directories. 30 are rule
+    files under `.claude/rules/`, and all 30 carry `paths:` front matter. 37 are research notes; the remaining 14
+    include `CLAUDE.md`, a coding-standards file, skills and the map.
+  - *In one session,* Claude Code delivered 19 distinct rule files by path match (37 deliveries across 4 compactions).
+    Claude read 9 research notes and 7 rule files itself.
+  - *The reading:* "binding documents" as the scope probe used the words, the documents rules come from (its recall
+    set), not every document in the index. Read so, 30 of at most 45 carry `paths:`, and the trigger fires. Counted
+    with the 37 research notes, 30 of 81 do, and it does not fire. Both counts are recorded so the reading can be
+    disputed.
+  - *What follows, as registered:* (S-b) runs again, on this repo, pre-registered first (map issue, step 17m). That
+    registration includes "use what Claude Code already does": these rules already arrive by path without the plugin.
+    `plugin/` is unchanged.
+  - *Also seen, no trigger:* a peer session's review in that repo (2026-11-03) found the forced read cannot be done
+    in full when the yes directories hold more than 1 MB, as C4 and 2d recorded. Its proposals are triaged in the map
+    issue; the ones that re-open rejected options ((b), (c), the write-time hook) change nothing here (rule 3).
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
