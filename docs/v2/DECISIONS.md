@@ -4223,3 +4223,34 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     stays under it. The other cells are gain cells, which have no ceiling.
   - *Over-attribution* cannot be observed on A2: native.mjs has no measure for it. That half of the trigger can fire on
     A1 only until A2 gains the measure. Recorded as a gap.
+- **Rethink (2026-11-03): the closing names on every finishing reply.**
+  - *Why:* a peer session's review in the user's other repo found the names added to every finishing reply, short ones
+    too. Offered (a) keep or (b) narrow, the user answered: "Rethink both option and choose best approach". That
+    delegates the choice to the standing instruction: a written rethink, a check registered before the evidence is
+    read, and a second opinion. D23's trigger is the user's reading of item (5); it fires only if the choice is not (a).
+  - *The charter* states item (5) inside a change task ("create a UserAvatar component"); the line asks it of every
+    reply.
+  - *Options:*
+    - (a) keep the frozen line;
+    - (b) the peer's: name decisions only in a reply whose turn changed files or made a recommendation;
+    - (c) name decisions only when a recorded decision shaped this reply, and add nothing otherwise;
+    - not an option: drop the line (D23's rejected (b) alone, 0 to 1 of 10).
+  - *Check (pre-registered 2026-11-03, before any reply is read; only counts seen):*
+    - *Corpus:* the finishing replies of the main sessions in the user's other repo since the line shipped there: 4
+      sessions, 2026-10-26 to 11-03, rethink 4's window left out. 71 replies, 41 in turns that changed a file, 30 not.
+      A finishing reply is the last assistant text of a turn; a turn starts at any user record that is not a tool
+      result.
+    - *Each reply judged by reading:*
+      - N0, no naming passage;
+      - N1, names at least one recorded decision that shaped the reply;
+      - N2, a naming passage that names no decision, or says none applied;
+      - N3, names only decisions that did not shape the reply.
+
+      For a reply in a turn that changed no file: does it make a recommendation?
+  - *Rule:*
+    - noise = (N2 + N3) / 71. At most 10% (7 replies): (a), and the line stays frozen.
+    - Above 10%: lost = the N1 replies in turns that changed no file and made no recommendation, as a share of all
+      N1. At most 10%: (b). Above: (c).
+  - *Then:* a second opinion on the count and the choice. A choice other than (a) changes the frozen line: a new
+    plugin hash, run from a copy, with D23's own check on it before `plugin/` changes (A1's V2 arm, 10 runs: T5f at
+    least 8 of 10, every other pass item at its bar, over-attribution at most 1 of 10). D23 reopens on that choice.
