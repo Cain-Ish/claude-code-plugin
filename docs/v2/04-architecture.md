@@ -80,6 +80,13 @@ Node and git are present. A repo with no documents gets an empty index and an em
   budget, by the user's choice).
 - **Friction.** A forced decision at the session's first prompt and after each compaction. A new task in the same
   session gets none until the next compaction (2e's task switch, above).
+- **Claude Code's rule folder is left to Claude Code** (06, 2k; alpha.5, not yet released).
+  - *New files:* for a new file, a `paths:` rule arrives with the write (D12), and the plugin no longer asks for a read
+    before it. In the field, Claude's own reads reached 0 of 7 such pairs (D22's 17m), so nothing observed is lost.
+  - *After a compaction:* an edit made without a new Read gets no re-delivery from Claude Code: 22 of 17m's 24
+    undelivered pairs. The forced read did not reach them either. Watched by D22's selection-miss trigger.
+  - *Rules only:* a repo whose only documents are rules gets no forced decision.
+  - *Nested folders:* a nested `.claude/rules/` stays listed, since whether Claude Code loads one was not checked.
 - **Pattern rules on Opus.** P1 R2 was missed under every pull arm and under a self-review; only a hand-written check
   fed back held it. It is an expected miss until D20's net reopens. P2 R4, a judgment rule, was missed by push and
   pull alike once the session compacted.
