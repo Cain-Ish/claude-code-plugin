@@ -4166,6 +4166,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     misses. Also reported, the cost of a plugin pointer here: the list with Claude Code's deliveries counted as read.
     - If (S-b) passes and (N) does not hold, the combined attempt is registered next, as on 2026-10-26.
     - Under (N), no plugin list is built for documents Claude Code delivers.
+- **Step 17m's result (2026-11-03): (N).** Pairs: D 64, R 4, X 24 of 92. **R is 4%, under the 10% bar.**
+  - *By kind:*
+    - edits: D 60, R 4, X 21 of 85;
+    - new files: D 4, R 0, X 3 of 7, one of them delivered with the write.
+  - *(S-b) as registered fails* at 51 of 51 events: the unread list has a median of 43 documents (945 KB), at most 64.
+    Recall holds: no declared document is off its list, since its term half catches what its glob half misses. With
+    Claude Code's deliveries counted as read: median 38 (813 KB), 51 over. No combined attempt.
+  - *X, 24 pairs (26%), an observation for the selection-miss trigger:*
+    - 22 are writes to a file not Read earlier in that epoch (written earlier, or read before a compaction), so Claude
+      Code had no read to deliver on;
+    - 16 of the 24 documents had been delivered in an earlier epoch, before a compaction, and 13 arrived later in the
+      same epoch, after the write;
+    - 8 are one broad rule, whose `paths:` name whole top folders;
+    - the forced read did not reach them either (R is 4).
+
+    Whether each bore on its change is not judged here.
+  - *Next (the rule):* a product attempt for (N), registered with its own check before any `plugin/` change (map
+    issue, step 17n). D22 stays REOPENED until that attempt's check settles it.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

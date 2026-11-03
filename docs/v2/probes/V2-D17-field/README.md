@@ -120,3 +120,10 @@ does not depend on the choice.
 - `field.mjs` now counts by that rule; its re-run gives 9, the hand count, and every other count is unchanged. The
   first run's 10 held 5 false reads and missed 4 real ones. No map read went through the Grep tool. C5's verdict does
   not change.
+
+## Later checks in the same repo
+
+- **2026-11-03, 2i check 3 (the field re-check):** `field.mjs` on the sessions after the move to alpha.4. Result in
+  [06](../../06-first-slice.md), "2i, check 3".
+- **2026-11-03, step 17m (D22):** `field-scope.mjs`, (S-b) again beside Claude Code's own path delivery. Check and
+  result in [DECISIONS.md](../../DECISIONS.md), D22.
