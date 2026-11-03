@@ -4184,6 +4184,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     Whether each bore on its change is not judged here.
   - *Next (the rule):* a product attempt for (N), registered with its own check before any `plugin/` change (map
     issue, step 17n). D22 stays REOPENED until that attempt's check settles it.
+- **Step 17n's attempt (registered 2026-11-03 in [06, 2k](06-first-slice.md)):** the index leaves the root's
+  `.claude/rules/` to Claude Code, which loads it itself. D22 re-locks on 2k's check 5 (the field after a release), or
+  its check 4 (P1 build) if the user has it run.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

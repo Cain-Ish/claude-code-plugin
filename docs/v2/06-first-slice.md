@@ -1692,3 +1692,47 @@ fixes its delivery. Built in place, as 2i: the user's installs come from a tag.
   - `field.mjs` names every unit after the GitHub move `tag v2.0.0-alpha.2`, its build when written; the counts do not
     depend on it.
 - *Also from this corpus:* D22's `paths:` trigger fired (see D22, 2026-11-03).
+
+### 2k: Claude Code's rule folder left to Claude Code (registered 2026-11-03, before the code)
+
+- *Why:* D22's step 17m chose (N). On the repo that fired the trigger, Claude Code delivered 64 of 92 declared
+  (event, document) pairs before the write; Claude's own reads reached 4 more (4%).
+- *The change:* `index()` leaves out tracked documents under the root's `.claude/rules/`. Claude Code loads every file
+  there itself: unscoped ones at launch, `paths:` ones on a read, write or edit of a matching file ([CC-MEMORY] in
+  [research/2026-10-19-platform-memory-channels.md](research/2026-10-19-platform-memory-channels.md)). The forced
+  decision then no longer asks about that folder.
+  - It is a prefix test on git's repo-relative paths, so no file is read for it. `pkg/.claude/rules/` and
+    `.claude/rulesets/` stay listed.
+  - The frozen texts (instruction, header, force, naming line) are unchanged.
+  - A repo whose only documents sit under `.claude/rules/` gets an empty index and no forced decision, like a repo with
+    no documents; alpha.4 gave it a one-directory force.
+- *Why it should cost no rule:* on P1, whose 29 rule files all declare `paths:`, M1 already met the bars of R1 and R3
+  to R5 (06, 2d), and the route's one gain there, R6, comes from `CODING_STANDARDS.md` at the root, which stays
+  listed. At the field's new files, Claude's own reads reached 0 of 7 pairs, so nothing the force delivered there is
+  lost.
+- *Version* `2.0.0-alpha.5` in both manifests; the new product hash is pinned in the self-test.
+- **Checks:**
+  1. *Self-test:* new cases fail on `f18d83e328b4` and pass on the new code:
+     - `.claude/rules/a.md` and `.claude/rules/sub/b.md` are not listed;
+     - `.claude/rulesets/c.md` and `pkg/.claude/rules/d.md` are;
+     - a repo whose only documents are rules gets an empty index, session start gives the instruction and the naming
+       line only, and the prompt gets no force;
+     - an untracked map file is still listed beside the rules.
+
+     *Pass:* the self-test passes here, the existing cases unchanged.
+  2. *Output unchanged elsewhere.* Session start's text from the new code:
+     - equals alpha.4's on P2 and R0 at their eval commits and on the A1 fixture;
+     - on P1 (`f20f2af`) and the field repo (its HEAD), differs from it by exactly the `.claude/rules/` line.
+  3. *Smoke* on the pinned CLI 2.1.305; CI's self-test on three systems.
+  4. *P1 build,* the v2 arm on the new hash, 10 runs. *Predicted:* R1, R3, R4 and R5 at 10; R6 at least 8; R2
+     reported; cost under the no-worse ceiling. *Offered, not run,* by the user's choice of 2026-10-29: no further
+     eval re-runs, the user checks in real sessions. It is ready to run before a release if the user asks.
+  5. *The field re-check after a release:*
+     - `field-scope.mjs` on the user's sessions after the move: R at most 10%; D's share not below 17m's 70% (64 of
+       92); X reported;
+     - `field.mjs`: C1, C2, C5 and C8 hold as before;
+     - the forced answers no longer name `.claude/rules/`, judged by reading.
+
+     The field repo is P1's successor, with the same rule folder, so this is P1's cell in real use.
+- **On a pass of 1 to 3:** commit, with no tag. The release and the move of the user's install are the user's call.
+  D22 re-locks when check 5 passes, or check 4 if it runs.
