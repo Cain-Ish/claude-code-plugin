@@ -1783,7 +1783,8 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
   the uninstall and the marketplace removal succeeded; the user's registry files are unchanged by checksum. *Pass.*
 - *Check 3, the user's install* in their other repo moved from alpha.4 by the same route: local scope, version
   `2.0.0-alpha.5` at `a36d49a`, the cached copy at `62929fea5ecf`; the local settings differ only in the marketplace's
-  `ref`. *Pass.* alpha.4's cached copy stays, held by two running sessions' in-use markers.
+  `ref`. *Pass.* alpha.4's cached copy stays; its `.in_use/` folder holds two process markers (whether those processes still run
+  was not checked).
   - *A hashing note:* a cached copy holds an `.in_use/` folder of process markers, outside the product. The hash
     leaves it out; with it, alpha.4's copy hashed `046240f48ae5`, without it `f18d83e328b4` as published.
 - *Next:* 2k's check 5, `field-scope.mjs` and `field.mjs` on the user's sessions started after 17:05Z. D22 re-locks
