@@ -1916,3 +1916,46 @@ The protocol of 2h's attempt 4, with alpha.5 as the control. The driver is
 - At about 20:10Z, Claude Code stopped the driver because the machine was low on memory. No pair ran.
 - As registered, a window without a result is not a failed attempt. The check waits for the user: about 20 minutes
   with the game and WSL paused.
+
+### 2l: published as `2.0.0-alpha.6` (registered 2026-11-06, before the tag)
+
+The user came back on 2026-11-06 with the machine's load stopped and said alpha.6 can be released or installed, so
+that their two working sessions in the field repo give results on real code. That is a go for a pre-release and for
+moving their install, by alpha.5's route. It is not D24's answer. `main`, `2.0.0`, D25's marketplace rename and the
+devils-advocate workflow stay out.
+
+- **Check 6 first.** Its second window started at 21:46Z, and its first sample was under the bar. Its outcome
+  decides the rest:
+  - *pass:* the tag and the checks below;
+  - *a valid pair with the candidate over the bar:* no tag and no move. D18's trigger is recorded, and the user is
+    told;
+  - *no result* (the window turns busy, or the driver is stopped): the release goes ahead on the user's go, as alpha.5
+    went without its check 4. Check 6 stays open for a later window, and the README and the release notes say so.
+- **Checks:**
+  1. *The tree:* `git diff 4d201a2 -- plugin/ .claude-plugin/` at the release commit is empty. The product is then the
+     one that D27's checks, the smoke and CI ran (`d21b69bfc1ed`), and CI on `4d201a2` stands.
+  2. *Install from the tag* in an isolated Claude config in the scratchpad. *Pass:*
+     - the cached copy is version `2.0.0-alpha.6` and hashes to `d21b69bfc1ed`, its `.in_use/` folder left out;
+     - the uninstall and the marketplace removal succeed;
+     - the user's registry files are unchanged by checksum.
+  3. *The user's install* in the field repo moves to the tag by alpha.5's route: the marketplace removed, added at the
+     tag at local scope, and the plugin installed at local scope. *Pass:* the install record says `2.0.0-alpha.6`, its
+     cached copy hashes to `d21b69bfc1ed`, and the repo's local settings differ only in the marketplace's `ref`.
+- **The README:**
+  - the status and Install move to `#v2.0.0-alpha.6`;
+  - it says how alpha.6 was checked: the self-test, the smoke on 2.1.305 and 2.1.319, CI on three systems, and check
+    6's result or its absence. No eval ran;
+  - "Coming from v1" names the line;
+  - a known issue: the line's link opens `main`'s README, which is v1's until `main` moves.
+- **The release page:** a pre-release, with notes drafted here.
+- **Not run:** A1 and P1 build (the user's choice of 2026-10-29), and the devils-advocate workflow, which waits for the
+  user's go.
+- **On a failure** of check 1 or 2, the tag is deleted before the install moves, and the cause is recorded.
+- **Sessions already running** keep alpha.5's cached copy, since a session loads its hooks when it starts. Only
+  sessions started after the move run alpha.6.
+- **Check 7, the field re-check,** on the user's sessions in the field repo started after the move:
+  - `field-scope.mjs` and `field.mjs`, with 2k check 5's bars;
+  - *D27 in use:* while v1's shims are on disk, each session start in those transcripts carries the line as a
+    `hook_system_message`, and no context record of Claude's holds its text.
+
+  D24's field bar is not set here. These sessions are counted against it once the user sets it.
