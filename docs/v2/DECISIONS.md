@@ -30,6 +30,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux) | evidence | D25 |
+| V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | CHECKING 2026-11-06 | evidence | D18, D26 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4550,3 +4551,39 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Reopen if:**
   - v1's install is found to write a file or scheduler entry the section does not remove;
   - a user's cleanup by the section leaves v1's message or timer behind.
+
+### V2-D27 — How a v1 updater learns of the cleanup
+- **Question:** once a v1 install has moved to v2 (D25), how does its user learn that v1's statusline and timer stay
+  behind, and where the commands that remove them are (D26)?
+- **Why now:** D26 carried it.
+  - An updater has no reason to read the README.
+  - For 14 days, v1's statusline and timer keep running v1's old copy. The timer's env file may hold an API key.
+  - After that, the statusline names `/second-brain:buddy install`, a command v2 does not have. The timer fails every
+    30 minutes and writes only to v1's error log.
+- **Options:**
+  - (R) *The README and the release notes only,* which is what Claude Code itself offers: no hook fires on a plugin's
+    update (D26's docs).
+  - (S) *Session start tells the user,* in one line, while v1's shims are on disk: `bin/buddy-statusline.sh` or
+    `bin/sb-extract-drain.sh` under `$BRAIN_DIR`, or `~/.second-brain` without it.
+    - The line goes in `systemMessage` beside the hook's existing output. The docs call that field a "Warning message
+      shown to the user"; read 2026-11-06 for D26, before this record.
+    - Claude's context gets nothing new.
+    - It costs two file checks per session start, and no new surface.
+  - (O) *`/second-brain:onboard` reports them.* Rejected up front: an updater has no reason to run it.
+- **Check (registered 2026-11-06, before (S) is built or run):** (S) is built in a copy of the plugin.
+  1. *The self-test, with new cases:*
+     - without v1's shims, session start's stdout is byte-identical to the current code's;
+     - with either shim, stdout adds `systemMessage` and leaves `hookSpecificOutput` unchanged;
+     - `BRAIN_DIR` is followed;
+     - the existing cases pass, and product lines stay within 600.
+  2. *Delivery,* on CLI 2.1.319: two `claude -p` sessions (Haiku, `--output-format stream-json`,
+     `--include-hook-events`, `--plugin-dir` the copy), one with a `BRAIN_DIR` that holds a v1 shim and one with an
+     empty one.
+     - *Pass:* the first stream carries the line as the hook's `systemMessage`, and the second does not;
+     - in both, the hook's `additionalContext` is byte-identical.
+     - *Not checked:* how the interactive screen shows the line. The docs say the user sees it. The user's own machine
+       still holds v1's timer shim, so their first session on the build shows it.
+  3. *Cost:* D18's added time at session start is measured with the release bench (step 18f). Until then the cost is
+     unmeasured, and stated as such.
+- **Rule:** (S) if 1 and 2 pass. If the line does not reach the stream, (R): the README and the release notes carry
+  it alone, and (S)'s code is not kept.
