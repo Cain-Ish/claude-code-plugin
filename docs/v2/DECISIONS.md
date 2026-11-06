@@ -29,7 +29,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
-| V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | CHECKING 2026-11-06 | evidence | D25 |
+| V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux) | evidence | D25 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4523,3 +4523,30 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     for D27 (how a v1 user learns of the cleanup).
   - (M) is chosen if it passes on all three systems.
   - (V) is the next attempt if (M) fails on any system.
+- **Result (2026-11-06; [probes/V2-D26-leftovers](probes/V2-D26-leftovers/README.md), CI run 42280395683): (M)
+  passes on Windows, macOS and Linux, on the first run.**
+  - *Precondition, on all three:* after the move, the statusline prints v1's message word for word, the user's case.
+  - *After the route:*
+    - `statusLine` is back to `echo before`;
+    - the scheduler entry, shims, launcher and env file are gone;
+    - the data hash is unchanged;
+    - the README holds every command the route ran.
+  - *Docs:*
+    - no hook event fires on plugin install, update or removal. `Setup` fires only on `--init-only`, `-p --init` and
+      `-p --maintenance`;
+    - an orphaned cached copy is removed 14 days after the update. Until then, v1's shims run v1's old copy.
+  - *Stated limits:*
+    - the statusline step is an edit described in words, made by script in the probe;
+    - the runners had no other plugins;
+    - a custom `BRAIN_DIR` was not exercised.
+- **Choice: (M), the README's "Coming from v1" section.**
+  - *Rejected:*
+    - (L): third-party marketplaces do not auto-update by default (D25), so a user's next update skips a last v1
+      release unless it falls inside the window;
+    - (C): no such hook exists;
+    - (V): not needed. (M) needs no v1 code, and works after v1's old copy is gone.
+  - *Carried to D27:* how a v1 user learns of the section. Nothing points an updater at it, and v1's message names a
+    command v2 does not have.
+- **Reopen if:**
+  - v1's install is found to write a file or scheduler entry the section does not remove;
+  - a user's cleanup by the section leaves v1's message or timer behind.
