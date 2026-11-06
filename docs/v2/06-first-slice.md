@@ -1883,3 +1883,26 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
   folder still held v1's shims, so session start's output began with the line.
 - *CI* on three systems: the next commit's run (recorded with 18f).
 - *Not checked:* the interactive screen; D18's added time (18f's bench).
+
+### 2l: check 6, the reference bench (registered 2026-11-06, before it runs)
+
+The protocol of 2h's attempt 4, with alpha.5 as the control. The driver is
+[`V2-D18-runtime/reference.mjs`](probes/V2-D18-runtime/reference.mjs).
+- *The repo:* a fresh worktree of P2 at `c19bf0d2`, with `benchmap.mjs`'s map: 30 entries, 1,259,723 cited bytes, 0
+  not found. The earlier sessions' P2 worktrees were not used, since their git index is empty.
+- *The builds:*
+  - the control is a copy of tag `v2.0.0-alpha.5` (`62929fea5ecf`);
+  - the candidate is a copy of `plugin/` at 2l (`d21b69bfc1ed`);
+  - `bench.mjs` is the same file in both, unchanged since alpha.5.
+- *The reference state:*
+  - before each pair, a 10-second CPU sample. Above 10%, no pair runs, and the sample repeats every minute for at most
+    3 hours;
+  - a pair is valid only when every empty-Node p95 at 8 concurrent, in both runs, is at most 100 ms;
+  - invalid pairs are repeated, up to 6 pairs. Fewer than 3 valid pairs give no result, and the check waits for a
+    later window. A window without a result is not a failed attempt.
+- *Pass:* in each of 3 valid pairs, each of the candidate's hooks adds at most 100 ms p95 at 8 concurrent, with 0
+  errors.
+  - A valid pair with the candidate over the bar fails the check.
+  - A control over the bar is recorded, since it fires D18's trigger.
+- *Reported, with no bar:* the candidate's session start minus the control's, as D27's cost. This machine's home holds
+  v1's shims, so the candidate's session start takes the path that adds the line.
