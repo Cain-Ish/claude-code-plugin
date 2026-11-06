@@ -55,6 +55,10 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
     step 17m).
   - *Open:* V2-D24, the bar for `2.0.0` and for `main` (2026-11-06; the user's). It is the frontier of the release
     phase, map issue step 18.
+  - *Locked for the move from v1 (2026-11-06):*
+    - D25: the release keeps `main`'s marketplace name;
+    - D26: the README's "Coming from v1" commands;
+    - D27: session start's line for the user, built as `2.0.0-alpha.6` (06, 2l). It is not released.
   - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
   - *Deferred:* D20's net.
 
