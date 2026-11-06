@@ -1982,6 +1982,11 @@ devils-advocate workflow stay out.
   - The control stayed under the bar too, so D18's trigger does not fire.
 - *D27's cost, reported with no bar:* session start, the candidate minus the control, was -14.2, +3.2 and +27.7 ms.
   The spread between pairs is wider than the change, so this bench does not resolve its cost.
+- *A limit of the fixed order:* the candidate runs second in every pair.
+  - Its session start rose across the pairs: 51.8, 67.1, then 92.1 ms, with pair 3's invalid 90.2 between.
+  - The control's stayed at 63.9 to 66.0 ms.
+  - That fits a machine that grew busier over the run, and the protocol cannot tell it apart from the change. The bar
+    held, and D18's trigger did not fire. A later bench could alternate the order.
 - Raw files: `research/raw/2l-bench/window2/` (gitignored).
 - *Next:* publishing, as registered above.
 
