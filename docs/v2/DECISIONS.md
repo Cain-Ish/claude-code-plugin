@@ -50,6 +50,8 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   the root's `.claude/rules/` left to Claude Code (06, 2k; 2026-11-03).
   - *Re-locked:* D22, 2026-11-06, on 2k's field check (reopened 2026-11-03 by its `paths:` trigger, map issue,
     step 17m).
+  - *Open:* V2-D24, the bar for `2.0.0` and for `main` (2026-11-06; the user's). It is the frontier of the release
+    phase, map issue step 18.
   - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
   - *Deferred:* D20's net.
 

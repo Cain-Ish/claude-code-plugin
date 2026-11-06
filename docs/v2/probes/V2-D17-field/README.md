@@ -127,3 +127,36 @@ does not depend on the choice.
   [06](../../06-first-slice.md), "2i, check 3".
 - **2026-11-03, step 17m (D22):** `field-scope.mjs`, (S-b) again beside Claude Code's own path delivery. Check and
   result in [DECISIONS.md](../../DECISIONS.md), D22.
+- **2026-11-06, 2k's check 5:** both scanners on the sessions after the move to alpha.5. Result in
+  [06](../../06-first-slice.md), "2k, check 5".
+
+## 18b: the scanner on CLI 2.1.318 (registered 2026-11-06, before the change)
+
+- *Why:* in 2k's check 5, CLI 2.1.318 recorded the `SessionStart` hook's command at a compaction as `command hook N`.
+  - *C1* finds the plugin's start by its command, so it missed two starts. The result was corrected and disclosed
+    there.
+  - *C8* finds a plugin error the same way.
+  - *C9* reads only `<session>/subagents/*.jsonl`. A workflow's agents sit in a folder below it, so it counted 1 of
+    20. (06 says 21: the delegated reader counted the workflow's journal, which is a log and not an agent.)
+  - *The build label* has said alpha.2 for every unit since 2026-10-29.
+- *The changes:*
+  1. *C1:* the plugin's start is a `SessionStart` hook success whose command names `hook.mjs` with `session-start`,
+     or whose output holds the frozen instruction or the missing-Node message.
+  2. *C8:* an error record is the plugin's when its command, or the error text it carries, names `hook.mjs`. Errors of
+     any hook are counted too and printed beside it, so an error under a nameless command still shows.
+  3. *C9:* agent transcripts (`agent-*.jsonl`) at any depth under the session's folder.
+  4. *The build label:* the release the user's install ran, from the recorded moves.
+     - alpha.2 from 2026-10-29 00:52:30Z;
+     - alpha.3 from its tag's commit, 2026-10-29 19:51Z (its move was not recorded, and no session falls in that
+       window);
+     - alpha.4 from 20:26Z (the install record);
+     - alpha.5 from 2026-11-03 17:05Z.
+- *Pass:*
+  - *On 2k's corpus* (the 2 sessions):
+    - C1 4 of 4;
+    - C2, C5, C6 and C7 equal the unchanged scanner's counts;
+    - C8 0 plugin errors and 0 errors of any hook;
+    - C9 20 subagents, none writing a repo file;
+    - every unit labelled alpha.5.
+  - *On every earlier main session in that repo* since 2026-10-26: each count other than the build label and C9
+    equals the unchanged scanner's output. That output is saved to `research/raw/` before the change.

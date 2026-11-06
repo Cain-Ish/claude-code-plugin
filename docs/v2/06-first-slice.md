@@ -1794,7 +1794,8 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
 
 - *Corpus:* every main session in the field repo started after the move to alpha.5, as listed when the check was
   re-run. There are two, on CLI 2.1.318:
-  - the first: 3 epochs (a start and 2 compactions while idle), 21 subagents;
+  - the first: 3 epochs (a start and 2 compactions while idle), 20 subagents (first recorded as 21: the reader had
+    counted a workflow's journal, which is a log; corrected in 18b);
   - the second: still running, 1 epoch, no code write yet when read.
 
   A first run by a delegated reader listed only the first session, because the second started after it had made its
@@ -1846,10 +1847,10 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
   - *Compactions while idle,* new in this CLI, open an epoch. Each one re-arms the force, which then lands on the next
     prompt, here 2 hours later.
   - *The scanners lag the CLI:* besides C1 and C8, `field.mjs`'s C9 reads only one folder level of subagents, so it
-    counted 1 of 21 (a workflow's agents are nested). The 21 made no write to a repo file, by a search of their file
+    counted 1 of 20 (a workflow's agents are nested). The 20 made no write to a repo file, by a search of their file
     writes and Bash commands.
   - *Captures:* 2 entries, both appended through Bash, in format, quoted word for word, with no session id, email
     address or absolute path.
-  - *Hook wall times* in the transcript were 105 to 340 ms on a loaded machine with 21 agents running. They are not
+  - *Hook wall times* in the transcript were 105 to 340 ms on a loaded machine with 20 agents running. They are not
     D18's measure, which is added p95 in the reference state.
 - *Result:* check 5 passes as registered, so D22 re-locks (DECISIONS.md, D22). The base is thin, as stated above.
