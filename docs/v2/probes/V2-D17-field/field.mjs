@@ -21,7 +21,11 @@ if (!out || !files.length) throw new Error('usage: node field.mjs <out.json> <se
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1'));
 const log = spawnSync('git', ['log', '--format=%h %cI', '--', ':/plugin/'], { cwd: here, encoding: 'utf8' }).stdout
   .trim().split('\n').map((l) => { const [h, t] = l.split(' '); return [h, Date.parse(t)]; });
-const build = (ms) => (ms >= GITHUB ? 'tag v2.0.0-alpha.2' : (log.find(([, t]) => t <= ms) ?? ['?'])[0]);
+// after the GitHub install: the release the user's install ran, from the recorded moves (README, 18b). alpha.3's move
+// was not recorded: its tag's commit stands in, and no session falls in that window
+const MOVES = [['2026-11-03T17:05:05Z', 'alpha.5'], ['2026-10-29T20:26:00Z', 'alpha.4'], ['2026-10-29T19:51:09Z', 'alpha.3'],
+  ['2026-10-29T00:52:30Z', 'alpha.2']].map(([t, v]) => [Date.parse(t), `tag v2.0.0-${v}`]);
+const build = (ms) => (ms >= GITHUB ? MOVES.find(([t]) => ms >= t)[1] : (log.find(([, t]) => t <= ms) ?? ['?'])[0]);
 const excluded = (ms) => ms >= EXCLUDE[0] && ms < EXCLUDE[1];
 
 const read = (f) => fs.readFileSync(f, 'utf8').split('\n').flatMap((l) => { try { return l ? [JSON.parse(l)] : []; } catch { return []; } });
@@ -53,7 +57,7 @@ const entries = (s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### '))
 function scan(file) {
   const recs = read(file).filter((r) => r.timestamp).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const cwd = recs.find((r) => r.cwd)?.cwd;
-  const S = { epochs: [], writes: [], mapReads: [], mapOther: [], entries: [], named: [], hookErrors: [], sources: [] };
+  const S = { epochs: [], writes: [], mapReads: [], mapOther: [], entries: [], named: [], hookErrors: [], anyHookErrors: 0, sources: [] };
   const corpus = []; // [ms, normalized text] of human prompts, tool results and hook contexts, for C6c
   const results = new Map(); // tool_use id -> result text
   const ctxByTool = new Map(); // tool_use id -> PostToolUse contexts
@@ -69,7 +73,8 @@ function scan(file) {
         ep = { ms, at: r.timestamp, source: src, build: build(ms), excluded: excluded(ms), pluginStart: false, ctx: false, index: [], forces: [], turns: [] };
         S.epochs.push(ep); turn = null;
       }
-      if (/hook\.mjs.*session-start/.test(a.command ?? '')) {
+      // 18b: CLI 2.1.318 records a compaction start's command as "command hook N", so the plugin's output names it too
+      if (/hook\.mjs.*session-start/.test(a.command ?? '') || (a.stdout ?? '').includes(INSTR) || /project map needs Node/.test(a.stdout ?? '')) {
         ep.pluginStart = (a.stdout ?? '').includes(INSTR);
         ep.pluginExit = a.exitCode;
         if (/project map needs Node/.test(a.stdout ?? '') || a.exitCode) S.hookErrors.push({ at: r.timestamp, hook: a.hookName, exit: a.exitCode });
@@ -89,8 +94,11 @@ function scan(file) {
       if (a.hookEvent === 'PostToolUse') { const l = ctxByTool.get(a.toolUseID) ?? []; l.push(c); ctxByTool.set(a.toolUseID, l); }
       continue;
     }
-    if (a && /hook_(error|non_blocking_error|blocking_error|cancelled|timeout)/.test(a.type) && /hook\.mjs/.test(a.command ?? JSON.stringify(a))) {
-      S.hookErrors.push({ at: r.timestamp, type: a.type, hook: a.hookName }); continue;
+    // 18b: any hook's error is counted; it is the plugin's when its command or its error text names hook.mjs
+    if (a && /hook_(error|non_blocking_error|blocking_error|cancelled|timeout)/.test(a.type)) {
+      S.anyHookErrors++;
+      if (/hook\.mjs/.test(JSON.stringify(a))) S.hookErrors.push({ at: r.timestamp, type: a.type, hook: a.hookName });
+      continue;
     }
     // a rule file Claude Code loads on a matching path: C4's broad reading counts it as read
     if (a?.type === 'nested_memory') { if (turn) turn.tools.push({ at: r.timestamp, ms, name: 'NestedMemory', file: a.path }); continue; }
@@ -171,9 +179,10 @@ function scan(file) {
 }
 
 function subagents(file) {
-  const dir = path.join(path.dirname(file), path.basename(file, '.jsonl'), 'subagents');
+  // 18b: agent transcripts at any depth (a workflow's agents sit below subagents/; its journal is a log, not an agent)
+  const dir = path.join(path.dirname(file), path.basename(file, '.jsonl'));
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).map((f) => {
+  return fs.readdirSync(dir, { recursive: true }).map(String).filter((f) => /^agent-[^\\/]*\.jsonl$/.test(path.basename(f))).map((f) => {
     const recs = read(path.join(dir, f));
     const tools = recs.flatMap((r) => (r.type === 'assistant' && Array.isArray(r.message?.content) ? r.message.content.filter((x) => x.type === 'tool_use') : []));
     const ws = tools.filter((x) => WRITES.has(x.name)).map((x) => String(x.input?.file_path ?? '').replace(/\\/g, '/'));
@@ -202,7 +211,7 @@ for (const s of all) {
   const en = s.entries.filter((e) => !e.excluded);
   console.log(`  C6 entries (main): ${en.length} (${en.filter((e) => e.by === 'bash').length} by Bash); format ok ${en.filter((e) => e.area && e.quote && e.source && e.when).length}; forbidden ${en.filter((e) => e.forbidden.length).length}; verbatim ${en.filter((e) => e.found).length}`);
   console.log(`  C7 named paths after a change: ${s.named.length}, not found ${s.named.filter((n) => !n.exists).length}`);
-  console.log(`  C8 hook errors: ${s.hookErrors.length}`);
+  console.log(`  C8 hook errors: ${s.hookErrors.length} (any hook: ${s.anyHookErrors})`);
   const sa = s.subagents;
   console.log(`  C9 subagents: ${sa.length}; with index ${sa.filter((x) => x.index).length}; writing repo files ${sa.filter((x) => x.repoWrites).length} (${sa.reduce((n, x) => n + x.repoWrites, 0)} writes); map entries ${sa.reduce((n, x) => n + x.mapEntries.length, 0)}`);
   console.log(`  writes (main): ${s.writes.filter((w) => !w.excluded).length}; git commits ${s.commits}`);

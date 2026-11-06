@@ -160,3 +160,17 @@ does not depend on the choice.
     - every unit labelled alpha.5.
   - *On every earlier main session in that repo* since 2026-10-26: each count other than the build label and C9
     equals the unchanged scanner's output. That output is saved to `research/raw/` before the change.
+
+### 18b: result (2026-11-06): pass
+
+- *2k's corpus:*
+  - C1 is 4 of 4 (3 and 1), C9 is 20 subagents, none writing a repo file, and every unit is labelled alpha.5;
+  - C8 is 0, and 0 for any hook;
+  - C2, C5, C6 and C7 are unchanged.
+- *The 4 earlier main sessions since 2026-10-26:* the only differences from the unchanged scanner's saved output are
+  these:
+  - the build label (alpha.4 for the 9 epochs after that move, where it said alpha.2);
+  - C8's added count for any hook, 0 in each.
+
+  C9 is unchanged, since they hold no nested agents.
+- The before and after outputs are in `research/raw/` (gitignored).
