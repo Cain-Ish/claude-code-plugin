@@ -127,6 +127,50 @@ claude plugin install second-brain@second-brain-v2 --scope project
   expect the same.
 - `/second-brain:onboard` reports what the index holds.
 
+## Coming from v1
+
+Updating from v1 (`0.57.1`) replaces v1's code. It leaves behind what v1 wrote outside the plugin: a statusline and a
+timer that runs every 30 minutes.
+- Claude Code keeps v1's old copy for 14 days, and until then both still run it.
+- After that, the statusline prints "buddy: no second-brain renderer found". That command no longer exists.
+
+Remove them in this order:
+
+1. **The statusline.** In `~/.claude/settings.json`, find the `statusLine` entry whose command runs
+   `buddy-statusline.sh`, and delete it.
+   - If its command starts with `SB_BUDDY_CHAIN='…'` and the quotes hold a command, that was your statusline before
+     v1.
+   - In that case, set it back instead: `"statusLine": { "type": "command", "command": "<the command>" }`.
+2. **The timer and v1's scripts.**
+
+   macOS:
+   ```
+   launchctl bootout "gui/$(id -u)/sb-extract-drain"
+   rm -f ~/Library/LaunchAgents/sb-extract-drain.plist
+   rm -f ~/.second-brain/bin/buddy-statusline.sh ~/.second-brain/bin/sb-extract-drain.sh ~/.second-brain/.extract-timer-env
+   ```
+
+   Linux:
+   ```
+   systemctl --user disable --now sb-extract-drain.timer
+   rm -f ~/.config/systemd/user/sb-extract-drain.service ~/.config/systemd/user/sb-extract-drain.timer
+   systemctl --user daemon-reload
+   rm -f ~/.second-brain/bin/buddy-statusline.sh ~/.second-brain/bin/sb-extract-drain.sh ~/.second-brain/.extract-timer-env
+   ```
+
+   Windows, in PowerShell:
+   ```
+   schtasks /Delete /TN sb-extract-drain /F
+   Remove-Item "$HOME\.second-brain\bin\buddy-statusline.sh", "$HOME\.second-brain\bin\sb-extract-drain.sh", "$HOME\.second-brain\bin\sb-extract-drain-hidden.vbs", "$HOME\.second-brain\.extract-timer-env" -ErrorAction SilentlyContinue
+   ```
+
+- If you set `BRAIN_DIR` for v1, use that folder in place of `~/.second-brain`.
+- `.extract-timer-env`, removed above, may have held your `ANTHROPIC_API_KEY`.
+- Your data stays: `~/.second-brain` and `~/knowledge` hold what v1 learned. v2 does not read them; keep or delete
+  them as you like.
+- v1 was installed for your user, so after the update v2 runs in every repo you open. To use it in chosen repos only,
+  run `claude plugin uninstall second-brain@second-brain`, then install it there with `--scope project`.
+
 ## Review is the commit
 
 - The map is plain Markdown in `.project-map/`. Claude's changes to it stay in the working tree. You review them in

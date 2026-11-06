@@ -1,0 +1,57 @@
+# second-brain v2, V2-D26's probe: v1's statusline and timer installed by v1's own code on an ephemeral runner, D25's
+# move, then the README's "Coming from v1" route. A push of this file or the probe also runs it, since GitHub
+# dispatches only workflows it knows from the default branch or from a run.
+name: v2-d26
+on:
+  push:
+    branches: [v2]
+    paths: ['.github/workflows/v2-d26.yml', 'docs/v2/probes/V2-D26-leftovers/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  leftovers:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      P: docs/v2/probes/V2-D26-leftovers
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          ref: v1-final
+          path: v1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: a systemd user session (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do [ -S "/run/user/$(id -u)/bus" ] && break; sleep 1; done
+          XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user is-system-running || true
+      - name: v1 installed, then D25's move
+        run: bash "$P/setup.sh" v1 plugin "$RUNNER_TEMP/snapshot.txt"
+      - name: the route, step 1 (the statusline edit the README states)
+        run: node "$P/statusline-edit.mjs" "$HOME/.claude/settings.json"
+      - name: the route, step 2 (Linux)
+        if: runner.os == 'Linux'
+        run: bash "$P/route-linux.sh"
+      - name: the route, step 2 (macOS)
+        if: runner.os == 'macOS'
+        run: bash "$P/route-macos.sh"
+      - name: the route, step 2 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./docs/v2/probes/V2-D26-leftovers/route-windows.ps1
+      - name: pass conditions
+        run: |
+          case "$RUNNER_OS" in Linux) r=route-linux.sh ;; macOS) r=route-macos.sh ;; *) r=route-windows.ps1 ;; esac
+          bash "$P/verify.sh" "$P/$r" README.md "$RUNNER_TEMP/snapshot.txt"
