@@ -4390,7 +4390,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - (a) *Ship the current claim as stated,* as each alpha shipped. The release checks and the migration probe pass,
     the known issues and the no-gain cells are stated, and D20's net is marked as direction.
   - (b) *(a) plus a field bar on the current CLI:* no defect in C1 to C8 across a set number of the user's sessions,
-    with at least one in-claim epoch. P1 build (2k's check 4) can stand in for the epoch.
+    with at least one in-claim epoch, from the field.
+    - P1 build (2k's check 4) and A1 on the current CLI are eval re-runs. They run only if the user asks: since
+      2026-10-29 the user checks in real sessions instead (06, 2k's check 4).
+    - *Corrected 2026-11-06:* this option first named check 4 as a stand-in for the epoch, without that clause.
   - (c) *06's done-means met first:* a gain on orientation and cost on A1 and A2. That needs new product work, and no
     candidate is on record.
 - **Asked with it:**
