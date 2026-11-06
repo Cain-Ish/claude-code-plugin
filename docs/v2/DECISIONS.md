@@ -28,6 +28,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
+| V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | CHECKING 2026-11-06 | evidence | D03 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4401,3 +4402,41 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     reopens D22.
   - Do the labels' sizes block the release? In 2k's check 5 they came to 10.6 KB against 8.7 KB for the starts.
 - **Check:** the user's answer, recorded with its date.
+
+### V2-D25 — The marketplace name a v1 install meets on `main`
+- **Question:** when `main` fast-forwards to v2 (D03; `main` is an ancestor of `v2`), what does an existing v1 install
+  get, and under which marketplace name does it reach `2.0.0`?
+- **Why now:** map issue, step 18c.
+  - `main`'s `marketplace.json` is named `second-brain`, and v2's is named `second-brain-v2`. The plugin is
+    `second-brain` in both.
+  - A v1 user added the repo from GitHub with no ref, so the install follows the default branch, `main`.
+  - Alpha installs are pinned to a tag, so `main`'s move does not reach them. They move by adding the marketplace
+    again, as each alpha did.
+- **Options:**
+  - (K) *Keep `main`'s name:* the release commit names v2's marketplace `second-brain`.
+  - (R) *The new name:* the release commit keeps `second-brain-v2`.
+  - Claude Code's own handling decides between them. If it keys an added marketplace by the name it was added under,
+    and not by the fetched name, both reach v1 installs.
+- **Check (registered 2026-11-06, before the docs are read or the probe runs):**
+  1. *Primary docs:* Claude Code's plugin-marketplace documentation, on four points:
+     - what keys an added marketplace: the fetched `name`, or the local entry;
+     - what `marketplace update` does when the fetched `name` differs from the key;
+     - how an installed plugin is keyed (`plugin@marketplace`);
+     - whether third-party marketplaces update on their own at startup.
+  2. *Probe* on the installed CLI (2.1.319), in an isolated config in a short folder:
+     - a local git repository stands in for GitHub, with `main` at v1's release commit (`9718cee`);
+     - add it as a marketplace with no ref, then install `second-brain@second-brain` (v1, `0.57.1`);
+     - move the stand-in's `main` to a v2 commit: under (K), a probe-only commit that renames the marketplace to
+       `second-brain`; under (R), v2 as it is. The commit is not pushed;
+     - run the CLI's marketplace update and plugin update. Read `known_marketplaces.json`,
+       `installed_plugins.json` and the plugin list.
+
+     Each arm starts from a fresh config.
+- **Pass, per arm:** the update commands exit 0; `second-brain@second-brain` reports a `2.0.0-*` version; the cached
+  copy hashes to v2's product hash; no second marketplace entry or orphaned install is left behind.
+- **Rule:**
+  - choose (K) if its arm passes;
+  - if only (R) passes, choose (R), and the README tells v1 users how to switch;
+  - if neither passes, the README carries remove-and-add commands under (K), and D25 records what fails;
+  - if the stand-in cannot be added as a git marketplace, the probe fails as a probe. The docs alone do not settle D25
+    (rule 4: change the approach).
