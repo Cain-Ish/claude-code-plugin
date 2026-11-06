@@ -25,8 +25,9 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-locks on 2k's field check | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
+| V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -47,7 +48,8 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   entries read through Bash labelled (06, 2j; D14 reopened and re-locked unchanged the same day), then
   [v2.0.0-alpha.5](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.5) at `62929fea5ecf`, with
   the root's `.claude/rules/` left to Claude Code (06, 2k; 2026-11-03).
-  - *Reopened:* D22, 2026-11-03, by its `paths:` trigger in the field re-check (map issue, step 17m).
+  - *Re-locked:* D22, 2026-11-06, on 2k's field check (reopened 2026-11-03 by its `paths:` trigger, map issue,
+    step 17m).
   - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
   - *Deferred:* D20's net.
 
@@ -4189,6 +4191,23 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Step 17n's attempt (registered 2026-11-03 in [06, 2k](06-first-slice.md)):** the index leaves the root's
   `.claude/rules/` to Claude Code, which loads it itself. D22 re-locks on 2k's check 5 (the field after a release), or
   its check 4 (P1 build) if the user has it run.
+- **Re-LOCKED 2026-11-06 on 2k's check 5** ([06, "2k, check 5"](06-first-slice.md)). The choice is (N), as built in
+  alpha.5. The route is otherwise unchanged.
+  - *Corpus:* 2 sessions on CLI 2.1.318 with 4 epochs.
+  - *Pairs:* D 15, R 1 (6%), X 1 of 17.
+  - *C1, C2, C5 and C8 hold.* C1 holds after one disclosed scanner correction: the CLI names a compaction start's hook
+    command `command hook N`.
+  - *The forced answers* do not name `.claude/rules/`.
+  - *Doubted:* the base is thin. There are 17 pairs against 17m's 92, and no epoch's first prompt named a change, so
+    C3 and C4 went unmeasured. Check 4 (P1 build) is still on offer as a measure of in-claim following.
+  - *Observations, no trigger fired:*
+    - The first session's 45 writes all fell outside the claim: 22 after a first prompt that asked a question, 6 after
+      a compaction while idle, and 17 in turns opened by a background task.
+    - The 2 Grep reads of the map were unlabelled.
+    - The labels came to 10.6 KB against 8.7 KB for the starts.
+
+    The first observation is the evidence for the trigger "the user puts the vague first prompt or the task switch
+    back in scope". Whether to do so is the user's call.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
@@ -4336,3 +4355,44 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - under-naming reaches 2 or more of 20 task-completion reports;
     - restated decisions pass 20% of those named, in a count of at least 20 lists;
     - the user finds the repeated standing decisions cost them reading (then (d) is the next attempt).
+
+### V2-D24 — The bar for `2.0.0` and for `main`
+- **Question:** what must hold before v2 leaves alpha and replaces v1 on `main`?
+- **Why now:** the user asked (2026-11-06) whether v2 can go to `main` as a release that is not an alpha. No record
+  sets a bar:
+  - D03 keeps v1 on `main` "until v2 is ready and merged";
+  - D05 only starts the numbering at alpha;
+  - 06's done-means is unmet on orientation and cost, and every alpha shipped by the user's choice.
+- **Evidence (2026-11-06):**
+  - *Shown:*
+    - capture and recall: in A1, kept 10 of 10 against auto memory's 2, followed 10 of 10 against 0, and named 10 of
+      10;
+    - in the field, 17 entries captured, 0 invented;
+    - labels on map reads made through Read and through Bash.
+  - *Partly shown:*
+    - the forced decision on build and plan rules where the rules are prose documents: in A2's 57 rule cells, above
+      auto memory in 17, level in 31, below in 9;
+    - where the rules carry `paths:`, Claude Code delivers most of them itself (D22: 64 of 92 pairs in 17m, 15 of 17
+      in 2k's check 5).
+  - *Not shown:*
+    - fewer steps or tokens (06's done-means);
+    - questions about the project;
+    - subagents;
+    - pattern rules on Opus, since D20's net is deferred.
+  - *In real use:* the first session after alpha.5 made 45 writes, all of them outside D22's claim (06, "2k, check
+    5").
+  - *Not checked:*
+    - what a v1 user's machine keeps when `main` moves (map issue, 18c and 18d);
+    - whether the results still hold on the current CLI: the eval ran on CLI 2.1.305, the field on 2.1.318.
+- **Options:**
+  - (a) *Ship the current claim as stated,* as each alpha shipped. The release checks and the migration probe pass,
+    the known issues and the no-gain cells are stated, and D20's net is marked as direction.
+  - (b) *(a) plus a field bar on the current CLI:* no defect in C1 to C8 across a set number of the user's sessions,
+    with at least one in-claim epoch. P1 build (2k's check 4) can stand in for the epoch.
+  - (c) *06's done-means met first:* a gain on orientation and cost on A1 and A2. That needs new product work, and no
+    candidate is on record.
+- **Asked with it:**
+  - Does a change named after an epoch's first prompt come back into D22's scope? That is D22's own trigger, and it
+    reopens D22.
+  - Do the labels' sizes block the release? In 2k's check 5 they came to 10.6 KB against 8.7 KB for the starts.
+- **Check:** the user's answer, recorded with its date.

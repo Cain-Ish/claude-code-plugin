@@ -1789,3 +1789,67 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
     leaves it out; with it, alpha.4's copy hashed `046240f48ae5`, without it `f18d83e328b4` as published.
 - *Next:* 2k's check 5, `field-scope.mjs` and `field.mjs` on the user's sessions started after 17:05Z. D22 re-locks
   on its pass.
+
+### 2k, check 5: the field re-check (2026-11-06): pass, on a thin base
+
+- *Corpus:* every main session in the field repo started after the move to alpha.5, as listed when the check was
+  re-run. There are two, on CLI 2.1.318:
+  - the first: 3 epochs (a start and 2 compactions while idle), 21 subagents;
+  - the second: still running, 1 epoch, no code write yet when read.
+
+  A first run by a delegated reader listed only the first session, because the second started after it had made its
+  list. The corpus was fixed at both sessions before the second one's counts were seen. Every count below was re-run in
+  this session. The per-unit record is in `research/raw/` (gitignored).
+- *`field-scope.mjs`, pass.*
+  - 11 gate events and 17 pairs, all in the first session: D 15 (88%, bar at least 70%), R 1 (6%, bar at most 10%),
+    X 1.
+  - The X is an Edit that failed, its text not found. Claude Code delivered the rule with the next edit.
+  - (S-b) as registered is over its bar at 11 of 11 events, a median of 42 unread documents.
+- *`field.mjs`, pass, with one scanner correction disclosed.*
+  - *C1:* the registered scanner printed "plugin start 1/3" for the first session, beside "context recorded 3/3".
+    - CLI 2.1.318 records the `SessionStart` hook's command at a compaction as `command hook N`, not the plugin's
+      path, so the scanner's match on `hook.mjs` missed two starts.
+    - Read in the raw records, all 3 starts carry the frozen instruction.
+    - Corrected to also match the plugin's output: C1 is 4 of 4 epochs across both sessions, each with the index
+      (10 directories, 1,774 B, against alpha.4's 11 and 2,162 B in the same repo).
+  - *C2:* 3 forces in 4 epochs, each on its epoch's first typed prompt, none twice. The fourth epoch had no prompt.
+  - *C5:* 3 Bash reads of map entries came after an uncommitted write in the session, and all 3 carried the labels.
+    That is the first sighting of 2j's handler at work in the field. There was no Read-tool map read.
+  - *C8:* 0. Its zero rests on a count of every hook record in the session (0 errors, 0 nonzero exits), since
+    `field.mjs`'s C8 matches the plugin by the same command field and would miss an error at a compaction start.
+- *The forced answers, judged by reading:* 3 of 3 cover every index directory, and none names `.claude/rules/`.
+  *Pass.*
+- *Not exercised:*
+  - C3's and C4's bars: no epoch is in-claim. The first prompts were a question, a prompt to carry on after a
+    compaction while idle, and another question.
+  - L1's skip of machine turns;
+  - the labels on a Read-tool map read.
+
+  This pass rests on 17 pairs against 17m's 92, and on no change named in an epoch's first prompt.
+- *Observations, outside the check (each checked against D22's and D18's triggers; none fires):*
+  - *Where the changes were:* the first session made 45 file writes, none in an in-claim epoch.
+    - 22 came after a first prompt that asked a question: 1 in that turn, then 21 in the next typed prompt, which
+      named the change and, by design, took no force.
+    - 6 came in the turn that carried on after the compaction while idle.
+    - 17 came in turns opened by a background task's notification.
+
+    The two forced turns held 7 of the 45. This is 04's "change named after the epoch's first prompt" weakness, seen
+    in real use.
+  - *Read-through:* in the second epoch, 5 directories were marked yes, and no document of them was read with the
+    Read tool before the first write. This matches 2i's C4 (0 of 3). It is not D22's measure, which is the binding
+    document read.
+  - *Map reads went around the Read tool* in 6 of 6: 4 through Bash, labelled, and 2 through the Grep tool,
+    unlabelled. One of the Grep reads came after an uncommitted write. This is 04's accepted risk, now counted.
+  - *The labels cost more than the index:* 10.6 KB over the 4 Bash reads, against 8.7 KB for the 3 starts. Most of
+    the lines say a person-sourced quote is unverified. A capture made as a tail, an append, then a tail pays for two
+    label blocks.
+  - *Compactions while idle,* new in this CLI, open an epoch. Each one re-arms the force, which then lands on the next
+    prompt, here 2 hours later.
+  - *The scanners lag the CLI:* besides C1 and C8, `field.mjs`'s C9 reads only one folder level of subagents, so it
+    counted 1 of 21 (a workflow's agents are nested). The 21 made no write to a repo file, by a search of their file
+    writes and Bash commands.
+  - *Captures:* 2 entries, both appended through Bash, in format, quoted word for word, with no session id, email
+    address or absolute path.
+  - *Hook wall times* in the transcript were 105 to 340 ms on a loaded machine with 21 agents running. They are not
+    D18's measure, which is added p95 in the reference state.
+- *Result:* check 5 passes as registered, so D22 re-locks (DECISIONS.md, D22). The base is thin, as stated above.
