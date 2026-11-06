@@ -1854,3 +1854,32 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
   - *Hook wall times* in the transcript were 105 to 340 ms on a loaded machine with 20 agents running. They are not
     D18's measure, which is added p95 in the reference state.
 - *Result:* check 5 passes as registered, so D22 re-locks (DECISIONS.md, D22). The base is thin, as stated above.
+
+### 2l: v1's leftovers named to the user (V2-D27, 2026-11-06)
+
+- *Why:* D26's commands remove v1's statusline and timer, but nothing points an updater at them. D27's record
+  registers the question, the options and the checks, before the code.
+- *The change:*
+  - session start checks for `bin/buddy-statusline.sh` and `bin/sb-extract-drain.sh` under `$BRAIN_DIR`, or under
+    `~/.second-brain` without it;
+  - if either is there, its output adds `systemMessage`, one line for the user that names the README's "Coming from
+    v1";
+  - the output for Claude is unchanged;
+  - version `2.0.0-alpha.6` in both manifests.
+- *Built from a copy* in the scratchpad, then moved to `plugin/` unchanged. Product hash `d21b69bfc1ed`, pinned in the
+  self-test.
+- *Checks:* D27's two (the self-test and delivery on CLI 2.1.319). Then, as for every build, the smoke on the pinned
+  CLI 2.1.305 and on 2.1.319, and CI's self-test on three systems. A1 and P1 build are not re-run, by the user's
+  choice of 2026-10-29. D18's added time waits for the release bench.
+
+### 2l: result (2026-11-06)
+
+- *D27's checks pass* (DECISIONS.md, D27):
+  - the self-test passes with the new cases;
+  - with an empty `BRAIN_DIR`, session start's output is byte-identical to alpha.5's on this repo;
+  - the line reaches the session as a `hook_system_message` and not Claude's context: 2 input tokens apart, against
+    about 35 for the line.
+- *The smoke passes* on the pinned CLI 2.1.305 and on 2.1.319. In the 2.1.319 run, `BRAIN_DIR` was unset and the home
+  folder still held v1's shims, so session start's output began with the line.
+- *CI* on three systems: the next commit's run (recorded with 18f).
+- *Not checked:* the interactive screen; D18's added time (18f's bench).

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, CAP, index, labels, startText } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, CAP, V1_LEFT, index, labels, startText } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
@@ -61,9 +61,9 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// alpha.5: 2k leaves the root's .claude/rules/ to Claude Code; checked by this self-test, the smoke and CI, A1 and P1
+// alpha.6: 2l names v1's leftovers to the user (V2-D27); checked by this self-test, the smoke and CI, A1 and P1
 // build not re-run on it, by the user's choice of 2026-10-29 (06, 2k)
-assert.equal(product.digest('hex').slice(0, 12), '62929fea5ecf', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'd21b69bfc1ed', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -128,7 +128,7 @@ assert.ok(labels(repo, '.project-map/cited.md').includes('1. verbatim: not found
 
 // each hook as a process, as Claude Code runs it
 const hook = (which, input, dir = repo) => {
-  const r = spawnSync('node', [HOOK, which], { input: JSON.stringify({ cwd: dir, ...input }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
+  const r = spawnSync('node', [HOOK, which], { input: JSON.stringify({ cwd: dir, ...input }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir, BRAIN_DIR: path.join(tmp, 'no-v1') } });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput.additionalContext : '';
 };
@@ -335,6 +335,43 @@ assert.equal(hook('read', { tool_input: { file_path: path.join(bare, '.project-m
   g('add', '.claude/rulesets/c.md', 'pkg/.claude/rules/d.md');
   g('commit', '-q', '-m', 'more');
   assert.equal(index(rules), `${HEADER}\n.claude/rulesets/: c.md\npkg/.claude/rules/: d.md\n.project-map/: captured.md\n`);
+}
+
+// V2-D27: while v1's statusline or timer shim is on disk, session start adds one line for the user and leaves the
+// output for Claude unchanged; without them its stdout is what it was before D27
+assert.equal(V1_LEFT, 'second-brain v1 left its statusline or timer on this machine. To remove them: https://github.com/Cain-Ish/claude-code-plugin#coming-from-v1');
+{
+  const { BRAIN_DIR: _, ...noBrain } = process.env;
+  const start = (env) => {
+    const r = spawnSync('node', [HOOK, 'session-start'], { input: JSON.stringify({ cwd: repo, session_id: `${sid}-v1` }), encoding: 'utf8', env: { ...noBrain, CLAUDE_PROJECT_DIR: repo, ...env } });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  const before = JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `${INSTRUCTION}
+
+${index(repo)}
+${NAME}` } });
+  const brain = path.join(tmp, 'v1-brain');
+  assert.equal(start({ BRAIN_DIR: brain }), before);
+  fs.mkdirSync(path.join(brain, 'bin'), { recursive: true });
+  assert.equal(start({ BRAIN_DIR: brain }), before);
+  for (const f of ['buddy-statusline.sh', 'sb-extract-drain.sh']) {
+    fs.writeFileSync(path.join(brain, 'bin', f), '');
+    assert.equal(start({ BRAIN_DIR: brain }), JSON.stringify({ systemMessage: V1_LEFT, ...JSON.parse(before) }));
+    fs.rmSync(path.join(brain, 'bin', f));
+  }
+  // another file in bin/ is not v1's shim
+  fs.writeFileSync(path.join(brain, 'bin', 'other.sh'), '');
+  assert.equal(start({ BRAIN_DIR: brain }), before);
+  // without BRAIN_DIR: .second-brain in the home folder
+  const home = path.join(tmp, 'home');
+  assert.equal(start({ HOME: home, USERPROFILE: home }), before);
+  fs.mkdirSync(path.join(home, '.second-brain', 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.second-brain', 'bin', 'sb-extract-drain.sh'), '');
+  assert.equal(JSON.parse(start({ HOME: home, USERPROFILE: home })).systemMessage, V1_LEFT);
+  // a BRAIN_DIR that is a file, not a folder: no line, no failure
+  fs.writeFileSync(path.join(tmp, 'brain-file'), '');
+  assert.equal(start({ BRAIN_DIR: path.join(tmp, 'brain-file') }), before);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

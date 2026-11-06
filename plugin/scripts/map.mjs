@@ -37,6 +37,9 @@ export const NAME = 'When you finish, name each of this project\'s recorded deci
   + 'map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.';
 
 export const UNREVIEWED = 'unreviewed, not yet committed';
+// V2-D27: shown to the user, never to Claude, while v1's statusline or timer shim is on disk
+export const V1_LEFT = 'second-brain v1 left its statusline or timer on this machine. To remove them: '
+  + 'https://github.com/Cain-Ish/claude-code-plugin#coming-from-v1';
 
 const DOC = /\.(md|mdx|markdown|txt|rst)$/i;
 const git = (root, args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });

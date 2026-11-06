@@ -1,10 +1,12 @@
 // One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|onboard>
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { MAP, index, openEpoch, takeForce, labels, rel, toplevel, startText } from './map.mjs';
+import { MAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, V1_LEFT } from './map.mjs';
 
-const emit = (ev, text) => { if (text) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
+// note: a line for the user, not for Claude's context (V2-D27)
+const emit = (ev, text, note) => { if (text || note) process.stdout.write(JSON.stringify({ ...(note && { systemMessage: note }), hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
 const which = process.argv[2];
 const input = which === 'onboard' ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
@@ -15,7 +17,10 @@ if (which === 'session-start') {
   const idx = index(root);
   // the marker only serves the forced decision: a missing or read-only TEMP must not cost the rest (D18, 2g)
   if (idx) try { openEpoch(input.session_id); } catch {}
-  emit('SessionStart', startText(idx).text);
+  // v1's statusline and timer shims outlive an update to v2 (V2-D26)
+  const brain = process.env.BRAIN_DIR || path.join(os.homedir(), '.second-brain');
+  const v1 = ['buddy-statusline.sh', 'sb-extract-drain.sh'].some((f) => fs.existsSync(path.join(brain, 'bin', f)));
+  emit('SessionStart', startText(idx).text, v1 ? V1_LEFT : undefined);
 } else if (which === 'prompt') {
   // the hook also fires on a background subagent's report and another session's message: the force waits for a typed
   // prompt (06, 2i). shortcut: matched on the wrappers transcripts record; another form spends the force as before

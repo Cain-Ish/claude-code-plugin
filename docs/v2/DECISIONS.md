@@ -30,7 +30,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux) | evidence | D25 |
-| V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | CHECKING 2026-11-06 | evidence | D18, D26 |
+| V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence | D18, D26 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4587,3 +4587,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
      unmeasured, and stated as such.
 - **Rule:** (S) if 1 and 2 pass. If the line does not reach the stream, (R): the README and the release notes carry
   it alone, and (S)'s code is not kept.
+- **Result (2026-11-06; [probes/V2-D27-notice](probes/V2-D27-notice/README.md); 06, step 2l): both checks pass.**
+  1. *The self-test* passes in the copy with the new cases, and then in `plugin/` (product hash `d21b69bfc1ed`).
+     - On this repo, with an empty `BRAIN_DIR`, the old and new session start print byte-identical output.
+     - Product lines: 313 of 600.
+  2. *Delivery:*
+     - with a v1 shim, the hook's output in the stream carries the line as `systemMessage`. The transcript records it
+       as a `hook_system_message` attachment;
+     - with an empty `BRAIN_DIR`, there is no line;
+     - `additionalContext` is identical in both (1,277 bytes);
+     - the first requests differ by 2 input tokens, against about 35 for the line, so it did not enter Claude's
+       context.
+  - *Not checked, as registered:* the interactive screen; D18's added time (18f's bench).
+- **Choice: (S).** Session start shows the user one line while v1's shims are on disk, and points to the README's
+  "Coming from v1".
+  - *Rejected:*
+    - (R): it reaches only users who look for the README, while the timer runs on silently;
+    - (O): an updater has no reason to run the command.
+- **Reopen if:**
+  - the release bench shows the two checks add time against D18's budget;
+  - a Claude Code release stops showing a SessionStart `systemMessage`, or starts passing it to Claude;
+  - the line shows for a user with no v1 leftovers.
