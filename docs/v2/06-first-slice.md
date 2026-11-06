@@ -1908,3 +1908,11 @@ The protocol of 2h's attempt 4, with alpha.5 as the control. The driver is
   - A control over the bar is recorded, since it fires D18's trigger.
 - *Reported, with no bar:* the candidate's session start minus the control's, as D27's cost. This machine's home holds
   v1's shims, so the candidate's session start takes the path that adds the line.
+
+### 2l: check 6, the first window (2026-11-06): no result
+
+- The driver started at 19:43Z. Every printed sample was over the 10% bar: 30.4%, 28.9% and 15.0% (one line per 10
+  samples). The load was a game and WSL.
+- At about 20:10Z, Claude Code stopped the driver because the machine was low on memory. No pair ran.
+- As registered, a window without a result is not a failed attempt. The check waits for the user: about 20 minutes
+  with the game and WSL paused.
