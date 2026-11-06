@@ -2004,3 +2004,25 @@ devils-advocate workflow stay out.
 > claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.6 --scope project
 > claude plugin install second-brain@second-brain-v2 --scope project
 > ```
+
+### 2l: published as `2.0.0-alpha.6` (2026-11-06)
+
+- *Check 1, the tree:* `git diff 4d201a2 -- plugin/ .claude-plugin/` at the release commit `7073040` is empty. The
+  self-test passes there. *Pass.*
+- *The tag* [`v2.0.0-alpha.6`](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.6) is on `7073040`,
+  pushed with the branch. The session created the
+  [pre-release page](https://github.com/Cain-Ish/claude-code-plugin/releases/tag/v2.0.0-alpha.6) from the notes
+  drafted above.
+- *Check 2, install from the tag,* in an isolated config on CLI 2.1.319. *Pass:*
+  - the cached copy is version `2.0.0-alpha.6`, hash `d21b69bfc1ed`;
+  - the uninstall and the marketplace removal succeeded;
+  - the user's registry files are unchanged by checksum.
+- *Check 3, the user's install* in the field repo moved from alpha.5 by the same route. *Pass:*
+  - the install is at local scope, version `2.0.0-alpha.6`, at `7073040`;
+  - the cached copy hashes to `d21b69bfc1ed`;
+  - the local settings differ only in the marketplace's `ref`.
+
+  alpha.5's cached copy stays, marked orphaned. Its `.in_use/` folder holds the markers of the sessions already
+  running. On 2.1.319, the marketplace removal now warns that it deletes a plugin's saved options, secrets and data
+  where it can. v2 keeps none.
+- *Next:* check 7, the field re-check, on the user's sessions started after the move (about 22:12Z).
