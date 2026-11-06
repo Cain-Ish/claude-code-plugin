@@ -29,6 +29,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
+| V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | CHECKING 2026-11-06 | evidence | D25 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4463,3 +4464,62 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Reopen if:**
   - a Claude Code release re-keys an added marketplace by the fetched name on update;
   - a v1 user's update from GitHub does not reach `2.0.0`.
+
+### V2-D26 — v1's leftovers after the move
+- **Question:** once a v1 install has updated to v2 (D25), what removes what v1 wrote outside the plugin cache, on
+  Windows, macOS and Linux, with the user's data untouched?
+- **Why now:** map issue, step 18d.
+  - D25's probe: the update replaces the plugin and leaves everything outside the cache.
+  - On the user's machine (2026-11-06), the statusline printed v1's message and the timer still ran every 30 minutes.
+- **What v1 writes** (read at `v1-final`: `plugin/scripts/install-extract-timer.sh`, `mcp/src/tools/buddy-config.ts`):
+  - *The statusline,* on `sb buddy install`:
+    - `statusLine` in `settings.json`, running `<brain>/bin/buddy-statusline.sh`. An earlier statusline is kept inside
+      that command as `SB_BUDDY_CHAIN='…'`;
+    - the shim, which runs the newest cached `x.y.z` copy that has a renderer. With none left, it prints
+      "buddy: no second-brain renderer found".
+  - *The timer,* on `install-extract-timer.sh --apply`:
+    - a shim, `<brain>/bin/sb-extract-drain.sh`, which runs the newest cached copy's drain. While v1's cached copy
+      stays (D25: marked for cleanup), v1's drain keeps running;
+    - an env file, `<brain>/.extract-timer-env`. It may hold `ANTHROPIC_API_KEY`;
+    - one scheduler entry per system:
+      - Windows: the task `sb-extract-drain`, plus `<brain>/bin/sb-extract-drain-hidden.vbs`;
+      - macOS: `~/Library/LaunchAgents/sb-extract-drain.plist`;
+      - Linux: `sb-extract-drain.service` and `.timer` under `~/.config/systemd/user/`.
+  - *Data:* `<brain>` (`$BRAIN_DIR`, by default `~/.second-brain`) and the knowledge folder (by default
+    `~/knowledge`).
+- **Options:**
+  - (M) *Commands in v2's README,* one block per system. They mirror v1's own uninstall branches, need no v1 code,
+    and work after v1's cached copy is gone. The statusline is a stated edit of `settings.json`: remove the entry, or
+    put back the command inside `SB_BUDDY_CHAIN='…'`.
+  - (V) *v1's own uninstall code:* the timer script's `--uninstall` and `sb buddy uninstall`. It is fetched from the
+    tag once v1's cached copy is gone.
+  - (L) *A last v1 release on `main` before the move,* whose hooks remove v1's own leftovers.
+  - (C) *Claude Code's own:* a hook that runs plugin code when a plugin is updated or removed.
+- **Check (registered 2026-11-06, before the docs are read or the probe runs):**
+  1. *Primary docs:* is there a hook on plugin install, update or removal? How long does an orphaned cached copy
+     stay?
+  2. *Probe on CI* (ephemeral runners; Windows, macOS, Linux):
+     - v1 is checked out at `v1-final`, and its plugin is copied into the plugin cache as version `0.57.1`;
+     - a statusline `echo before` is set first, so the chain is exercised;
+     - then v1's own `sb buddy install` and `install-extract-timer.sh --apply`;
+     - then D25's move: `0.57.1` leaves the cache and a v2 copy arrives.
+
+     The route runs after that.
+     - *Precondition:* after the move, the shim prints v1's message, which reproduces the user's case. A runner
+       where v1's own install fails fails as a probe, not as a route.
+     - *Not done on this machine:* creating or deleting a scheduled task here was refused (2026-11-06), and the
+       user's own task still exists.
+- **Pass, per system:**
+  - `statusLine` is back to `echo before`;
+  - the scheduler holds no `sb-extract-drain` entry;
+  - no shim, launcher or env file is left;
+  - the data is byte-identical before and after the route: `<brain>` without `bin/` and the env file, and the
+    knowledge folder;
+  - the README holds each command line the probe ran.
+- **Rule:**
+  - (L) is out if third-party marketplaces do not auto-update by default (D25's docs say they do not). A user's next
+    update would then skip a last v1 release unless it fell inside the window.
+  - (C) is out if no such hook exists. If one exists, it is out for v1, which is already shipped, and it is recorded
+    for D27 (how a v1 user learns of the cleanup).
+  - (M) is chosen if it passes on all three systems.
+  - (V) is the next attempt if (M) fails on any system.
