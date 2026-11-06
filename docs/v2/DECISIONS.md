@@ -28,7 +28,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
-| V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | CHECKING 2026-11-06 | evidence | D03 |
+| V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4440,3 +4440,26 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - if neither passes, the README carries remove-and-add commands under (K), and D25 records what fails;
   - if the stand-in cannot be added as a git marketplace, the probe fails as a probe. The docs alone do not settle D25
     (rule 4: change the approach).
+- **Result (2026-11-06; [probes/V2-D25-marketplace](probes/V2-D25-marketplace/README.md)): both arms pass.**
+  - Under each name, both updates exit 0. The install moves from `0.57.1` to `2.0.0-alpha.5`, and the cached copy
+    hashes to `62929fea5ecf`. One marketplace entry is left.
+  - Under (R), the fetched manifest says `second-brain-v2`, but the CLI keeps the entry under the name it was added
+    under. The docs do not say what happens when the name changes. They do say third-party marketplaces do not
+    auto-update by default, so a v1 user stays on v1 when `main` moves, until they run the update.
+  - *Stated differences from a real install:*
+    - the stand-in is a `git` source served on `127.0.0.1`, where v1 users have a `github` source;
+    - v1's cached copy stays on disk, marked `.orphaned_at` for Claude Code's cleanup. It is not an install.
+  - *The probe's setup failed twice before it ran:* the CLI refuses `file://` sources, and git's dumb HTTP cannot
+    serve its shallow clone. The bridge to `git http-backend` ran both arms. No pass condition changed.
+- **Choice: (K), the release commit names v2's marketplace `second-brain`.** The rule takes (K) when its arm passes.
+  - Under (K) nothing about the name changes for a v1 install: its update is an ordinary one, so the stand-in's source
+    type does not matter. A new user adds the repo and installs `second-brain@second-brain`, as v1's README said.
+  - *Rejected:* (R). It also reaches v1 installs, but only because the CLI ignores the changed name. The plugin would
+    then carry two ids: `second-brain@second-brain` for v1 users, and `second-brain@second-brain-v2` for new users,
+    since a fresh add takes the fetched name.
+  - *Carried to 18g:* the user's own install, `second-brain@second-brain-v2` pinned to a tag, moves by removing that
+    marketplace and adding the repo again. Alpha installs pinned to a tag do the same.
+  - *Carried to D26:* the update leaves v1's statusline shim and timer in place.
+- **Reopen if:**
+  - a Claude Code release re-keys an added marketplace by the fetched name on update;
+  - a v1 user's update from GitHub does not reach `2.0.0`.
