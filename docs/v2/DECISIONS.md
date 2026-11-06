@@ -30,7 +30,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux) | evidence | D25 |
-| V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence | D18, D26 |
+| V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4602,6 +4602,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
      - the first requests differ by 2 input tokens, against about 35 for the line, so it did not enter Claude's
        context.
   - *Not checked, as registered:* the interactive screen; D18's added time (18f's bench).
+  - *The link* points to `main`'s README. Until `main` moves (18g), that README is v1's, with no such section. The
+    link is checked after the move.
 - **Choice: (S).** Session start shows the user one line while v1's shims are on disk, and points to the README's
   "Coming from v1".
   - *Rejected:*
@@ -4612,6 +4614,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - a user who deletes `~/.second-brain` first loses the line, while the scheduler entry and `statusLine` stay;
   - a `BRAIN_DIR` set where the hook's environment does not see it gives no line.
 - **Reopen if:**
+  - the user, on return, declines the line. It is the one product change made while they were away (2026-11-06
+    to 2026-11-08). It reverts by dropping the field and the constant and pinning the hash again;
   - the release bench shows the two checks add time against D18's budget;
   - a Claude Code release stops showing a SessionStart `systemMessage`, or starts passing it to Claude;
   - the line shows for a user with no v1 leftovers.

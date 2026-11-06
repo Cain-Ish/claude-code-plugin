@@ -56,4 +56,7 @@ lingering, so `systemctl --user` has a user session.
   - the runners had a fresh `settings.json` and no other plugins;
   - `BRAIN_DIR` was not set, so the README's line about a custom folder is not exercised.
 
+- *A repeat run:* the push of `09bb9ac` changed this folder, so the workflow ran again (run 42280698302). It passed on
+  all three systems.
+
 Raw log: `research/raw/d26/` (gitignored).
