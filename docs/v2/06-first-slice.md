@@ -1959,3 +1959,48 @@ devils-advocate workflow stay out.
     `hook_system_message`, and no context record of Claude's holds its text.
 
   D24's field bar is not set here. These sessions are counted against it once the user sets it.
+
+### 2l: check 6, the second window (2026-11-06): pass
+
+- The driver ran from 21:46Z to about 22:05Z, with every pair's sample at 6.4% to 8.5%.
+  - Pairs 1, 2 and 4 were valid.
+  - Pair 3 was not: in its candidate run, empty Node's p95 at 8 concurrent was 88.6 to 127.8 ms. The next sample read
+    39.8%, so the driver waited once.
+- Added p95 at 8 concurrent, in ms, for the candidate (alpha.5, the control, in brackets), in the valid pairs:
+
+  | Hook | Pair 1 | Pair 2 | Pair 4 |
+  | --- | --- | --- | --- |
+  | Session start | 51.8 (66.0) | 67.1 (63.9) | 92.1 (64.4) |
+  | Prompt | 21.7 (16.8) | 17.3 (22.7) | 24.7 (22.8) |
+  | Read, another file | 22.1 (19.6) | 25.6 (22.9) | 22.5 (23.9) |
+  | Read, a map file | 71.6 (86.9) | 79.8 (79.2) | 75.6 (70.2) |
+  | Bash, a map read | 78.4 (70.8) | 73.3 (96.0) | 75.5 (92.4) |
+  | Bash, another command | 33.4 (19.0) | 24.2 (27.5) | 20.6 (16.7) |
+
+- Every run had 0 errors, and each of the candidate's hooks is at most 100 ms in each valid pair. *Pass.*
+  - The highest is session start in pair 4, at 92.1 ms.
+  - The control stayed under the bar too, so D18's trigger does not fire.
+- *D27's cost, reported with no bar:* session start, the candidate minus the control, was -14.2, +3.2 and +27.7 ms.
+  The spread between pairs is wider than the change, so this bench does not resolve its cost.
+- Raw files: `research/raw/2l-bench/window2/` (gitignored).
+- *Next:* publishing, as registered above.
+
+### 2l: the release notes (drafted before the tag)
+
+> Plugin hash `d21b69bfc1ed`. **v1's leftovers are named to you.** While v1's statusline or timer script is still on
+> disk (in `~/.second-brain/bin/`, or under `BRAIN_DIR`), session start shows you one line that points to the README's
+> [Coming from v1](https://github.com/Cain-Ish/claude-code-plugin/tree/v2#coming-from-v1). Claude does not see it,
+> and its context is unchanged ([06, step 2l](https://github.com/Cain-Ish/claude-code-plugin/blob/v2/docs/v2/06-first-slice.md); V2-D27).
+>
+> - "Coming from v1" gives the commands that remove v1's statusline and timer on macOS, Linux and Windows. They were
+>   checked on GitHub's runners against v1's own install, and the data folder was unchanged (V2-D26).
+> - **Checked:** the self-test, a smoke session on Claude Code 2.1.305 and 2.1.319, CI's self-test and load lane on
+>   three systems, the reference bench against alpha.5 (3 valid pairs at 8 at once, every hook at most 92.1 ms
+>   added, 0 errors), and an install from the tag.
+> - **Not run, by the owner's choice:** A1 and the P1 build eval.
+> - **Known:** the line's link opens `main`'s README, which is v1's until v2 moves there.
+>
+> ```
+> claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.6 --scope project
+> claude plugin install second-brain@second-brain-v2 --scope project
+> ```

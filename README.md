@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.5`, a pre-release from branch `v2`.
+**Status:** `2.0.0-alpha.6`, a pre-release from branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
@@ -44,8 +44,9 @@ your machine.
 ## What was measured, and what was not
 
 The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
-- *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's,
-  alpha.4's and alpha.5's changes were checked by the self-test, a live smoke session and CI only.
+- *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's
+  to alpha.6's changes were checked by the self-test, a live smoke session and CI, and alpha.6's by a timing bench as
+  well.
 - *A2:* build, plan and question tasks in three real repos (two private ones, and this plugin's own v1 repo), 10 runs
   per task.
 - *Three harder shapes,* 5 runs each: a first prompt that names a symptom, two compactions, and a task switch.
@@ -63,6 +64,8 @@ repos:
 - alpha.5's change was compared on the test repos' session-start text: byte-identical on two of the three real repos
   and on A1's fixture. On the third, which keeps its rule files in `.claude/rules/`, only that folder's line is
   gone.
+- alpha.6's change: with none of v1's scripts on disk, session start's output is byte-identical to alpha.5's on this
+  repo.
 
 alpha.5's change is not an edge case: in any repo with a root `.claude/rules/` folder, the index and the forced
 decision no longer list it. In the user's own repo, where every one of 30 rule files declares `paths:`, Claude Code
@@ -78,7 +81,8 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
 - a map file whose labels pass 10,000 characters;
 - a document path holding a control character, now listed with `?` in its place;
 - a turn that is a subagent's report or another session's message, which no longer takes the forced decision;
-- a map file read through Bash, which now gets the labels a Read gets.
+- a map file read through Bash, which now gets the labels a Read gets;
+- v1's statusline or timer script left on disk, which adds one line at session start, shown to you and not to Claude.
 
 **Where it helped:**
 - *A designer's spec, read in an earlier session:* kept in 10 of 10 runs (auto memory: 2), and followed in a fresh
@@ -108,7 +112,7 @@ sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field
 
 ## Requirements
 
-- Claude Code: the evals ran on 2.1.305, and live checks on Windows on 2.1.305 to 2.1.311.
+- Claude Code: the evals ran on 2.1.305, and live checks on Windows on 2.1.305 to 2.1.319.
 - Node 20 or later.
 - git. Outside a git repo the index is empty.
 - On Windows, Git Bash: the session-start hook runs through bash, as Claude Code itself needs on Windows.
@@ -116,7 +120,7 @@ sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.5 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.6 --scope project
 claude plugin install second-brain@second-brain-v2 --scope project
 ```
 
@@ -133,6 +137,8 @@ Updating from v1 (`0.57.1`) replaces v1's code. It leaves behind what v1 wrote o
 timer that runs every 30 minutes.
 - Claude Code keeps v1's old copy for 14 days, and until then both still run it.
 - After that, the statusline prints "buddy: no second-brain renderer found". That command no longer exists.
+- While v1's statusline or timer script is on disk, v2's session start shows you one line that points here. Claude
+  does not see it.
 
 Remove them in this order:
 
@@ -213,8 +219,11 @@ Remove them in this order:
   - Session start also starts bash once, since its hook runs in shell form: about 22 ms more at one session on the
     32-thread machine.
   - CI fails the build when the one-session added time passes 100 ms.
-  - The 8-at-once added time on the 32-thread machine was checked at 100 ms before alpha.1 and alpha.2, with the machine
-    idle: CPU at most 10% before each run.
+  - The 8-at-once added time on the 32-thread machine was checked at 100 ms before alpha.1, alpha.2 and alpha.6, with
+    the machine idle: CPU at most 10% before each run.
+  - alpha.6, in 3 pairs against alpha.5 on that machine: every hook added at most 92.1 ms, with 0 errors. Session start
+    added 52 to 92 ms, against alpha.5's 64 to 66 in the same pairs. The spread between pairs is wider than the
+    change, so its own cost is not resolved.
   - One CI run in alpha.2's checks went over 100 ms at one session (114 ms at session start on Windows) through
     a few slow calls; its median was as usual. Timed in pairs on the same runner, alpha.2 costs no more than
     alpha.1.
@@ -271,6 +280,8 @@ Remove them in this order:
   bare `ignorecase`, `true`, `yes`, `on` or a whole number other than 0 count as true. Git's other spellings of true,
   such as `1k`, `0x1` or a value continued with `\`, count as false here, and a partly quoted value is skipped, so
   the line above it stands.
+- **The line about v1's leftovers links to `main`'s README,** which is v1's until v2 moves there. The steps are in
+  [Coming from v1](https://github.com/Cain-Ish/claude-code-plugin/tree/v2#coming-from-v1), on branch `v2`.
 - **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
   name `second-brain-v2`, so only one of them can be registered on a machine.
 
