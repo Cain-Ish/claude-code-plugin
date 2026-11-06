@@ -1881,7 +1881,9 @@ The user chose (2026-11-03) to tag and release 2k as built, without check 4 (P1 
     about 35 for the line.
 - *The smoke passes* on the pinned CLI 2.1.305 and on 2.1.319. In the 2.1.319 run, `BRAIN_DIR` was unset and the home
   folder still held v1's shims, so session start's output began with the line.
-- *CI* on three systems: the next commit's run (recorded with 18f).
+- *CI* on `4d201a2` passes on three systems: the self-test, and the load lane gated at one session. At one session,
+  session start adds 78.3, 42.7 and 25.2 ms p95 on Windows, macOS and Linux. On `648144d`, alpha.5 added 71.7, 45.5
+  and 27.8. These are runs on different runners, so the difference is not D27's cost; check 6 measures that.
 - *Not checked:* the interactive screen; D18's added time (18f's bench).
 
 ### 2l: check 6, the reference bench (registered 2026-11-06, before it runs)

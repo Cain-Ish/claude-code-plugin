@@ -141,6 +141,8 @@ Remove them in this order:
    - If its command starts with `SB_BUDDY_CHAIN='…'` and the quotes hold a command, that was your statusline before
      v1.
    - In that case, set it back instead: `"statusLine": { "type": "command", "command": "<the command>" }`.
+   - Copy the command as it appears in the file, so its JSON escapes stay as they are. Where it holds `'\''`, write a
+     single `'` instead.
 2. **The timer and v1's scripts.**
 
    macOS:
@@ -165,7 +167,8 @@ Remove them in this order:
    ```
 
 - If you set `BRAIN_DIR` for v1, use that folder in place of `~/.second-brain`.
-- `.extract-timer-env`, removed above, may have held your `ANTHROPIC_API_KEY`.
+- `.extract-timer-env`, removed above, may have held your `ANTHROPIC_API_KEY`. Until you remove the timer, v1's old
+  copy can still use it. What v2 says about making no network calls holds for v2's own hooks, not for v1's leftovers.
 - Your data stays: `~/.second-brain` and `~/knowledge` hold what v1 learned. v2 does not read them; keep or delete
   them as you like.
 - v1 was installed for your user, so after the update v2 runs in every repo you open. To use it in chosen repos only,
@@ -233,6 +236,12 @@ Remove them in this order:
   entries in one file), the read hook lists as many labels as fit. It then tells Claude to treat every later entry in
   that file as unreviewed and unverified. Splitting a long `captured.md` into several files keeps every label.
 - **The forced decision** adds a step at the start of each session and after each compaction, even for a question.
+- **The forced decision covers the first prompt you type in a session, or after a compaction.** A change you ask for
+  in a later prompt gets none. Neither does work in a turn a background task started. In one real session on alpha.5,
+  Claude made 45 file writes, and none came in reply to a first prompt that asked for that change:
+  - 22 followed a first prompt that was a question: 1 in that turn, and 21 in the next prompt;
+  - 6 came in the turn that carried on after a compaction while the session was idle;
+  - 17 came in turns that background tasks started.
 - **Claude often reads only some of the directories it marks yes.** In two real sessions with alpha.2, each of three
   checked context windows marked 6 to 8 directories yes. Before changing code, Claude opened documents from 0 to 3 of
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).

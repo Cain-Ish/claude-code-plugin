@@ -4403,6 +4403,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - Does a change named after an epoch's first prompt come back into D22's scope? That is D22's own trigger, and it
     reopens D22.
   - Do the labels' sizes block the release? In 2k's check 5 they came to 10.6 KB against 8.7 KB for the starts.
+- **Second opinion (2026-11-06, Gemini; [research/2026-11-06-release-review.md](research/2026-11-06-release-review.md)):**
+  (b), tightened: the field bar needs at least one in-claim epoch on the current CLI. Its gaps, ranked: that epoch;
+  alpha.6's gates (CI done since, the bench waiting); no live session on macOS or Linux; eval drift from CLI 2.1.305.
 - **Check:** the user's answer, recorded with its date.
 
 ### V2-D25 — The marketplace name a v1 install meets on `main`
@@ -4604,6 +4607,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Rejected:*
     - (R): it reaches only users who look for the README, while the timer runs on silently;
     - (O): an updater has no reason to run the command.
+- **Accepted risks** (the release review, 2026-11-06;
+  [research/2026-11-06-release-review.md](research/2026-11-06-release-review.md)):
+  - a user who deletes `~/.second-brain` first loses the line, while the scheduler entry and `statusLine` stay;
+  - a `BRAIN_DIR` set where the hook's environment does not see it gives no line.
 - **Reopen if:**
   - the release bench shows the two checks add time against D18's budget;
   - a Claude Code release stops showing a SessionStart `systemMessage`, or starts passing it to Claude;
