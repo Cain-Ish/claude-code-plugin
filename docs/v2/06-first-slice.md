@@ -2297,3 +2297,48 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
 - *Registered now, before it runs:* a second window, the same pairs. D18 re-locks unchanged if every hook of both
   builds stays at most 100 ms in 3 valid pairs. If the read hook passes the bar again, in either build, its cost goes
   to a rethink under rule 4, and the release waits for it.
+- *The second window (13:47Z): pass.* All 3 pairs were valid, with samples at 4.0% to 5.4%. The highest hook was
+  66.8 ms for the control and 53.8 ms for the candidate, with 0 errors. The map read added 61.9, 55.3 and 52.3 ms (control)
+  and 53.0, 52.1 and 51.0 ms (candidate). D18 re-locks unchanged, as registered.
+
+### 2m: result (2026-11-07): pass, published as `2.0.0-alpha.7`
+
+- *Attempt 3's checks, all passed:*
+  1. `git diff v2.0.0-alpha.6 -- plugin/scripts/hook.mjs` holds the three additions and the comment only.
+  2. The self-test passes.
+  3. The failure route, the cap (two big files, 85 and 200 files) and the rules cases fail on alpha.6 and pass here.
+     The labelled forms label on both.
+  4. Session start and the prompt hook are byte-identical to alpha.6's on the field repo, this repo and A1's fixture.
+  5. The smoke passes on CLI 2.1.305 and 2.1.319, and the failure route's handler ran on both.
+  6. CI passes on three systems (`b24a422`), and D26's workflow passes on the README.
+  7. The reference bench passed in two windows (above).
+- *Product hash* `def38ab5258d`.
+- *D14 re-locks* with the accepted risks its record names. D26 and D18 re-lock unchanged.
+- *What 2m changed, against alpha.6:*
+  - a Bash map read that exits non-zero gets its labels;
+  - several files' labels stay under the cap;
+  - non-`.md` documents in `.claude/rules/` are listed;
+  - the README: Uninstall's scopes, "Coming from v1" (quit sessions first, an alpha beside v1, both Install commands,
+    `XDG_CONFIG_HOME` and `CLAUDE_CONFIG_DIR`), and the Bash forms that get no label or another folder's labels.
+
+### 2m: the release notes (drafted before the tag)
+
+> Plugin hash `def38ab5258d`. **The fixes of 2.0.0's release review** ([research/2026-11-07-release-review.md](https://github.com/Cain-Ish/claude-code-plugin/blob/v2/docs/v2/research/2026-11-07-release-review.md); [06, step 2m](https://github.com/Cain-Ish/claude-code-plugin/blob/v2/docs/v2/06-first-slice.md)).
+>
+> - A map file read through Bash by a command that exits with an error now gets its labels. Claude Code reports
+>   such a call as `PostToolUseFailure`, which alpha.6 did not hook.
+> - When one Bash command reads many map files, their labels stay under Claude Code's 10,000-character limit for a
+>   hook's output, and the files that do not fit get one line telling Claude to treat their entries as unreviewed.
+> - A document in the root's `.claude/rules/` whose name does not end in `.md` is listed again, since Claude Code
+>   does not load it.
+> - The README's "Coming from v1" and Uninstall sections are corrected. It now names the Bash forms that get no
+>   labels, and the case where another folder's map gets this repo's labels.
+> - **Not changed:** the command parse is alpha.6's. Two attempts to make it read only this repo's own files each
+>   opened new gaps, and the project's PM7 rule stopped a third. Labelling what a command printed is the next step.
+> - **Checked:** the self-test, the smoke on Claude Code 2.1.305 and 2.1.319, CI on three systems, the reference
+>   bench in two windows (every hook at most 57.1 ms added at 8 concurrent), and an install from the tag.
+>
+> ```
+> claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.7 --scope project
+> claude plugin install second-brain@second-brain-v2 --scope project
+> ```
