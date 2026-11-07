@@ -2378,3 +2378,7 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
   branch's (`git diff release-2.0.0 -- plugin/ .claude-plugin/` empty), so the checks above stand for it. Then the
   steps run as registered: the tag `v2.0.0`, the release page, `main` fast-forwarded to it, the checks after the
   move, and the user's install.
+- *Field note (2026-11-07):* the field repo's running session was resumed on alpha.6 at 11:50Z, before the move, and
+  keeps alpha.6's hooks until it restarts. The first alpha.7 epoch comes with a new session or resume after 13:49:19Z.
+  Under D24's amendment, an alpha.6 epoch still counts for C1, C2, C3, C8 and `field-scope.mjs`. It does not exercise
+  the failure route.
