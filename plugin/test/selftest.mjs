@@ -61,8 +61,8 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// alpha.7: 2m, the fixes of 2.0.0's release review (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), 'def38ab5258d', 'the product changed: record its hash with a new epoch (06)');
+// 2.0.0: alpha.7's code with the version only (06, 18f); its hooks were checked as alpha.7's
+assert.equal(product.digest('hex').slice(0, 12), '201378d6b47b', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
