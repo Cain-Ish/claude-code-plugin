@@ -4422,10 +4422,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **(b)'s bar, set 2026-11-07 before the corpus was judged.** What had been seen: `field.mjs`'s counts on one
   session, and, printed with the scanner's record, the first prompt of its second epoch (a question about the work's
   status) and the start of the answer. No other prompt or answer had been read.
-  - *Corpus:* every main session in the field repo that 2k's check 5 did not read, started on or after 2026-11-06, as
-    listed at each count. Every epoch counts, alpha.5's and alpha.6's alike: between the two tags, the hooks' output
-    for Claude is unchanged (`git diff v2.0.0-alpha.5 v2.0.0-alpha.6 -- plugin/scripts` adds only the `systemMessage`
-    path). `2.0.0` changes no hook code, which its own check verifies.
+  - *Corpus:* every epoch of the field repo's main sessions that 2k's check 5 did not read, as listed at each count.
+    - *Corrected the same day, before any prompt was judged:* this first said "every session that check 5 did not
+      read, started on or after 2026-11-06". Both sessions since then were in check 5's corpus: its re-run read the
+      second one while it ran, in its first epoch. That would leave the corpus empty. Check 5 had judged that epoch's
+      first prompt a question, so the change of unit adds no in-claim epoch.
+    - Every epoch counts, alpha.5's and alpha.6's alike: between the two tags, the hooks' output for Claude is
+      unchanged (`git diff v2.0.0-alpha.5 v2.0.0-alpha.6 -- plugin/scripts` adds only the `systemMessage` path).
+      `2.0.0` changes no hook code, which its own check verifies.
   - *Pass, all of:*
     1. no defect as the field check defines one (probes/V2-D17-field/README.md): C1, C2, C5, C6b, C7 and C8;
     2. at least one in-claim epoch, judged by reading its first human prompt (the field README's rule);
