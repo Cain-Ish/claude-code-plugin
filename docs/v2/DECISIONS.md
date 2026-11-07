@@ -736,6 +736,29 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Choice: keep.* *Kill trigger:* any further fix to the Bash handler after 2m, or a field count where a
     must-label Bash read of this repo's map arrives unlabelled. Then the command parse goes to a rethink under rule 4
     (for instance labelling by the tool's output instead of its command), not to a seventh fix.
+- **PM7's kill trigger fired, 2026-11-07, and the rethink ran (rule 4).** 2m tried twice to label only this repo's
+  map files from the command's text (06, 2m's rounds 2 and 3):
+  - attempt 1 left reads of this repo's own map with nothing: a quoted path with a space, a `$PWD/` prefix, `git -C`;
+  - attempt 2 did too, in new forms: a quoted string that spans lines merges a write and a read into one part, and
+    `"$(head .project-map/x.md)"` ends in `)`. It also gave this repo's labels to another branch's file through
+    `git grep -nE "a|b" <branch> -- .project-map/x.md`, which alpha.6 left alone.
+
+  A third attempt is the trigger.
+  - *The rethink:* a command's text cannot be read with confidence. Each round found forms the parse misreads, in both
+    directions. Claude sees the tool's output, so labelling the entries the output shows does not depend on the
+    command. That needs the shape of `tool_response` (`PostToolUse`) and `error` (`PostToolUseFailure`) checked on
+    both CLIs first.
+  - *Choice: close by deletion for `2.0.0`.* The Bash handler's parse returns to alpha.6's exactly. 2m keeps what the
+    rounds found sound: the failure route, the cap and the rules filter. Labelling by the output is the next step after
+    `2.0.0`, with its own record.
+  - *Accepted risks,* each this record's trigger read literally, as on 2026-10-29. Each is named in the README, and a
+    field sighting of any of them reopens this record:
+    - another folder's map file read through Bash gets this repo's labels (findings 6 to 8): another repo's, a
+      package's, another branch's through `git grep`;
+    - map entries shown by `git diff` or `git show`, `rg`, `cd .project-map && cat x.md`, `cat .project-map/*`, a
+      `|` inside quotes (`grep -E "a|b"`), a path written with backslashes, `find -exec cat` or a loop over the
+      folder get no label.
+  - The labels' kill trigger stays met: the next change to the Bash handler is the output step, not a parse fix.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's

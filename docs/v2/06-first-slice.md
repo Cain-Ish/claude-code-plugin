@@ -2229,3 +2229,48 @@ nothing" to *label it when it surely is this repo's, else fail closed*. No named
     subshell's `cd`, `grep -E "a|b"`, a glob, a backslash path, 85 and 200 files;
   - a third round: two verifiers on the Bash handler alone, one hunting a read of this repo's map that gets nothing,
     one hunting another folder's map that gets this repo's labels.
+
+### 2m, the review's third round (2026-11-07): attempt 2 fails, and PM7 stops a third parse
+
+Two verifiers ran on `308ca68`, one for each direction. Before them, on attempt 2:
+- every round-2 case passed, and each failed on alpha.6 or labelled on both;
+- session start and the prompt hook were byte-identical to alpha.6's on the three repos;
+- the smoke passed on both CLIs, failure route included;
+- D26's workflow passed on the new README.
+
+| Direction | What was found |
+| --- | --- |
+| Reads of this repo's map that get nothing, new in attempt 2 | A double-quoted string that spans lines makes the split miss the `&&` after it, so `echo "..." >> .project-map/x.md && tail .project-map/x.md` is one part, and the redirect check drops the read (medium). `"$(head .project-map/x.md)"` ends in `)` (low to medium). A `\` continuation with no space before it, and brace expansion (very low) |
+| The same, older (alpha.6 too) | `git diff` or `git show :` of a map file (medium to high: the diff shows the uncommitted entry), `rg` through Bash, `cd .project-map && cat x.md`, `cat .project-map/*`, a loop over the folder, `xargs`, `find -exec cat` |
+| Another folder's map with this repo's labels, new in attempt 2 | `git grep -nE "a|b" <branch> -- .project-map/x.md`, since `|` inside quotes no longer splits |
+| The same, older | `git grep` on another branch, a backtick `cd`, a subshell's `cd`, the same path read twice in two folders, `ssh` or `docker` reads, `eval`, a junction with `..`, `CDPATH` (low to very low) |
+
+The labels' kill trigger fired (DECISIONS.md, D14, PM7), and the rethink chose deletion for `2.0.0`.
+
+### 2m, attempt 3: the parse returns to alpha.6's (registered 2026-11-07, before the code)
+
+- *The build:* `hook.mjs`'s Bash branch is alpha.6's split and match, byte for byte, plus three additions:
+  - `bash-failure` answers as `PostToolUseFailure`;
+  - the fail-closed text is one helper, as the cap needs it;
+  - attempt 2's cap: whole files' labels while they fit beside the closing lines of the rest, then one line for all.
+
+  The header comment names `bash-failure`. `hooks.json` and `map.mjs` stay as in 2m.
+- *The README:*
+  - attempt 2's sentences about the fail-closed line and about quotes and backslashes go;
+  - the unlabelled routes name D14's accepted risks;
+  - a known issue: another folder's map file read through Bash gets this repo's labels;
+  - Uninstall's `--scope local` line, the start, `/clear`, resume or fork wording, and the alpha-beside-v1 line stay.
+- **Checks:**
+  1. `git diff v2.0.0-alpha.6 -- plugin/scripts/hook.mjs` shows those three additions and the comment, and nothing
+     else.
+  2. *The self-test* keeps the failure route, the cap (two big files, 85 and 200 files) and the rules cases, and drops
+     attempt 1's and attempt 2's own-repo cases. One case pins the accepted risk: `cat ../b/.project-map/captured.md`
+     gets this repo's labels, so a later change to the parse has to be deliberate.
+  3. *The case runner:* the failure route, the cap and the rules cases fail on alpha.6 and pass here. The labelled
+     forms label on both.
+  4. *Byte identity* with alpha.6 for session start and the prompt hook, on the three repos.
+  5. *The smoke* on CLI 2.1.305 and 2.1.319.
+  6. CI on three systems, and D26's workflow.
+  7. *The reference bench,* when the machine allows.
+  - *No fourth review round:* the parse is alpha.6's, which round 1 reviewed and the field ran (check 5: 3 of 3
+    must-label Bash reads labelled). The three additions were each confirmed in rounds 2 and 3.
