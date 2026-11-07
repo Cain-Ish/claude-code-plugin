@@ -2274,3 +2274,26 @@ The labels' kill trigger fired (DECISIONS.md, D14, PM7), and the rethink chose d
   7. *The reference bench,* when the machine allows.
   - *No fourth review round:* the parse is alpha.6's, which round 1 reviewed and the field ran (check 5: 3 of 3
     must-label Bash reads labelled). The three additions were each confirmed in rounds 2 and 3.
+
+### 2m, the reference bench (2026-11-07, 13:15Z to 13:35Z): pass, and the control trips D18
+
+2l's check 6 protocol, with alpha.6 as the control and attempt 3 (`def38ab5258d`) as the candidate, on a fresh P2
+worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and all 3 pairs were valid.
+
+| Hook, added p95 at 8 concurrent, ms | Pair 1 | Pair 2 | Pair 3 |
+| --- | --- | --- | --- |
+| Session start | 46.7 (38.8) | 41.0 (38.3) | 42.0 (42.5) |
+| Prompt | 13.2 (11.0) | 12.1 (11.3) | 11.0 (12.1) |
+| Read, another file | 12.1 (12.1) | 9.4 (10.9) | 10.5 (9.8) |
+| Read, a map file | 57.1 (53.4) | 54.9 (**106.8**) | 54.6 (55.5) |
+| Bash, a map read | 53.2 (54.8) | 52.6 (54.2) | 54.8 (54.3) |
+| Bash, another command | 11.2 (9.0) | 9.1 (9.3) | 13.7 (12.8) |
+
+- *The candidate passes:* at most 57.1 ms, 0 errors in every run.
+- *The control (alpha.6, published) went over the bar once:* its map read added 106.8 ms in pair 2. As registered, that
+  is recorded, and it fires D18's trigger ("at 8 concurrent on the reference machine"). The read hook's code is the
+  same in both builds, and it ran at 53.4 to 57.1 ms in the window's other five runs, the candidate's run in the same
+  pair included.
+- *Registered now, before it runs:* a second window, the same pairs. D18 re-locks unchanged if every hook of both
+  builds stays at most 100 ms in 3 valid pairs. If the read hook passes the bar again, in either build, its cost goes
+  to a rethink under rule 4, and the release waits for it.
