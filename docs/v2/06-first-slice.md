@@ -2382,3 +2382,50 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
   keeps alpha.6's hooks until it restarts. The first alpha.7 epoch comes with a new session or resume after 13:49:19Z.
   Under D24's amendment, an alpha.6 epoch still counts for C1, C2, C3, C8 and `field-scope.mjs`. It does not exercise
   the failure route.
+
+### D24's field count 2 (2026-11-07, 20:13Z): not met
+
+- *Corpus:* two epochs of the field session, frozen at 20:13Z. One is the alpha.6 resume of 11:50Z, which count 1 read
+  only to 12:00Z. The other is a compaction at 14:13Z. No new session or resume came after the move to alpha.7.
+- *Build:* `field.mjs` labels the compaction's epoch alpha.7, since its build label follows the move's time. A
+  compaction does not restart the session, so the epoch is counted under D24's alpha.6 clause:
+  - it counts for C1, C2, C3, C8 and `field-scope.mjs`;
+  - C5 counts under the rule both builds share.
+
+  The transcript records the hooks as `command hook N`, so it cannot tell the two builds apart. The scanner's
+  time-based label is a known limit, left as it is. No alpha.7 epoch has been seen yet, and no `PostToolUseFailure`
+  event of any hook is in the corpus. The failure route is not exercised.
+- *No defect:*
+  - C1: the plugin's start and its context, 2 of 2 epochs;
+  - C2: one force per epoch, each on the epoch's first human prompt;
+  - C5: 2 map reads through Bash, both of this repo's own map file, exit 0, both labelled. No Read-tool map read;
+  - C6: 2 entries, both appended through Bash. Both are in format, neither holds a forbidden item, and both are
+    verbatim. The one entry of the session found not verbatim was written on 2026-11-06, outside the corpus;
+  - C7: 2 paths named after a change, both found;
+  - C8: 0 errors of any hook.
+- *In-claim epochs: 1,* the compaction's, judged by reading. Its first human prompt:
+  1. asks for a check that the work can be merged;
+  2. then, if so, asks for a new sweep of the project's sources, with what is missing added.
+
+  The prompt names changes, though the first is conditional. The resume epoch is not in-claim (count 1).
+- *C3:* 1 of 1 in-claim epoch answered per directory. It states a yes list of 3 and names the other 7 as no; the
+  index has 10 directories.
+- *`field-scope.mjs`: outside the bar.*
+  - 4 gate events, all in the compaction's epoch, with 6 pairs: D 4 (67%, bar at least 70%), R 0 (bar at most 10%),
+    X 2.
+  - The X pairs:
+    - One is an edit whose file Claude had read only through Bash. Claude Code delivered the rule in the same turn,
+      after the write. The scanner does not count it as delivered with the write: the parallel edit's record comes
+      before the delivery.
+    - The other is a new file whose rule was never delivered in the epoch.
+  - X is 2 of 6 pairs, above 10%. Under 2k's rule, that is an observation for D22's selection-miss trigger, and it
+    goes to the ledger.
+- *Reported:*
+  - C4: no Write, Edit or NotebookEdit in the forced turn before the next human prompt, so it does not apply;
+  - C9: 31 subagents, none with the index; 4 wrote repo files, 21 writes;
+  - main-session writes: 19. All 4 gate events came after later prompts, outside the first prompt's claim.
+- *Result: not met,* on item 4 (D's share). The bar has no minimum number of pairs, and the corpus's 6 pairs are
+  counted as registered. The release stays staged on `release-2.0.0`, and nothing is tagged.
+- *Next:* count 3 (2026-11-08, 14:47Z) re-counts the whole corpus with any later epochs. It runs only while this
+  session is open. A D share under the bar is not a plugin defect. Under D24's failed-bar clause it goes to the user,
+  who may keep the bar or set another (D24's reopen trigger).
