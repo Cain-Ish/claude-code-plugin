@@ -35,7 +35,8 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
 
   Reads by subagents, and map text met through the Grep tool, a script, or a command that names only the folder, are
-  not labelled. Neither is another repo's map file, as with the Read tool.
+  not labelled. A map file named by a path the hook cannot place in this repo, such as another repo's map or a path
+  built from a variable or a glob, gets one line telling Claude to treat its entries as unreviewed and unverified.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
@@ -87,7 +88,10 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
 - v1's statusline or timer script left on disk, which adds one line at session start, shown to you and not to Claude;
 - a map file read through Bash by a command that exits with an error, now labelled;
 - several map files read in one Bash command whose labels together pass 10,000 characters;
-- a map file named in a Bash command by a path outside this repo, now left unlabelled, as a Read leaves it;
+- a map file named in a Bash command by a path the hook cannot place in this repo, which now gets one line telling
+  Claude to treat its entries as unreviewed, in place of this repo's labels;
+- a Bash command with `|`, `;` or `&` inside quotes, or a map path written with backslashes, now read as the shell
+  reads it;
 - a document in the root's `.claude/rules/` whose name does not end in `.md`, now listed, since Claude Code does not
   load it.
 
@@ -146,9 +150,11 @@ timer that runs every 30 minutes.
 - After that, the statusline prints "buddy: no second-brain renderer found". That command no longer exists.
 - While v1's statusline or timer script is on disk, v2's session start shows you one line that points here. Claude
   does not see it.
+- An alpha of v2 installs beside v1, under another marketplace name, and does not replace it. Uninstall v1 first:
+  `claude plugin uninstall second-brain@second-brain`.
 
-First quit every running Claude Code session. A session that started before the update keeps v1's hooks until it
-restarts, and v1's session start puts the timer back.
+First quit every running Claude Code session. A session that started before the update keeps v1's hooks, and its
+next start, `/clear`, resume or fork puts v1's timer back.
 
 Then remove them in this order:
 
@@ -266,7 +272,7 @@ Then remove them in this order:
   checked context windows marked 6 to 8 directories yes. Before changing code, Claude opened documents from 0 to 3 of
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
 - **Some map reads get no label:** through the Grep tool, a script that reads the file, a command that names only the
-  folder, PowerShell, a subagent, or a path outside this repo. In the same sessions, Claude read map entries 11
+  folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11
   times: 2 through the Read tool and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds.
 - **Each Bash read of a map file repeats its labels**, as a Read does. Claude often checks the end of the file after a
   capture, and each such check carries the file's labels again.
@@ -303,6 +309,7 @@ claude plugin uninstall second-brain@second-brain-v2 --scope project
 claude plugin marketplace remove second-brain-v2 --scope project
 ```
 
+- For a `--scope local` install, use `--scope local` in both commands.
 - Your `.project-map/` files stay.
 - `.claude/settings.json` is left with empty `enabledPlugins` and `extraKnownMarketplaces` entries.
 - Claude Code removes its cached copy of the plugin after 14 days.

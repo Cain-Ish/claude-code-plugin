@@ -2115,6 +2115,8 @@ field bar passes. Nothing is tagged `2.0.0` before then.
   - check 7's D27 clause, registered at 21:50:55Z, after the removal, cannot be observed on this machine.
 - *Unchanged:* check 6's pass. The line's path adds one JSON field to the same output.
 - Check 7's D27 clause is dropped. The line's display stays unchecked, as recorded.
+- *Also stale* (the review's second round): 2l's result says of CI's session-start numbers that "check 6 measures
+  that", meaning D27's cost. Check 6 did not, for the reason above.
 
 ### 2m: the release review's fixes, as `2.0.0-alpha.7` (registered 2026-11-07, before the code)
 

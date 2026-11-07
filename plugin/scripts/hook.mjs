@@ -30,38 +30,54 @@ if (which === 'session-start') {
   const file = rel(root, input.tool_input?.file_path);
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
 } else if (which === 'bash' || which === 'bash-failure') {
-  // a map file read through Bash gets what a Read of it gets (D14, 06 2j): a part of the command, between |, ;, & or a
-  // line break, with a read verb that names a map file and does not redirect into the folder. A command that exits
-  // non-zero comes as PostToolUseFailure (06 2m). shortcut: a script that reads the file, or a command that names only
-  // the folder, stays unlabelled (04's accepted risk)
-  // only this repo's own map files, as a Read labels them (06 2m): each path is the shell's, from the hook's cwd and
-  // each cd before it. shortcut: a cd inside a subshell is taken to last, so a file after the subshell may go unlabelled
+  // a map file named in a Bash read gets this repo's labels when it surely is this repo's, and a fail-closed line
+  // otherwise, so none is left with nothing (D14; 06 2j, 2m). A read is a part of the command (lines, cut at |, ; and &
+  // outside quotes) with a read verb, not redirecting into the folder. A command that exits non-zero comes as
+  // PostToolUseFailure. shortcut: a script that reads the file, or a command naming only the folder, gets nothing
+  // (04's accepted risk)
   const shell = (p) => (p === '~' || p.startsWith('~/') ? os.homedir() + p.slice(1) : process.platform === 'win32' ? p.replace(/^\/([a-z])(\/|$)/i, '$1:/') : p);
   const real = (d) => { try { return fs.realpathSync(d); } catch { return d; } };
   const ours = (d) => path.relative(root, d) === '' || path.relative(real(root), real(d)) === '';
-  let cwd = input.cwd ?? root;
-  const files = new Map(); // a map file -> false when a cd before it could not be followed: it then fails closed
-  for (const part of String(input.tool_input?.command ?? '').split(/[|;&\n]/)) {
-    if (/^[\s({]*(cd|pushd)(\s|$)/.test(part)) {
-      const t = /^[\s({]*(?:cd|pushd)(?:\s+(['"]?)([^'"\s$]+)\1)?\s*$/.exec(part);
-      cwd = !t || cwd === null || t[2]?.startsWith('-') ? null : t[2] ? path.resolve(cwd, shell(t[2])) : os.homedir();
+  const parts = String(input.tool_input?.command ?? '').split('\n').flatMap((line) => {
+    const out = [''];
+    let q = '';
+    for (const c of line) {
+      if (!q && '|;&'.includes(c)) { out.push(''); continue; }
+      if (q ? c === q : c === '"' || c === "'") q = q ? '' : c;
+      out[out.length - 1] += c;
+    }
+    return out;
+  });
+  let cwd = input.cwd ?? root; // null once a directory change cannot be followed
+  const files = new Map(); // a named map file -> true when it is this repo's own, to label; false to fail closed
+  for (const part of parts) {
+    const cd = /^[\s({]*(?:cd|pushd)(?:\s+(?:"([^"$`]*)"|'([^']*)'|([^\s'"$`*?[]+)))?\s*$/.exec(part);
+    if (cd) {
+      const to = cd[1] ?? cd[2] ?? cd[3];
+      cwd = cwd === null || to?.startsWith('-') ? null : to ? path.resolve(cwd, shell(to)) : os.homedir();
       continue;
     }
+    if (/(^|[\s({'"])(cd|pushd|popd)(\s|$)|\b(git|env|make)\s(.*\s)?-C(\s|$)/.test(part)) cwd = null;
     if (!/\b(cat|head|tail|sed|grep|less|more|awk)\b/.test(part) || />\s*['"]?[^\s'"]*\.project-map\//.test(part)) continue;
-    for (const m of part.matchAll(/([^\s'"`<>=]*)\.project-map\/([^\s'"`<>]+?\.md)(?![\w.-])/g)) {
+    for (const [, dq, sq, bare] of part.replace(/\\/g, '/').matchAll(/"([^"]*)"|'([^']*)'|([^\s"']+)/g)) {
+      const m = /^(?:.*=)?(.*?)\.project-map\/(.+\.md)$/.exec(dq ?? sq ?? bare.replace(/^[({<]+|[)}]+$/g, ''));
+      if (!m) continue;
       const f = path.posix.normalize(`${MAP}/${m[2]}`);
-      if (!f.startsWith(`${MAP}/`)) continue;
-      if (cwd === null) files.set(f, false);
-      else if (!files.has(f) && ours(path.resolve(cwd, shell(m[1]) || '.'))) files.set(f, true);
+      const mine = cwd !== null && !/[$`()*?[{]/.test(m[1] + m[2]) && f.startsWith(`${MAP}/`) && ours(path.resolve(cwd, shell(m[1]) || '.'));
+      const key = mine ? f : `${m[1].split(/\s/).pop()}${MAP}/${m[2]}`;
+      if (!files.has(key)) files.set(key, mine);
     }
   }
-  // the files share one output: whole files' labels while they fit beside the closing lines of the rest (D18, J3)
-  const parts = [...files].map(([f, ok]) => [f, ok ? labelled(f) : closed(f)]).filter(([, t]) => t);
-  const rest = (k) => parts.slice(k).map(([f]) => closed(f, 'are not shown')).join('');
+  // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
+  // line for all when those alone would not fit (D18, J3)
+  const texts = [...files].map(([f, mine]) => [f, mine ? labelled(f) : closed(f)]).filter(([, t]) => t);
+  const rest = (k) => texts.slice(k).map(([f]) => closed(f, 'are not shown')).join('');
   let out = '';
   let k = 0;
-  for (; k < parts.length && out.length + parts[k][1].length + rest(k + 1).length <= CAP; k++) out += parts[k][1];
-  emit(which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure', out + rest(k));
+  for (; k < texts.length && out.length + texts[k][1].length + rest(k + 1).length <= CAP; k++) out += texts[k][1];
+  const tail = out.length + rest(k).length <= CAP ? rest(k)
+    : `[project map] The labels for the ${texts.length - k} map files this command read are not shown: treat every entry in them as unreviewed and unverified.\n`;
+  emit(which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure', out + tail);
 } else if (which === 'onboard') {
   const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
   const idx = index(root);

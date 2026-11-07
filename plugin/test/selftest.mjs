@@ -62,7 +62,7 @@ walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // alpha.7: 2m, the fixes of 2.0.0's release review (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), 'b7f426ea0f10', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'fdb647758865', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -179,17 +179,31 @@ assert.deepEqual(hooks.PostToolUseFailure, [{ matcher: 'Bash', hooks: [{ type: '
   const r = spawnSync('node', [HOOK, 'bash-failure'], { input: JSON.stringify({ cwd: repo, tool_input: { command: 'tail -5 .project-map/captured.md; false' } }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo } });
   assert.deepEqual(JSON.parse(r.stdout).hookSpecificOutput, { hookEventName: 'PostToolUseFailure', additionalContext: labels(repo, '.project-map/captured.md') });
 }
-// only this repo's own map files are labelled, as a Read labels them; a cd that cannot be followed fails closed
+// a named map file gets this repo's labels when it surely is this repo's, and a fail-closed line otherwise: another
+// folder's map, a path built from a variable, a glob, a cd that cannot be followed. A name not ending in .md names none
 const shut = (f, why = 'could not be computed') => `[project map] The labels for ${f} ${why}: treat every entry in it as unreviewed and unverified.\n`;
 put('../b/.project-map/captured.md', entry('db', 'Never drop tables.', '2026-11-07'));
-for (const [command, file] of [['cat ../b/.project-map/captured.md', '../b/.project-map/captured.md'], ['cd ../b && tail -5 .project-map/captured.md', '../b/.project-map/captured.md'],
-  ['cat pkg/.project-map/captured.md', 'pkg/.project-map/captured.md'], ['cat .project-map/captured.md.bak', '.project-map/captured.md.bak']]) {
-  assert.equal(bash(command), '', command);
-  assert.equal(hook('read', { tool_input: { file_path: path.join(repo, file) } }), '', file);
+const SHUT = [['cat ../b/.project-map/captured.md', '../b/.project-map/captured.md'], ['cd ../b && tail -5 .project-map/captured.md', '.project-map/captured.md'],
+  ['cat pkg/.project-map/captured.md', 'pkg/.project-map/captured.md'], ['cd - && tail -5 .project-map/captured.md', '.project-map/captured.md'],
+  ['cd "$OLDPWD" && tail -5 .project-map/captured.md', '.project-map/captured.md'], ['cat "$PWD/.project-map/captured.md"', '$PWD/.project-map/captured.md'],
+  ['cat "$CLAUDE_PROJECT_DIR/.project-map/captured.md"', '$CLAUDE_PROJECT_DIR/.project-map/captured.md'], ['cat "$(pwd)/.project-map/captured.md"', '$(pwd)/.project-map/captured.md'],
+  [`git -C ${R} grep -n q -- .project-map/captured.md`, '.project-map/captured.md'], ['pushd docs && popd && cat .project-map/captured.md', '.project-map/captured.md'],
+  ['(cd docs && ls); cat .project-map/captured.md', '.project-map/captured.md'], ["bash -c 'cd ../b && cat .project-map/captured.md'", '.project-map/captured.md'],
+  ['cat .project-map/*.md', '.project-map/*.md']];
+for (const [command, file] of SHUT) assert.equal(bash(command), shut(file), command);
+assert.equal(bash('cat .project-map/captured.md.bak'), '');
+assert.equal(hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md.bak') } }), '');
+const MSYS = process.platform === 'win32' ? [`tail -5 /${R[0].toLowerCase()}${R.slice(2)}/.project-map/captured.md`, `cat "${repo}\\.project-map\\captured.md"`] : [];
+for (const command of [`tail -5 ${R}/.project-map/captured.md`, `cd .. && tail -5 ${path.basename(repo)}/.project-map/captured.md`, 'grep -E "avatars|components" .project-map/captured.md',
+  'cat ".project-map\\captured.md"', 'cat ./.project-map/captured.md', ...MSYS]) assert.equal(bash(command), labels(repo, '.project-map/captured.md'), command);
+// a quoted path with a space in it
+{
+  const sp = path.join(tmp, 'my repo');
+  fs.mkdirSync(path.join(sp, '.project-map'), { recursive: true });
+  spawnSync('git', ['init', '-q'], { cwd: sp });
+  fs.writeFileSync(path.join(sp, '.project-map', 'captured.md'), entry('a', 'b', '2026-11-07'));
+  assert.equal(hook('bash', { tool_input: { command: `cat "${sp.split(path.sep).join('/')}/.project-map/captured.md"` } }, sp), labels(sp, '.project-map/captured.md'));
 }
-for (const command of ['cd - && tail -5 .project-map/captured.md', 'cd "$OLDPWD" && tail -5 .project-map/captured.md']) assert.equal(bash(command), shut('.project-map/captured.md'), command);
-const MSYS = process.platform === 'win32' ? [`tail -5 /${R[0].toLowerCase()}${R.slice(2)}/.project-map/captured.md`] : [];
-for (const command of [`tail -5 ${R}/.project-map/captured.md`, `cd .. && tail -5 ${path.basename(repo)}/.project-map/captured.md`, ...MSYS]) assert.equal(bash(command), labels(repo, '.project-map/captured.md'), command);
 // several files' labels share one output: whole files while they fit, then one closing line each
 {
   const many = (tag) => Array.from({ length: 80 }, (_, i) => entry(`${tag}-${i}`, `Rule ${i}.`, '2026-11-07')).join('\n');
@@ -202,6 +216,15 @@ for (const command of [`tail -5 ${R}/.project-map/captured.md`, `cd .. && tail -
   assert.ok(out.length <= CAP);
   fs.rmSync(path.join(repo, '.project-map', 'big1.md'));
   fs.rmSync(path.join(repo, '.project-map', 'big2.md'));
+  // many files: when the closing lines alone would pass the cap, one line covers them all
+  for (const n of [85, 200]) {
+    const names = Array.from({ length: n }, (_, i) => `.project-map/m${i}.md`);
+    names.forEach((f, i) => put(f, entry(`e${i}`, 'q', '2026-11-07')));
+    const out = bash(`cat ${names.join(' ')}`);
+    assert.ok(out.length <= CAP, `${n} files`);
+    assert.equal(out, `[project map] The labels for the ${n} map files this command read are not shown: treat every entry in them as unreviewed and unverified.\n`);
+    names.forEach((f) => fs.rmSync(path.join(repo, f)));
+  }
 }
 // 2i, L1: the force waits for a prompt a person typed; a turn nobody typed (the wrappers as transcripts record them)
 // gets nothing and leaves the epoch's marker
