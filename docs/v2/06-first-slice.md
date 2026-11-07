@@ -2342,3 +2342,19 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
 > claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.7 --scope project
 > claude plugin install second-brain@second-brain-v2 --scope project
 > ```
+
+### 2m: published as `2.0.0-alpha.7` (2026-11-07)
+
+- *The tree:* `git diff b24a422 -- plugin/ .claude-plugin/` at the release commit `ef2d03c` is empty, so CI on
+  `b24a422` stands.
+- *The tag* [`v2.0.0-alpha.7`](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.7) is on `ef2d03c`,
+  pushed with the branch.
+- *The release page:* the session's `gh release create` was refused by the permission check, as for alpha.3 and
+  alpha.4. The notes are drafted above, for the user.
+- *Install from the tag* in an isolated config on CLI 2.1.319: version `2.0.0-alpha.7`, hash `def38ab5258d`. The
+  uninstall and the removal succeeded, and the user's registry files are unchanged by checksum. *Pass.*
+- *The user's install* in the field repo moved at 13:49:19Z: local scope, `2.0.0-alpha.7` at `ef2d03c`, hash
+  `def38ab5258d`. The local settings differ only in the marketplace's `ref`. *Pass.*
+- `field.mjs` labels epochs from that time as alpha.7 (one entry in its move table, as for alpha.6).
+- *Next:* `release-2.0.0` is rebuilt on alpha.7, and 18f's branch checks run again. The product is alpha.7's code
+  with the version only.
