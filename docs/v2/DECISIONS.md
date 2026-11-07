@@ -4278,6 +4278,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
     The first observation is the evidence for the trigger "the user puts the vague first prompt or the task switch
     back in scope". Whether to do so is the user's call.
+- **Observation (2026-11-07, D24's field count 2, [06](06-first-slice.md)):** X was 2 of 6 pairs (33%), an observation
+  for the selection-miss trigger.
+  - One was a file read only through Bash, whose rule Claude Code delivered after the write.
+  - The other was a new file whose rule was never delivered.
+
+  Whether either rule bore on its change is not judged. No trigger fired. D's share was 4 of 6, under D24's bar of
+  70%.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
