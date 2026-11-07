@@ -2358,3 +2358,23 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
 - `field.mjs` labels epochs from that time as alpha.7 (one entry in its move table, as for alpha.6).
 - *Next:* `release-2.0.0` is rebuilt on alpha.7, and 18f's branch checks run again. The product is alpha.7's code
   with the version only.
+
+### 18f: the staged `2.0.0`, rebuilt on alpha.7 (2026-11-07)
+
+- *The branch:* `release-2.0.0` is rebuilt on `v2` at `3854ae1` (`bb49445`), by the same edits as before: the
+  marketplace named `second-brain`, version `2.0.0` in both manifests, the self-test's pin, and the README for
+  `main`. The README also drops the alpha-beside-v1 line.
+- *Checks, all passed:*
+  1. `git diff v2.0.0-alpha.7 -- plugin/scripts plugin/hooks plugin/commands` is empty. Under `plugin/`, only
+     `plugin.json`'s version and the self-test's pin differ. Product hash `201378d6b47b`.
+  2. The self-test passes. The smoke passes on CLI 2.1.319, and the failure route's handler ran.
+  3. CI on the branch passed on three systems, and so did D26's workflow.
+  4. Install from the branch in an isolated config: the marketplace `second-brain`, the plugin
+     `second-brain@second-brain`, version `2.0.0`, hash `201378d6b47b`. The uninstall and the removal succeeded, and
+     the user's registry files are unchanged.
+  5. The release review: three rounds, closed by 2m (above).
+- *When D24's bar passes, amended:* `v2` has moved past the branch's base, with documents only. So the release commit
+  is made on `v2`'s head by the same edits, not by a fast-forward. Its `plugin/` and `.claude-plugin/` must equal the
+  branch's (`git diff release-2.0.0 -- plugin/ .claude-plugin/` empty), so the checks above stand for it. Then the
+  steps run as registered: the tag `v2.0.0`, the release page, `main` fast-forwarded to it, the checks after the
+  move, and the user's install.
