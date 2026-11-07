@@ -2115,3 +2115,59 @@ field bar passes. Nothing is tagged `2.0.0` before then.
   - check 7's D27 clause, registered at 21:50:55Z, after the removal, cannot be observed on this machine.
 - *Unchanged:* check 6's pass. The line's path adds one JSON field to the same output.
 - Check 7's D27 clause is dropped. The line's display stays unchecked, as recorded.
+
+### 2m: the release review's fixes, as `2.0.0-alpha.7` (registered 2026-11-07, before the code)
+
+- *Why:* 2.0.0's release review (research/2026-11-07-release-review.md) confirmed defects in the Bash handler and the
+  rules filter. D14 reopened. PM7's keep-or-kill entry for the labels (keep) is in DECISIONS.md, written before this
+  step.
+- **The changes,** built in a copy in the scratchpad and moved to `plugin/` unchanged:
+  1. *The failure route* (findings 1, 2): `hooks.json` registers the Bash handler under `PostToolUseFailure` too,
+     with the same matcher and `if`, and the argument `bash-failure`. That handler answers with the
+     `PostToolUseFailure` event name, and its text is what `bash` gives for the same command.
+  2. *Several files' labels* (finding 4): the Bash handler keeps whole files' labels while they fit in 10,000
+     characters, with room left for the rest. Each file that does not fit gets one fail-closed line, which tells
+     Claude to treat every entry in that file as unreviewed and unverified.
+  3. *Only this repo's own map files* (findings 6 to 8):
+     - a path in the command is resolved against the hook's `cwd`, then against each `cd` or `pushd` before it in
+       the command. `~`, and Git Bash's `/c/` form on Windows, are read as the shell reads them;
+     - a map file is labelled only when its folder resolves to this repo's `.project-map/`, as a Read of it would be.
+       Another repo's map file, or a `pkg/.project-map/`, gets nothing, as a Read gets nothing;
+     - a `cd` whose target cannot be read (`cd -`, a variable) gives the files after it the fail-closed line;
+     - a name runs to `.md` and stops there: `captured.md.bak` is not `captured.md`.
+  4. *The rules filter* (findings 11, 15): only `.md` files in the root's `.claude/rules/` are left out of the
+     index. The pinned CLI's rule walker loads a file only when its name ends in `.md`, case-sensitively. Other
+     documents there stay listed.
+  5. The self-test's comment on the pin says what the release checks ran (finding 18).
+  - Version `2.0.0-alpha.7` in both manifests, and the self-test's hash pinned again.
+- **The README** takes the review's documentation fixes:
+  - Uninstall removes the marketplace with `--scope project` (finding 3);
+  - "Coming from v1" says to quit every running Claude Code session first (finding 5), to run both Install commands
+    in a chosen repo (finding 13), and to use `XDG_CONFIG_HOME` and `CLAUDE_CONFIG_DIR` when they are set (findings
+    10, 14 and 17);
+  - the unlabelled routes add another repo's map file;
+  - the bench line says the line's path was not timed (finding 12);
+  - the status and Install move to `#v2.0.0-alpha.7`.
+- **Checks:**
+  1. *The self-test,* with a case for each change. Each new case fails on alpha.6's scripts and passes on 2m's:
+     - the `PostToolUseFailure` entry, and its handler's event name and text;
+     - two files whose labels together pass 10,000 characters;
+     - a sibling repo's map, a `pkg/` map, a `.bak` name, a `cd` elsewhere and a `cd -`;
+     - a `.txt` file under `.claude/rules/` stays listed.
+
+     Cases that must still label: a `cd` into this repo, and this repo's map by its absolute path.
+  2. *Byte identity* (D24's amendment): session start's and the prompt hook's output for Claude equal alpha.6's on
+     the field repo's checkout, this repo, and A1's fixture.
+  3. *The smoke* on the pinned CLI 2.1.305 and on 2.1.319, with one more command: a map read that exits non-zero.
+     *Pass:* its labels reach Claude.
+  4. *CI* on three systems: the self-test and the load lane.
+  5. *The reference bench* against alpha.6, as 2l's check 6 ran, if the machine is quiet. Otherwise it waits, as
+     registered there.
+  6. *The second round of the review:* one refute-first verifier for each fixed finding, against alpha.7's code.
+     A finding that survives sends 2m back.
+- **On a pass:**
+  - D14 and D26 re-lock, D26 after its workflow passes on the new README;
+  - the tag `v2.0.0-alpha.7` and a pre-release page;
+  - an install from the tag in an isolated config;
+  - the user's install moved, with 2l's checks 2 and 3;
+  - then `release-2.0.0` is rebuilt on alpha.7, and 18f's branch checks run again.
