@@ -2103,3 +2103,15 @@ field bar passes. Nothing is tagged `2.0.0` before then.
   - after the tag and before `main` moves, the tag and the page are deleted.
 - **If the bar is not met by the user's return,** the branch stays staged. The steps above wait for their next
   session in the field repo whose first prompt names a change.
+
+### 2l: a correction to checks 6 and 7 (2026-11-07, the release review's finding 12)
+
+- v1's shims and its scheduled task were removed from the owner's machine at 21:47:03Z on 2026-11-06. That was after
+  the bench started (21:46:38Z) and before its first pair's files were written (21:50:57Z). So every candidate run took
+  the path without the line.
+- *Wrong as written:*
+  - check 6's registration said the candidate's session start takes the path that adds the line;
+  - its result called the session-start difference "D27's cost". It is the cost of the two file checks alone;
+  - check 7's D27 clause, registered at 21:50:55Z, after the removal, cannot be observed on this machine.
+- *Unchanged:* check 6's pass. The line's path adds one JSON field to the same output.
+- Check 7's D27 clause is dropped. The line's display stays unchecked, as recorded.

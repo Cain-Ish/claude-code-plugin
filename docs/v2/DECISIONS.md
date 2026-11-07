@@ -17,7 +17,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes) | user + evidence | D11, D13 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes); REOPENED 2026-11-07 (2.0.0's release review: a Bash map read that exits non-zero, and a sibling repo's map file, arrive without their labels; the delivery is fixed in 06, 2m) | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
@@ -29,7 +29,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06; LOCKED 2026-11-07 ((b): the user's "continue as we plan", with a deadline of their return; the field bar set before the count) | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
-| V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux) | evidence | D25 |
+| V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux); REOPENED 2026-11-07 (2.0.0's release review: a running v1 session re-installs the timer; v1's custom config folders) | evidence | D25 |
 | V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -707,6 +707,35 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   handler on Bash narrowed by the `if` field. This record re-locks unchanged when 2j's checks pass.
 - **Re-LOCKED unchanged 2026-10-29.** 2j's checks passed on its second attempt (06): a map file read through Bash gets
   the labels a Read gets, in the self-test, the smoke on two CLIs and CI. What stays unlabelled is named in 04.
+- **REOPENED 2026-11-07: its trigger fired** ("an injected entry is ever delivered without the unreviewed label"), in
+  2.0.0's release review ([research/2026-11-07-release-review.md](research/2026-11-07-release-review.md), findings 1, 2
+  and 6). Each was confirmed by a run:
+  - a Bash command that reads a map file and exits non-zero is a `PostToolUseFailure`, which the plugin does not
+    hook. On CLI 2.1.319 the uncommitted entry reached Claude in the error text, and no hook ran;
+  - the Bash handler labels this repo's map file for any `.project-map/X.md` in the command, so `cat
+    ../b/.project-map/captured.md` gets this repo's labels, and b's uncommitted entry gets no "unreviewed".
+
+  Neither route is among 04's accepted risks or the README's unlabelled routes. The trust policy stands. The delivery
+  is fixed in 06's step 2m, and this record re-locks unchanged when 2m's checks pass.
+- **PM7, 2026-11-07: the labels are over the line.** The fix commits on the label path since alpha.2's count:
+  - the read hook's labels: `6c94c8a`, `9a76414`, `ede4d7e` and `3eec4f3` (alpha.2), all 2026-10-27; then
+    `939b297` (2j, 2026-10-29), which the records call a fix of the delivery. That is 5 in 30 days. 2m would be the
+    sixth. The review found the gap (finding 16), and this entry comes before 2m's code;
+  - the others since then: the forced decision 1 (`7298b41`, 2i); the index 1 (`7298b41`, control characters),
+    and 2m's rules filter would be its second; session start's line for v1 0.
+- **PM7 keep or kill, 2026-11-07: the labels on map reads** (the read hook and the Bash handler).
+  - *Outcome metric:* an uncommitted entry read in the main session reaches Claude with its "unreviewed" label (this
+    record), counted in the field as C5: must-label reads labelled.
+  - *Kill, the Bash handler:* most map reads in real use go through Bash: 9 of 11 in the field check of 2026-10-29,
+    and 4 of 6 in 2k's check 5, where all 3 must-label reads came through Bash and carried their labels. Deleting the
+    handler leaves the common route unlabelled, which is this record's trigger by definition.
+  - *Kill, all labels:* the review-is-the-commit policy (above) then has no mechanism, and an uncommitted entry reads
+    like a committed one.
+  - *Keep:* both, with 2m's three fixes to the Bash handler: the failure route, a cap on several files' labels, and
+    labels only for this repo's own map files.
+  - *Choice: keep.* *Kill trigger:* any further fix to the Bash handler after 2m, or a field count where a
+    must-label Bash read of this repo's map arrives unlabelled. Then the command parse goes to a rethink under rule 4
+    (for instance labelling by the tool's output instead of its command), not to a seventh fix.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -4429,7 +4458,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       first prompt a question, so the change of unit adds no in-claim epoch.
     - Every epoch counts, alpha.5's and alpha.6's alike: between the two tags, the hooks' output for Claude is
       unchanged (`git diff v2.0.0-alpha.5 v2.0.0-alpha.6 -- plugin/scripts` adds only the `systemMessage` path).
-      `2.0.0` changes no hook code, which its own check verifies.
+    - *Amended 2026-11-07, before any further count, after the release review:* this first said "`2.0.0` changes no
+      hook code". It does now: 2m (06) fixes the Bash handler and the rules filter, and ships first as
+      `2.0.0-alpha.7`, with the user's install moved to it. Epochs on alpha.7 count in full. Epochs on alpha.5 and
+      alpha.6 count for C1, C2, C3, C8 and `field-scope.mjs`, provided 2m's session start and prompt output for the
+      field repo is byte-identical to alpha.6's (2m's check). Its root `.claude/rules/` holds only `.md` files, so
+      the rules fix leaves its index unchanged. Their C5 counts under the rule both builds share: a read of this
+      repo's own map file that exits 0 is labelled.
   - *Pass, all of:*
     1. no defect as the field check defines one (probes/V2-D17-field/README.md): C1, C2, C5, C6b, C7 and C8;
     2. at least one in-claim epoch, judged by reading its first human prompt (the field README's rule);
@@ -4592,6 +4627,19 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Reopen if:**
   - v1's install is found to write a file or scheduler entry the section does not remove;
   - a user's cleanup by the section leaves v1's message or timer behind.
+- **REOPENED 2026-11-07: both triggers fired, in 2.0.0's release review**
+  ([research/2026-11-07-release-review.md](research/2026-11-07-release-review.md), findings 5, 10, 14 and 17). Each
+  was traced in v1's code at `v1-final`, not run:
+  - *the timer comes back:* v1's session start re-installs its timer, shim and env file when they are missing. A v1
+    session still running when the section's commands run keeps v1's hooks until it restarts, so its next start, clear
+    or resume brings the timer back;
+  - *other folders:* v1 wrote its systemd units under `${XDG_CONFIG_HOME:-~/.config}` and its statusline into
+    `$CLAUDE_CONFIG_DIR/settings.json` when those are set. The section named only the defaults. This record's "What
+    v1 writes" copied the defaults too.
+
+  *The fix, in the README (06, 2m):* quit every running Claude Code session before the cleanup, and use those
+  folders when they are set, as the section already says for `BRAIN_DIR`. The choice stands. It re-locks when D26's
+  workflow passes on the new README. The two cases stay unexercised there, as `BRAIN_DIR` is.
 
 ### V2-D27 — How a v1 updater learns of the cleanup
 - **Question:** once a v1 install has moved to v2 (D25), how does its user learn that v1's statusline and timer stay
