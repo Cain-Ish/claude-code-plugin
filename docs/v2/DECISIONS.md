@@ -27,7 +27,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
-| V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06 | user | D03, D05, D22 |
+| V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06; LOCKED 2026-11-07 ((b): the user's "continue as we plan", with a deadline of their return; the field bar set before the count) | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux) | evidence | D25 |
 | V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
@@ -53,8 +53,8 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   the root's `.claude/rules/` left to Claude Code (06, 2k; 2026-11-03).
   - *Re-locked:* D22, 2026-11-06, on 2k's field check (reopened 2026-11-03 by its `paths:` trigger, map issue,
     step 17m).
-  - *Open:* V2-D24, the bar for `2.0.0` and for `main` (2026-11-06; the user's). It is the frontier of the release
-    phase, map issue step 18.
+  - *Locked:* V2-D24, the bar for `2.0.0` and for `main` (2026-11-07, the user's answer: (b)). Its field count is the
+    frontier of the release phase, map issue step 18.
   - *Locked for the move from v1 (2026-11-06):*
     - D25: the release keeps `main`'s marketplace name;
     - D26: the README's "Coming from v1" commands;
@@ -4411,6 +4411,36 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   (b), tightened: the field bar needs at least one in-claim epoch on the current CLI. Its gaps, ranked: that epoch;
   alpha.6's gates (CI done since, the bench waiting); no live session on macOS or Linux; eval drift from CLI 2.1.305.
 - **Check:** the user's answer, recorded with its date.
+- **Answer (2026-11-07, the user's):** they replied "continue as we plan" to a status report that listed D24 with the
+  recommendation (b), and asked to finish and merge by their return on Sunday 2026-11-08. *Choice: (b).* The two
+  questions asked with it take the recommendations they were put with:
+  - D22 is not widened for `2.0.0`. A change named after an epoch's first prompt stays a known issue;
+  - the labels' size does not block the release. Trimming them is a registered fix after it.
+
+  "Try to finish" sets a deadline, not a lower bar. If the bar is not met by the user's return, nothing is tagged
+  `2.0.0` and `main` does not move; the release waits staged.
+- **(b)'s bar, set 2026-11-07 before the corpus was judged.** What had been seen: `field.mjs`'s counts on one
+  session, and, printed with the scanner's record, the first prompt of its second epoch (a question about the work's
+  status) and the start of the answer. No other prompt or answer had been read.
+  - *Corpus:* every main session in the field repo that 2k's check 5 did not read, started on or after 2026-11-06, as
+    listed at each count. Every epoch counts, alpha.5's and alpha.6's alike: between the two tags, the hooks' output
+    for Claude is unchanged (`git diff v2.0.0-alpha.5 v2.0.0-alpha.6 -- plugin/scripts` adds only the `systemMessage`
+    path). `2.0.0` changes no hook code, which its own check verifies.
+  - *Pass, all of:*
+    1. no defect as the field check defines one (probes/V2-D17-field/README.md): C1, C2, C5, C6b, C7 and C8;
+    2. at least one in-claim epoch, judged by reading its first human prompt (the field README's rule);
+    3. C3 at least 80% on in-claim epochs: Claude states the forced decision per directory;
+    4. `field-scope.mjs` within 2k check 5's bars: D at least 70%, R at most 10%, on the corpus's pairs.
+  - *Reported, with no bar:* C4 (the read-through), C9, and the writes outside D22's claim. A C4 below 80% on in-claim
+    epochs goes to the ledger as D22's observation, as the field README says. The README already states it as a
+    known issue.
+  - *When:* a count now, and a count as late as the deadline allows. The release goes ahead at the first count that
+    passes. Later sessions are counted after it, and a defect among them fires the trigger below.
+  - *A failed bar* (a defect, or C3 or D/R outside its bar) stops the release. The defect is fixed under the field
+    README's consequences, or goes to the user.
+- **Reopen if:**
+  - a count after the release finds a defect in C1, C2, C5, C6b, C7 or C8;
+  - the user, on return, sets a different bar.
 
 ### V2-D25 — The marketplace name a v1 install meets on `main`
 - **Question:** when `main` fast-forwards to v2 (D03; `main` is an ancestor of `v2`), what does an existing v1 install
