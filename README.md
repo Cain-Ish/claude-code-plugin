@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.6`, a pre-release from branch `v2`.
+**Status:** `2.0.0-alpha.7`, a pre-release from branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
@@ -25,7 +25,7 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
 - **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude is told
   to add it to `.project-map/captured.md`, with its source and date.
 - **When Claude reads a map file in the main session**, with the Read tool or a Bash command such as `cat`, `tail` or
-  `grep`, a hook labels its entries:
+  `grep`, a hook labels its entries. A Bash command that exits with an error gets them too:
   - "unreviewed, not yet committed", until you commit them;
   - an entry whose source names a repo file has each stretch of three or more words in its quote checked against that
     file now. If the file is missing, or a stretch is not there word for word, the label says so, and a file that
@@ -35,7 +35,7 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
 
   Reads by subagents, and map text met through the Grep tool, a script, or a command that names only the folder, are
-  not labelled.
+  not labelled. Neither is another repo's map file, as with the Read tool.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
@@ -45,7 +45,7 @@ your machine.
 
 The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
 - *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's
-  to alpha.6's changes were checked by the self-test, a live smoke session and CI, and alpha.6's by a timing bench as
+  to alpha.7's changes were checked by the self-test, a live smoke session and CI, and alpha.6's by a timing bench as
   well.
 - *A2:* build, plan and question tasks in three real repos (two private ones, and this plugin's own v1 repo), 10 runs
   per task.
@@ -66,6 +66,8 @@ repos:
   gone.
 - alpha.6's change: with none of v1's scripts on disk, session start's output is byte-identical to alpha.5's on this
   repo.
+- alpha.7's changes, from the release review of 2.0.0: session start's and the prompt hook's output are byte-identical
+  to alpha.6's on this repo, on A1's fixture and on the owner's other repo.
 
 alpha.5's change is not an edge case: in any repo with a root `.claude/rules/` folder, the index and the forced
 decision no longer list it. In the user's own repo, where every one of 30 rule files declares `paths:`, Claude Code
@@ -82,7 +84,12 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
 - a document path holding a control character, now listed with `?` in its place;
 - a turn that is a subagent's report or another session's message, which no longer takes the forced decision;
 - a map file read through Bash, which now gets the labels a Read gets;
-- v1's statusline or timer script left on disk, which adds one line at session start, shown to you and not to Claude.
+- v1's statusline or timer script left on disk, which adds one line at session start, shown to you and not to Claude;
+- a map file read through Bash by a command that exits with an error, now labelled;
+- several map files read in one Bash command whose labels together pass 10,000 characters;
+- a map file named in a Bash command by a path outside this repo, now left unlabelled, as a Read leaves it;
+- a document in the root's `.claude/rules/` whose name does not end in `.md`, now listed, since Claude Code does not
+  load it.
 
 **Where it helped:**
 - *A designer's spec, read in an earlier session:* kept in 10 of 10 runs (auto memory: 2), and followed in a fresh
@@ -120,7 +127,7 @@ sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.6 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.7 --scope project
 claude plugin install second-brain@second-brain-v2 --scope project
 ```
 
@@ -140,7 +147,10 @@ timer that runs every 30 minutes.
 - While v1's statusline or timer script is on disk, v2's session start shows you one line that points here. Claude
   does not see it.
 
-Remove them in this order:
+First quit every running Claude Code session. A session that started before the update keeps v1's hooks until it
+restarts, and v1's session start puts the timer back.
+
+Then remove them in this order:
 
 1. **The statusline.** In `~/.claude/settings.json`, find the `statusLine` entry whose command runs
    `buddy-statusline.sh`, and delete it.
@@ -172,13 +182,14 @@ Remove them in this order:
    Remove-Item "$HOME\.second-brain\bin\buddy-statusline.sh", "$HOME\.second-brain\bin\sb-extract-drain.sh", "$HOME\.second-brain\bin\sb-extract-drain-hidden.vbs", "$HOME\.second-brain\.extract-timer-env" -ErrorAction SilentlyContinue
    ```
 
-- If you set `BRAIN_DIR` for v1, use that folder in place of `~/.second-brain`.
+- If you set `BRAIN_DIR` for v1, use that folder in place of `~/.second-brain`. If you set `XDG_CONFIG_HOME` or
+  `CLAUDE_CONFIG_DIR`, use those folders in place of `~/.config` and `~/.claude`.
 - `.extract-timer-env`, removed above, may have held your `ANTHROPIC_API_KEY`. Until you remove the timer, v1's old
   copy can still use it. What v2 says about making no network calls holds for v2's own hooks, not for v1's leftovers.
 - Your data stays: `~/.second-brain` and `~/knowledge` hold what v1 learned. v2 does not read them; keep or delete
   them as you like.
 - v1 was installed for your user, so after the update v2 runs in every repo you open. To use it in chosen repos only,
-  run `claude plugin uninstall second-brain@second-brain`, then install it there with `--scope project`.
+  run `claude plugin uninstall second-brain@second-brain`, then run both Install commands in each of those repos.
 
 ## Review is the commit
 
@@ -223,7 +234,7 @@ Remove them in this order:
     the machine idle: CPU at most 10% before each run.
   - alpha.6, in 3 pairs against alpha.5 on that machine: every hook added at most 92.1 ms, with 0 errors. Session start
     added 52 to 92 ms, against alpha.5's 64 to 66 in the same pairs. The spread between pairs is wider than the
-    change, so its own cost is not resolved.
+    change. v1's scripts were no longer on the machine, so the path that adds the line was not timed.
   - One CI run in alpha.2's checks went over 100 ms at one session (114 ms at session start on Windows) through
     a few slow calls; its median was as usual. Timed in pairs on the same runner, alpha.2 costs no more than
     alpha.1.
@@ -255,8 +266,8 @@ Remove them in this order:
   checked context windows marked 6 to 8 directories yes. Before changing code, Claude opened documents from 0 to 3 of
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
 - **Some map reads get no label:** through the Grep tool, a script that reads the file, a command that names only the
-  folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11 times: 2 through the Read tool and
-  9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds.
+  folder, PowerShell, a subagent, or a path outside this repo. In the same sessions, Claude read map entries 11
+  times: 2 through the Read tool and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds.
 - **Each Bash read of a map file repeats its labels**, as a Read does. Claude often checks the end of the file after a
   capture, and each such check carries the file's labels again.
 - **Before Claude Code 2.1.85,** which ignores the hook's `if` field, the Bash handler starts on every Bash command. It
@@ -289,7 +300,7 @@ Remove them in this order:
 
 ```
 claude plugin uninstall second-brain@second-brain-v2 --scope project
-claude plugin marketplace remove second-brain-v2
+claude plugin marketplace remove second-brain-v2 --scope project
 ```
 
 - Your `.project-map/` files stay.

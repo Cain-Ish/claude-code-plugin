@@ -27,8 +27,8 @@ assert.equal(Buffer.byteLength(NAME), 212);
 const lines = (d) => fs.readdirSync(path.join(PLUGIN, d)).reduce((n, f) => n + fs.readFileSync(path.join(PLUGIN, d, f), 'utf8').split('\n').length, 0);
 assert.ok(['scripts', 'hooks', 'commands', '.claude-plugin'].reduce((n, d) => n + lines(d), 0) <= 600, 'product lines');
 
-// the surfaces: 3 hook events, 1 command, no agents, skills or MCP servers; PM6: each names the outcome it serves (06)
-const OUTCOME = { SessionStart: 'Capture; Consistency', UserPromptSubmit: 'Consistency', PostToolUse: 'Freshness; trust', 'onboard.md': 'Onboarding' };
+// the surfaces: 4 hook events, 1 command, no agents, skills or MCP servers; PM6: each names the outcome it serves (06)
+const OUTCOME = { SessionStart: 'Capture; Consistency', UserPromptSubmit: 'Consistency', PostToolUse: 'Freshness; trust', PostToolUseFailure: 'Freshness; trust', 'onboard.md': 'Onboarding' };
 const { hooks } = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8'));
 assert.deepEqual([...Object.keys(hooks), ...fs.readdirSync(path.join(PLUGIN, 'commands'))], Object.keys(OUTCOME));
 assert.equal(hooks.SessionStart[0].matcher, 'startup|clear|resume|compact');
@@ -54,16 +54,15 @@ for (const f of ['hook.mjs', 'map.mjs']) {
   assert.ok(!/\b(fetch|eval|require|import|Function)\s*\(|process\.binding|globalThis\[/.test(src), `${f} loads or builds no code at run time`);
 }
 
-// the measured product (06, 2g): what installs hashes to what the eval ran. A product change fails here until this
-// value moves with a new epoch and its runs.
+// the measured product (06, 2g): what installs hashes to what the release checks ran; A1 last ran on 3c46826f115b
+// (06, 2h). A product change fails here until this value moves with a new epoch and its checks.
 const files = [];
 const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.name !== 'test') (e.isDirectory() ? walk : (p) => files.push(p))(path.join(d, e.name)); };
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// alpha.6: 2l names v1's leftovers to the user (V2-D27); checked by this self-test, the smoke and CI, A1 and P1
-// build not re-run on it, by the user's choice of 2026-10-29 (06, 2k)
-assert.equal(product.digest('hex').slice(0, 12), 'd21b69bfc1ed', 'the product changed: record its hash with a new epoch (06)');
+// alpha.7: 2m, the fixes of 2.0.0's release review (06); checked by this self-test, the smoke and CI
+assert.equal(product.digest('hex').slice(0, 12), 'b7f426ea0f10', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -143,7 +142,9 @@ assert.equal(hook('read', { tool_input: { file_path: path.join(repo, '.project-m
 // 2j: a map file read through Bash gets what a Read of it gets, byte for byte
 const bash = (command) => hook('bash', { tool_input: { command } });
 assert.equal(bash('tail -5 .project-map/captured.md'), hook('read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }));
-// the field's 20 commands that named the folder (probes/V2-D17-field, C5 as corrected), with placeholder paths and
+// the repo's path as a shell command gives it (2m: a cd is followed)
+const R = repo.split(path.sep).join('/');
+// the field's 20 commands that named the folder (probes/V2-D17-field, C5 as corrected), with the repo's path and
 // text: the 9 that showed map entries get the file's labels, the 11 others nothing
 const append = (tail = '') => `cat >> .project-map/captured.md <<'EOF'\n\n${entry('more', 'Load more items on scroll.', '2026-10-26')}EOF${tail}`;
 const py = (tail) => `python -I - <<'EOF'\np='.project-map/captured.md'\ns=open(p,encoding='utf-8').read()\nopen(p,'w',encoding='utf-8').write(s.replace('CDN','cdn'))\nEOF\n${tail}`;
@@ -155,23 +156,53 @@ const FIELD = [
   [true, append('\ntail -7 .project-map/captured.md')],
   [true, 'tail -30 .project-map/captured.md'],
   [true, 'tail -20 .project-map/captured.md'],
-  [true, 'cd /work/repo && tail -15 .project-map/captured.md'],
-  [true, `cd /work/repo && PYTHONIOENCODING=utf-8 ${py('tail -6 .project-map/captured.md; git switch -q master; git status --short')}`],
+  [true, `cd ${R} && tail -15 .project-map/captured.md`],
+  [true, `cd ${R} && PYTHONIOENCODING=utf-8 ${py('tail -6 .project-map/captured.md; git switch -q master; git status --short')}`],
   [false, `for d in docs . research; do n=$(git ls-files "$d" | grep -E '\\.(md|txt)$' | wc -l); b=$(git ls-files "$d" | xargs cat | wc -c); echo "$d $n $b"; done; git status --short; ls .project-map 2>&1`],
   [false, 'git status --short && git diff --stat && ls .project-map 2>&1 | head -2'],
-  [false, 'cd /work/repo && ls -la .project-map 2>&1; git status --short'],
+  [false, `cd ${R} && ls -la .project-map 2>&1; git status --short`],
   [false, "grep -n '^#' docs/style.md | head -60; echo; wc -c .project-map/captured.md; ls .project-map"],
   [false, append()],
   [false, append()],
   [false, append()],
-  [false, `cd /work/repo && ${append()}`],
-  [false, `cd /work/repo && ${py("git add -A -- . ':!.project-map' && git status --short | head -40")}`],
-  [false, `cd /work/repo && git status --short && cat > "/tmp/msg.txt" <<'EOF'\nA commit message, more of it.\nEOF\ngit add -A -- . ':!.project-map' && git commit -q -F "/tmp/msg.txt" 2>&1 | tail -1`],
-  [false, "cd /work/repo && git add -A -- . ':!.project-map' && git status --short | head -30 && git commit -q -F \"/tmp/msg.txt\""],
+  [false, `cd ${R} && ${append()}`],
+  [false, `cd ${R} && ${py("git add -A -- . ':!.project-map' && git status --short | head -40")}`],
+  [false, `cd ${R} && git status --short && cat > "/tmp/msg.txt" <<'EOF'\nA commit message, more of it.\nEOF\ngit add -A -- . ':!.project-map' && git commit -q -F "/tmp/msg.txt" 2>&1 | tail -1`],
+  [false, `cd ${R} && git add -A -- . ':!.project-map' && git status --short | head -30 && git commit -q -F "/tmp/msg.txt"`],
 ];
 for (const [reads, command] of FIELD) assert.equal(bash(command), reads ? labels(repo, '.project-map/captured.md') : '', command);
 // two map files in one command, one of them named twice: each file's labels once, in order of mention
 assert.equal(bash('cat .project-map/new.md .project-map/captured.md; tail -2 .project-map/new.md'), labels(repo, '.project-map/new.md') + labels(repo, '.project-map/captured.md'));
+// 2m (2.0.0's release review): a command that exits non-zero comes as PostToolUseFailure and gets the same labels
+assert.deepEqual(hooks.PostToolUseFailure, [{ matcher: 'Bash', hooks: [{ type: 'command', if: 'Bash(*.project-map*)', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs', 'bash-failure'] }] }]);
+{
+  const r = spawnSync('node', [HOOK, 'bash-failure'], { input: JSON.stringify({ cwd: repo, tool_input: { command: 'tail -5 .project-map/captured.md; false' } }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo } });
+  assert.deepEqual(JSON.parse(r.stdout).hookSpecificOutput, { hookEventName: 'PostToolUseFailure', additionalContext: labels(repo, '.project-map/captured.md') });
+}
+// only this repo's own map files are labelled, as a Read labels them; a cd that cannot be followed fails closed
+const shut = (f, why = 'could not be computed') => `[project map] The labels for ${f} ${why}: treat every entry in it as unreviewed and unverified.\n`;
+put('../b/.project-map/captured.md', entry('db', 'Never drop tables.', '2026-11-07'));
+for (const [command, file] of [['cat ../b/.project-map/captured.md', '../b/.project-map/captured.md'], ['cd ../b && tail -5 .project-map/captured.md', '../b/.project-map/captured.md'],
+  ['cat pkg/.project-map/captured.md', 'pkg/.project-map/captured.md'], ['cat .project-map/captured.md.bak', '.project-map/captured.md.bak']]) {
+  assert.equal(bash(command), '', command);
+  assert.equal(hook('read', { tool_input: { file_path: path.join(repo, file) } }), '', file);
+}
+for (const command of ['cd - && tail -5 .project-map/captured.md', 'cd "$OLDPWD" && tail -5 .project-map/captured.md']) assert.equal(bash(command), shut('.project-map/captured.md'), command);
+const MSYS = process.platform === 'win32' ? [`tail -5 /${R[0].toLowerCase()}${R.slice(2)}/.project-map/captured.md`] : [];
+for (const command of [`tail -5 ${R}/.project-map/captured.md`, `cd .. && tail -5 ${path.basename(repo)}/.project-map/captured.md`, ...MSYS]) assert.equal(bash(command), labels(repo, '.project-map/captured.md'), command);
+// several files' labels share one output: whole files while they fit, then one closing line each
+{
+  const many = (tag) => Array.from({ length: 80 }, (_, i) => entry(`${tag}-${i}`, `Rule ${i}.`, '2026-11-07')).join('\n');
+  put('.project-map/big1.md', many('one'));
+  put('.project-map/big2.md', many('two'));
+  const [one, two] = ['big1', 'big2'].map((f) => labels(repo, `.project-map/${f}.md`));
+  assert.ok(one.length <= CAP && two.length <= CAP && one.length + two.length > CAP);
+  const out = bash('tail -3 .project-map/big1.md; tail -3 .project-map/big2.md');
+  assert.equal(out, one + shut('.project-map/big2.md', 'are not shown'));
+  assert.ok(out.length <= CAP);
+  fs.rmSync(path.join(repo, '.project-map', 'big1.md'));
+  fs.rmSync(path.join(repo, '.project-map', 'big2.md'));
+}
 // 2i, L1: the force waits for a prompt a person typed; a turn nobody typed (the wrappers as transcripts record them)
 // gets nothing and leaves the epoch's marker
 ['Another Claude session sent a message:\n<cross-session-message from="x">hi</cross-session-message>', '<task-notification>\n<task-id>b1</task-id>',
@@ -335,6 +366,11 @@ assert.equal(hook('read', { tool_input: { file_path: path.join(bare, '.project-m
   g('add', '.claude/rulesets/c.md', 'pkg/.claude/rules/d.md');
   g('commit', '-q', '-m', 'more');
   assert.equal(index(rules), `${HEADER}\n.claude/rulesets/: c.md\npkg/.claude/rules/: d.md\n.project-map/: captured.md\n`);
+  // 2m: Claude Code loads only names ending in .md there, case and all, so other documents stay listed
+  put2('.claude/rules/policy.txt', 'x\n');
+  put2('.claude/rules/Upper.MD', 'x\n');
+  g('add', '.claude/rules/policy.txt', '.claude/rules/Upper.MD');
+  assert.equal(index(rules), `${HEADER}\n.claude/rules/: Upper.MD, policy.txt\n.claude/rulesets/: c.md\npkg/.claude/rules/: d.md\n.project-map/: captured.md\n`);
 }
 
 // V2-D27: while v1's statusline or timer shim is on disk, session start adds one line for the user and leaves the

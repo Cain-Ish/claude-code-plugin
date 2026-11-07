@@ -48,15 +48,17 @@ console.log(JSON.stringify({ onboard }));
 // non-map file shows that a handler with empty output is seen; git status must start none; echo $HOME and $() record
 // whether the if field's fallback starts the Bash handler (06, 2j). A -p session's permissions refuse $(), so it shows
 // nothing (2.1.305 and 2.1.312)
-const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md'];
-const bashEv = session('Do five things in this order, one tool call each, then reply with only the results, numbered. (1) Use the Read tool on '
+// 2m: a map read that exits non-zero (a missing file beside it) comes as PostToolUseFailure, and gets the labels too
+const FAILING = 'tail -n 5 .project-map/nope.md .project-map/captured.md';
+const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md', FAILING];
+const bashEv = session(`Do ${COMMANDS.length + 1} things in this order,` + ' one tool call each, then reply with only the results, numbered. (1) Use the Read tool on '
   + `docs/style.md. ${COMMANDS.map((c, i) => `(${i + 2}) Use the Bash tool to run exactly: ${c}`).join(' ')} and then quote word for word the `
   + 'labels a hook added after it.', 'Grep,Glob,WebFetch,WebSearch', ['Read', 'Bash(git status *)', 'Bash(echo *)', 'Bash(tail *)']);
 const started = new Map();
 let last = null;
 for (const e of bashEv) {
   for (const x of e.type === 'assistant' ? e.message?.content ?? [] : []) if (x.type === 'tool_use') started.set(last = x.input?.command ?? x.input?.file_path, []);
-  if (e.subtype === 'hook_response' && e.hook_event === 'PostToolUse' && last !== null) started.get(last).push({ hook: e.hook_name, exit: e.exit_code, output: String(e.output ?? '').slice(0, 120) });
+  if (e.subtype === 'hook_response' && /^PostToolUse(Failure)?$/.test(e.hook_event) && last !== null) started.get(last).push({ hook: e.hook_name, exit: e.exit_code, output: String(e.output ?? '').slice(0, 120) });
 }
 const bashResult = bashEv.findLast((e) => e.type === 'result');
 const bashReply = bashResult?.result ?? '';
@@ -72,6 +74,7 @@ const after = (k) => [...started].find(([c]) => String(c).endsWith(k))?.[1];
 assert.deepEqual(after('style.md')?.map((h) => [h.hook, h.output]), [['PostToolUse:Read', '']], 'an empty handler is seen');
 assert.deepEqual(after('git status --short'), [], 'no Bash handler for a command that does not name the map');
 assert.ok(after('.project-map/captured.md')?.some((h) => h.hook === 'PostToolUse:Bash' && h.output.includes('[project map] Labels')), 'Bash handler on a map read');
+assert.ok([...started].find(([c]) => c === FAILING)?.[1].some((h) => h.hook === 'PostToolUseFailure:Bash' && h.output.includes('[project map] Labels')), 'Bash handler on a map read that exits non-zero');
 assert.ok(bashReply.includes('unreviewed, not yet committed') && bashReply.includes('unverified quote, captured 2026-10-24'), 'Bash read labels');
 assert.ok([...started.values()].flat().every((h) => h.exit === 0), 'every hook exits 0');
 console.log('smoke ok');

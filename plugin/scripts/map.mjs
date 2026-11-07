@@ -98,9 +98,10 @@ export function index(root) {
   const byDir = new Map();
   for (const p of [...tracked.stdout.split('\0'), ...fresh]) {
     // Claude Code loads the root's .claude/rules/ itself (unscoped at launch, paths: on a matching read, write or
-    // edit), so the forced decision does not ask about it (D22's 17m, 06 2k). shortcut: the root's folder only;
-    // whether Claude Code loads a nested .claude/rules/ was not checked, so one stays listed
-    if (!DOC.test(p) || p.startsWith('.claude/rules/')) continue;
+    // edit), so the forced decision does not ask about it (D22's 17m, 06 2k). It loads only names that end in .md,
+    // case and all (the pinned CLI's walker, 06 2m), so other documents there stay listed. shortcut: the root's folder
+    // only; whether Claude Code loads a nested .claude/rules/ was not checked, so one stays listed
+    if (!DOC.test(p) || (p.startsWith('.claude/rules/') && p.endsWith('.md'))) continue;
     const i = p.lastIndexOf('/');
     const d = i < 0 ? '.' : p.slice(0, i);
     if (!byDir.has(d)) byDir.set(d, []);

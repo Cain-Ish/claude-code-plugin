@@ -26,6 +26,12 @@
         "matcher": "Bash",
         "hooks": [{ "type": "command", "if": "Bash(*.project-map*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash"] }]
       }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "if": "Bash(*.project-map*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash-failure"] }]
+      }
     ]
   }
 }

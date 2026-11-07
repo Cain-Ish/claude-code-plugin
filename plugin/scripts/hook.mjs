@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { MAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, V1_LEFT } from './map.mjs';
+import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, V1_LEFT } from './map.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
 const emit = (ev, text, note) => { if (text || note) process.stdout.write(JSON.stringify({ ...(note && { systemMessage: note }), hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
@@ -11,7 +11,8 @@ const which = process.argv[2];
 const input = which === 'onboard' ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
 // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
-const labelled = (file) => { try { return labels(root, file); } catch { return `[project map] The labels for ${file} could not be computed: treat every entry in it as unreviewed and unverified.\n`; } };
+const closed = (file, why = 'could not be computed') => `[project map] The labels for ${file} ${why}: treat every entry in it as unreviewed and unverified.\n`;
+const labelled = (file) => { try { return labels(root, file); } catch { return closed(file); } };
 
 if (which === 'session-start') {
   const idx = index(root);
@@ -28,19 +29,39 @@ if (which === 'session-start') {
 } else if (which === 'read') {
   const file = rel(root, input.tool_input?.file_path);
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
-} else if (which === 'bash') {
+} else if (which === 'bash' || which === 'bash-failure') {
   // a map file read through Bash gets what a Read of it gets (D14, 06 2j): a part of the command, between |, ;, & or a
-  // line break, with a read verb that names a map file and does not redirect into the folder. shortcut: a script that
-  // reads the file, or a command that names only the folder, stays unlabelled (04's accepted risk)
-  const files = new Set();
+  // line break, with a read verb that names a map file and does not redirect into the folder. A command that exits
+  // non-zero comes as PostToolUseFailure (06 2m). shortcut: a script that reads the file, or a command that names only
+  // the folder, stays unlabelled (04's accepted risk)
+  // only this repo's own map files, as a Read labels them (06 2m): each path is the shell's, from the hook's cwd and
+  // each cd before it. shortcut: a cd inside a subshell is taken to last, so a file after the subshell may go unlabelled
+  const shell = (p) => (p === '~' || p.startsWith('~/') ? os.homedir() + p.slice(1) : process.platform === 'win32' ? p.replace(/^\/([a-z])(\/|$)/i, '$1:/') : p);
+  const real = (d) => { try { return fs.realpathSync(d); } catch { return d; } };
+  const ours = (d) => path.relative(root, d) === '' || path.relative(real(root), real(d)) === '';
+  let cwd = input.cwd ?? root;
+  const files = new Map(); // a map file -> false when a cd before it could not be followed: it then fails closed
   for (const part of String(input.tool_input?.command ?? '').split(/[|;&\n]/)) {
+    if (/^[\s({]*(cd|pushd)(\s|$)/.test(part)) {
+      const t = /^[\s({]*(?:cd|pushd)(?:\s+(['"]?)([^'"\s$]+)\1)?\s*$/.exec(part);
+      cwd = !t || cwd === null || t[2]?.startsWith('-') ? null : t[2] ? path.resolve(cwd, shell(t[2])) : os.homedir();
+      continue;
+    }
     if (!/\b(cat|head|tail|sed|grep|less|more|awk)\b/.test(part) || />\s*['"]?[^\s'"]*\.project-map\//.test(part)) continue;
-    for (const m of part.matchAll(/\.project-map\/([^\s'"`<>]+\.md)\b/g)) {
-      const f = path.posix.normalize(`${MAP}/${m[1]}`);
-      if (f.startsWith(`${MAP}/`)) files.add(f);
+    for (const m of part.matchAll(/([^\s'"`<>=]*)\.project-map\/([^\s'"`<>]+?\.md)(?![\w.-])/g)) {
+      const f = path.posix.normalize(`${MAP}/${m[2]}`);
+      if (!f.startsWith(`${MAP}/`)) continue;
+      if (cwd === null) files.set(f, false);
+      else if (!files.has(f) && ours(path.resolve(cwd, shell(m[1]) || '.'))) files.set(f, true);
     }
   }
-  emit('PostToolUse', [...files].map(labelled).join(''));
+  // the files share one output: whole files' labels while they fit beside the closing lines of the rest (D18, J3)
+  const parts = [...files].map(([f, ok]) => [f, ok ? labelled(f) : closed(f)]).filter(([, t]) => t);
+  const rest = (k) => parts.slice(k).map(([f]) => closed(f, 'are not shown')).join('');
+  let out = '';
+  let k = 0;
+  for (; k < parts.length && out.length + parts[k][1].length + rest(k + 1).length <= CAP; k++) out += parts[k][1];
+  emit(which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure', out + rest(k));
 } else if (which === 'onboard') {
   const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
   const idx = index(root);
