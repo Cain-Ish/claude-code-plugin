@@ -2171,3 +2171,59 @@ field bar passes. Nothing is tagged `2.0.0` before then.
   - an install from the tag in an isolated config;
   - the user's install moved, with 2l's checks 2 and 3;
   - then `release-2.0.0` is rebuilt on alpha.7, and 18f's branch checks run again.
+
+### 2m, the review's second round (2026-11-07): two fixes fail, so 2m goes back
+
+Five refute-first verifiers, one for each fixed area, ran against `beb733e`. Before it: the self-test passed, and each
+new case failed on alpha.6 and passed on 2m. Session start and the prompt hook were byte-identical to alpha.6's on the
+field repo (3,159 B and 309 B), this repo and A1's fixture. The smoke passed on CLI 2.1.305 and 2.1.319, and the failure
+route's labels reached the hook output on both. CI on `beb733e` passed on three systems. The bench did not run: the
+machine stayed over 10% CPU, and the driver was stopped before any pair when the build had to change.
+
+| Area | Verdict | What was found |
+| --- | --- | --- |
+| The failure route (1, 2) | fixed | Live on 2.1.319: Claude quoted the labels a failing map read got. A `cd` in an earlier Bash call reaches the hook's `cwd` |
+| The cap (4) | not fixed | When even the first file does not fit, the closing lines are emitted with no limit: 85 files' lines pass 10,000 characters, and 200 come to 23,800 |
+| Only this repo's files (6 to 8) | regression | Reads of this repo's own map that alpha.6 labelled now get nothing: a quoted path with a space in it, a prefix such as `$PWD/`, `$CLAUDE_PROJECT_DIR/` or `$(pwd)/`, `git -C`, a `popd`, a subshell's `cd`. A wrong label became no label, which is worse. Confirmed live for `"$PWD/..."` on the failure route |
+| The rules filter (11, 15) and the comment (18) | fixed | The pinned CLI's walker loads exactly the names ending in `.md`, in every subfolder |
+| The README (3, 5, 10, 13, 14, 17) and the record (12) | fixed, with gaps | Uninstall has no `--scope local` form. A session's `/clear`, resume or fork re-runs v1's start too. An alpha installs beside v1 and does not replace it, so v1 stays enabled. 06's "check 6 measures that" in 2l's result was left uncorrected |
+
+Also found, older than 2m: the command is split at `|`, `;` and `&` inside quotes too, so `grep -E "a|b"
+.project-map/captured.md` gets no label. A glob such as `.project-map/*.md` gets none either. A path written with
+backslashes is never matched.
+
+### 2m, attempt 2 (registered 2026-11-07, before the code)
+
+The rule for a map file named in a Bash command changes from "label it only when it resolves to this repo, else
+nothing" to *label it when it surely is this repo's, else fail closed*. No named map file is left with nothing.
+- *The parts:* the command is split at line breaks, and at `|`, `;` and `&` outside quotes.
+- *The directory:*
+  - it starts at the hook's `cwd`;
+  - a part that is only `cd` or `pushd` with a plain path (no `$`, backtick, glob or leading `-`) moves it there;
+  - any other part that names `cd`, `pushd` or `popd`, or that runs `git`, `env` or `make` with `-C`, makes it
+    unknown from there on.
+- *A read part* (a read verb, and no redirect into the map folder) is split into words, with quotes respected, and
+  backslashes read as `/`. Each word that names `.project-map/` and ends in `.md` is a named map file:
+  - it gets this repo's labels when all of these hold: the directory is known, the path before `.project-map/` holds
+    no `$`, backtick, parenthesis or glob, the name holds no glob, and that path resolves to this repo's root (as
+    written, or through links);
+  - otherwise it gets one fail-closed line naming the path as written. That covers another repo's map file, a path
+    built from a variable, and a glob.
+  - A word that does not end in `.md` names no map file (`captured.md.bak`, `captured.md~`), as a Read of it labels
+    nothing.
+- *The cap:* whole files' labels while they fit beside the closing lines of the rest. If those lines alone would pass
+  10,000 characters, one line covers every named file.
+- *The README:*
+  - Uninstall's `--scope local` form;
+  - "Coming from v1": a session's start, `/clear`, resume or fork re-runs v1's; an alpha does not replace v1, so
+    uninstall v1 first;
+  - the line for a map file the hook cannot place;
+  - 2l's correction names the stale sentence.
+- *PM7:* this is 2m's own second attempt, before any release, so it is not the "further fix" of the labels' kill
+  trigger. A third attempt would be.
+- *Checks:* as 2m's, on the new build, and:
+  - the self-test and the case runner add every case the second round found. Each must get labels or the fail-closed
+    line, never nothing: a quoted path with a space, `$PWD/`, `$CLAUDE_PROJECT_DIR/`, `$(pwd)/`, `git -C`, `popd`, a
+    subshell's `cd`, `grep -E "a|b"`, a glob, a backslash path, 85 and 200 files;
+  - a third round: two verifiers on the Bash handler alone, one hunting a read of this repo's map that gets nothing,
+    one hunting another folder's map that gets this repo's labels.
