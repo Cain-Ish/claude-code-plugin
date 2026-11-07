@@ -174,3 +174,13 @@ does not depend on the choice.
 
   C9 is unchanged, since they hold no nested agents.
 - The before and after outputs are in `research/raw/` (gitignored).
+
+## 2l: the alpha.6 move in the build label (2026-11-07)
+
+- *Why:* the user's install moved to alpha.6 at 2026-11-06 22:08:21Z (the install record), and the scanner labelled
+  later epochs alpha.5.
+- *The change:* one entry in the move table, alpha.6 from that time.
+- *Pass:* on a frozen copy of the one session that runs alpha.6, the scanner's output equals the unchanged
+  scanner's in everything but the build label, and the epoch after the move is labelled alpha.6.
+- *Result: pass.* Its two epochs are labelled alpha.5 (started 2026-11-06 16:32Z) and alpha.6 (resumed 2026-11-07
+  11:50Z).
