@@ -35,8 +35,8 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
 
   Reads by subagents, and map text met through the Grep tool, a script, or a command that names only the folder, are
-  not labelled. A map file named by a path the hook cannot place in this repo, such as another repo's map or a path
-  built from a variable or a glob, gets one line telling Claude to treat its entries as unreviewed and unverified.
+  not labelled. Some Bash forms are not labelled either, and another folder's map file can get this repo's labels:
+  see Known issues.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
@@ -88,10 +88,6 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
 - v1's statusline or timer script left on disk, which adds one line at session start, shown to you and not to Claude;
 - a map file read through Bash by a command that exits with an error, now labelled;
 - several map files read in one Bash command whose labels together pass 10,000 characters;
-- a map file named in a Bash command by a path the hook cannot place in this repo, which now gets one line telling
-  Claude to treat its entries as unreviewed, in place of this repo's labels;
-- a Bash command with `|`, `;` or `&` inside quotes, or a map path written with backslashes, now read as the shell
-  reads it;
 - a document in the root's `.claude/rules/` whose name does not end in `.md`, now listed, since Claude Code does not
   load it.
 
@@ -272,8 +268,14 @@ Then remove them in this order:
   checked context windows marked 6 to 8 directories yes. Before changing code, Claude opened documents from 0 to 3 of
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
 - **Some map reads get no label:** through the Grep tool, a script that reads the file, a command that names only the
-  folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11
-  times: 2 through the Read tool and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds.
+  folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11 times: 2 through the Read tool
+  and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds. Some Bash forms still get no label:
+  `git diff` or `git show` of a map file (which shows exactly the uncommitted entries), `rg`, a `cd .project-map`
+  before the read, a glob such as `.project-map/*`, a `|` inside quotes (`grep -E "a|b"`), a path written with
+  backslashes, `find -exec`, or a loop over the folder.
+- **Another folder's map file read through Bash gets this repo's labels:** another repo's, a package's, or another
+  branch's through `git grep`. Its own uncommitted entries then get no "unreviewed" line. The hook reads the
+  command's text, which it cannot read with confidence; labelling what the command printed is the next planned step.
 - **Each Bash read of a map file repeats its labels**, as a Read does. Claude often checks the end of the file after a
   capture, and each such check carries the file's labels again.
 - **Before Claude Code 2.1.85,** which ignores the hook's `if` field, the Bash handler starts on every Bash command. It

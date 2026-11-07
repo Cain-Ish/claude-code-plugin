@@ -1,4 +1,4 @@
-// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|onboard>
+// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|bash-failure|onboard>
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -30,53 +30,27 @@ if (which === 'session-start') {
   const file = rel(root, input.tool_input?.file_path);
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
 } else if (which === 'bash' || which === 'bash-failure') {
-  // a map file named in a Bash read gets this repo's labels when it surely is this repo's, and a fail-closed line
-  // otherwise, so none is left with nothing (D14; 06 2j, 2m). A read is a part of the command (lines, cut at |, ; and &
-  // outside quotes) with a read verb, not redirecting into the folder. A command that exits non-zero comes as
-  // PostToolUseFailure. shortcut: a script that reads the file, or a command naming only the folder, gets nothing
-  // (04's accepted risk)
-  const shell = (p) => (p === '~' || p.startsWith('~/') ? os.homedir() + p.slice(1) : process.platform === 'win32' ? p.replace(/^\/([a-z])(\/|$)/i, '$1:/') : p);
-  const real = (d) => { try { return fs.realpathSync(d); } catch { return d; } };
-  const ours = (d) => path.relative(root, d) === '' || path.relative(real(root), real(d)) === '';
-  const parts = String(input.tool_input?.command ?? '').split('\n').flatMap((line) => {
-    const out = [''];
-    let q = '';
-    for (const c of line) {
-      if (!q && '|;&'.includes(c)) { out.push(''); continue; }
-      if (q ? c === q : c === '"' || c === "'") q = q ? '' : c;
-      out[out.length - 1] += c;
-    }
-    return out;
-  });
-  let cwd = input.cwd ?? root; // null once a directory change cannot be followed
-  const files = new Map(); // a named map file -> true when it is this repo's own, to label; false to fail closed
-  for (const part of parts) {
-    const cd = /^[\s({]*(?:cd|pushd)(?:\s+(?:"([^"$`]*)"|'([^']*)'|([^\s'"$`*?[]+)))?\s*$/.exec(part);
-    if (cd) {
-      const to = cd[1] ?? cd[2] ?? cd[3];
-      cwd = cwd === null || to?.startsWith('-') ? null : to ? path.resolve(cwd, shell(to)) : os.homedir();
-      continue;
-    }
-    if (/(^|[\s({'"])(cd|pushd|popd)(\s|$)|\b(git|env|make)\s(.*\s)?-C(\s|$)/.test(part)) cwd = null;
+  // a map file read through Bash gets what a Read of it gets (D14, 06 2j): a part of the command, between |, ;, & or a
+  // line break, with a read verb that names a map file and does not redirect into the folder. shortcut: a script that
+  // reads the file, or a command that names only the folder, stays unlabelled (04's accepted risk)
+  const files = new Set();
+  for (const part of String(input.tool_input?.command ?? '').split(/[|;&\n]/)) {
     if (!/\b(cat|head|tail|sed|grep|less|more|awk)\b/.test(part) || />\s*['"]?[^\s'"]*\.project-map\//.test(part)) continue;
-    for (const [, dq, sq, bare] of part.replace(/\\/g, '/').matchAll(/"([^"]*)"|'([^']*)'|([^\s"']+)/g)) {
-      const m = /^(?:.*=)?(.*?)\.project-map\/(.+\.md)$/.exec(dq ?? sq ?? bare.replace(/^[({<]+|[)}]+$/g, ''));
-      if (!m) continue;
-      const f = path.posix.normalize(`${MAP}/${m[2]}`);
-      const mine = cwd !== null && !/[$`()*?[{]/.test(m[1] + m[2]) && f.startsWith(`${MAP}/`) && ours(path.resolve(cwd, shell(m[1]) || '.'));
-      const key = mine ? f : `${m[1].split(/\s/).pop()}${MAP}/${m[2]}`;
-      if (!files.has(key)) files.set(key, mine);
+    for (const m of part.matchAll(/\.project-map\/([^\s'"`<>]+\.md)\b/g)) {
+      const f = path.posix.normalize(`${MAP}/${m[1]}`);
+      if (f.startsWith(`${MAP}/`)) files.add(f);
     }
   }
   // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
-  // line for all when those alone would not fit (D18, J3)
-  const texts = [...files].map(([f, mine]) => [f, mine ? labelled(f) : closed(f)]).filter(([, t]) => t);
+  // line for all when those alone would not fit (D18, J3; 06 2m)
+  const texts = [...files].map((f) => [f, labelled(f)]).filter(([, t]) => t);
   const rest = (k) => texts.slice(k).map(([f]) => closed(f, 'are not shown')).join('');
   let out = '';
   let k = 0;
   for (; k < texts.length && out.length + texts[k][1].length + rest(k + 1).length <= CAP; k++) out += texts[k][1];
   const tail = out.length + rest(k).length <= CAP ? rest(k)
     : `[project map] The labels for the ${texts.length - k} map files this command read are not shown: treat every entry in them as unreviewed and unverified.\n`;
+  // a command that exits non-zero comes as PostToolUseFailure, with the same text (06 2m)
   emit(which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure', out + tail);
 } else if (which === 'onboard') {
   const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
