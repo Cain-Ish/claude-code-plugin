@@ -2031,3 +2031,75 @@ devils-advocate workflow stay out.
   running. On 2.1.319, the marketplace removal now warns that it deletes a plugin's saved options, secrets and data
   where it can. v2 keeps none.
 - *Next:* check 7, the field re-check, on the user's sessions started after the move (about 22:12Z).
+
+### D24's field count 1 (2026-11-07, 12:00Z): not met
+
+- *Corpus:* one epoch, the field session's resume on alpha.6 at 11:50Z. That session's first epoch was read by 2k's
+  check 5, so it is outside (DECISIONS.md, D24).
+- *No defect:*
+  - C1: the plugin's start and its context are recorded;
+  - C2: one force, on the first human prompt;
+  - C5 to C7: no event in the epoch;
+  - C8: 0 errors of any hook.
+- *In-claim epochs: 0.* The epoch's first human prompt asked for the work's status.
+- `field-scope.mjs`: no gate event in the epoch.
+- *Reported:* 11 subagents in the epoch, and no write by the main session.
+- *Result: not met,* for want of an in-claim epoch. The next count runs as late as the deadline allows.
+- *Outside the corpus:* after check 5 read it, the first epoch went on to 3 gate events with 6 pairs, all D.
+- *A correction to 2k's check 5:* it called both its sessions CLI 2.1.318. The second one records 2.1.319
+  throughout.
+
+### 18f: the `2.0.0` release, staged (registered 2026-11-07, before the release commit)
+
+D24 is locked at (b). The release is staged on branch `release-2.0.0`, so `v2` keeps installing alpha.6 until the
+field bar passes. Nothing is tagged `2.0.0` before then.
+
+- **The release commit,** on `release-2.0.0`, from `v2`:
+  - `.claude-plugin/marketplace.json` named `second-brain` (D25), its description without "in development";
+  - version `2.0.0` in both manifests, and the self-test's hash pinned again;
+  - the README:
+    - the title and the status;
+    - Install from the repo with no ref (`main` after the move), as `second-brain@second-brain`;
+    - Uninstall with those names;
+    - the contributors' note with the new name;
+    - what D24's count found;
+    - the known issue about the line's link dropped, since `main` moves with the tag.
+- **Checks on the branch:**
+  1. *The product:* `git diff v2.0.0-alpha.6 -- plugin/scripts plugin/hooks plugin/commands` is empty. Under `plugin/`,
+     only the version in `plugin.json` and the self-test's pin differ.
+  2. *The self-test* passes with the new pin, and *the smoke* passes on CLI 2.1.319, the current one. The pinned
+     2.1.305 is not run, since no hook code changed.
+  3. *CI on the branch,* by dispatch:
+     - `v2.yml`: the self-test and the load lane on three systems;
+     - `v2-d26.yml`: the README still holds each command the route runs.
+  4. *Install from the branch* in an isolated config. *Pass:*
+     - the marketplace is added as `second-brain`, and the plugin installs as `second-brain@second-brain`;
+     - version `2.0.0`, at the pinned hash;
+     - the uninstall and the removal succeed;
+     - the user's registry files are unchanged by checksum.
+  5. *The release review:* the devils-advocate workflow (`.claude/workflows/devils-advocate.js`) on the branch.
+     - It runs under the user's "continue as we plan": the plan listed it as the one item waiting for their go.
+     - Rule 8 applies to each surviving finding.
+     - A finding that needs a product change means a new build and its checks. If that does not fit the deadline, the
+       record says so; no check is cut.
+  - *Not run:*
+    - the reference bench: the hook code is alpha.6's, so 2l's check 6 covers it;
+    - A1 and P1 build, by the user's choice of 2026-10-29.
+- **When D24's bar passes,** in this order:
+  1. `v2` fast-forwards to the release commit, and the tag `v2.0.0` goes on it.
+  2. The release page, not a pre-release, from notes drafted here.
+  3. `main` fast-forwards to the release commit. It is an ancestor of `v2`, and the branch is unprotected.
+     - v1's CI file `ci.yml` leaves `main`.
+     - `v1` and `v1-final` keep v1 (D03).
+  4. *Checks after the move:*
+     - `#coming-from-v1` resolves on `main`'s README;
+     - an install from the repo with no ref, in an isolated config, gives `2.0.0` at the pinned hash.
+  5. The user's install moves, with the same checks as 2l's check 3:
+     - marketplace `second-brain-v2` is removed;
+     - the repo is added at local scope;
+     - `second-brain@second-brain` is installed at local scope.
+- **On a failure:**
+  - before the tag, nothing goes public, and the cause is recorded;
+  - after the tag and before `main` moves, the tag and the page are deleted.
+- **If the bar is not met by the user's return,** the branch stays staged. The steps above wait for their next
+  session in the field repo whose first prompt names a change.
