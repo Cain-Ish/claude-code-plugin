@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.7`, a pre-release from branch `v2`.
+**Status:** `2.0.0-alpha.8`, a pre-release from branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
@@ -24,19 +24,20 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   background subagent's report or another Claude session's message does not count as that prompt.
 - **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude is told
   to add it to `.project-map/captured.md`, with its source and date.
-- **When Claude reads a map file in the main session**, with the Read tool or a Bash command such as `cat`, `tail` or
-  `grep`, a hook labels its entries. A Bash command that exits with an error gets them too:
+- **When Claude reads a map file in the main session** with the Read tool, a hook labels its entries. When a Bash
+  command that names the `.project-map` folder prints map entries, in any form, a hook labels the entries it
+  printed. A Bash command that exits with an error gets them too:
   - "unreviewed, not yet committed", until you commit them;
   - an entry whose source names a repo file has each stretch of three or more words in its quote checked against that
     file now. If the file is missing, or a stretch is not there word for word, the label says so, and a file that
     cannot be read gets a label too. Shorter quotes, or stretches between ellipses, are not checked, and get no
     label once committed;
-  - an entry whose source names no repo file is labelled "unverified quote", with its capture date;
+  - an entry whose source names no repo file, such as a person's words, is labelled "unverified quote", with its
+    capture date. The labels say what that means;
   - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
 
-  Reads by subagents, and map text met through the Grep tool, a script, or a command that names only the folder, are
-  not labelled. Some Bash forms are not labelled either, and another folder's map file can get this repo's labels:
-  see Known issues.
+  Reads by subagents, map text met through the Grep tool or PowerShell, and the output of a Bash command that does
+  not name the folder are not labelled: see Known issues.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
@@ -46,7 +47,7 @@ your machine.
 
 The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
 - *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's
-  to alpha.7's changes were checked by the self-test, a live smoke session and CI, and alpha.6's and alpha.7's by a
+  to alpha.8's changes were checked by the self-test, a live smoke session and CI, and alpha.6's and alpha.7's by a
   timing bench as well.
 - *A2:* build, plan and question tasks in three real repos (two private ones, and this plugin's own v1 repo), 10 runs
   per task.
@@ -69,6 +70,8 @@ repos:
   repo.
 - alpha.7's changes, from the release review of 2.0.0: session start's and the prompt hook's output are byte-identical
   to alpha.6's on this repo, on A1's fixture and on the owner's other repo.
+- alpha.8's change, labels for what a Bash command printed: session start's and the prompt hook's output are
+  byte-identical to alpha.7's on the same three repos.
 
 alpha.5's change is not an edge case: in any repo with a root `.claude/rules/` folder, the index and the forced
 decision no longer list it. In the user's own repo, where every one of 30 rule files declares `paths:`, Claude Code
@@ -89,7 +92,10 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
 - a map file read through Bash by a command that exits with an error, now labelled;
 - several map files read in one Bash command whose labels together pass 10,000 characters;
 - a document in the root's `.claude/rules/` whose name does not end in `.md`, now listed, since Claude Code does not
-  load it.
+  load it;
+- map entries printed by a Bash command in a form the command's text did not show as a read (`|` inside quotes, a
+  `cd` into the folder, a glob, a loop, `git show`), now labelled by what the command printed. A Bash read now
+  carries the labels of the entries it printed, not the whole file's.
 
 **Where it helped:**
 - *A designer's spec, read in an earlier session:* kept in 10 of 10 runs (auto memory: 2), and followed in a fresh
@@ -127,7 +133,7 @@ sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.7 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.8 --scope project
 claude plugin install second-brain@second-brain-v2 --scope project
 ```
 
@@ -271,17 +277,17 @@ Then remove them in this order:
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
 - **Some map reads get no label:** through the Grep tool, a script that reads the file, a command that names only the
   folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11 times: 2 through the Read tool
-  and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds. Some Bash forms still get no label:
-  `git diff` or `git show` of a map file (which shows exactly the uncommitted entries), `rg`, a `cd .project-map`
-  before the read, a glob such as `.project-map/*`, a `|` inside quotes (`grep -E "a|b"`), a path written with
-  backslashes, `find -exec`, or a loop over the folder.
-- **Another folder's map file read through Bash gets this repo's labels:** another repo's, a package's, or another
-  branch's through `git grep`. Its own uncommitted entries then get no "unreviewed" line. The hook reads the
-  command's text, which it cannot read with confidence; labelling what the command printed is the next planned step.
-- **Each Bash read of a map file repeats its labels**, as a Read does. Claude often checks the end of the file after a
-  capture, and each such check carries the file's labels again.
+  and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds, and alpha.8 labels whatever a Bash command
+  that names the folder prints. Still unlabelled: the output of a command that does not name the folder, even when it
+  prints map entries (`git diff` or `git show` from the root, `rg` or `grep -r` over the repo, a script that builds
+  the path at run time), and output that shows an entry only in part (a line cut short, `grep -o`, colour codes).
+- **Another repo's map entries printed through Bash get no label,** as a Read of them gets none. An entry there with
+  the same heading or quote line as one in this repo gets this repo's labels for it.
+- **Each read repeats its labels.** A Read carries the whole file's, and a Bash command those of the entries it
+  printed. An append through Bash gets its new entry's label too: Claude Code passes the hook a diff of the files a
+  command edited.
 - **Before Claude Code 2.1.85,** which ignores the hook's `if` field, the Bash handler starts on every Bash command. It
-  still labels only map reads.
+  labels the map entries any command prints.
 - **A turn nobody typed** is told apart by its first words, as Claude Code's transcripts record them: a background
   subagent's report or another session's message. If Claude Code passes such a turn in another form, it takes the
   forced decision, as in alpha.2, and your next prompt gets none. If the first turn after a compaction is a

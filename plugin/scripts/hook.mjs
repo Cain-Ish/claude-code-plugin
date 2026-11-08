@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, V1_LEFT } from './map.mjs';
+import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT } from './map.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
 const emit = (ev, text, note) => { if (text || note) process.stdout.write(JSON.stringify({ ...(note && { systemMessage: note }), hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
@@ -12,7 +12,7 @@ const input = which === 'onboard' ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
 // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
 const closed = (file, why = 'could not be computed') => `[project map] The labels for ${file} ${why}: treat every entry in it as unreviewed and unverified.\n`;
-const labelled = (file) => { try { return labels(root, file); } catch { return closed(file); } };
+const labelled = (file, output) => { try { return labels(root, file, output); } catch { return closed(file); } };
 
 if (which === 'session-start') {
   const idx = index(root);
@@ -30,20 +30,20 @@ if (which === 'session-start') {
   const file = rel(root, input.tool_input?.file_path);
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
 } else if (which === 'bash' || which === 'bash-failure') {
-  // a map file read through Bash gets what a Read of it gets (D14, 06 2j): a part of the command, between |, ;, & or a
-  // line break, with a read verb that names a map file and does not redirect into the folder. shortcut: a script that
-  // reads the file, or a command that names only the folder, stays unlabelled (04's accepted risk)
-  const files = new Set();
-  for (const part of String(input.tool_input?.command ?? '').split(/[|;&\n]/)) {
-    if (!/\b(cat|head|tail|sed|grep|less|more|awk)\b/.test(part) || />\s*['"]?[^\s'"]*\.project-map\//.test(part)) continue;
-    for (const m of part.matchAll(/\.project-map\/([^\s'"`<>]+\.md)\b/g)) {
-      const f = path.posix.normalize(`${MAP}/${m[1]}`);
-      if (f.startsWith(`${MAP}/`)) files.add(f);
-    }
-  }
+  // the entries a Bash command's output shows get their labels, whatever the command's form (D14, 06 2n): the output
+  // is every string in tool_response (stdout, stderr), or the failure's error text. A UTF-16 map file printed raw
+  // comes back with NULs between its letters, so they go. shortcut: a command that does not name the map folder never
+  // starts this handler (the if field), so `git diff` from the root stays unlabelled (04's accepted risk)
+  const ev = which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure';
+  const strings = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
+  const got = strings(which === 'bash' ? input.tool_response : input.error);
+  const output = got.join('\n').replace(/[\r\0]/g, '');
+  // the map's .md files, in git's order; a folder that cannot be listed fails closed as a whole
+  let files;
+  try { files = under(root, MAP).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' ? [] : null; }
   // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
   // line for all when those alone would not fit (D18, J3; 06 2m)
-  const texts = [...files].map((f) => [f, labelled(f)]).filter(([, t]) => t);
+  const texts = files === null ? [[`${MAP}/`, closed(`${MAP}/`)]] : files.map((f) => [f, labelled(f, output)]).filter(([, t]) => t);
   const rest = (k) => texts.slice(k).map(([f]) => closed(f, 'are not shown')).join('');
   let out = '';
   let k = 0;
@@ -51,7 +51,8 @@ if (which === 'session-start') {
   const tail = out.length + rest(k).length <= CAP ? rest(k)
     : `[project map] The labels for the ${texts.length - k} map files this command read are not shown: treat every entry in them as unreviewed and unverified.\n`;
   // a command that exits non-zero comes as PostToolUseFailure, with the same text (06 2m)
-  emit(which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure', out + tail);
+  emit(ev, got.length ? out + tail
+    : '[project map] The output of this command could not be read, so the map entries it showed are not labelled: treat every map entry it showed as unreviewed and unverified.\n');
 } else if (which === 'onboard') {
   const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
   const idx = index(root);

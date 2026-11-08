@@ -50,15 +50,18 @@ console.log(JSON.stringify({ onboard }));
 // nothing (2.1.305 and 2.1.312)
 // 2m: a map read that exits non-zero (a missing file beside it) comes as PostToolUseFailure, and gets the labels too
 const FAILING = 'tail -n 5 .project-map/nope.md .project-map/captured.md';
-const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md', FAILING];
+// 2n: the field's form, with | inside quotes, and a cd into the folder; each must get the labels of what it shows
+const GREP = String.raw`grep -n -i "Avatars\|nothing" .project-map/captured.md`;
+const CD = 'cd .project-map && tail -5 captured.md';
+const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md', FAILING, GREP, CD];
 const bashEv = session(`Do ${COMMANDS.length + 1} things in this order,` + ' one tool call each, then reply with only the results, numbered. (1) Use the Read tool on '
   + `docs/style.md. ${COMMANDS.map((c, i) => `(${i + 2}) Use the Bash tool to run exactly: ${c}`).join(' ')} and then quote word for word the `
-  + 'labels a hook added after it.', 'Grep,Glob,WebFetch,WebSearch', ['Read', 'Bash(git status *)', 'Bash(echo *)', 'Bash(tail *)']);
+  + 'labels a hook added after it.', 'Grep,Glob,WebFetch,WebSearch', ['Read', 'Bash(git status *)', 'Bash(echo *)', 'Bash(tail *)', 'Bash(grep *)', 'Bash(cd *)']);
 const started = new Map();
 let last = null;
 for (const e of bashEv) {
   for (const x of e.type === 'assistant' ? e.message?.content ?? [] : []) if (x.type === 'tool_use') started.set(last = x.input?.command ?? x.input?.file_path, []);
-  if (e.subtype === 'hook_response' && /^PostToolUse(Failure)?$/.test(e.hook_event) && last !== null) started.get(last).push({ hook: e.hook_name, exit: e.exit_code, output: String(e.output ?? '').slice(0, 120) });
+  if (e.subtype === 'hook_response' && /^PostToolUse(Failure)?$/.test(e.hook_event) && last !== null) started.get(last).push({ hook: e.hook_name, exit: e.exit_code, output: String(e.output ?? '') });
 }
 const bashResult = bashEv.findLast((e) => e.type === 'result');
 const bashReply = bashResult?.result ?? '';
@@ -77,4 +80,9 @@ assert.ok(after('.project-map/captured.md')?.some((h) => h.hook === 'PostToolUse
 assert.ok([...started].find(([c]) => c === FAILING)?.[1].some((h) => h.hook === 'PostToolUseFailure:Bash' && h.output.includes('[project map] Labels')), 'Bash handler on a map read that exits non-zero');
 assert.ok(bashReply.includes('unreviewed, not yet committed') && bashReply.includes('unverified quote, captured 2026-10-24'), 'Bash read labels');
 assert.ok([...started.values()].flat().every((h) => h.exit === 0), 'every hook exits 0');
+// 2n: the shown entry only (the last one), on each form
+for (const c of ['tail -5 .project-map/captured.md', FAILING, GREP, CD]) {
+  const out = [...started].find(([k]) => k === c)?.[1].map((h) => h.output).join('') ?? '';
+  assert.ok(out.includes('that this output shows') && out.includes('2. avatars') && !out.includes('1. components'), `shown entry only: ${c}`);
+}
 console.log('smoke ok');

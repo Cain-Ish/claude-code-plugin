@@ -50,6 +50,7 @@ const entries = (s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### '))
   quote: b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^>\s?/, '')).join(' ').trim(),
   source: (b.match(/^- source:\s*(.*)$/m) ?? [])[1] ?? null,
   when: (b.match(/^- when:\s*(.*)$/m) ?? [])[1] ?? null,
+  lines: b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^>\s?/, '').trim()),
   forbidden: [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i, /[\w.+-]+@[\w-]+\.[\w.]+/, /\b[A-Za-z]:[\\/]|\/(Users|home)\//]
     .filter((re) => re.test(b)).map(String),
 }));
@@ -57,7 +58,7 @@ const entries = (s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### '))
 function scan(file) {
   const recs = read(file).filter((r) => r.timestamp).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const cwd = recs.find((r) => r.cwd)?.cwd;
-  const S = { epochs: [], writes: [], mapReads: [], mapOther: [], entries: [], named: [], hookErrors: [], anyHookErrors: 0, sources: [] };
+  const S = { epochs: [], writes: [], mapReads: [], mapOther: [], entries: [], named: [], hookErrors: [], anyHookErrors: 0, sources: [], bash: [] };
   const corpus = []; // [ms, normalized text] of human prompts, tool results and hook contexts, for C6c
   const results = new Map(); // tool_use id -> result text
   const ctxByTool = new Map(); // tool_use id -> PostToolUse contexts
@@ -91,7 +92,7 @@ function scan(file) {
         if (h >= 0) ep.index = lines.slice(h + 1).filter((l) => /^[^\s].*\/: /.test(l)).map((l) => ({ dir: l.split('/: ')[0], docs: l.split('/: ')[1].split(', ') }));
       }
       if (a.hookEvent === 'UserPromptSubmit' && c.startsWith(FORCE) && ep) ep.forces.push({ at: r.timestamp, parent: r.parentUuid, onTurn: null });
-      if (a.hookEvent === 'PostToolUse') { const l = ctxByTool.get(a.toolUseID) ?? []; l.push(c); ctxByTool.set(a.toolUseID, l); }
+      if (/^PostToolUse(Failure)?$/.test(a.hookEvent)) { const l = ctxByTool.get(a.toolUseID) ?? []; l.push(c); ctxByTool.set(a.toolUseID, l); }
       continue;
     }
     // 18b: any hook's error is counted; it is the plugin's when its command or its error text names hook.mjs
@@ -126,6 +127,7 @@ function scan(file) {
         const tool = { at: r.timestamp, ms, id: x.id, name: x.name, file: x.input?.file_path ?? x.input?.notebook_path ?? null, cmd: x.name === 'Bash' ? String(x.input?.command ?? '').slice(0, 200) : null, input: x.input };
         if (turn) turn.tools.push(tool);
         if (x.name === 'Bash' && /git\s+commit/.test(x.input?.command ?? '')) commits.push(ms);
+        if (x.name === 'Bash') S.bash.push({ at: r.timestamp, id: x.id, names: /\.project-map/.test(String(x.input?.command ?? '')) });
         const f = (tool.file ?? '').replace(/\\/g, '/');
         if (WRITES.has(x.name) && f) S.writes.push({ at: r.timestamp, file: f, build: build(ms), excluded: excluded(ms) });
         if (f.includes('/.project-map/') || f.startsWith('.project-map/')) {
@@ -158,6 +160,16 @@ function scan(file) {
     rd.mustLabel = !!w && !commits.some((c) => c > w.ms && c < rd.ms);
     rd.labelledUnreviewed = rd.ctx.some((c) => /unreviewed/.test(c));
   }
+  // C5b (README, count 4): the map's entries in the result Claude saw, by a looser rule than the plugin's (a quote line
+  // of 20 or more characters without its marker, or the heading text), and whether the call's labels name them
+  const known = [...mapEntries(cwd), ...S.entries].filter((e, i, a) => e.area && a.findIndex((o) => o.area === e.area) === i);
+  for (const b of S.bash) {
+    const t = results.get(b.id) ?? '';
+    const seen = known.filter((e) => t.includes(e.area) || e.lines.some((l) => l.length >= 20 && t.includes(l))).map((e) => e.area);
+    const named = new Set((ctxByTool.get(b.id) ?? []).filter((c) => c.startsWith(LABEL)).flatMap((c) => [...c.matchAll(/^\d+\. (.+): (?:unreviewed|unverified quote|not found|cannot read)/gm)].map((m) => m[1])));
+    Object.assign(b, { seen: seen.length, labelled: seen.filter((a) => named.has(a)).length, misses: seen.filter((a) => !named.has(a)).length });
+  }
+  S.bash = S.bash.filter((b) => b.seen);
   // C6c: each entry's quote, verbatim before its write
   for (const e of S.entries) e.found = !!e.quote && corpus.some(([m, t]) => m < e.ms && t.includes(norm(e.quote)));
   // C7: paths named after a file change, in a turn's later texts
@@ -176,6 +188,14 @@ function scan(file) {
       }
   }
   return { file: path.basename(file), cwd: cwd ? '<repo>' : null, ...S, commits: commits.length };
+}
+
+// C5b's map: the entries of the repo's map files as they are at the count
+function mapEntries(cwd) {
+  const dir = cwd && path.join(cwd, '.project-map');
+  if (!dir || !fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { recursive: true }).map(String).filter((f) => f.endsWith('.md'))
+    .flatMap((f) => entries(fs.readFileSync(path.join(dir, f), 'utf8').replace(/\r/g, '')));
 }
 
 function subagents(file) {
@@ -208,6 +228,8 @@ for (const s of all) {
   console.log(`  C1 arrival: plugin start ${E.filter((e) => e.pluginStart).length}/${E.length}, context recorded ${E.filter((e) => e.ctx).length}/${E.length}; index dirs ${E.map((e) => e.index.length).join(',')}`);
   console.log(`  C2 forces: ${forced.length} in ${E.filter((e) => e.forces.length).length} epochs; on ${JSON.stringify(forced.reduce((m, { f }) => ({ ...m, [f.onTurn]: (m[f.onTurn] ?? 0) + 1 }), {}))}; epochs with a human prompt and no force ${E.filter((e) => firstHuman(e) && !e.forces.length).length}; epochs with >1 force ${E.filter((e) => e.forces.length > 1).length}; force not on the first human prompt ${E.filter((e) => e.forces.length && firstHuman(e) && !firstHuman(e).forced).length}`);
   console.log(`  C5 map reads: ${s.mapReads.length} (must label ${s.mapReads.filter((r) => r.mustLabel).length}, labelled unreviewed ${s.mapReads.filter((r) => r.mustLabel && r.labelledUnreviewed).length}; any label ${s.mapReads.filter((r) => r.ctx.length).length}); map via Grep/Glob/Bash ${JSON.stringify(s.mapOther.reduce((m, o) => ({ ...m, [o.kind]: (m[o.kind] ?? 0) + 1 }), {}))}`);
+  const cb = (named) => s.bash.filter((b) => b.names === named);
+  console.log(`  C5b by output: calls naming the folder that show entries ${cb(true).length} (entries ${cb(true).reduce((n, b) => n + b.seen, 0)}, labelled ${cb(true).reduce((n, b) => n + b.labelled, 0)}); calls with a miss ${cb(true).filter((b) => b.misses).map((b) => b.at).join(', ') || 'none'}; calls not naming it that show entries ${cb(false).length}`);
   const en = s.entries.filter((e) => !e.excluded);
   console.log(`  C6 entries (main): ${en.length} (${en.filter((e) => e.by === 'bash').length} by Bash); format ok ${en.filter((e) => e.area && e.quote && e.source && e.when).length}; forbidden ${en.filter((e) => e.forbidden.length).length}; verbatim ${en.filter((e) => e.found).length}`);
   console.log(`  C7 named paths after a change: ${s.named.length}, not found ${s.named.filter((n) => !n.exists).length}`);

@@ -2613,3 +2613,44 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   - `field.mjs` gets the move.
 
   `release-2.0.0` is rebuilt on alpha.8 when D24's bar is met.
+
+### 2n: checks 1 to 3 (2026-11-08): pass
+
+- *The build* was made in a copy in the scratchpad and moved to `plugin/` unchanged (`git diff --no-index` empty).
+  Product hash `20f89a320a6c`.
+- **Check 1, the self-test: pass.** A case runner (the self-test with each failed assertion logged and the run
+  continued) ran it on alpha.7's scripts:
+  - *D14's accepted-risk forms:* all 9 got nothing on alpha.7, and get their entries' labels on 2n.
+  - *The 9 field reads:* alpha.7 gave the whole file's labels. 2n gives those of the entries each output shows. One,
+    a `tail -3` after an append, shows only an entry's blank, source and when lines, so 2n gives nothing there. That
+    is "the shown entries on 2n" with none shown, and it is reported here rather than called a label.
+  - *Another repo's map file:* alpha.7 gave this repo's labels; 2n gives nothing.
+  - *Failing on alpha.7, passing on 2n:* the failure route, the unreadable output, the cap, a UTF-16 file printed raw,
+    the note and a map path that cannot be read.
+  - *Two cases changed meaning.* A folder named `folder.md` now gets nothing from a Bash command, since it holds no
+    entry; the Read hook's closed line for it is unchanged. A map path that cannot be read (a link to a folder; a
+    junction on Windows) gets the closed line from Bash, as from Read.
+- **Check 2, byte identity: pass.** Session start and the prompt hook are identical to alpha.7's on the field repo's
+  checkout (3,188 and 309 characters), this repo (3,575 and 309) and A1's fixture (1,400 and 309).
+- **Check 3, the smoke: pass on CLI 2.1.305 and 2.1.319.**
+  - *Amended before it ran:* the `cd` form uses `tail -5`, not `tail -3`. In the smoke's map the last three lines are
+    an entry's blank, source and when lines, so `tail -3` shows no entry and could not show a label.
+  - On both CLIs the Bash handler ran on the field's `\|` form and on the `cd` form, and each listed entry 2 only, the
+    one its output showed. So did `tail -5` and the failure route.
+- *Found while checking:* Claude Code's Bash result carries `bashEditDiff`, a diff of the files a command edited. So
+  an append to the map gets its new entry's label (one line), where alpha.7 gave nothing. The README says so. Under
+  D14's trigger, a label too many is the safe direction.
+- *A replay, not a registered check:* count 3's 14 Bash calls that name the map, run through both builds' handler
+  against the field map as it is now.
+  - The 4 reads alpha.7 labelled got 39 labels each; under 2n they get 1 to 5.
+  - The `|`-in-quotes `grep` got none on alpha.7, and 4 under 2n.
+  - The 9 appends and edits got none on alpha.7, and 1 or 2 each under 2n, through `bashEditDiff`.
+- **The scanner** (the field README's registration, `a54c2bc`): `field.mjs` gains C5b.
+  - *On count 3:* every earlier count is unchanged, and the JSON is identical apart from the new fields. C5b finds the
+    hand count: 5 calls that name the folder show entries, 4 of them fully labelled. The miss is the 00:32Z `grep`.
+    One call that does not name the folder (a commit) shows an entry. *Pass.*
+  - *Disclosed:* the first run read no label at all. The scanner took a label line's heading up to its first ": ",
+    and the field's headings hold ": ". The parse now ends at the label's first word. The pass above is the second
+    run.
+  - `count.mjs` runs both scanners on a frozen folder. It was tested on a copy of count 3.
+- *Next:* CI on three systems, the refute-first verifier, and the bench.

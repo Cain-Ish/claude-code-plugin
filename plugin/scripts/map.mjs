@@ -37,6 +37,9 @@ export const NAME = 'When you finish, name each of this project\'s recorded deci
   + 'map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.';
 
 export const UNREVIEWED = 'unreviewed, not yet committed';
+// 06, 2n: the field found "unverified quote" unexplained; wording only, D16's choice unchanged
+export const UNVERIFIED_NOTE = '("unverified quote": the entry\'s source is not a file in this repo, such as a person\'s words, so its '
+  + 'quote cannot be re-found; the date is when it was captured.)';
 // V2-D27: shown to the user, never to Claude, while v1's statusline or timer shim is on disk
 export const V1_LEFT = 'second-brain v1 left its statusline or timer on this machine. To remove them: '
   + 'https://github.com/Cain-Ish/claude-code-plugin#coming-from-v1';
@@ -58,7 +61,7 @@ export function toplevel(dir) {
 }
 
 // the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it
-const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
+export const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
   .flatMap((e) => (e.isDirectory() ? under(root, `${d}/${e.name}`) : [`${d}/${e.name}`]));
 
 // git's core.ignorecase, read from the repo's config file, so session start keeps one git call (D18). A .git file (a
@@ -168,20 +171,27 @@ const foundIn = (quote, low) => quote.split(/…|\.\.\./).map(words).filter((w) 
 // is text Claude wrote, so only relative paths inside the repo count
 const sourcePath = (src) => (src.match(/[\w.-]+(?:\/[\w.-]+)*\.\w+/g) ?? []).map((p) => p.replace(/^\.\//, ''))
   .find((p) => (p.includes('/') || DOC.test(p)) && !p.split('/').includes('..'));
+// 06, 2n: shown when the output holds the entry's heading line or one of its quote lines, as written in the file
+const shows = (b, output) => b.split('\n').some((l) => /^(### |>\s*\S)/.test(l) && output.includes(l.trimEnd()));
 const isFile = (root, p) => fs.statSync(path.join(root, p), { throwIfNoEntry: false })?.isFile();
 
 // D14: an entry the file's HEAD version does not hold, word for word, is unreviewed; outside git, or in a file HEAD
 // lacks, every entry is. D16 (reopened 2026-10-25, option b): an entry whose source names a repo file is re-found in it
 // now, and one not found says so without claiming a change; any other entry carries its capture date as unverified.
-export function labels(root, file) {
+// Given a command's output, only the entries it shows are labelled (06, 2n).
+export function labels(root, file, output) {
   let text;
   // a missing file has nothing to label; any other failure throws, and the read hook labels the file as a whole
   try { text = decode(fs.readFileSync(path.join(root, file))); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
+  const all = entries(text);
+  const picked = all.map((b) => output === undefined || shows(b, output));
+  if (!picked.includes(true)) return '';
   const head = spawnSync('git', ['show', `HEAD:./${file}`], { cwd: root, maxBuffer: 64 << 20 });
   const held = new Set(head.status === 0 ? entries(decode(head.stdout)) : []);
   const docs = new Map();
   const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
-  const out = entries(text).flatMap((b, i) => {
+  const out = all.flatMap((b, i) => {
+    if (!picked[i]) return [];
     const src = /^- source:(.*)$/m.exec(b)?.[1] ?? '';
     const date = /(\d{4}-\d{2}-\d{2})\s*$/.exec(src)?.[1];
     const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
@@ -198,13 +208,15 @@ export function labels(root, file) {
     return ls.length ? [`${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`] : [];
   });
   if (!out.length) return '';
-  const top = `[project map] Labels on the entries of ${file}, in file order:\n`;
-  const all = `${top}${out.join('\n')}\n`;
-  if (all.length <= CAP) return all;
+  const note = (ls) => (ls.some((l) => l.includes('unverified quote')) ? `${UNVERIFIED_NOTE}\n` : '');
+  const top = `[project map] Labels on the entries of ${file}${output === undefined ? '' : ' that this output shows'}, in file order:\n${note(out)}`;
+  const whole = `${top}${out.join('\n')}\n`;
+  if (whole.length <= CAP) return whole;
   // past the cap, Claude would see only a preview, so the labels are cut at a line and the rest fail closed (D18, J3)
   const tail = (k, n = out.length - k) => (k ? `(${n} more ${n === 1 ? 'label' : 'labels'} not shown: treat every entry after entry ${parseInt(out[k - 1], 10)} `
     : `(${n} ${n === 1 ? 'label' : 'labels'} not shown: treat every entry `) + 'in this file as unreviewed and unverified.)\n';
   let k = 0;
   for (let used = top.length; k < out.length && used + out[k].length + 1 + tail(k + 1).length <= CAP; k++) used += out[k].length + 1;
-  return `${top}${out.slice(0, k).map((l) => `${l}\n`).join('')}${tail(k)}`;
+  // the note goes when no line it explains is left, which only shortens the text
+  return `${note(out.slice(0, k)) ? top : top.replace(note(out), '')}${out.slice(0, k).map((l) => `${l}\n`).join('')}${tail(k)}`;
 }
