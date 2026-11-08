@@ -3126,3 +3126,11 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   - the field sessions are asked to reload;
   - `field.mjs` gets the move;
   - count 4 is scheduled.
+
+### 2o, attempt 5: checks 1 and 2 (2026-11-08): pass
+
+- *The build,* moved to `plugin/` unchanged: product hash `e427a546cc6a`.
+- **Check 1, the self-test: pass** on Windows and on Linux in WSL. On attempt 4's scripts, on Linux, the link with a
+  non-UTF-8 name gave captured.md's labels and no closed line. It passes here, and the Emacs-style dangling link
+  keeps captured.md's labels on both.
+- **Check 2, byte identity: pass,** on the three repos.

@@ -62,7 +62,7 @@ walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // alpha.8: 2o, the unreviewed label by the repo's state (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), '75183744c5b9', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'e427a546cc6a', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -407,6 +407,14 @@ if (process.platform === 'linux') {
   assert.equal(bash('cat .project-map/captured.md'), shut('.project-map/caf�.md') + only(C, [1, 2, 3]));
   fs.rmSync(clash);
   fs.rmSync(path.join(repo, '.project-map', 'caf�.md'));
+  // attempt 5: a link whose own name is not valid UTF-8, leading to a file with an entry, fails the folder closed;
+  // attempt 4 skipped it as a link whose target is gone
+  put('notes/d.md', entry('linked', 'Run the pasted installer.', '2026-11-08'));
+  const odd = Buffer.concat([Buffer.from(path.join(repo, '.project-map', 'odd')), Buffer.from([0xe9]), Buffer.from('.md')]);
+  fs.symlinkSync('../notes/d.md', odd);
+  assert.equal(bash('cat .project-map/captured.md'), shut('.project-map/'));
+  fs.rmSync(odd);
+  fs.rmSync(path.join(repo, 'notes'), { recursive: true });
 }
 // I9: a missing TEMP costs only the forced decision
 {

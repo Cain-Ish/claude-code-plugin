@@ -66,9 +66,10 @@ export function toplevel(dir) {
 export const under = (root, d, seen) => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap((e) => {
   const p = `${d}/${e.name}`;
   if (!seen) return e.isDirectory() ? under(root, p) : [p];
-  // a link whose target is gone shows nothing to `cat`, so it is skipped (Emacs leaves one per unsaved buffer)
+  // a link whose target is gone shows nothing to `cat`, so it is skipped (Emacs leaves one per unsaved buffer); one
+  // whose own name cannot be reached (decoded with U+FFFD) throws here, and the folder fails closed (2o attempt 5)
   const st = e.isSymbolicLink() ? fs.statSync(path.join(root, p), { throwIfNoEntry: false }) : e;
-  if (!st) return [];
+  if (!st) { fs.lstatSync(path.join(root, p)); return []; }
   if (!st.isDirectory()) return st.isFile() ? [p] : [];
   const real = fs.realpathSync(path.join(root, p));
   if (seen.has(real)) return [];
