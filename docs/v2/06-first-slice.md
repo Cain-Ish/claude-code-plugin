@@ -3094,3 +3094,35 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
 - *Rule 4:* attempt 4 was the last, so this goes to the user. The choice is between two options:
   - alpha.8 as built, with this form added to the accepted risks;
   - the one-condition fix as a fifth attempt, which the rule leaves to the user.
+
+### 2o, attempt 4: check 5, the bench (2026-11-08): pass
+
+alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs of 3 (samples 4.0% to 5.5%).
+- *The candidate's highest hook:* 64.4 ms, a Bash command that names no map entry. That kind now runs one `git show`
+  of the map file each time, since every uncommitted entry is listed: 53.0 to 64.4 ms, against alpha.7's 18.4 to
+  20.2.
+- *The Bash map read:* 51.5 to 56.3 ms, against 53.1 to 56.5.
+- *Session start:* 41.0 to 50.2 ms, against 44.5 to 48.1.
+- 0 errors.
+
+### 2o, attempt 5 (registered 2026-11-08, before the code): the user's exception to rule 4
+
+- *The user's answer* to attempt 4's result was "Allow a 5th fix, then ship". The fix is the one condition the
+  verifier tried. The checks are the self-test, CI and the smoke, with no new open verifier round.
+- **The change:** when a link's target cannot be stat-ed, the walk checks the link's own name (`lstatSync`) before
+  skipping it. A link whose own name cannot be reached throws, so the folder fails closed, as in attempt 3. A link
+  whose target is gone is still skipped.
+- **Checks:**
+  1. *The self-test,* with one case run on Linux: a link named with an invalid UTF-8 byte, leading to a file that
+     holds an entry, gets the closed line for the folder. It gives nothing on attempt 4. The Emacs-style dangling link
+     keeps captured.md's labels.
+  2. *Byte identity* with alpha.7.
+  3. *The smoke* on both CLIs.
+  4. *CI* on three systems.
+  - *The bench stands from attempt 4:* the change adds one `lstat`, and only for a link whose target is gone.
+- **On a pass:**
+  - D14 re-locks on (S), with the README's accepted risks;
+  - the tag `v2.0.0-alpha.8`, an install from it in an isolated config, and both field repos' installs moved;
+  - the field sessions are asked to reload;
+  - `field.mjs` gets the move;
+  - count 4 is scheduled.
