@@ -2492,3 +2492,6 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
   2. D14 must re-lock, by one of:
      - the output step, built and checked;
      - the risk accepted again.
+- *After the count (14:51Z):* the field session replied, quoting the same "Reloaded: … 8 hooks" line. It gave the
+  time as about 15:50 local. Its transcript holds one reload only, at 01:50:50Z, so this record keeps the
+  transcript's time.
