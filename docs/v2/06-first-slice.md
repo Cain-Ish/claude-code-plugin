@@ -2443,3 +2443,52 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
 - *Later, on the user's request:* a summary of how the plugin was used, asked of that session after count 3 runs, so
   count 3's corpus is not primed. That session's epochs after the question are primed for C3 and C4 in any later
   count.
+
+### D24's field count 3 (2026-11-08, 14:47Z): not met; D14 reopened
+
+- *Corpus:* four epochs of the field session, frozen at 14:47Z:
+  - the alpha.6 resume;
+  - compactions at 14:13Z and 20:30Z on 2026-11-07, and at 01:27Z on 2026-11-08.
+
+  No new session or resume came. Each epoch ran alpha.6's hooks until the user ran `/reload-plugins` at 01:50:50Z on
+  2026-11-08, which printed "8 hooks". No record follows the reload, so no alpha.7 epoch has been seen yet, and no
+  `PostToolUseFailure` event is in the corpus. The session sent no reply about the reload: it had no turn after it.
+  The time is from its transcript.
+- *No defect as the field README defines one:*
+  - C1: the plugin's start and its context, 4 of 4 epochs;
+  - C2: 3 forces, each on its epoch's first human prompt. The message this session sent (18f, above) came as a machine
+    turn at 00:31Z, and no force landed on it. The 01:27Z epoch has had no human prompt;
+  - C6: no new entry;
+  - C7: no new named path;
+  - C8: 0 errors of any hook.
+- *C5:*
+  - 3 map reads through Bash were labelled.
+  - **1 was not:** a `grep` of this repo's own map file, exit 0, at 00:32Z on 2026-11-08, on alpha.6's hooks. Its
+    pattern held `|` inside quotes, so the parse split the map path away from the read verb. That form is one of D14's
+    accepted risks, and alpha.7's parse is the same.
+  - Every entry the command showed was committed by then, so none was a must-label entry under C5's rule.
+  - *Two readings:*
+    - D24's item 1 names the field README's defects. The README's C5 counts Bash reads but makes a defect only of a
+      Read-tool miss, so item 1 holds.
+    - Read alone, D24's amendment ("a read of this repo's own map file that exits 0 is labelled") would call this a
+      miss.
+
+    This record takes the README's reading, since item 1 names it. The result is the same under both, since item 4
+    fails.
+  - **D14 reopens** by its trigger, a field sighting of an accepted risk, read literally (DECISIONS.md, D14).
+  - *Scanner:* `field.mjs` classed the command "other", not a read: its read rule splits the command as the plugin
+    does, so it cannot see the forms the plugin misses. The miss was found by reading every corpus command that names
+    the map. `field.mjs` is left as it is. A scan by output is its fix too.
+- *In-claim epochs: 1,* count 2's. The 20:30Z epoch's first human prompt asks for the app to be run and checked
+  against the research, and names no change. This is judged by reading.
+- *C3:* all 3 forced epochs answered per directory; in-claim, 1 of 1.
+- *`field-scope.mjs`:* no new gate event. D is 4 of 6 (67%, bar at least 70%), R 0, X 2, unchanged, so there is no
+  new observation for D22.
+- *Reported:* C4 does not apply to the new epoch. Its forced turn made no Write, Edit or NotebookEdit.
+- *Result: not met,* on item 4. Nothing is tagged, and `release-2.0.0` stays staged. Two things now stand before
+  `2.0.0`, both the user's call:
+  1. D24's item 4 needs more gate events at which Claude Code delivers the rule. An in-claim prompt does not supply
+     them. The user may also set another bar (D24's reopen trigger).
+  2. D14 must re-lock, by one of:
+     - the output step, built and checked;
+     - the risk accepted again.

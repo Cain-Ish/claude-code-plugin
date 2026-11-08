@@ -17,7 +17,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes); REOPENED 2026-11-07 (2.0.0's release review: a Bash map read that exits non-zero, and a sibling repo's map file, arrive without their labels; the delivery is fixed in 06, 2m); re-LOCKED 2026-11-07 (2m attempt 3 passes; the command parse's gaps are accepted risks until labelling by output) | user + evidence | D11, D13 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes); REOPENED 2026-11-07 (2.0.0's release review: a Bash map read that exits non-zero, and a sibling repo's map file, arrive without their labels; the delivery is fixed in 06, 2m); re-LOCKED 2026-11-07 (2m attempt 3 passes; the command parse's gaps are accepted risks until labelling by output); REOPENED 2026-11-08 (the field: one of those gaps, a `|` inside quotes, seen) | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
@@ -59,6 +59,8 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
     - D25: the release keeps `main`'s marketplace name;
     - D26: the README's "Coming from v1" commands;
     - D27: session start's line for the user, built as `2.0.0-alpha.6` (06, 2l). It is not released.
+  - *Reopened:* D14, 2026-11-08, by a field sighting of one of its accepted risks: a Bash map read with `|` inside
+    quotes arrived unlabelled. It waits for the user's call, and `2.0.0` waits with it.
   - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
   - *Deferred:* D20's net.
 
@@ -761,6 +763,21 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - The labels' kill trigger stays met: the next change to the Bash handler is the output step, not a parse fix.
 - **Re-LOCKED 2026-11-07, with the accepted risks above.** 2m's attempt 3 passed its checks (06): a Bash map read that
   exits non-zero is labelled, live on CLI 2.1.305 and 2.1.319.
+- **REOPENED 2026-11-08 by the field ([06, "D24's field count 3"](06-first-slice.md)).** In the field repo, a Bash
+  `grep` of this repo's own map file arrived with no label. It ran on alpha.6's hooks, and its pattern held `|`
+  inside quotes, so the parse split the map path away from the read verb. The form is one of the accepted risks above,
+  and the trigger is read literally.
+  - *What the gap cost here:* every entry the command showed was committed by then. So the missing label would have
+    said "unverified quote", not "unreviewed".
+  - *Not only alpha.6:* alpha.7's parse is the same (`plugin/scripts/hook.mjs`), so the command is unlabelled there
+    too.
+  - *PM7* does not fire again. Its kill trigger fired on 2026-11-07, and the rethink chose labelling by the tool's
+    output.
+  - *What re-locks it,* the user's call on return, one of:
+    - the output step, built and checked under its own record;
+    - the risk accepted again, with this sighting on record.
+
+    `2.0.0` waits for one of them: 18f's release steps need the release review settled.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
