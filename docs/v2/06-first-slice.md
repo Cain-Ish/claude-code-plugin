@@ -3134,3 +3134,48 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   non-UTF-8 name gave captured.md's labels and no closed line. It passes here, and the Emacs-style dangling link
   keeps captured.md's labels on both.
 - **Check 2, byte identity: pass,** on the three repos.
+
+### 2o, attempt 5: result (2026-11-08): pass
+
+- *Check 3, the smoke: pass* on CLI 2.1.305 and 2.1.319, every assertion; the background `cat` ran in the background
+  on both.
+- *Check 4, CI: pass* on three systems (`493c195`).
+- *Product hash* `e427a546cc6a`. D14 re-locks on (S), with the accepted risks its record lists.
+- *What 2n and 2o changed, against alpha.7:*
+  - every Bash command that names the map folder carries every uncommitted entry's label, whatever it printed;
+  - committed entries' labels come for what the output shows;
+  - every file's labels come when the hook cannot see the whole output;
+  - the note on "unverified quote" follows the list;
+  - the Bash walk follows links to folders, reads regular files only, and fails closed on listing errors.
+- *Next:* the tag `v2.0.0-alpha.8`, the release notes, an install from the tag, both field repos' installs moved, the
+  field sessions asked to reload, `field.mjs`'s move, and count 4.
+
+### 2o: the release notes (drafted before the tag)
+
+> Plugin hash `e427a546cc6a`. **The "unreviewed" label by the repo's state** ([06, steps 2n and 2o](https://github.com/Cain-Ish/claude-code-plugin/blob/v2/docs/v2/06-first-slice.md)).
+>
+> - Every Bash command that names the `.project-map` folder now carries the "unreviewed, not yet committed" label of
+>   every map entry that is not yet committed, whatever the command printed. alpha.7 read the command's text and
+>   missed forms seen in real use, such as a `grep` pattern with `|` inside quotes. An attempt to label by what the
+>   command printed failed three review rounds: output can be reshaped in too many ways.
+> - Committed entries' labels ("unverified quote", "not found") come for the entries the command printed. A Bash read
+>   no longer repeats the whole file's labels; in real use, a check of the file's end had carried 36 to 39 of them.
+> - When the hook cannot see the whole output (a background command, or output Claude Code saved to a file), every
+>   map file's labels come, as a Read gives them.
+> - "unverified quote" is explained in one line after the list.
+> - The walk of the map folder follows links to folders, reads regular files only, and fails closed when the folder
+>   or a file in it cannot be read.
+> - **Still unlabelled** (README, Known issues): a command that does not name the folder, entries removed or reverted
+>   by the same command, entries only in git's index or a stash, map files not ending in `.md`, and a few file-system
+>   edge cases.
+> - **Checked:**
+>   - the self-test on Windows and Linux;
+>   - session start and the prompt hook byte-identical to alpha.7's on three repos;
+>   - the smoke on Claude Code 2.1.305 and 2.1.319, and CI on three systems;
+>   - the reference bench: every hook at most 64.4 ms added at 8 concurrent;
+>   - six refute-first review rounds, and an install from the tag.
+>
+> ```
+> claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.8 --scope project
+> claude plugin install second-brain@second-brain-v2 --scope project
+> ```
