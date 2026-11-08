@@ -3026,3 +3026,39 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   All three pass here.
 - **Check 2, byte identity: pass,** on the three repos.
 - *Next:* the smoke, CI, the fifth verifier round, and the bench.
+
+### 2o, attempt 3: result (2026-11-08): checks 3 and 4 pass; check 6 a near miss
+
+- *Check 3, the smoke: pass* on CLI 2.1.305 and 2.1.319, every assertion.
+- *Check 4, CI:* recorded with attempt 4.
+- **Check 6, the fifth verifier round:**
+  - *Fixed, confirmed:* all three of attempt 2's findings. The FIFO took about 20 ms, the non-UTF-8 name got its own
+    closed line (alpha.7 gave none), and links back into the map were walked once.
+  - *Held up:* the `if` filter started the handler on 8 compound forms, live on 2.1.319 with Haiku; each carried the
+    uncommitted label. The forms were `for`, `while … < file`, `if`, `bash -c`, a subshell `cd`, `||`, `find -exec` and
+    `ls | head`. Also: 40 fuzz runs of the cap (at most 9,971 characters, nothing dropped), links to a FIFO, a device
+    or a socket, unreadable files and folders, and both failure routes.
+  - *Findings,* by the registered criterion:
+    1. *A dangling link in the map* (Emacs leaves `.#captured.md` as one while a buffer has unsaved edits): `statSync`
+       fails before the `.md` filter, so the whole folder fails closed. alpha.7 gave captured.md's labels entry by
+       entry. No entry loses its label, since the closed line covers them all, but it is less precise than alpha.7.
+    2. *Two file names that Node's listing decodes alike* (Linux: `caf\xe9.md` beside a file literally named with
+       U+FFFD): the read finds the other file, and the uncommitted entry gets nothing. alpha.7 missed it too.
+  - *Near miss with a known cause* (rule 4's fourth): both causes are known, and each fix is one condition.
+
+### 2o, attempt 4 (registered 2026-11-08, before the code). The last; rule 4 allows no fifth
+
+- **The changes, to the Bash walk only:**
+  1. A link whose target does not exist is skipped, as `cat` of it shows nothing. Any other error on a link still
+     fails closed.
+  2. A name the listing gives twice gets the closed line for that name.
+- **Checks:**
+  1. *The self-test.* Attempt 2's case of a link to a folder that is gone now expects captured.md's labels, since the
+     link is skipped; on attempt 3 it gives the closed line for the folder. On Linux, the two names that decode alike
+     get the closed line; on attempt 3 they give nothing.
+  2. *Byte identity* with alpha.7.
+  3. *The smoke* on both CLIs.
+  4. *CI* on three systems.
+  5. *The bench,* if the machine is quiet.
+  6. *One verifier,* on these two changes and on any regression against attempt 3 that they make. Five open rounds have
+     run; a survivor of this one goes to the user, with the residual list for D14's re-lock.
