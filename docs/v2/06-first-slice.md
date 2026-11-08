@@ -2654,3 +2654,77 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
     run.
   - `count.mjs` runs both scanners on a frozen folder. It was tested on a copy of count 3.
 - *Next:* CI on three systems, the refute-first verifier, and the bench.
+
+### 2n, attempt 1: result (2026-11-08): failed on check 6
+
+- *Check 4, CI:* pass on three systems, on `ef93a9b` and on `6351298`. The second carries the bench's fix: its Bash
+  calls now carry the output their command prints, which 2n reads. Without it they timed only the line for an
+  unreadable output.
+- *Check 5, the reference bench:* pass, in 3 valid pairs of 3 (samples 4.5% to 8.4%). The candidate's highest hook
+  was 56.3 ms (the map read). Its Bash map read added 45.6 to 55.4 ms, against alpha.7's 52.9 to 64.5. 0 errors.
+- **Check 6, the verifier: 5 findings survive,** so 2n goes back.
+  1. *A background command* (`run_in_background`): the hook gets an empty `stdout` and a `backgroundTaskId`. Claude
+     reads the output later from a file outside the map, so no label comes. alpha.7 labelled the file. Run live on
+     CLI 2.1.319.
+  2. *Output past about 30,000 characters:* `stdout` holds 29,999 characters, with `persistedOutputPath`. The
+     uncommitted entries past the cut got no label, and no closed line said the labels were partial. Claude read the
+     saved file. alpha.7 labelled the file. Run live on 2.1.319.
+  3. *A UTF-16 map file with non-ASCII text:* printed raw, its non-ASCII characters do not survive the UTF-8 decode,
+     so removing NULs does not restore those lines. alpha.7 labelled the file. The self-test's UTF-16 case was ASCII
+     only.
+  4. *An entry shown only by a line that is neither its heading nor a quote line:* a body line inside the entry
+     block, which D14's comparison holds as part of the entry. 2n's rule left it out by design. Such a line can carry
+     an injected instruction, which is D14's case.
+  5. *Filters that change spacing:* `column -t`, `expand`, `tr -s` and `echo $(cat …)` lost entries with a tab or a
+     double space; `column -t` lost a plain entry too. `cat -A` and `cat -v` lost entries with non-ASCII characters
+     or tabs. alpha.7 labelled each.
+  - *Also seen:* no crash or non-zero exit; every output under 10,000 characters; a heading shared by two map files
+    labels both (an extra label); a 5 MB output with 300 entries took 108 ms against alpha.7's 75. `od -c` and a
+    JSON-escaped dump get no label. The README named neither.
+
+### 2n, attempt 2 (registered 2026-11-08, before the code)
+
+- **The changes,** on attempt 1's code:
+  1. *When the hook does not see the whole output,* it gives every map file's labels, as a Read of each gives them.
+     That is when `tool_response` names a background task (`backgroundTaskId`) or a saved output (`persistedOutputPath`),
+     when the failure's `error` says it was truncated ("characters truncated"), or when a string in the output is
+     25,000 characters or more. The last is a guard in case Claude Code renames those fields. 2m's cap applies.
+  2. *A UTF-16 map file,* when the output holds a NUL character: all of that file's labels. Removing NULs from the
+     output goes.
+  3. *Shown* widens to every line of the entry's block:
+     - its heading line;
+     - a quote line with text after the marker;
+     - any other line with text that no other entry of the file holds.
+
+     A source or when line that several entries share does not say which one was shown, so alone it shows none.
+  4. *Spacing:* runs of spaces and tabs become one space, in the entry's lines and in the output, before they are
+     compared.
+- **The README:** the unlabelled routes become:
+  - a command that does not name the folder;
+  - output that shows an entry only in part (a line cut short, `grep -o`, colour codes), or in an encoded form (`cat
+    -A` or `cat -v` of non-ASCII text or tabs, `od`, JSON escapes);
+  - output whose only line from an entry is one that several entries share.
+
+  It also says that a background command, or output saved to a file, gets every map file's labels.
+- **Checks:**
+  1. *The self-test,* with a case for each finding. Each fails on attempt 1 and passes here:
+     - the background payload;
+     - the saved-output payload, with the uncommitted entries past the cut;
+     - an `error` with the truncation marker;
+     - a 25,000-character output with no field;
+     - a UTF-16 file with non-ASCII lines, printed by real `cat` and `tail` and decoded as UTF-8;
+     - a body line shown by `grep`, on both routes;
+     - `column -t`, `expand`, `tr -s` and `echo $(cat …)` over entries with a tab and a double space.
+
+     Also: a shared when line alone labels nothing, and a when line that only one entry holds labels it. Attempt 1's
+     cases still pass, or change with a stated reason.
+  2. *Byte identity* with alpha.7 for session start and the prompt hook, on the three repos.
+  3. *The smoke* on CLI 2.1.305 and 2.1.319, adding two commands:
+     - a background `cat` of the map;
+     - a `cat` of a map file whose output passes 30,000 characters, with its uncommitted entry last.
+
+     *Pass:* each gets labels naming that uncommitted entry.
+  4. *CI* on three systems.
+  5. *The reference bench,* if the machine is quiet.
+  6. *A second verifier round:* refute-first, on the five findings and on what the changes may open. A finding that
+     survives sends 2n to attempt 3, the last under rule 4.
