@@ -187,7 +187,10 @@ const isFile = (root, p) => fs.statSync(path.join(root, p), { throwIfNoEntry: fa
 // D14: an entry the file's HEAD version does not hold, word for word, is unreviewed; outside git, or in a file HEAD
 // lacks, every entry is. D16 (reopened 2026-10-25, option b): an entry whose source names a repo file is re-found in it
 // now, and one not found says so without claiming a change; any other entry carries its capture date as unverified.
-// Given a command's output, only the entries it shows are labelled (06, 2n).
+// Given a command's output (06, 2o): every entry HEAD does not hold, whatever the output shows, since which entries a
+// reshaped output shows cannot be told (2n's three rounds); and the committed entries it shows, by 2n's rule.
+// shortcut: one git call per map file on each Bash command that names the folder; batch them (git cat-file --batch)
+// if a map ever holds more than a handful of files
 export function labels(root, file, output) {
   let bytes;
   // a missing file has nothing to label; any other failure throws, and the read hook labels the file as a whole
@@ -195,10 +198,11 @@ export function labels(root, file, output) {
   // a UTF-16 file printed raw loses its non-ASCII text in the decode, so an output holding a NUL shows all of it
   if (output?.includes('\0') && ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))) output = undefined;
   const all = entries(decode(bytes));
-  const picked = output === undefined ? all.map(() => true) : shown(all, output);
-  if (!picked.includes(true)) return '';
+  if (!all.length) return '';
   const head = spawnSync('git', ['show', `HEAD:./${file}`], { cwd: root, maxBuffer: 64 << 20 });
   const held = new Set(head.status === 0 ? entries(decode(head.stdout)) : []);
+  const seen = output === undefined ? null : shown(all, output);
+  const picked = all.map((b, i) => !seen || !held.has(b) || seen[i]);
   const docs = new Map();
   const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
   const out = all.flatMap((b, i) => {
@@ -219,15 +223,16 @@ export function labels(root, file, output) {
     return ls.length ? [`${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`] : [];
   });
   if (!out.length) return '';
+  // the note follows the list: before it, Claude paraphrased the labels (06, 2n attempt 3's smoke)
   const note = (ls) => (ls.some((l) => l.includes('unverified quote')) ? `${UNVERIFIED_NOTE}\n` : '');
-  const top = `[project map] Labels on the entries of ${file}${output === undefined ? '' : ' that this output shows'}, in file order:\n${note(out)}`;
-  const whole = `${top}${out.join('\n')}\n`;
+  const top = `[project map] Labels on the entries of ${file}${output === undefined ? '' : ' not yet committed, and on those this output shows'}, in file order:\n`;
+  const whole = `${top}${out.join('\n')}\n${note(out)}`;
   if (whole.length <= CAP) return whole;
   // past the cap, Claude would see only a preview, so the labels are cut at a line and the rest fail closed (D18, J3)
   const tail = (k, n = out.length - k) => (k ? `(${n} more ${n === 1 ? 'label' : 'labels'} not shown: treat every entry after entry ${parseInt(out[k - 1], 10)} `
     : `(${n} ${n === 1 ? 'label' : 'labels'} not shown: treat every entry `) + 'in this file as unreviewed and unverified.)\n';
   let k = 0;
-  for (let used = top.length; k < out.length && used + out[k].length + 1 + tail(k + 1).length <= CAP; k++) used += out[k].length + 1;
+  for (let used = top.length + note(out).length; k < out.length && used + out[k].length + 1 + tail(k + 1).length <= CAP; k++) used += out[k].length + 1;
   // the note goes when no line it explains is left, which only shortens the text
-  return `${note(out.slice(0, k)) ? top : top.replace(note(out), '')}${out.slice(0, k).map((l) => `${l}\n`).join('')}${tail(k)}`;
+  return `${top}${out.slice(0, k).map((l) => `${l}\n`).join('')}${tail(k)}${note(out.slice(0, k))}`;
 }

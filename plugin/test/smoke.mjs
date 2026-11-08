@@ -92,7 +92,7 @@ assert.ok([...started.values()].flat().every((h) => h.exit === 0), 'every hook e
 // 2n: the shown entry only (the last one), on each form
 for (const c of ['tail -5 .project-map/captured.md', FAILING, GREP, CD]) {
   const out = [...started].find(([k]) => k === c)?.[1].map((h) => h.output).join('') ?? '';
-  assert.ok(out.includes('that this output shows') && out.includes('2. avatars') && !out.includes('1. components'), `shown entry only: ${c}`);
+  assert.ok(out.includes('not yet committed, and on those this output shows') && out.includes('2. avatars') && !out.includes('1. components'), `shown entry only: ${c}`);
 }
 // 2n attempt 2: the hook does not see the whole output, so every map file's labels, which name big.md's last entry
 const bg = bashEv.flatMap((e) => (e.type === 'assistant' ? e.message?.content ?? [] : [])).find((x) => x.type === 'tool_use' && x.input?.command === BG);

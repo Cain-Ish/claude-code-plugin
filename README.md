@@ -24,9 +24,9 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   background subagent's report or another Claude session's message does not count as that prompt.
 - **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude is told
   to add it to `.project-map/captured.md`, with its source and date.
-- **When Claude reads a map file in the main session** with the Read tool, a hook labels its entries. When a Bash
-  command that names the `.project-map` folder prints map entries, in any form, a hook labels the entries it
-  printed. A Bash command that exits with an error gets them too:
+- **When Claude reads a map file in the main session** with the Read tool, a hook labels its entries. Every Bash
+  command that names the `.project-map` folder carries the labels of every entry not yet committed, whatever it
+  printed, and those of the committed entries it printed. A Bash command that exits with an error gets them too:
   - "unreviewed, not yet committed", until you commit them;
   - an entry whose source names a repo file has each stretch of three or more words in its quote checked against that
     file now. If the file is missing, or a stretch is not there word for word, the label says so, and a file that
@@ -96,8 +96,9 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
 - a document in the root's `.claude/rules/` whose name does not end in `.md`, now listed, since Claude Code does not
   load it;
 - map entries printed by a Bash command in a form the command's text did not show as a read (`|` inside quotes, a
-  `cd` into the folder, a glob, a loop, `git show`), now labelled by what the command printed. A Bash read now
-  carries the labels of the entries it printed, not the whole file's.
+  `cd` into the folder, a glob, a loop, `git show`): every uncommitted entry is now labelled on each command that
+  names the folder, by the repo's state, and committed entries by what the command printed. A Bash read no longer
+  carries the whole file's labels.
 
 **Where it helped:**
 - *A designer's spec, read in an earlier session:* kept in 10 of 10 runs (auto memory: 2), and followed in a fresh
@@ -279,17 +280,18 @@ Then remove them in this order:
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
 - **Some map reads get no label:** through the Grep tool, a script that reads the file, a command that names only the
   folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11 times: 2 through the Read tool
-  and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds, and alpha.8 labels whatever a Bash command
-  that names the folder prints. Still unlabelled: the output of a command that does not name the folder, even when it
-  prints map entries (`git diff` or `git show` from the root, `rg` or `grep -r` over the repo, a script that builds
-  the path at run time); output that shows an entry only in part (a line cut short, `grep -o`, colour codes) or in an
-  encoded form (`cat -A` or `cat -v` of non-ASCII text or tabs, `od`, JSON escapes); and output whose only line from
-  an entry is a source or when line that other entries of its file share.
+  and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds. alpha.8 gives every uncommitted entry's
+  label on each Bash command that names the folder, whatever the command printed. Still unlabelled: the output of a
+  command that does not name the folder, even when it prints map entries (`git diff` or `git show` from the root, `rg`
+  or `grep -r` over the repo, a script that builds the path at run time).
+- **A committed entry's labels** ("unverified quote", "not found") come with a Bash command only when its output shows
+  the entry, and can be missing when the output is reshaped: shown in part (a line cut short or wrapped, `grep -o`,
+  colour codes), in an encoded form (`cat -A` or `cat -v` of non-ASCII text or tabs, `od`, JSON escapes), with its
+  `>` markers stripped or its spaces changed, or only through a line that other entries of its file share.
 - **Another repo's map entries printed through Bash get no label,** as a Read of them gets none. An entry there with
   the same line as one in this repo gets this repo's labels for it.
-- **Each read repeats its labels.** A Read carries the whole file's, and a Bash command those of the entries it
-  printed. An append through Bash gets its new entry's label too: Claude Code passes the hook a diff of the files a
-  command edited. A line that a map file's only entry holds, such as its when line, labels that entry when another
+- **Each read repeats its labels.** A Read carries the whole file's, and a Bash command those of the uncommitted
+  entries and of the entries it printed. So until you commit the map, each such command lists its new entries. A line that a map file's only entry holds, such as its when line, labels that entry when another
   file's output shows the same line.
 - **Before Claude Code 2.1.85,** which ignores the hook's `if` field, the Bash handler starts on every Bash command. It
   labels the map entries any command prints.

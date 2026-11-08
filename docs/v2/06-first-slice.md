@@ -2876,3 +2876,18 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   - the tag `v2.0.0-alpha.8`, and an install from it in an isolated config;
   - both field repos' installs moved, and their sessions asked to reload;
   - `field.mjs` gets the move, and count 4 runs by the loop.
+
+### 2o, attempt 1: checks 1 and 2 (2026-11-08): pass
+
+- *The build,* moved to `plugin/` unchanged: product hash `3bbcd6537568`.
+- **Check 1, the self-test: pass.** A case runner ran 2o's self-test on 2n's attempt 3 scripts:
+  - *round 2's forms:* each of the 8 commands misses at least one uncommitted entry's label there, and carries them
+    all here. They are a body line shared by two uncommitted entries, `sed`, `cut` and `awk` with the marker
+    stripped, Unicode spaces through a locale-aware `sed`, a UTF-16 file with its NULs stripped, `fold -w 12`, and
+    `ls .project-map`, which shows no entry at all;
+  - *most other Bash cases* differ from attempt 3 in the header's wording and the note's place, and those that run
+    after the uncommitted entry was added carry it too. Their expectations name it by number;
+  - *by sight:* the spacing and when-line cases now run on a committed file (`spaced.md`, `solo.md`), since an
+    uncommitted one is listed whole. They still separate the rules.
+- **Check 2, byte identity: pass,** on the three repos.
+- *Next:* the smoke on both CLIs, CI, the third verifier round, and the bench.

@@ -30,10 +30,10 @@ if (which === 'session-start') {
   const file = rel(root, input.tool_input?.file_path);
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
 } else if (which === 'bash' || which === 'bash-failure') {
-  // the entries a Bash command's output shows get their labels, whatever the command's form (D14, 06 2n): the output
-  // is every string in tool_response (stdout, stderr), or the failure's error text. shortcut: a command that does not
-  // name the map folder never starts this handler (the if field), so `git diff` from the root stays unlabelled (04's
-  // accepted risk)
+  // a Bash command that names the map folder gets every uncommitted entry's labels, and those of the committed entries
+  // its output shows (D14, 06 2o): the output is every string in tool_response (stdout, stderr), or the failure's
+  // error text. shortcut: a command that does not name the map folder never starts this handler (the if field), so
+  // `git diff` from the root stays unlabelled (04's accepted risk)
   const ev = which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure';
   const strings = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
   const got = strings(which === 'bash' ? input.tool_response : input.error);
