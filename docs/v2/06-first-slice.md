@@ -2891,3 +2891,61 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
     uncommitted one is listed whole. They still separate the rules.
 - **Check 2, byte identity: pass,** on the three repos.
 - *Next:* the smoke on both CLIs, CI, the third verifier round, and the bench.
+
+### 2o, attempt 1: result (2026-11-08): checks 3 and 4 pass; check 6 failed
+
+- *Check 3, the smoke: pass* on CLI 2.1.305 and 2.1.319, every assertion. The background `cat` ran in the background
+  on both. With the note after the list, 2.1.305 quoted the Read labels word for word, dates included.
+- *Check 4, CI:* recorded below.
+- *Check 5, the bench:* not run yet.
+- **Check 6, the third verifier round: two regressions against alpha.7 survive.** Both are in the Bash handler's walk
+  of the map folder:
+  1. *A subfolder that is a junction* (a directory link on Linux and macOS takes the same path): `under()` lists the
+     link as a file, so the entries in it are never read. `cat .project-map/shared/rules.md` lost its uncommitted
+     entry's label, which alpha.7 gave from the command's text.
+  2. *A subfolder that cannot be opened* (a name holding a lone UTF-16 surrogate, made in PowerShell): the nested
+     listing throws ENOENT, which the handler read as "no map folder", so a `cat` of `captured.md` got nothing at all.
+     That contradicts "fails closed as a whole".
+  - *Missed by alpha.7 too, and not in the README:*
+    - a command that reads the map and then removes or reverts its entries (`rm`, `git checkout`, `git stash`): the
+      labels follow the state after the command;
+    - uncommitted entries that are not in the working tree: the index (`git show :…`, `git diff --cached`) or a stash;
+    - map files whose name does not end in `.md` (`.MD`, `.txt`, `.markdown`);
+    - a package's own `.project-map/` below the root, and a worktree inside the checkout when the project folder is
+      the main checkout.
+  - *Outside the entry format,* on both builds: a `###` block with no `>` line, an indented `>`, a `####` or `##`
+    block, lone carriage returns, or a UTF-8 file behind a UTF-16 byte-order mark. These are not entries as D14
+    defines them.
+  - *Held up:* committed then edited, moved between files, renamed, a case-only rename, a detached or unborn `HEAD`,
+    a merge conflict, odd file names, the cap with up to 2,000 uncommitted entries (none dropped), and exit 0
+    throughout.
+  - *Time:* one file of 300 entries took 56 to 64 ms with Node's start; 20 files took 330 to 370 ms; 200 files took
+    3.1 s, one `git` call each. The source-path pattern is quadratic in a source line's length (60,000 characters:
+    1.3 s), as in alpha.7, but it now runs for every uncommitted entry on each command that names the folder.
+
+### 2o, attempt 2 (registered 2026-11-08, before the code)
+
+- **The changes:**
+  1. The Bash handler's walk follows a link (a junction, a symlink) that leads to a folder. Session start's walk is
+     unchanged, so its output stays byte-identical.
+  2. When the map folder exists, any error while listing it fails closed as a whole: one line for `.project-map/`.
+  3. *The README and D14 name the forms alpha.7 missed too,* as accepted risks with D14's trigger:
+     - a command that removes or reverts the entries it read;
+     - entries only in the index or a stash;
+     - map files not ending in `.md`, as for the Read hook;
+     - a map below the root;
+     - text outside the entry format.
+
+     A field sighting of any of them reopens D14.
+- **Checks:**
+  1. *The self-test,* with two new cases. Each fails on attempt 1 and passes here:
+     - a junction to a folder holding an uncommitted entry: labelled;
+     - a link to a folder that no longer exists: the closed line for the folder.
+
+     On Windows, a subfolder with a lone surrogate in its name also gets the closed line.
+  2. *Byte identity* with alpha.7, on the three repos.
+  3. *The smoke* on both CLIs.
+  4. *CI.*
+  5. *The bench,* if the machine is quiet.
+  6. *A fourth verifier round* on the walk and on the cases attempt 1's round confirmed. A regression against alpha.7,
+     or an uncommitted entry left unlabelled in a form not named above, sends 2o back.
