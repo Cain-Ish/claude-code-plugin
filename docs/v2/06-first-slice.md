@@ -3072,3 +3072,25 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   hidden entry. Both pass here.
 - **Check 2, byte identity: pass,** on the three repos.
 - *Next:* the smoke, CI, the verifier on the two changes, and the bench.
+
+### 2o, attempt 4: result (2026-11-08): checks 3 and 4 pass; check 6 finds one regression; to the user
+
+- *Check 3, the smoke: pass* on CLI 2.1.305 and 2.1.319, every assertion.
+- *Check 4, CI: pass* on three systems (`a951018`).
+- *Check 5, the bench:* running.
+- **Check 6, the verifier on the two changes:**
+  - *Both work:*
+    - the Emacs lock link and a junction to a deleted folder now leave captured.md's labels intact;
+    - two or three names decoded alike give one closed line, on Linux and Windows.
+  - **One regression against attempt 3 (CONFIRMED, low plausibility):** `throwIfNoEntry` cannot tell a link whose
+    target is gone from a link whose own name cannot be reached. On Linux that is a name that is not valid UTF-8; on
+    Windows, a lone surrogate. So a link named `caf\xe9.md` to a file holding an entry, read by
+    `cat .project-map/caf*.md`, gets nothing. Attempt 3 failed the folder closed there. The verifier's fix, tried in a
+    copy: when the stat gives nothing, `lstatSync` the name itself before skipping it.
+  - *The link form of an accepted risk:* `cat .project-map/link.md; rm notes/d.md` gets nothing. Attempt 3 failed
+    closed there by accident. D14 already accepts "a command that removes or reverts the entries it read".
+  - *Not regressions:* two folder names decoded alike (both builds miss the entry), ENOTDIR (both fail closed), and
+    ELOOP (both fail closed).
+- *Rule 4:* attempt 4 was the last, so this goes to the user. The choice is between two options:
+  - alpha.8 as built, with this form added to the accepted risks;
+  - the one-condition fix as a fifth attempt, which the rule leaves to the user.
