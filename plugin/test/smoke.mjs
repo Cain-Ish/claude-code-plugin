@@ -62,7 +62,7 @@ const CD = 'cd .project-map && tail -5 captured.md';
 // 2n attempt 2: a command run in the background, and one whose output passes 30,000 characters (saved to a file)
 const BG = 'cat .project-map/captured.md';
 const BIG = 'cat .project-map/big.md';
-const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md', FAILING, GREP, CD, BG, BIG];
+const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md', FAILING, BG, BIG, GREP, CD];
 const bashEv = session(`Do ${COMMANDS.length + 1} things in this order,` + ' one tool call each, then reply with only the results, numbered. (1) Use the Read tool on '
   + `docs/style.md. ${COMMANDS.map((c, i) => `(${i + 2}) Use the Bash tool${c === BG ? ' with run_in_background set to true' : ''} to run exactly: ${c}`).join(' ')} and then quote word for word the `
   + 'labels a hook added after it.', 'Grep,Glob,WebFetch,WebSearch', ['Read', 'Bash(git status *)', 'Bash(echo *)', 'Bash(tail *)', 'Bash(grep *)', 'Bash(cd *)', 'Bash(cat *)']);

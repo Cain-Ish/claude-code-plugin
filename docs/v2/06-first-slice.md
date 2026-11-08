@@ -2764,8 +2764,9 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
     "unverified quote, captured 2026-10-24" failed. The Read hook's output is unchanged since attempt 1, whose smoke
     passed this check on both CLIs.
   - Following 2j's precedent, a harness failure counts as an attempt.
-- *Also seen on 2.1.305:* the hook's `tool_response` for the 35.5 KB output held a saved path. Haiku quoted that
-  label word for word.
+- *Not seen:* which field made the hook give every file's labels for the 35.5 KB output, the saved path or the length
+  guard. The stream shows the hook's output, not its input. On both CLIs Claude was shown that the output was saved
+  to a file, and quoted the label word for word.
 
 ### 2n, attempt 3 (registered 2026-11-08, before the re-run). The last under rule 4
 
