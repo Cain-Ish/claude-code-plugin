@@ -2495,3 +2495,14 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
 - *After the count (14:51Z):* the field session replied, quoting the same "Reloaded: … 8 hooks" line. It gave the
   time as about 15:50 local. Its transcript holds one reload only, at 01:50:50Z, so this record keeps the
   transcript's time.
+
+### 18f: the plugin-use question sent to the field session (2026-11-08, 15:23Z)
+
+- At 15:23Z, on the user's request, the field repo's running session was asked for a short summary of how it used the
+  plugin. The question covers:
+  - the forced decision;
+  - the map's labels;
+  - its captured entries;
+  - what got in the way;
+  - the reload.
+- *For later field counts:* that session's epochs after 15:23Z are primed for C3 and C4.
