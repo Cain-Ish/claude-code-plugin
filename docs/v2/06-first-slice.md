@@ -3202,3 +3202,13 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *`field.mjs`* labels epochs from 21:18:04Z as alpha.8 (one entry in its move table). On count 3's corpus its output
   is unchanged.
 - *Next:* the field sessions are asked to run `/reload-plugins`, and count 4 is scheduled.
+
+### 2o: the field sessions asked to load alpha.8 (2026-11-08, 21:19Z)
+
+- Both running field sessions were sent a message: the user should type `/reload-plugins`.
+  - The first repo's session was told what alpha.8 changes in the labels. It was already primed, from 15:23Z.
+  - The second repo's session was told what the plugin does, the forced decision included, so it is primed from now.
+    Its counts are reported apart, outside D24's corpus.
+- *Count 4* runs by the field README's loop, for both repos, once a day while this session lives. Its corpus for D24 is
+  every epoch of the first repo since count 3's freeze (14:47Z). Epochs before each session's reload ran alpha.7's
+  hooks, and count under D24's clauses for their build.
