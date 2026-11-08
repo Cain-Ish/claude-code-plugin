@@ -2506,3 +2506,110 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
   - what got in the way;
   - the reload.
 - *For later field counts:* that session's epochs after 15:23Z are primed for C3 and C4.
+
+### The field's findings, rethought (2026-11-08)
+
+The user asked for the issues and findings to be rethought and fixed. Each one, with where it goes (rule 3):
+
+| Finding | Source | Goes to |
+| --- | --- | --- |
+| A `grep` with `\|` inside quotes showed map entries with no label | count 3 | D14's re-lock: 2n, below |
+| The whole file's labels after every Bash read, for 1 to 5 entries shown | the field session; the scan in 2n | 2n: labels for the entries shown |
+| "unverified quote" is not explained | the field session | 2n: one line of wording |
+| `field.mjs` misses the Bash forms the plugin misses | count 3 | count 4: C5 by output (field README) |
+| `field-scope.mjs`: D 4 of 6 (67%), bar 70% | counts 2 and 3 | D24's item 4 stands. A bar moved after its data is read counts as a failed check (rule 2), and 6 pairs are a thin base. Count 4 adds pairs. The X pairs are Claude Code's own path delivery (a rule delivered after a parallel edit; a new file's rule never delivered), recorded under D22 at count 2 |
+| The forced decision changed nothing it read; "read every document of a yes directory" is not done when a directory holds about 50 | the field session | D22 observation, in count 4's record. C3 and C4 measure it; no change to the frozen text without a check |
+| No way to ask which entries apply to a kind of work; `when:` is never shown | the field session | D22 observation, a candidate for the map issue; not built |
+| The board, data and UI reminders after `git add` | the field session | not this plugin: the field repo's own hooks |
+| The reload's time | the field session | settled in count 3: the transcript's time stands |
+
+### 2n: labels for what a Bash command printed, as `2.0.0-alpha.8` (registered 2026-11-08, before the code)
+
+- *Why:*
+  - D14 reopened on 2026-11-08 (count 3, above). Its record names what re-locks it: the output step, built and
+    checked under its own record. This is that record. The user's go-ahead, the same day: "rethink the issues and
+    founds and implement fixes".
+  - The field session's reply to 18f's question (kept outside the repo, as 18f registered) found the labels noisy.
+    After a Bash read, the labels of the whole file came back, though the command showed one to three entries. It
+    also found "unverified quote" unexplained.
+  - *A scratch scan of the field repo's 31 main sessions,* matching the map's current quote lines in Bash output:
+    - 24 Bash calls showed an entry's line, and 17 of them named the map folder;
+    - the 7 others showed a document an entry quotes (3), session transcripts read by a script (3), or a commit
+      message (1). None showed the map file itself, so the `if` filter stays;
+    - the 9 labelled reads (alpha.4 and later) showed 1 to 5 entries each, and each got the labels of 22 to 36.
+- **The changes,** built in a copy in the scratchpad and moved to `plugin/` unchanged:
+  1. *The Bash handler labels by output.* The command parse goes.
+     - *The output:* every string in `tool_response` for `bash` (Bash gives `stdout` and `stderr`), and `error` for
+       `bash-failure` (Claude Code's text: "Exit code N", then the output, middle-truncated past a size). Carriage
+       returns are dropped.
+     - *Shown:* an entry of one of this repo's map files (every `.md` file under `.project-map/`) is shown when the
+       output holds its heading line (`### …`) or any of its quote lines (`> …` with text after the marker), as
+       written in the file with trailing spaces dropped. Substring, not line equality: `grep -n`, `cat -n`, `rg` and
+       `git diff` add prefixes.
+     - *Labels:* the shown entries' labels only, numbered by their place in the file, under the header
+       "Labels on the entries of <file> that this output shows, in file order:". A shown entry with no label gives no
+       line, and a file with none gives nothing. The Read hook's header and labels are unchanged, apart from change 2.
+     - *The cap:* 2m's arithmetic over the per-file texts, unchanged.
+     - *Fail closed:* a file whose labels cannot be computed gets 2m's closed line. When `tool_response` or `error`
+       holds no string, one line: the entries this command showed could not be labelled, so every map entry it showed
+       is to be treated as unreviewed and unverified. There is no fallback to a command parse.
+     - *Scope:* this repo's own map files only. Another repo's entries get no label, as a Read of them gets none; an
+       entry there with the same lines as one here gets this one's labels.
+  2. *"unverified quote" explained:* when a label list holds that label, one line after the header says that the
+     entry's source is not a file in this repo (a person's words, for instance), so its quote cannot be re-found, and
+     that the date is its capture date. This holds for the Read hook and the Bash handler, and the line counts inside
+     the cap. D16's choice (option b, re-locked 2026-10-26) is unchanged; this is wording only.
+  - `hooks.json` is unchanged: the same matchers and `if: Bash(*.project-map*)`. Version `2.0.0-alpha.8` in both
+    manifests, and the self-test's hash pinned again.
+  - *Not built:* a dedupe of labels already shown in the session (Claude Code clears old tool output, so a label
+    shown once can be gone), a way to surface `when:`, and any change to the forced decision. The last two are D22
+    observations for count 4's record. The labels' trim stays after `2.0.0` (D24's answer); this step shrinks them as a
+    side effect.
+- **The README:** the unlabelled routes become:
+  - a command that does not name the folder (`git diff`, `git show <rev>`, `rg` or `grep -r` from the root);
+  - output that shows an entry only in part (a line cut short, `grep -o`, colour codes).
+
+  "Another folder's map file gets this repo's labels" goes. Another repo's entries get none, as a Read of them gets
+  none.
+- **Checks:**
+  1. *The self-test.* Each Bash case gets the output its command gives: run by `bash -c` in the temporary repo, or
+     written out where the tool may be missing on a runner (Python, `rg`).
+     - *The field's 20 commands:* the 9 that show entries get exactly the labels of the entries they show, and the 11
+       others get nothing.
+     - *D14's accepted-risk forms,* against this repo's map, each labelled:
+       - `grep -n -E "a|b"`, and the field's `grep -n -i "a\|b"`;
+       - `cd .project-map && cat captured.md`, and `cat .project-map/*.md`;
+       - a backslash path;
+       - `find .project-map -name '*.md' -exec cat {} \;`;
+       - a `for` loop over the folder;
+       - `git show HEAD:.project-map/captured.md`, and `git diff -- .project-map` with an uncommitted entry;
+       - `rg -n` over the folder.
+     - *Nothing for:* another repo's map file (`cat ../b/.project-map/captured.md`), and an append with no output.
+     - *The failure route:* `error` text gives the labels the same output gives under `PostToolUse`. With no
+       readable output, the closed line.
+     - *The cap:* two big files, and 85 and 200 files, with their outputs.
+     - *The note:* present when an "unverified quote" label is listed, absent otherwise. The Read hook's labels are
+       pinned with it.
+     - *Before and after:* each new case fails on alpha.7's scripts and passes on 2n's, except reads alpha.7 labelled
+       too. Those must still label: whole files on alpha.7, the shown entries on 2n.
+  2. *Byte identity* with alpha.7 for session start and the prompt hook, on the field repo's checkout, this repo and
+     A1's fixture. D24's corpus clause depends on it.
+  3. *The smoke,* on the pinned CLI 2.1.305 and on 2.1.319, with two more commands:
+     - the field's form, `grep -n -i "Avatars\|nothing" .project-map/captured.md`;
+     - `cd .project-map && tail -3 captured.md`.
+
+     *Pass:* the Bash handler runs on each, and its labels reach Claude. On a command that shows one entry, the
+     labels list that entry only.
+  4. *CI* on three systems: the self-test and the load lane.
+  5. *The reference bench* against alpha.7, as 2l's check 6 ran, if the machine is quiet. Otherwise it waits, as
+     registered there.
+  6. *One refute-first verifier* on the diff, against D14's trigger: "an injected entry is ever delivered without the
+     unreviewed label". A finding that survives sends 2n back.
+- **On a pass:**
+  - D14 re-locks on the output step;
+  - the tag `v2.0.0-alpha.8`, and an install from it in an isolated config;
+  - the user's install moved, with the marketplace's ref set to the new tag;
+  - the field session is asked to run `/reload-plugins`;
+  - `field.mjs` gets the move.
+
+  `release-2.0.0` is rebuilt on alpha.8 when D24's bar is met.

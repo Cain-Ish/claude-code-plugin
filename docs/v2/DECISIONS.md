@@ -4521,6 +4521,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       field repo is byte-identical to alpha.6's (2m's check). Its root `.claude/rules/` holds only `.md` files, so
       the rules fix leaves its index unchanged. Their C5 counts under the rule both builds share: a read of this
       repo's own map file that exits 0 is labelled.
+    - *Amended 2026-11-08, before count 4, with 06's step 2n registered:* epochs on alpha.8 count in full, provided
+      2n's session start and prompt output for the field repo are byte-identical to alpha.7's (2n's check 2). Their
+      C5 is by output: a Bash call that names the map folder, and whose output shows an entry of this repo's map that
+      has a label, gets that entry's label. Earlier epochs keep their build's rule.
+    - *Primed epochs, set 2026-11-08 before count 4's corpus is read:* a session asked about the plugin is primed
+      from the question on. Its later epochs (compactions, resumes) count for every item except 2 and 3. Their C3
+      and C4 are reported apart, and they cannot be the in-claim epoch item 2 needs. A new session, or a `/clear`, is
+      not primed. The field session asked at 15:23Z on 2026-11-08 (06, 18f) is the first.
   - *Pass, all of:*
     1. no defect as the field check defines one (probes/V2-D17-field/README.md): C1, C2, C5, C6b, C7 and C8;
     2. at least one in-claim epoch, judged by reading its first human prompt (the field README's rule);
