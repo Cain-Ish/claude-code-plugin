@@ -184,3 +184,54 @@ does not depend on the choice.
   scanner's in everything but the build label, and the epoch after the move is labelled alpha.6.
 - *Result: pass.* Its two epochs are labelled alpha.5 (started 2026-11-06 16:32Z) and alpha.6 (resumed 2026-11-07
   11:50Z).
+
+## Count 4 and after: C5 by output, and the loop (registered 2026-11-08, before the change)
+
+- *Why:* count 3's miss, a `grep` with `|` inside quotes, was found by hand. `field.mjs` splits a command as the
+  plugin did, so it missed the same forms. From alpha.8 (06, 2n) the plugin labels what a Bash command printed, and the
+  scanner must not share that rule either.
+- **C5b, by output.** For each main-session Bash call, the scanner looks in the result Claude saw for the map's
+  entries. An entry is *seen* when one of its quote lines of at least 20 characters, without the `>` marker, or its
+  heading text, is in that result. This is looser than the plugin's rule (the whole line, marker included), so the
+  forms the plugin misses show up as misses here. The map's entries are the field repo's map files as they are at the
+  count, plus the entries written in the session.
+  - *Counted:* the calls that name the map folder and show an entry, and of their seen entries, those named in the
+    call's `[project map]` context.
+  - *Reported apart:* the calls that do not name the folder and show an entry (04's accepted risk).
+  - *Each miss is read by hand:* a plugin defect (the result holds the entry's line as the file has it), an entry seen
+    only in part (an accepted risk), or a scanner false hit. For alpha.8 epochs, a defect is C5's defect, as D24's
+    amendment of 2026-11-08 says.
+- *Pass for the change,* on count 3's frozen corpus:
+  - every count the scanner printed at count 3 is unchanged;
+  - C5b finds what was found by hand: 5 calls that name the folder show entries, 4 of them labelled. The miss is the
+    `grep` at 00:32Z on 2026-11-08. One call that does not name the folder (a commit) shows an entry.
+- **Primed epochs** follow D24's rule of 2026-11-08. They are marked by hand at each count, from the times the field
+  session was asked, which 06 records.
+
+### The loop, each count
+
+1. *Freeze:* copy each main-session transcript of the field repo that changed since the last count, with its
+   subagent folder, to `research/raw/2l-field/count<N>/`.
+2. *Scan:* `node count.mjs <field repo> <frozen folder>` runs `field.mjs` and `field-scope.mjs` on the copies.
+3. *Read:* the first human prompt of each new epoch (in-claim or not), C3 in each forced epoch, each C5b miss, and
+   each C6c entry not found verbatim.
+4. *Record:* 06, "D24's field count N", in counts only.
+5. *Ask,* at most once per session, when the user asks or its work is done: the question below, by a cross-session
+   message. Its answer stays outside the repo. The session is primed from then.
+6. *Triage* each finding and each point of the answer (rule 3):
+   - a defect is fixed under its decision: a check registered first, a new alpha, the user's install moved, and the
+     session asked to run `/reload-plugins`;
+   - an observation goes to its decision in the ledger;
+   - a candidate goes to the map issue;
+   - what is not this plugin's is said so.
+7. The next count starts where this one froze.
+
+*The question,* fixed so that answers compare across counts:
+
+> Short answers, one line each. Do not change your work because of this question, and quote nothing from the map or
+> your transcripts. Since <date>, how did the second-brain plugin work for you?
+> (1) The directory question at your first prompt: did it change what you read?
+> (2) The `[project map]` labels after a map read: useful, noise, or missing where you expected them?
+> (3) Entries you added to `.project-map/`: about how many, and did any feel wrong to add?
+> (4) What got in the way, or what did you need from it and not have?
+> (5) Any hook error or odd output you saw?
