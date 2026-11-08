@@ -11,14 +11,17 @@ const [repo, calls = '200'] = process.argv.slice(2);
 const N = Number(calls);
 const env = { ...process.env, CLAUDE_PROJECT_DIR: repo };
 const doc = path.join(repo, (fs.readdirSync(repo).find((f) => /\.md$/i.test(f)) ?? 'README.md'));
+let tail20 = '';
+try { tail20 = `${fs.readFileSync(path.join(repo, '.project-map', 'captured.md'), 'utf8').replace(/\n$/, '').split('\n').slice(-20).join('\n')}\n`; } catch {}
 const KINDS = {
   'session-start': (i) => ['session-start', { session_id: `bench-${i}`, source: 'startup' }],
   prompt: () => ['prompt', { session_id: 'bench-none' }],
   'read-other': () => ['read', { tool_input: { file_path: doc } }],
   'read-map': () => ['read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }],
-  // 2j: a map read through Bash, and a command naming no map file, as a spawn by the if field's fallback would run
-  'bash-map': () => ['bash', { tool_input: { command: 'tail -20 .project-map/captured.md' } }],
-  'bash-other': () => ['bash', { tool_input: { command: 'echo $HOME' } }],
+  // 2j: a map read through Bash, and a command naming no map file, as a spawn by the if field's fallback would run.
+  // 2n: each with the output the command prints, which 2n's handler reads (earlier builds ignore it)
+  'bash-map': () => ['bash', { tool_input: { command: 'tail -20 .project-map/captured.md' }, tool_response: { stdout: tail20, stderr: '', interrupted: false, isImage: false } }],
+  'bash-other': () => ['bash', { tool_input: { command: 'echo $HOME' }, tool_response: { stdout: `${os.homedir()}\n`, stderr: '', interrupted: false, isImage: false } }],
 };
 
 const time = (args, input) => new Promise((resolve) => {
