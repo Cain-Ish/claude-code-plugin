@@ -235,3 +235,12 @@ does not depend on the choice.
 > (3) Entries you added to `.project-map/`: about how many, and did any feel wrong to add?
 > (4) What got in the way, or what did you need from it and not have?
 > (5) Any hook error or odd output you saw?
+
+## A second field repo (registered 2026-11-08, before the install)
+
+- *Why:* the user asked for the plugin in their other active repo too. Its name stays out of tracked files, as the
+  first one's does.
+- The plugin is installed there at local scope, at the release the first repo runs, and moves with it.
+- Its main-session transcripts from the install on are counted by the loop above, with `field.mjs` and
+  `field-scope.mjs`, and reported apart. They are not D24's corpus, which names the first repo's sessions. A defect
+  there is fixed under the same consequences.

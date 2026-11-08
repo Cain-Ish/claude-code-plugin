@@ -2833,3 +2833,46 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   - **(A) Keep alpha.7,** with the `|`-in-quotes risk accepted again and this sighting on record.
 - *Recommended: (S).* It is the only option that does not depend on reading text that Claude, or a filter, can
   reshape. Its cost is the noise the field complained of, limited to entries not yet committed.
+
+### 2o: the "unreviewed" label by the repo's state, as `2.0.0-alpha.8` (registered 2026-11-08, before the code)
+
+- *Why:* rule 4 stopped 2n, and its rethink put three options for D14's re-lock to the user. The user chose (S),
+  "Label by repo state", the same day. This is a new approach after rule 4's stop, with its own three attempts.
+- **The changes,** on 2n attempt 3's code, built in a copy in the scratchpad:
+  1. A Bash command that names the map folder (the `if` filter, unchanged) carries the labels of every entry of this
+     repo's map files that `HEAD` does not hold word for word, whatever it printed. That is D14's comparison,
+     unchanged.
+  2. A committed entry's labels come when the output shows it, by 2n's rule: its heading, a quote line, or a line no
+     other entry of its file holds, with spacing ignored.
+  3. When the hook cannot see the whole output, or a UTF-16 file meets an output that holds NULs, the file's labels
+     come as a Read gives them. This is kept from 2n.
+  4. The note on "unverified quote" goes after the label list, for the Read hook too. In 2n it sat before the list,
+     and 2.1.305 then paraphrased the labels in 2 of 3 smoke runs.
+  5. The Bash header names what it lists: "Labels on the entries of <file> not yet committed, and on those this output
+     shows, in file order:".
+  - The version stays `2.0.0-alpha.8`, which was never tagged, and the self-test's hash is pinned again.
+- **The README:**
+  - the "unreviewed" label reaches Claude on every Bash command that names the folder, until the entry is committed;
+  - committed entries' labels come for what the output shows, and can be missing when the output is reshaped (the
+    forms of 2n's second round);
+  - still unlabelled: the output of a command that does not name the folder.
+- **Checks:**
+  1. *The self-test.* Every finding of both verifier rounds runs on real bash output where the runner has the tool, and
+     each carries every uncommitted entry's label. Also:
+     - an output that shows no entry (`ls .project-map`) carries those labels too;
+     - committed entries are labelled by sight, as in 2n;
+     - the note comes last.
+
+     Each case from round 2 fails on 2n's attempt 3 and passes here.
+  2. *Byte identity* with alpha.7 for session start and the prompt hook, on the three repos.
+  3. *The smoke* on CLI 2.1.305 and 2.1.319, with attempt 3's commands. Its assertions follow the header's new
+     wording. *Pass:* every assertion.
+  4. *CI* on three systems.
+  5. *The reference bench,* if the machine is quiet.
+  6. *A third verifier round,* refute-first on the "unreviewed" label. Any uncommitted entry of this repo's map that
+     a command naming the folder shows without that label is a finding that survives.
+- **On a pass:**
+  - D14 re-locks on (S);
+  - the tag `v2.0.0-alpha.8`, and an install from it in an isolated config;
+  - both field repos' installs moved, and their sessions asked to reload;
+  - `field.mjs` gets the move, and count 4 runs by the loop.
