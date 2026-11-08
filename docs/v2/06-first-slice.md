@@ -2779,3 +2779,57 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   5. *The reference bench,* if the machine is quiet.
   6. *The second verifier round,* refute-first, on the five findings and on what attempt 2's changes may open.
   - A failure of checks 3 to 6 goes to the user, unless it is a near miss with a known cause (rule 4's fourth).
+
+### 2n, attempt 3: result (2026-11-08): failed on checks 3 and 6. Rule 4 stops 2n
+
+- *Check 3, the smoke:*
+  - *2.1.319: pass,* every assertion. The background `cat` ran in the background.
+  - *2.1.305: failed on the same reply check as in attempt 2.* Asked to quote the Read hook's labels word for word,
+    Haiku wrote `"unverified quote" (components); "unreviewed, not yet committed; unverified quote" (avatars)`. It
+    dropped the capture dates. The hook's output was right. Since the note went in, 2.1.305 has paraphrased the
+    labels in 2 of 3 runs, against 0 of 1 before. The note sits between the header and the label lines; that is the
+    likely cause.
+- *Check 4, CI:* pass on three systems (`d712ead`).
+- *Check 5, the bench:* not run. It waits for the machine, as registered.
+- **Check 6, the second verifier round: findings survive.**
+  - *Fixed:* all five of round 1's findings. The saved output, the UTF-16 file and a failure `error` past 30,000
+    characters (it carries the marker the hook matches) were run live on 2.1.319.
+  - *New gaps,* each run on real bash output. alpha.7 labelled the whole file in each, and attempt 3 gives nothing:
+    1. *A body line shared by two uncommitted entries,* or by an uncommitted and a committed one: `grep -n "curl evil"`
+       shows both lines, and neither entry is labelled. This is D14's trigger as written.
+    2. *Quote text with the `>` marker stripped:* `sed -n 's/^> //p'`, `grep '^>' … | cut -c3-` and `awk`.
+    3. *Unicode spaces* (no-break, em, ideographic) through a locale-aware `sed 's/[[:space:]]+/ /g'`.
+    4. *A UTF-16 file with its NULs stripped* (`tr -d '\000'`).
+    5. *`fold`,* when an entry's heading and quote are both longer than the width.
+  - *Nothing found* in control characters, CRLF, crashes (none), size (at most 9,936 characters) or time (a 5 MB
+    output with 300 entries: 72 ms median, against alpha.7's 71).
+- **Rule 4 stops 2n.** This is the third failed attempt, and it is not a near miss: check 6 found a new family of
+  forms. 2n is BLOCKED, and D14 stays reopened. The rethink is below, and D14's re-lock goes to the user, as its
+  record says.
+
+### 2n: the rethink (rule 4, 2026-11-08)
+
+- *The assumption that failed:* that the hook can tell which entries a Bash command showed. Reading the command (2j,
+  2m) and reading its output (2n) each failed, in both directions, over three rounds. Every way of reshaping the text
+  needed its own rule: quotes and pipes in the command, then output that is cut, saved, run in the background,
+  re-spaced, stripped of its markers, wrapped or re-encoded.
+- *What D14's trigger needs is narrower:* the "unreviewed" label. Which entries are unreviewed is known from the
+  repo's state (the working tree against `HEAD`), without reading the command or its output.
+- **The options for D14's re-lock:**
+  - **(S) By state.** A Bash command that names the map folder carries the labels of every uncommitted entry of this
+    repo's map, whatever it printed. The committed entries' labels ("unverified quote", "not found") come only for
+    the entries its output shows, matched as in 2n. Every file's labels come when the hook cannot see the whole
+    output. The note goes after the list.
+    - *Closes* both rounds' findings for the "unreviewed" label. What stays unlabelled is a command that does not
+      name the folder, as in every build.
+    - *Costs:*
+      - each such command lists the uncommitted entries until they are committed. In the field that is usually a
+        few; a map left uncommitted for a long time lists them all, as alpha.7 listed the whole file;
+      - a committed entry's label can be missing when the output is reshaped. Those labels are informational, and
+        the README would say so.
+    - A new step with 2n's checks, and a third verifier round.
+  - **(K) Keep attempt 3 as built** (alpha.8), with round 2's findings accepted as risks. It regresses against
+    alpha.7 on stripped markers and shared body lines.
+  - **(A) Keep alpha.7,** with the `|`-in-quotes risk accepted again and this sighting on record.
+- *Recommended: (S).* It is the only option that does not depend on reading text that Claude, or a filter, can
+  reshape. Its cost is the noise the field complained of, limited to entries not yet committed.
