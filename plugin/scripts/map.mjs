@@ -66,7 +66,9 @@ export function toplevel(dir) {
 export const under = (root, d, seen) => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap((e) => {
   const p = `${d}/${e.name}`;
   if (!seen) return e.isDirectory() ? under(root, p) : [p];
-  const st = e.isSymbolicLink() ? fs.statSync(path.join(root, p)) : e;
+  // a link whose target is gone shows nothing to `cat`, so it is skipped (Emacs leaves one per unsaved buffer)
+  const st = e.isSymbolicLink() ? fs.statSync(path.join(root, p), { throwIfNoEntry: false }) : e;
+  if (!st) return [];
   if (!st.isDirectory()) return st.isFile() ? [p] : [];
   const real = fs.realpathSync(path.join(root, p));
   if (seen.has(real)) return [];

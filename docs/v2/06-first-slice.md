@@ -3062,3 +3062,13 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   5. *The bench,* if the machine is quiet.
   6. *One verifier,* on these two changes and on any regression against attempt 3 that they make. Five open rounds have
      run; a survivor of this one goes to the user, with the residual list for D14's re-lock.
+
+### 2o, attempt 4: checks 1 and 2 (2026-11-08): pass
+
+- *Attempt 3's CI* (check 4, recorded here): pass on three systems (`449a873`).
+- *The build,* moved to `plugin/` unchanged: product hash `75183744c5b9`.
+- **Check 1, the self-test: pass** on Windows and on Linux in WSL. On attempt 3's scripts, on Linux, the link to a
+  folder that is gone gave the closed line for the whole folder, and the two names decoded alike gave no line for the
+  hidden entry. Both pass here.
+- **Check 2, byte identity: pass,** on the three repos.
+- *Next:* the smoke, CI, the verifier on the two changes, and the bench.

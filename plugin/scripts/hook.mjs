@@ -47,8 +47,11 @@ if (which === 'session-start') {
   let files;
   try { files = under(root, MAP, new Set([fs.realpathSync(path.join(root, MAP))])).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' && !fs.existsSync(path.join(root, MAP)) ? [] : null; }
   // a listed file that cannot be read fails closed too: labels() reads ENOENT as "no file", and a name that is not
-  // valid UTF-8 is listed with U+FFFD, which no read finds (2o attempt 3)
-  const walked = (f) => { const t = labelled(f, output); return t || fs.existsSync(path.join(root, f)) ? t : closed(f); };
+  // valid UTF-8 is listed with U+FFFD, which no read finds (2o attempt 3). A name listed twice (two names decoded
+  // alike) cannot tell which file a read reaches, so it fails closed (attempt 4)
+  const twice = new Set((files ?? []).filter((f, i) => i && files[i - 1] === f));
+  if (files) files = [...new Set(files)];
+  const walked = (f) => { if (twice.has(f)) return closed(f); const t = labelled(f, output); return t || fs.existsSync(path.join(root, f)) ? t : closed(f); };
   // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
   // line for all when those alone would not fit (D18, J3; 06 2m)
   const texts = files === null ? [[`${MAP}/`, closed(`${MAP}/`)]] : files.map((f) => [f, walked(f)]).filter(([, t]) => t);
