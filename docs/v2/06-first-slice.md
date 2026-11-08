@@ -2967,3 +2967,48 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
 - **Check 2, byte identity: pass,** on the three repos. Session start's walk does not follow links.
 - *The README* names the forms that alpha.7 missed too, under "Known issues".
 - *Next:* the smoke, CI, the fourth verifier round, and the bench.
+
+### 2o, attempt 2: result (2026-11-08): checks 3 and 4 pass; check 6 failed
+
+- *Check 3, the smoke: pass* on CLI 2.1.305 and 2.1.319, every assertion; the background `cat` ran in the background
+  on both.
+- *Check 4, CI:* recorded with attempt 3.
+- **Check 6, the fourth verifier round:**
+  - *Fixed, confirmed:* both of attempt 1's regressions (the junction subfolder, and the subfolder that cannot be
+    opened). Following links dropped no label without a closed line: a link cycle ends in ELOOP and fails closed.
+  - *Findings that send 2o back, by its registration:*
+    1. *A FIFO named `.md` in the map* (Linux): the walk reads it, and `readFileSync` blocks, past 20 s in the run.
+       alpha.7 read only the files a command named, so this is a regression from attempt 1's whole-folder walk.
+    2. *A map file whose name is not valid UTF-8* (Linux): Node's listing turns the byte into U+FFFD, the read gets
+       ENOENT, and `labels()` treats that as a missing file, with no closed line. alpha.7 missed it too. The same
+       name on a folder fails closed.
+    3. *An NTFS alternate data stream* holding an entry, read with `cmd //c "more < .project-map/captured.md:x.md"`.
+       alpha.7 labelled the forward-slash form from the command's text. git never sees a stream, so such an entry can
+       never be committed.
+  - *Time, not a drop:* a link from the map to the repo root makes each command walk the root up to 63 times before
+    ELOOP. That took 10.5 s with this project's `.git`, and 28 s with a 60,000-file cache beside it, on Windows. A
+    link to 500 `.md` files with entries took 7.5 s, one `git` call each.
+  - *PLAUSIBLE, the same on alpha.7:* the `if` filter may be case-sensitive, so `cat .Project-Map/captured.md` on a
+    case-insensitive file system may not start the handler.
+
+### 2o, attempt 3 (registered 2026-11-08, before the code). The last under rule 4
+
+- **The changes, to the Bash handler's walk only:**
+  1. It lists regular files only, directly or through a link. A FIFO, a socket or a device is skipped, so nothing
+     blocks.
+  2. Each folder is walked once, by its real path, with the map folder itself counted first. A link back into the map,
+     or a cycle, is skipped instead of erroring.
+  3. A listed file that cannot be read, ENOENT included, gets the closed line for that file.
+- **The README** names an alternate data stream (Windows) and the `if` filter's letter case as unlabelled routes. It
+  also says that a link from the map to a large folder slows every command that names the map.
+- **Checks:**
+  1. *The self-test,* with these cases. Each fails on attempt 2 and passes here:
+     - a junction back to `.project-map`: captured.md's labels, with no closed line;
+     - on Linux and macOS, a FIFO named `pipe.md`: the hook exits within 10 s with captured.md's labels;
+     - on Linux, a file name with an invalid UTF-8 byte: the closed line for that file.
+  2. *Byte identity* with alpha.7, on the three repos.
+  3. *The smoke* on both CLIs.
+  4. *CI* on three systems.
+  5. *The bench,* if the machine is quiet.
+  6. *A fifth verifier round,* with attempt 2's criterion. A survivor goes to the user, unless it is a near miss with
+     a known cause.
