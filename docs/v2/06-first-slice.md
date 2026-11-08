@@ -3179,3 +3179,26 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 > claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.8 --scope project
 > claude plugin install second-brain@second-brain-v2 --scope project
 > ```
+
+### 2o: published as `2.0.0-alpha.8` (2026-11-08)
+
+- *The tree:* `git diff 493c195 -- plugin/ .claude-plugin/` at the release commit `23139e0` is empty, so CI on
+  `493c195` stands.
+- *The tag* [`v2.0.0-alpha.8`](https://github.com/Cain-Ish/claude-code-plugin/tree/v2.0.0-alpha.8) is on `23139e0`,
+  pushed with the branch.
+- *The release page:* the session's `gh release create` was refused by the permission check, as for alpha.7. The notes
+  are drafted above, for the user.
+- *Install from the tag* in an isolated config on CLI 2.1.319: version `2.0.0-alpha.8`, hash `e427a546cc6a`. It also
+  rehearsed the move: added at alpha.7, the marketplace added again at the new tag, updated, and the plugin updated.
+  The uninstall and the removal succeeded. The user's registry files are unchanged by checksum. *Pass.*
+- *The user's installs* moved at 21:18:04Z (the field repo) and 21:18:05Z (the second field repo). Both are at local
+  scope, `2.0.0-alpha.8` at `23139e0`, hash `e427a546cc6a`, enabled, and each repo's local settings name the new tag.
+- **A slip, disclosed:** the move script's first step ran in this repo instead of the field repo, through an empty
+  path variable.
+  - This repo's git-ignored local settings already declared the `second-brain-v2` marketplace, at an earlier ref.
+    They now declare it at the new tag. The earlier ref was not saved, and the plugin stays disabled here (V2-D06).
+  - The update step that ran here moved the field repo's install, as the registry shows. That repo's settings were
+    then set to the new tag in a separate step.
+- *`field.mjs`* labels epochs from 21:18:04Z as alpha.8 (one entry in its move table). On count 3's corpus its output
+  is unchanged.
+- *Next:* the field sessions are asked to run `/reload-plugins`, and count 4 is scheduled.

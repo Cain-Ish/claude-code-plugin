@@ -23,7 +23,7 @@ const log = spawnSync('git', ['log', '--format=%h %cI', '--', ':/plugin/'], { cw
   .trim().split('\n').map((l) => { const [h, t] = l.split(' '); return [h, Date.parse(t)]; });
 // after the GitHub install: the release the user's install ran, from the recorded moves (README, 18b). alpha.3's move
 // was not recorded: its tag's commit stands in, and no session falls in that window
-const MOVES = [['2026-11-07T13:49:19Z', 'alpha.7'], ['2026-11-06T22:08:21Z', 'alpha.6'], ['2026-11-03T17:05:05Z', 'alpha.5'], ['2026-10-29T20:26:00Z', 'alpha.4'], ['2026-10-29T19:51:09Z', 'alpha.3'],
+const MOVES = [['2026-11-08T21:18:04Z', 'alpha.8'], ['2026-11-07T13:49:19Z', 'alpha.7'], ['2026-11-06T22:08:21Z', 'alpha.6'], ['2026-11-03T17:05:05Z', 'alpha.5'], ['2026-10-29T20:26:00Z', 'alpha.4'], ['2026-10-29T19:51:09Z', 'alpha.3'],
   ['2026-10-29T00:52:30Z', 'alpha.2']].map(([t, v]) => [Date.parse(t), `tag v2.0.0-${v}`]);
 const build = (ms) => (ms >= GITHUB ? MOVES.find(([t]) => ms >= t)[1] : (log.find(([, t]) => t <= ms) ?? ['?'])[0]);
 const excluded = (ms) => ms >= EXCLUDE[0] && ms < EXCLUDE[1];
