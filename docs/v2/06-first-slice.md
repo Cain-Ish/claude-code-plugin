@@ -2429,3 +2429,17 @@ worktree (30 entries, 1,259,723 cited bytes). Every sample was 4.6% to 5.4%, and
 - *Next:* count 3 (2026-11-08, 14:47Z) re-counts the whole corpus with any later epochs. It runs only while this
   session is open. A D share under the bar is not a plugin defect. Under D24's failed-bar clause it goes to the user,
   who may keep the bar or set another (D24's reopen trigger).
+
+### 18f: the field session asked to load alpha.7 (2026-11-08, 00:31Z)
+
+- *At the user's request,* a message went to the field repo's running session at 00:31Z. It asks that the user run
+  `/reload-plugins` there at the next pause, so that the session's hooks become alpha.7's. The install itself was
+  already at alpha.7. The message says nothing about how the plugin works.
+- *What it means for the field counts:*
+  - The message is a machine turn in the corpus, so C2 checks that no force lands on it.
+  - After the reload, the compaction's epoch of 14:13Z runs alpha.7. Before it, the epoch runs alpha.6. Records after
+    the reload time, which the session is asked to send back, count as alpha.7.
+  - `field.mjs`'s time-based label is right for those records.
+- *Later, on the user's request:* a summary of how the plugin was used, asked of that session after count 3 runs, so
+  count 3's corpus is not primed. That session's epochs after the question are primed for C3 and C4 in any later
+  count.
