@@ -60,9 +60,11 @@ export function toplevel(dir) {
   }
 }
 
-// the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it
-export const under = (root, d) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
-  .flatMap((e) => (e.isDirectory() ? under(root, `${d}/${e.name}`) : [`${d}/${e.name}`]));
+// the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it. The Bash
+// handler follows a link that leads to a folder (06, 2o attempt 2): Claude can read the entries through it
+export const under = (root, d, follow = false) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
+  .flatMap((e) => (e.isDirectory() || (follow && e.isSymbolicLink() && fs.statSync(path.join(root, d, e.name)).isDirectory())
+    ? under(root, `${d}/${e.name}`, follow) : [`${d}/${e.name}`]));
 
 // git's core.ignorecase, read from the repo's config file, so session start keeps one git call (D18). A .git file (a
 // linked worktree, a submodule) names the git folder, whose commondir holds the shared config. Unset, false or

@@ -2949,3 +2949,21 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   5. *The bench,* if the machine is quiet.
   6. *A fourth verifier round* on the walk and on the cases attempt 1's round confirmed. A regression against alpha.7,
      or an uncommitted entry left unlabelled in a form not named above, sends 2o back.
+
+### 2o, attempt 2: checks 1 and 2 (2026-11-08): pass
+
+- *Attempt 1's CI* (check 4, recorded here): pass on three systems (`aa8e641`).
+- *The build,* moved to `plugin/` unchanged: product hash `12a06f41d997`.
+- **Check 1, the self-test: pass.** On attempt 1's scripts:
+  - the junction to a folder holding an uncommitted entry got nothing;
+  - the link to a folder that is gone gave captured.md's labels, with no closed line.
+
+  Both pass here. The earlier junction case (`link.md`, a link to `docs/`) changes meaning. The Bash handler now
+  follows it, and the folder it leads to holds no entry, so only captured.md's labels come. A Read of the link still
+  fails closed.
+  - *By hand, on Windows,* since Node cannot make such a name: a subfolder named `notes` plus a lone surrogate, made
+    in PowerShell, beside an uncommitted entry. Attempt 1 printed nothing; attempt 2 printed the closed line for
+    `.project-map/`.
+- **Check 2, byte identity: pass,** on the three repos. Session start's walk does not follow links.
+- *The README* names the forms that alpha.7 missed too, under "Known issues".
+- *Next:* the smoke, CI, the fourth verifier round, and the bench.

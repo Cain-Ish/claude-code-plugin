@@ -283,7 +283,13 @@ Then remove them in this order:
   and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds. alpha.8 gives every uncommitted entry's
   label on each Bash command that names the folder, whatever the command printed. Still unlabelled: the output of a
   command that does not name the folder, even when it prints map entries (`git diff` or `git show` from the root, `rg`
-  or `grep -r` over the repo, a script that builds the path at run time).
+  or `grep -r` over the repo, a script that builds the path at run time). The labels follow the map as it is after
+  the command, so these also get none:
+  - a command that reads entries and then removes or reverts them (`rm`, `git checkout`, `git stash`);
+  - entries that are only in git's index or a stash (`git show :…`, `git diff --cached`, `git show stash@{0}:…`);
+  - map files whose name does not end in `.md`, as for the Read hook;
+  - a package's own `.project-map/` below the repo's root;
+  - text outside the entry format: a `###` block with no `>` line, an indented `>`, a `####` or `##` block.
 - **A committed entry's labels** ("unverified quote", "not found") come with a Bash command only when its output shows
   the entry, and can be missing when the output is reshaped: shown in part (a line cut short or wrapped, `grep -o`,
   colour codes), in an encoded form (`cat -A` or `cat -v` of non-ASCII text or tabs, `od`, JSON escapes), with its

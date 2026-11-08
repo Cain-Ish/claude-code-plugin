@@ -42,9 +42,10 @@ if (which === 'session-start') {
   // A long string is the guard should those fields be renamed
   const part = ['backgroundTaskId', 'persistedOutputPath'].some((k) => input.tool_response?.[k]) || got.some((s) => s.length >= 25_000);
   const output = part || /characters truncated/.test(got.join('\n')) ? undefined : got.join('\n').replace(/\r/g, '');
-  // the map's .md files, in git's order; a folder that cannot be listed fails closed as a whole
+  // the map's .md files, in git's order, through links to folders; when the folder exists, any error listing it fails
+  // closed as a whole (2o attempt 2: a subfolder that cannot be opened also throws ENOENT)
   let files;
-  try { files = under(root, MAP).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' ? [] : null; }
+  try { files = under(root, MAP, true).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' && !fs.existsSync(path.join(root, MAP)) ? [] : null; }
   // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
   // line for all when those alone would not fit (D18, J3; 06 2m)
   const texts = files === null ? [[`${MAP}/`, closed(`${MAP}/`)]] : files.map((f) => [f, labelled(f, output)]).filter(([, t]) => t);
