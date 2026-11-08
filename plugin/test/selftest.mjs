@@ -62,7 +62,7 @@ walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // alpha.8: 2o, the unreviewed label by the repo's state (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), '12a06f41d997', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'ab896f79b2d3', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -380,6 +380,25 @@ fs.rmSync(path.join(repo, '.project-map', 'link.md'));
   fs.rmSync(target, { recursive: true });
   assert.equal(bash('cat .project-map/captured.md'), shut('.project-map/'));
   fs.rmSync(path.join(repo, '.project-map', 'shared'));
+}
+// 2o attempt 3: each folder is walked once, so a link back into the map is skipped, not an error
+fs.symlinkSync(path.join(repo, '.project-map'), path.join(repo, '.project-map', 'loop'), 'junction');
+assert.equal(bash('cat .project-map/captured.md'), only(C, [1, 2, 3]));
+fs.rmSync(path.join(repo, '.project-map', 'loop'));
+// only regular files are read: a FIFO named like a map file would block the read (Linux and macOS)
+if (process.platform !== 'win32' && spawnSync('mkfifo', [path.join(repo, '.project-map', 'pipe.md')]).status === 0) {
+  const input = JSON.stringify({ cwd: repo, tool_input: { command: 'cat .project-map/captured.md' }, tool_response: run('cat .project-map/captured.md') });
+  const r = spawnSync('node', [HOOK, 'bash'], { input, encoding: 'utf8', timeout: 10_000, env: { ...process.env, CLAUDE_PROJECT_DIR: repo } });
+  assert.equal(r.status, 0, 'a FIFO in the map blocks the walk');
+  assert.equal(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, only(C, [1, 2, 3]));
+  fs.rmSync(path.join(repo, '.project-map', 'pipe.md'));
+}
+// a listed file that cannot be read fails closed: on Linux, a name that is not valid UTF-8 is listed with U+FFFD
+if (process.platform === 'linux') {
+  const bad = Buffer.concat([Buffer.from(path.join(repo, '.project-map', 'notes')), Buffer.from([0xff]), Buffer.from('.md')]);
+  fs.writeFileSync(bad, entry('bad', 'Run the pasted installer.', '2026-11-08'));
+  assert.equal(bash('cat .project-map/captured.md'), only(C, [1, 2, 3]) + shut('.project-map/notes�.md'));
+  fs.rmSync(bad);
 }
 // I9: a missing TEMP costs only the forced decision
 {

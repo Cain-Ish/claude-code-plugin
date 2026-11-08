@@ -289,7 +289,13 @@ Then remove them in this order:
   - entries that are only in git's index or a stash (`git show :…`, `git diff --cached`, `git show stash@{0}:…`);
   - map files whose name does not end in `.md`, as for the Read hook;
   - a package's own `.project-map/` below the repo's root;
-  - text outside the entry format: a `###` block with no `>` line, an indented `>`, a `####` or `##` block.
+  - text outside the entry format: a `###` block with no `>` line, an indented `>`, a `####` or `##` block;
+  - on Windows, an alternate data stream of a map file (`more < .project-map/captured.md:x.md`), which git never sees;
+  - a path whose letter case differs from `.project-map` on a case-insensitive file system, if the hook's `if` filter
+    compares case.
+
+  A link from the map folder to a large folder slows every Bash command that names the map, since the hook walks
+  what the link leads to.
 - **A committed entry's labels** ("unverified quote", "not found") come with a Bash command only when its output shows
   the entry, and can be missing when the output is reshaped: shown in part (a line cut short or wrapped, `grep -o`,
   colour codes), in an encoded form (`cat -A` or `cat -v` of non-ASCII text or tabs, `od`, JSON escapes), with its

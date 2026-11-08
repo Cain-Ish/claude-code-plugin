@@ -60,11 +60,19 @@ export function toplevel(dir) {
   }
 }
 
-// the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it. The Bash
-// handler follows a link that leads to a folder (06, 2o attempt 2): Claude can read the entries through it
-export const under = (root, d, follow = false) => fs.readdirSync(path.join(root, d), { withFileTypes: true })
-  .flatMap((e) => (e.isDirectory() || (follow && e.isSymbolicLink() && fs.statSync(path.join(root, d, e.name)).isDirectory())
-    ? under(root, `${d}/${e.name}`, follow) : [`${d}/${e.name}`]));
+// the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it. Given
+// `seen`, the real paths of folders already walked (the Bash handler, 06 2o): regular files only, directly or through
+// a link, since Claude can read entries through a link and a FIFO would block the read; each folder once
+export const under = (root, d, seen) => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap((e) => {
+  const p = `${d}/${e.name}`;
+  if (!seen) return e.isDirectory() ? under(root, p) : [p];
+  const st = e.isSymbolicLink() ? fs.statSync(path.join(root, p)) : e;
+  if (!st.isDirectory()) return st.isFile() ? [p] : [];
+  const real = fs.realpathSync(path.join(root, p));
+  if (seen.has(real)) return [];
+  seen.add(real);
+  return under(root, p, seen);
+});
 
 // git's core.ignorecase, read from the repo's config file, so session start keeps one git call (D18). A .git file (a
 // linked worktree, a submodule) names the git folder, whose commondir holds the shared config. Unset, false or

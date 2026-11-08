@@ -3012,3 +3012,17 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   5. *The bench,* if the machine is quiet.
   6. *A fifth verifier round,* with attempt 2's criterion. A survivor goes to the user, unless it is a near miss with
      a known cause.
+
+### 2o, attempt 3: checks 1 and 2 (2026-11-08): pass
+
+- *Attempt 2's CI* (check 4, recorded here): pass on three systems (`87fd986`).
+- *The build,* moved to `plugin/` unchanged: product hash `ab896f79b2d3`.
+- **Check 1, the self-test: pass** on Windows, and on Linux in WSL (Node 22.11.0, downloaded from nodejs.org into the
+  WSL home folder), where the FIFO and non-UTF-8 cases run. On attempt 2's scripts, on Linux:
+  - the junction back into the map gave the closed line for the whole folder;
+  - the FIFO blocked the hook past the 10 s limit;
+  - the non-UTF-8 name gave captured.md's labels and no closed line.
+
+  All three pass here.
+- **Check 2, byte identity: pass,** on the three repos.
+- *Next:* the smoke, CI, the fifth verifier round, and the bench.

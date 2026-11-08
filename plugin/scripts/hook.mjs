@@ -42,13 +42,16 @@ if (which === 'session-start') {
   // A long string is the guard should those fields be renamed
   const part = ['backgroundTaskId', 'persistedOutputPath'].some((k) => input.tool_response?.[k]) || got.some((s) => s.length >= 25_000);
   const output = part || /characters truncated/.test(got.join('\n')) ? undefined : got.join('\n').replace(/\r/g, '');
-  // the map's .md files, in git's order, through links to folders; when the folder exists, any error listing it fails
-  // closed as a whole (2o attempt 2: a subfolder that cannot be opened also throws ENOENT)
+  // the map's .md files, in git's order, through links to folders, each folder once; when the folder exists, any error
+  // listing it fails closed as a whole (2o attempt 2: a subfolder that cannot be opened also throws ENOENT)
   let files;
-  try { files = under(root, MAP, true).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' && !fs.existsSync(path.join(root, MAP)) ? [] : null; }
+  try { files = under(root, MAP, new Set([fs.realpathSync(path.join(root, MAP))])).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' && !fs.existsSync(path.join(root, MAP)) ? [] : null; }
+  // a listed file that cannot be read fails closed too: labels() reads ENOENT as "no file", and a name that is not
+  // valid UTF-8 is listed with U+FFFD, which no read finds (2o attempt 3)
+  const walked = (f) => { const t = labelled(f, output); return t || fs.existsSync(path.join(root, f)) ? t : closed(f); };
   // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
   // line for all when those alone would not fit (D18, J3; 06 2m)
-  const texts = files === null ? [[`${MAP}/`, closed(`${MAP}/`)]] : files.map((f) => [f, labelled(f, output)]).filter(([, t]) => t);
+  const texts = files === null ? [[`${MAP}/`, closed(`${MAP}/`)]] : files.map((f) => [f, walked(f)]).filter(([, t]) => t);
   const rest = (k) => texts.slice(k).map(([f]) => closed(f, 'are not shown')).join('');
   let out = '';
   let k = 0;
