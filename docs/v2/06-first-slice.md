@@ -3212,3 +3212,5 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *Count 4* runs by the field README's loop, for both repos, once a day while this session lives. Its corpus for D24 is
   every epoch of the first repo since count 3's freeze (14:47Z). Epochs before each session's reload ran alpha.7's
   hooks, and count under D24's clauses for their build.
+- *The README at the tag* keeps three stale lines in "What was measured": the alpha.8 bullet still describes 2n's
+  design, and the bench lines stop at alpha.7. They are corrected on `v2` after the tag, and the tag is not moved.

@@ -49,7 +49,7 @@ your machine.
 
 The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
 - *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's
-  to alpha.8's changes were checked by the self-test, a live smoke session and CI, and alpha.6's and alpha.7's by a
+  to alpha.8's changes were checked by the self-test, a live smoke session and CI, and alpha.6's to alpha.8's by a
   timing bench as well.
 - *A2:* build, plan and question tasks in three real repos (two private ones, and this plugin's own v1 repo), 10 runs
   per task.
@@ -72,8 +72,8 @@ repos:
   repo.
 - alpha.7's changes, from the release review of 2.0.0: session start's and the prompt hook's output are byte-identical
   to alpha.6's on this repo, on A1's fixture and on the owner's other repo.
-- alpha.8's change, labels for what a Bash command printed: session start's and the prompt hook's output are
-  byte-identical to alpha.7's on the same three repos.
+- alpha.8's change, the "unreviewed" label by the repo's state on every Bash command that names the map folder:
+  session start's and the prompt hook's output are byte-identical to alpha.7's on the same three repos.
 
 alpha.5's change is not an edge case: in any repo with a root `.claude/rules/` folder, the index and the forced
 decision no longer list it. In the user's own repo, where every one of 30 rule files declares `paths:`, Claude Code
@@ -241,8 +241,10 @@ Then remove them in this order:
   - Session start also starts bash once, since its hook runs in shell form: about 22 ms more at one session on the
     32-thread machine.
   - CI fails the build when the one-session added time passes 100 ms.
-  - The 8-at-once added time on the 32-thread machine was checked at 100 ms before alpha.1, alpha.2, alpha.6 and
-    alpha.7, with the machine idle: CPU at most 10% before each run.
+  - The 8-at-once added time on the 32-thread machine was checked at 100 ms before alpha.1, alpha.2, alpha.6,
+    alpha.7 and alpha.8, with the machine idle: CPU at most 10% before each run.
+  - alpha.8, in 3 pairs against alpha.7: every hook added at most 64.4 ms, with 0 errors. A Bash command that names no
+    map entry now reads the map's state each time: 53.0 to 64.4 ms added, against alpha.7's 18.4 to 20.2.
   - alpha.7, in two windows of 3 pairs against alpha.6: every hook added at most 57.1 ms, with 0 errors. alpha.6's map
     read added 106.8 ms in one pair of the first window and at most 61.9 ms elsewhere.
   - alpha.6, in 3 pairs against alpha.5 on that machine: every hook added at most 92.1 ms, with 0 errors. Session start
