@@ -16,10 +16,16 @@ fs.mkdirSync(path.join(repo, 'docs'));
 fs.mkdirSync(path.join(repo, '.project-map'));
 fs.writeFileSync(path.join(repo, 'docs', 'style.md'), '# Style\n\nComponents use named exports.\n');
 fs.writeFileSync(path.join(repo, '.project-map', 'captured.md'), entry('components', 'Each component keeps its files in its own folder.', '2026-10-20'));
+// 2n attempt 2: a map file whose cat passes 30,000 characters. Its committed entries are found in their source, so
+// they carry no label; the uncommitted one is last
+const RULES = Array.from({ length: 320 }, (_, i) => `Rule number ${i} holds for every page.`);
+fs.writeFileSync(path.join(repo, 'docs', 'rules.md'), `# Rules\n\n${RULES.join('\n')}\n`);
+fs.writeFileSync(path.join(repo, '.project-map', 'big.md'), RULES.map((r, i) => `### big entry ${i}\n> ${r}\n\n- source: docs/rules.md, 2026-11-08\n- when: ["pages"]\n`).join('\n'));
 git('init', '-q');
 git('add', '-A');
 git('commit', '-q', '-m', 'init');
 fs.appendFileSync(path.join(repo, '.project-map', 'captured.md'), `\n${entry('avatars', 'Avatars load locally, never from the CDN.', '2026-10-24')}`);
+fs.appendFileSync(path.join(repo, '.project-map', 'big.md'), '\n### last\n> The last entry is not committed.\n\n- source: the lead developer, 2026-11-08\n- when: ["pages"]\n');
 
 // (1) in D22's smoke wording: attempt 1 asked for "the first sentence of the document index", and Haiku quoted the
 // index line's second sentence
@@ -53,10 +59,13 @@ const FAILING = 'tail -n 5 .project-map/nope.md .project-map/captured.md';
 // 2n: the field's form, with | inside quotes, and a cd into the folder; each must get the labels of what it shows
 const GREP = String.raw`grep -n -i "Avatars\|nothing" .project-map/captured.md`;
 const CD = 'cd .project-map && tail -5 captured.md';
-const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md', FAILING, GREP, CD];
+// 2n attempt 2: a command run in the background, and one whose output passes 30,000 characters (saved to a file)
+const BG = 'cat .project-map/captured.md';
+const BIG = 'cat .project-map/big.md';
+const COMMANDS = ['git status --short', 'echo $HOME', 'echo $(git --version)', 'tail -5 .project-map/captured.md', FAILING, GREP, CD, BG, BIG];
 const bashEv = session(`Do ${COMMANDS.length + 1} things in this order,` + ' one tool call each, then reply with only the results, numbered. (1) Use the Read tool on '
-  + `docs/style.md. ${COMMANDS.map((c, i) => `(${i + 2}) Use the Bash tool to run exactly: ${c}`).join(' ')} and then quote word for word the `
-  + 'labels a hook added after it.', 'Grep,Glob,WebFetch,WebSearch', ['Read', 'Bash(git status *)', 'Bash(echo *)', 'Bash(tail *)', 'Bash(grep *)', 'Bash(cd *)']);
+  + `docs/style.md. ${COMMANDS.map((c, i) => `(${i + 2}) Use the Bash tool${c === BG ? ' with run_in_background set to true' : ''} to run exactly: ${c}`).join(' ')} and then quote word for word the `
+  + 'labels a hook added after it.', 'Grep,Glob,WebFetch,WebSearch', ['Read', 'Bash(git status *)', 'Bash(echo *)', 'Bash(tail *)', 'Bash(grep *)', 'Bash(cd *)', 'Bash(cat *)']);
 const started = new Map();
 let last = null;
 for (const e of bashEv) {
@@ -84,5 +93,12 @@ assert.ok([...started.values()].flat().every((h) => h.exit === 0), 'every hook e
 for (const c of ['tail -5 .project-map/captured.md', FAILING, GREP, CD]) {
   const out = [...started].find(([k]) => k === c)?.[1].map((h) => h.output).join('') ?? '';
   assert.ok(out.includes('that this output shows') && out.includes('2. avatars') && !out.includes('1. components'), `shown entry only: ${c}`);
+}
+// 2n attempt 2: the hook does not see the whole output, so every map file's labels, which name big.md's last entry
+const bg = bashEv.flatMap((e) => (e.type === 'assistant' ? e.message?.content ?? [] : [])).find((x) => x.type === 'tool_use' && x.input?.command === BG);
+console.log(JSON.stringify({ background: bg?.input?.run_in_background ?? null }));
+for (const c of [BG, BIG]) {
+  const out = [...started].find(([k]) => k === c)?.[1].map((h) => h.output).join('') ?? '';
+  assert.ok(out.includes('last: unreviewed, not yet committed'), `every map file's labels: ${c}`);
 }
 console.log('smoke ok');

@@ -171,8 +171,17 @@ const foundIn = (quote, low) => quote.split(/…|\.\.\./).map(words).filter((w) 
 // is text Claude wrote, so only relative paths inside the repo count
 const sourcePath = (src) => (src.match(/[\w.-]+(?:\/[\w.-]+)*\.\w+/g) ?? []).map((p) => p.replace(/^\.\//, ''))
   .find((p) => (p.includes('/') || DOC.test(p)) && !p.split('/').includes('..'));
-// 06, 2n: shown when the output holds the entry's heading line or one of its quote lines, as written in the file
-const shows = (b, output) => b.split('\n').some((l) => /^(### |>\s*\S)/.test(l) && output.includes(l.trimEnd()));
+// 06, 2n: an entry is shown when the output holds its heading line, a quote line with text, or any other line with
+// text that no other entry of the file holds (a shared source or when line does not say which entry was shown).
+// Runs of spaces and tabs count as one space on both sides, so filters that re-space the output still match.
+const flat = (s) => s.replace(/[ \t]+/g, ' ');
+function shown(all, output) {
+  const out = flat(output);
+  const lines = all.map((b) => [...new Set(b.split('\n').map((l) => flat(l).trim()).filter(Boolean))]);
+  const count = new Map();
+  for (const ls of lines) for (const l of ls) count.set(l, (count.get(l) ?? 0) + 1);
+  return lines.map((ls) => ls.some((l) => (/^(### |>\s*\S)/.test(l) || (!l.startsWith('>') && count.get(l) === 1)) && out.includes(l)));
+}
 const isFile = (root, p) => fs.statSync(path.join(root, p), { throwIfNoEntry: false })?.isFile();
 
 // D14: an entry the file's HEAD version does not hold, word for word, is unreviewed; outside git, or in a file HEAD
@@ -180,11 +189,13 @@ const isFile = (root, p) => fs.statSync(path.join(root, p), { throwIfNoEntry: fa
 // now, and one not found says so without claiming a change; any other entry carries its capture date as unverified.
 // Given a command's output, only the entries it shows are labelled (06, 2n).
 export function labels(root, file, output) {
-  let text;
+  let bytes;
   // a missing file has nothing to label; any other failure throws, and the read hook labels the file as a whole
-  try { text = decode(fs.readFileSync(path.join(root, file))); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
-  const all = entries(text);
-  const picked = all.map((b) => output === undefined || shows(b, output));
+  try { bytes = fs.readFileSync(path.join(root, file)); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
+  // a UTF-16 file printed raw loses its non-ASCII text in the decode, so an output holding a NUL shows all of it
+  if (output?.includes('\0') && ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))) output = undefined;
+  const all = entries(decode(bytes));
+  const picked = output === undefined ? all.map(() => true) : shown(all, output);
   if (!picked.includes(true)) return '';
   const head = spawnSync('git', ['show', `HEAD:./${file}`], { cwd: root, maxBuffer: 64 << 20 });
   const held = new Set(head.status === 0 ? entries(decode(head.stdout)) : []);

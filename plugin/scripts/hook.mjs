@@ -31,13 +31,17 @@ if (which === 'session-start') {
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
 } else if (which === 'bash' || which === 'bash-failure') {
   // the entries a Bash command's output shows get their labels, whatever the command's form (D14, 06 2n): the output
-  // is every string in tool_response (stdout, stderr), or the failure's error text. A UTF-16 map file printed raw
-  // comes back with NULs between its letters, so they go. shortcut: a command that does not name the map folder never
-  // starts this handler (the if field), so `git diff` from the root stays unlabelled (04's accepted risk)
+  // is every string in tool_response (stdout, stderr), or the failure's error text. shortcut: a command that does not
+  // name the map folder never starts this handler (the if field), so `git diff` from the root stays unlabelled (04's
+  // accepted risk)
   const ev = which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure';
   const strings = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
   const got = strings(which === 'bash' ? input.tool_response : input.error);
-  const output = got.join('\n').replace(/[\r\0]/g, '');
+  // the hook sees only part of what Claude can reach when a background command's output comes later, or Claude Code
+  // cut the output and saved it to a file (2n, attempt 2): then every map file's labels, as a Read of each gives them.
+  // A long string is the guard should those fields be renamed
+  const part = ['backgroundTaskId', 'persistedOutputPath'].some((k) => input.tool_response?.[k]) || got.some((s) => s.length >= 25_000);
+  const output = part || /characters truncated/.test(got.join('\n')) ? undefined : got.join('\n').replace(/\r/g, '');
   // the map's .md files, in git's order; a folder that cannot be listed fails closed as a whole
   let files;
   try { files = under(root, MAP).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' ? [] : null; }

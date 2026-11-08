@@ -2728,3 +2728,53 @@ The user asked for the issues and findings to be rethought and fixed. Each one, 
   5. *The reference bench,* if the machine is quiet.
   6. *A second verifier round:* refute-first, on the five findings and on what the changes may open. A finding that
      survives sends 2n to attempt 3, the last under rule 4.
+
+### 2n, attempt 2: result (2026-11-08): checks 1 and 2 pass; check 3 failed in the harness
+
+- *The build,* moved to `plugin/` unchanged: product hash `9846eda59dfb`.
+- **Check 1, the self-test: pass.** The case runner ran attempt 2's self-test on attempt 1's scripts. Each finding's
+  case fails there: the background payload, the saved output, the truncated `error`, the long output, the UTF-16
+  file through `cat` and `tail`, the body line on both routes, `column -t`, a when line that only one entry holds,
+  and the per-file count across two files.
+  - *Not separating, then added:* `expand`, `tr -s` and `echo $(cat …)` over the whole file pass on attempt 1 too,
+    since the headings still show each entry. The same three filters over a quote line alone fail on attempt 1 and
+    pass here.
+  - *Changed with a reason:*
+    - `tail -3` of the map, and the field's append followed by `tail -3`, now label the entry whose source line they
+      show, since no other entry holds it;
+    - `git diff`'s context lines label the entry before the new one, for the same reason;
+    - a UTF-16 file printed raw gets the whole file's labels.
+  - *Seen, and kept as registered:* the count is per file. In the first run, a when line held by the only entry of
+    another map file (`new.md`) labelled that entry whenever `captured.md`'s output showed the line. That is an extra
+    label, as the rule says. The fixture's `new.md` now has a when line of its own, and one case pins the property.
+    The README says so. The field repo has one map file.
+  - The failure-route helper returns `{}` when the hook prints nothing, so the case runner can go on past attempt 1's
+    empty output.
+- **Check 2, byte identity: pass.** Identical to alpha.7's on the three repos. The field repo's session start is 3,216
+  characters now, since its map had grown.
+- **Check 3, the smoke: the two new commands pass on CLI 2.1.305 and 2.1.319, and the smoke fails on its reply
+  checks.**
+  - *The new commands, as the stream shows them on both CLIs:* the background `cat` (run in the background on both;
+    on 2.1.305 Claude then read the output file, outside the map) and the `cat` of `big.md` (35.5 KB, saved to a
+    file) each got every map file's labels, with `321. last: unreviewed, not yet committed`.
+  - *2.1.319 failed in the harness:* the new `cat` of `big.md` became the last command, so the reply quoted only its
+    one label line, and the check that the reply holds avatars' labels failed. In attempt 1, the `cd` form was last.
+  - *2.1.305 failed on the first session's reply:* Haiku paraphrased the Read hook's labels and the note's wording
+    ("'unverified quote' (…) on the components entry, captured 2026-10-20"), so the check for the exact text
+    "unverified quote, captured 2026-10-24" failed. The Read hook's output is unchanged since attempt 1, whose smoke
+    passed this check on both CLIs.
+  - Following 2j's precedent, a harness failure counts as an attempt.
+- *Also seen on 2.1.305:* the hook's `tool_response` for the 35.5 KB output held a saved path. Haiku quoted that
+  label word for word.
+
+### 2n, attempt 3 (registered 2026-11-08, before the re-run). The last under rule 4
+
+- *The change, test code only:* the smoke runs the background `cat` and the `cat` of `big.md` before the `grep` and
+  `cd` forms, so the `cd` form is last again, as in attempt 1. No assertion changes. The product hash stays
+  `9846eda59dfb`, so checks 1 and 2 stand.
+- **Checks:**
+  3. *The smoke* on CLI 2.1.305 and 2.1.319, run once each. *Pass:* every assertion, unchanged.
+  4. *CI* on three systems.
+  5. *The reference bench,* if the machine is quiet.
+  6. *The second verifier round,* refute-first, on the five findings and on what attempt 2's changes may open.
+  - A failure of checks 3 to 6 goes to the user, unless it is a near miss with a known cause (rule 4's fourth).

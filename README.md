@@ -36,8 +36,10 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
     capture date. The labels say what that means;
   - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
 
-  Reads by subagents, map text met through the Grep tool or PowerShell, and the output of a Bash command that does
-  not name the folder are not labelled: see Known issues.
+  When the hook cannot see all of a command's output (a command run in the background, or output past Claude Code's
+  limit, which it saves to a file), it gives every map file's labels. Reads by subagents, map text met through the
+  Grep tool or PowerShell, and the output of a Bash command that does not name the folder are not labelled: see Known
+  issues.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
@@ -280,12 +282,15 @@ Then remove them in this order:
   and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds, and alpha.8 labels whatever a Bash command
   that names the folder prints. Still unlabelled: the output of a command that does not name the folder, even when it
   prints map entries (`git diff` or `git show` from the root, `rg` or `grep -r` over the repo, a script that builds
-  the path at run time), and output that shows an entry only in part (a line cut short, `grep -o`, colour codes).
+  the path at run time); output that shows an entry only in part (a line cut short, `grep -o`, colour codes) or in an
+  encoded form (`cat -A` or `cat -v` of non-ASCII text or tabs, `od`, JSON escapes); and output whose only line from
+  an entry is a source or when line that other entries of its file share.
 - **Another repo's map entries printed through Bash get no label,** as a Read of them gets none. An entry there with
-  the same heading or quote line as one in this repo gets this repo's labels for it.
+  the same line as one in this repo gets this repo's labels for it.
 - **Each read repeats its labels.** A Read carries the whole file's, and a Bash command those of the entries it
   printed. An append through Bash gets its new entry's label too: Claude Code passes the hook a diff of the files a
-  command edited.
+  command edited. A line that a map file's only entry holds, such as its when line, labels that entry when another
+  file's output shows the same line.
 - **Before Claude Code 2.1.85,** which ignores the hook's `if` field, the Bash handler starts on every Bash command. It
   labels the map entries any command prints.
 - **A turn nobody typed** is told apart by its first words, as Claude Code's transcripts record them: a background
