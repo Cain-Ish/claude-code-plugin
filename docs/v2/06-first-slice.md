@@ -3214,3 +3214,70 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   hooks, and count under D24's clauses for their build.
 - *The README at the tag* keeps three stale lines in "What was measured": the alpha.8 bullet still describes 2n's
   design, and the bench lines stop at alpha.7. They are corrected on `v2` after the tag, and the tag is not moved.
+
+### D24's field count 4 (2026-11-09, 14:43Z): not met on item 1 (C1); item 4 now passes
+
+- *Run:* by hand, at the user's question. The daily cron belonged to the session that set it up, which had ended, so
+  the count did not run on its own.
+- *Freeze, a deviation:* the README's folder, `research/raw/2l-field/count4/`, was refused twice by the permission
+  check, both the direct copy and a copy from the scratchpad. The frozen corpus exists only in the counting session's
+  scratchpad, and counts 1 to 3 stay the only ones in `raw/`.
+- *Corpus:* the first repo's one main session, with 5 epochs after count 3's freeze:
+  - compactions at 18:13Z and 21:00Z on 2026-11-08, on alpha.7's hooks;
+  - the session's `/reload-plugins` at 03:13Z on 2026-11-09 ("8 hooks");
+  - then, on alpha.8's hooks, compactions at 04:18Z and 13:56Z, and a resume at 14:40Z on 2026-11-09.
+
+  All five are primed (from 15:23Z on 2026-11-08), so they count for every item except 2 and 3.
+- **C1: one miss, at the 14:40Z resume.**
+  - The plugin's session-start hook ran with exit 0. It printed valid JSON whose context (3,107 bytes) is
+    byte-identical to the four epochs before it.
+  - No `hook_additional_context` record follows it. Every other epoch has one within a second of its hooks.
+  - The instruction's first sentence is not in the request sent after the resume.
+  - Claude's answer to the forced decision named every index directory, read from the restored history: the same
+    text was delivered at the 13:56Z compaction.
+  - Two facts, recorded without a cause:
+    - a background task's notification was queued about 30 ms after the last session-start hook finished;
+    - the context was identical to the epoch before it.
+
+    Either could explain it: a race with the queue, or Claude Code not re-adding identical context on resume. D12's
+    `resume` cell sent a new nonce in each run, so it tested neither.
+  - Under the registered rule, this is a C1 miss, and a miss is a defect. The plugin's side was correct, so "fixed in
+    the plugin" has nothing to fix. Under D24's failed-bar clause, it goes to the user.
+- *The rest of item 1, no defect:*
+  - C2: one force per epoch, each on the epoch's first human prompt. The resume's queued notification was a machine
+    turn and got none.
+  - C5b, by output: 5 calls named the map folder and showed entries; all 26 of the entries they showed were
+    labelled. Two of those calls ran on alpha.8, with 4 entries, all labelled. The only miss in the session is
+    count 3's.
+  - C6: 6 new entries, all appended through Bash. All are in format, none holds a forbidden item, and all were found
+    verbatim. Each has a `when:` line.
+  - C7: every named path exists (10 in the session). C8: 0 errors of any hook.
+- *D24's alpha.8 clause:* the session-start context hash is the same before the reload (the alpha.7 epochs) and
+  after it (the alpha.8 epochs).
+- **`field-scope.mjs` (item 4): within the bar.**
+  - The corpus is every gate event after check 5's epoch: 23 events, 52 pairs. D 44 (84.6%, bar at least 70%), R 1
+    (1.9%, bar at most 10%), X 7.
+  - The new events alone: 19 events, 46 pairs. D 40 (87.0%), R 1, X 5.
+- *Items 2 and 3:* met by count 2's unprimed in-claim epoch (C3 1 of 1). The five new epochs are primed. Reported
+  apart: all 5 answered the forced decision per directory, and two first prompts named changes.
+- *D22 observation:* X is 7 of 52 pairs (13.5%), above 2k's 10%.
+  - 5 of the 7 are rules Claude Code delivered with or after the write: one edit with 3, one new file with 2.
+  - The 2 from count 2 stand.
+  - Whether a rule bore on its change is not judged.
+- *Reported:*
+  - C9: 96 subagents in the session, none with the index; 42 wrote repo files (228 writes).
+  - Main-session writes: 108; commits: 51.
+- **The second repo:** nothing to count.
+  - The plugin's hooks never ran there: no session started or reloaded after the install. The one running session
+    last had a turn at 21:22Z on 2026-11-08.
+  - It has no map folder yet.
+  - The 22 hook errors the scanner lists are that repo's own `Stop` hook, not this plugin's.
+- *Ask:* the first repo's session was asked at 15:23Z on 2026-11-08, so the README's once-per-session question is
+  spent. The second repo has no session to ask.
+- *Result: not met, on item 1 only.* Items 2, 3 and 4 hold. Nothing is tagged, and `release-2.0.0` stays staged.
+- *What the result needs from the user:*
+  1. *Count the miss as a defect.* `2.0.0` waits until a probe finds the cause and the miss is fixed or worked
+     around. The probe is registered after the user answers: D12's `resume` cell, with identical context in
+     consecutive epochs and with a queued notification at the resume.
+  2. *Or accept it as Claude Code's* (D24's reopen trigger: the user sets a different bar). The release then goes
+     ahead at this count, with the miss a known issue.

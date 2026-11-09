@@ -323,6 +323,11 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - The read hook's labels hold for main-session reads only. A subagent's read of a map file arrives unlabelled,
       which is the phase gate's accepted risk, confirmed.
   - The two deferred cells are settled: arrives and arrives.
+- **Observation (2026-11-09, D24's field count 4, [06](06-first-slice.md)):** on CLI 2.1.319, a field `resume` ran the
+  plugin's `SessionStart` hook with valid output, and Claude Code did not attach its context.
+  - The context was identical to the epoch before it, and a background task's notification was queued at the resume.
+  - The `RE` cell sent a new nonce per run, so it tested neither condition.
+  - Whether the PM8 trigger fired depends on the cause, which is not probed yet.
 
 ### V2-D13 — Shape of the project map
 - **Question:** node kinds (decision, convention, inventory, goal, design rule, …), file format, the always-on
@@ -4331,6 +4336,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
   Whether either rule bore on its change is not judged. No trigger fired. D's share was 4 of 6, under D24's bar of
   70%.
+- **Observation (2026-11-09, D24's field count 4, [06](06-first-slice.md)):** X was 7 of 52 pairs (13.5%), D 44
+  (84.6%), R 1.
+  - Of the 5 new X pairs, Claude Code delivered every rule with or after the write.
+  - Whether a rule bore on its change is not judged. No trigger fired.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
