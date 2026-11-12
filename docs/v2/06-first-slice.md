@@ -3320,3 +3320,159 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *Still the user's call (D24):* the registered recommendation is D24's reopen trigger. C1 would count context present
   in the restored conversation, and the release would go ahead at count 4. Until the user answers, the miss stays a
   defect and nothing is tagged.
+
+### 18f: `2.0.0` released (2026-11-12)
+
+- *The branch:* `release-2.0.0` rebuilt on `v2`'s head (alpha.8 plus documents) as `66ee916`, by the same edits as
+  before. Product hash `ac6d00173453`.
+- *Checks, all passed:*
+  1. `git diff v2.0.0-alpha.8 -- plugin/scripts plugin/hooks plugin/commands` is empty. Under `plugin/`, only
+     `plugin.json`'s version and the self-test's pin differ.
+  2. The self-test passes. The smoke passes on CLI 2.1.322, the current one.
+  3. CI on the branch passed on three systems, and so did D26's workflow.
+  4. Install from the branch in an isolated config: marketplace `second-brain`, plugin `second-brain@second-brain`,
+     version `2.0.0`, hash `ac6d00173453`. The uninstall and the removal succeeded, and the user's registry files are
+     unchanged by checksum.
+  5. The release review: 2.0.0's review closed on alpha.7 (2m). alpha.8's only change, 2o, closed its own five
+     verifier rounds. The devils-advocate workflow was not run again on this branch: a multi-agent run needs the
+     user's go.
+- *Published:*
+  - `v2` fast-forwarded to `66ee916`, tagged `v2.0.0`;
+  - the release page, marked latest, by the session;
+  - `main` fast-forwarded to the tag, so v1's `ci.yml` left it. *A correction to 18f:* `main` is not unprotected.
+    Its rules (a pull request, 3 required checks) were bypassed with the owner's admin rights. The commit had passed
+    the same checks on the branch.
+- *Checks after the move:* `main`'s README is v2's and holds "Coming from v1". An install from the repo with no ref, in
+  an isolated config, gives `2.0.0` at `ac6d00173453`. The user's registry files are unchanged.
+- *The user's installs:* both field repos are on `second-brain@second-brain` `2.0.0` at local scope, with the
+  installed copy at `ac6d00173453`.
+  - In the first repo, `second-brain-v2` was uninstalled and its marketplace removed. That removed it machine-wide,
+    with the second repo's install.
+  - The second repo's local settings still named the old plugin and marketplace. Those two keys were removed, after a
+    backup.
+  - Running sessions keep alpha.8's hooks until the user types `/reload-plugins` in them.
+- *Next:* later field counts, under D24's reopen trigger (a defect in C1, C2, C5, C6b, C7 or C8).
+
+### 2p: the labels' trim, as `2.0.1` (registered 2026-11-12, before the code)
+
+- *Why:* D24's answer made the labels' trim a registered fix after `2.0.0`, and the user asked for it on 2026-11-12.
+  - *The field on alpha.8,* from the reload at 03:13Z on 2026-11-09 to 2026-11-12, both repos: 93 label blocks, 196 KB,
+    1,663 label lines. 64 blocks listed 40 to 48 lines each.
+  - About 95% of the lines are a committed entry whose only label is "unverified quote, captured <date>". The field
+    session called the labels noise it never used (count 3's question).
+- *Scope:* D16's content is kept. Every committed entry is still labelled unverified, with its capture date, so no
+  locked decision changes. Dropping those labels would change D16's "delivered with its date", and no D16 trigger
+  fired. That option is the user's, not built here.
+- **The change,** in `labels()` only, which the Read hook and the Bash handler share:
+  1. An entry whose labels hold anything besides "unverified quote" keeps its own line, as now: unreviewed, not found
+     or cannot read.
+  2. The other entries go into one line, before the per-entry lines: `unverified quote, committed: entries <ranges>`.
+     A range is a run of consecutive entries with the same capture date, written `1-6 (captured 2026-10-26)`. An entry
+     with no date stands alone, with no date.
+  3. *The cap, still fail-closed:* the grouped line comes first. If the per-entry lines are cut, the tail covers every
+     entry after the last one shown, as now. If even the grouped line does not fit, the tail covers every entry.
+  4. The header, the note and the Bash rules (which entries are picked) are unchanged.
+  - The version becomes `2.0.1` in both manifests, and the self-test's hash is pinned again.
+- **Checks:**
+  1. *The self-test:* the existing cases change only where an entry's only label is "unverified quote". New cases:
+     - ranges split by a date change, by a non-consecutive entry and by an entry with no date;
+     - a file mixing grouped and per-entry entries;
+     - the cap cutting the per-entry lines, and the grouped line alone too wide.
+  2. *No label lost:* a replay over the field repo's map files, in their current state and at each commit of them
+     since 2026-10-26, Read case. Expanding each grouped line back to one line per entry gives exactly alpha.8's output.
+     *Pass:* identical in every case.
+  3. *Size:* the same replay. Reported, with no bar: bytes before and after.
+  4. *Byte identity* of session start and the prompt hook with `2.0.0`, on this repo and the field repo.
+  5. *The smoke* on CLI 2.1.322. *Pass:* every assertion. Its read and Bash assertions already use uncommitted entries,
+     which keep their own lines.
+  6. *CI* on three systems.
+  7. *A verifier round,* one refute-first agent: any entry whose label the new output loses or changes, or a cut that
+     fails open, is a finding that survives.
+  - *Not run:* the reference bench. The change only builds a shorter string from the same work, so D18's cost cannot
+    rise. It is stated as an accepted gap.
+- **On a pass:** tag `v2.0.1` and its release page. Both field installs update. A later count reads the labels'
+  bytes again.
+
+### 2p: checks 1 to 6 (2026-11-12): pass
+
+- *Built* in `1f70345`. Product hash `34298485285b`, version `2.0.1`.
+- *Check 1, the self-test:* passes. Three existing cases changed, each one where an entry's only label was "unverified
+  quote". The Bash helper `only()` cuts the grouped line to the entries it keeps. New cases: ranges split by a date,
+  a gap and an entry with no date; a mixed file; a Bash subset; the cap with per-entry lines cut; the grouped line
+  alone too wide.
+- *Check 2, no label lost:* on a clone of the field repo, 17 commits touching the map, each committed and with its
+  entries uncommitted. 34 cases, 34 identical once the grouped line is expanded. *Pass.*
+- *Check 3, size:* the same 34 cases, 151,755 bytes on `2.0.0` and 26,961 on `2.0.1` (82% less).
+- *Check 4, byte identity:* session start and the prompt hook are identical to `2.0.0`'s, on this repo and the field
+  repo's clone. *Pass.*
+- *Check 5, the smoke* on CLI 2.1.322: every assertion. *Pass.*
+- *Check 6, CI* on three systems. *Pass.*
+- *Check 7,* the verifier round, is running.
+
+### 2p, attempt 1: check 7 failed; attempt 2 registered (2026-11-12, before the code)
+
+- *The verifier:* no difference without a cut (1,800 fuzz comparisons), and no cut fails open (472 capped cases). But
+  near and past the cap, the grouped line shows fewer labels than `2.0.0`:
+  - F1: a file just under the cap on `2.0.0` goes over it, since a lone grouped entry's line is longer;
+  - F2: a grouped line too wide by itself hides every per-entry line;
+  - F3: the grouped line takes budget from per-entry lines;
+  - F4: with only the grouped line shown, the closing line covers the entries it has just listed.
+
+  Each is a lost label under check 7's bar, so attempt 1 fails.
+- *Attempt 2:* the grouped form is used only when its whole text fits under the cap. Otherwise the output is
+  `2.0.0`'s per-entry form, cut exactly as before. So past the cap the output equals `2.0.0`'s, byte for byte.
+- *Checks:* the same seven. The self-test's cap cases assert `2.0.0`'s output past the cap, and a new case covers F1.
+  Check 7 re-runs the verifier's own scripts on attempt 2, and every capped case must equal `2.0.0`'s output.
+
+### 2p, attempt 2: result (2026-11-12): pass
+
+- *Built* in `e5f83d9`. Product hash `02bc0eae190b`, version `2.0.1`.
+- *Check 1:* the self-test passes. The cap cases now assert `2.0.0`'s form past the cap, and the verifier's F1 input
+  is a case.
+- *Check 2:* 34 of 34 field cases identical once expanded. *Check 3:* 151,755 bytes down to 26,961 (82% less).
+- *Check 4:* session start and the prompt hook are byte-identical to `2.0.0`'s on both repos.
+- *Check 5:* the smoke on CLI 2.1.322 passes. *Check 6:* CI passes on three systems.
+- *Check 7, the verifier's scripts on attempt 2:*
+  - F1 to F4's inputs all give `2.0.0`'s output;
+  - the fuzz, 3 seeds and 8,800 cases with about 2,350 capped, has 0 failures;
+  - every output that is cut equals `2.0.0`'s byte for byte (436 of 436 in seed 3).
+
+  In 64 cases of seed 3, `2.0.0` cut but the grouped form fits whole. Those now show every label, more than `2.0.0`
+  showed, never less. *Pass.*
+- *Disclosed:* a first re-run of the fuzz counted 230,000 failures. The cause was my uncapped copy, whose cap had not
+  been lifted. Once that was fixed, the count was 0.
+- *Release:* tag `v2.0.1` and its page. The direct push to `main` was refused by the permission check (merge
+  without review), so `main` moves by a pull request. Installs with no ref follow `main`, so the field installs
+  update once it is merged.
+
+### D24's field count 5 (2026-11-12, 10:12Z): no defect
+
+- *Run:* by hand, at the user's question. Frozen to the counting session's scratchpad, as count 4 was.
+- *Installs:* both repos run `2.0.0` (product hash `ac6d00173453`, checked on the cached copy). `2.0.1` waits on
+  `main`. The scanner attributes these epochs to alpha.8, whose product `2.0.0` is.
+- *Corpus:* in the first repo, the main session counted at count 4 (7 new epochs), a new session (3 epochs) and a
+  one-turn session (1 epoch). In the second repo, its first session with the plugin (3 epochs). 14 new epochs.
+- **C1: 14 of 14.** 11 carry the context. The 3 without it are resumes whose hook printed context byte-identical to
+  the last one delivered (3,107 and 3,317 bytes), which passes under C1's amendment. Count 4's 14:40Z resume is the
+  same case.
+- **C2:** one force per epoch, each on the epoch's first human prompt (13 forces); the one-turn session had no human
+  prompt.
+- **C3, reported:** 12 of 13 forced epochs answered per directory. The miss delegated the work to a subagent with no
+  directory statement.
+- **C5b, by output:** 2 calls flagged by the scanner, each with one entry shown and unlabelled. Read: both entries are
+  committed, and their quotes are found word for word in the repo file their source names, so D16 gives them no
+  label. *Not a defect;* the scanner counts every shown entry as needing a label, which a verified entry does not.
+- **C6:** 6 new entries, all in format, none with a forbidden item, 5 found verbatim. The sixth (second repo) splices
+  two of the session's human prompts into one quote and corrects a spelling: a paraphrase of found statements, not
+  unsourced. It is a D14 observation.
+- **C7:** 4 named paths in the second repo, all exist; the first repo's session total is 28, all exist. **C8:** 0
+  plugin hook errors. The second repo's 14 are its own hooks.
+- **`field-scope.mjs`, reported:** over the first repo's three sessions whole (count 4's pairs included), 98 pairs:
+  D 84 (85.7%), R 5 (5.1%), X 9 (9.2%). Within the bar.
+- *Reported:* C9, 142 subagents in the first repo's sessions and 5 in the second, none with the index; 60 wrote repo
+  files. The first repo's map holds 56 entries, all committed; the second's holds 1.
+- *Result:* no defect in C1, C2, C5, C6b, C7 or C8; D24 stays locked.
+- *The scanner, after this count* (the field README's amendment of 2026-11-12, registered in `8cb89b7` before the
+  code): C5b prints a miss whose entry's source names a file apart, as "to check (cites a file)". *Pass:* on counts 4
+  and 5's frozen corpora every other printed count and the JSON (apart from the split field) are unchanged; count 4's
+  miss stays a miss; count 5's two flags print as "to check".

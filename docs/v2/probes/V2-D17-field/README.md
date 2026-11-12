@@ -201,6 +201,11 @@ does not depend on the choice.
   - *Each miss is read by hand:* a plugin defect (the result holds the entry's line as the file has it), an entry seen
     only in part (an accepted risk), or a scanner false hit. For alpha.8 epochs, a defect is C5's defect, as D24's
     amendment of 2026-11-08 says.
+  - *Amended 2026-11-12, count 5 (registered before the code):* a fourth reading, an entry D16 verified. An entry that
+    is committed and whose quote is found in the repo file its source names gets no label, rightly. The scanner prints
+    a miss whose entry's source names a file path apart, as "to check (cites a file)", and the others as misses. Both
+    are still read by hand. *Pass:* on counts 4 and 5's frozen corpora, every other printed count is unchanged; count
+    4's one miss stays a miss; count 5's two flags print as "to check".
 - *Pass for the change,* on count 3's frozen corpus:
   - every count the scanner printed at count 3 is unchanged;
   - C5b finds what was found by hand: 5 calls that name the folder show entries, 4 of them labelled. The miss is the

@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0`, built on branch `v2`.
+**Status:** `2.0.1`, built on branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
@@ -147,7 +147,7 @@ claude plugin install second-brain@second-brain --scope project
 ```
 
 - `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
-- To pin a release, add `#v2.0.0` to the repo in the first command. Without it, `claude plugin marketplace update
+- To pin a release, add `#v2.0.1` to the repo in the first command. Without it, `claude plugin marketplace update
   second-brain`, then `claude plugin update second-brain@second-brain`, bring the latest release.
 - To try the plugin only for yourself in one repo, use `--scope local` for both commands instead.
 - Start Claude at the repo's root. With a project-scope install, the plugin does not load when Claude starts in a
@@ -313,7 +313,9 @@ Then remove them in this order:
 - **Another repo's map entries printed through Bash get no label,** as a Read of them gets none. An entry there with
   the same line as one in this repo gets this repo's labels for it.
 - **Each read repeats its labels.** A Read carries the whole file's, and a Bash command those of the uncommitted
-  entries and of the entries it printed. So until you commit the map, each such command lists its new entries. A line that a map file's only entry holds, such as its when line, labels that entry when another
+  entries and of the entries it printed. So until you commit the map, each such command lists its new entries.
+  Committed entries whose only label is "unverified quote" share one line of entry ranges (2.0.1); in the owner's map
+  that cut the labels by 82%. A line that a map file's only entry holds, such as its when line, labels that entry when another
   file's output shows the same line.
 - **Before Claude Code 2.1.85,** which ignores the hook's `if` field, the Bash handler starts on every Bash command. It
   labels the map entries any command prints.

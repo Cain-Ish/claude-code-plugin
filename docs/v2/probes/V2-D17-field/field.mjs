@@ -160,6 +160,7 @@ function scan(file) {
     rd.mustLabel = !!w && !commits.some((c) => c > w.ms && c < rd.ms);
     rd.labelledUnreviewed = rd.ctx.some((c) => /unreviewed/.test(c));
   }
+  const CITES = /[\w.-]+(?:\/[\w.-]+)+\.\w+|\b[\w.-]+\.md\b/;
   // C5b (README, count 4): the map's entries in the result Claude saw, by a looser rule than the plugin's (a quote line
   // of 20 or more characters without its marker, or the heading text), and whether the call's labels name them
   const known = [...mapEntries(cwd), ...S.entries].filter((e, i, a) => e.area && a.findIndex((o) => o.area === e.area) === i);
@@ -167,7 +168,10 @@ function scan(file) {
     const t = results.get(b.id) ?? '';
     const seen = known.filter((e) => t.includes(e.area) || e.lines.some((l) => l.length >= 20 && t.includes(l))).map((e) => e.area);
     const named = new Set((ctxByTool.get(b.id) ?? []).filter((c) => c.startsWith(LABEL)).flatMap((c) => [...c.matchAll(/^\d+\. (.+): (?:unreviewed|unverified quote|not found|cannot read)/gm)].map((m) => m[1])));
-    Object.assign(b, { seen: seen.length, labelled: seen.filter((a) => named.has(a)).length, misses: seen.filter((a) => !named.has(a)).length });
+    // count 5's amendment: a miss whose entry cites a repo file may be one D16 verified (no label due); read by hand
+    const cites = new Set(known.filter((e) => CITES.test(e.source ?? '')).map((e) => e.area));
+    const missed = seen.filter((a) => !named.has(a));
+    Object.assign(b, { seen: seen.length, labelled: seen.length - missed.length, misses: missed.filter((a) => !cites.has(a)).length, toCheck: missed.filter((a) => cites.has(a)).length });
   }
   S.bash = S.bash.filter((b) => b.seen);
   // C6c: each entry's quote, verbatim before its write
@@ -229,7 +233,7 @@ for (const s of all) {
   console.log(`  C2 forces: ${forced.length} in ${E.filter((e) => e.forces.length).length} epochs; on ${JSON.stringify(forced.reduce((m, { f }) => ({ ...m, [f.onTurn]: (m[f.onTurn] ?? 0) + 1 }), {}))}; epochs with a human prompt and no force ${E.filter((e) => firstHuman(e) && !e.forces.length).length}; epochs with >1 force ${E.filter((e) => e.forces.length > 1).length}; force not on the first human prompt ${E.filter((e) => e.forces.length && firstHuman(e) && !firstHuman(e).forced).length}`);
   console.log(`  C5 map reads: ${s.mapReads.length} (must label ${s.mapReads.filter((r) => r.mustLabel).length}, labelled unreviewed ${s.mapReads.filter((r) => r.mustLabel && r.labelledUnreviewed).length}; any label ${s.mapReads.filter((r) => r.ctx.length).length}); map via Grep/Glob/Bash ${JSON.stringify(s.mapOther.reduce((m, o) => ({ ...m, [o.kind]: (m[o.kind] ?? 0) + 1 }), {}))}`);
   const cb = (named) => s.bash.filter((b) => b.names === named);
-  console.log(`  C5b by output: calls naming the folder that show entries ${cb(true).length} (entries ${cb(true).reduce((n, b) => n + b.seen, 0)}, labelled ${cb(true).reduce((n, b) => n + b.labelled, 0)}); calls with a miss ${cb(true).filter((b) => b.misses).map((b) => b.at).join(', ') || 'none'}; calls not naming it that show entries ${cb(false).length}`);
+  console.log(`  C5b by output: calls naming the folder that show entries ${cb(true).length} (entries ${cb(true).reduce((n, b) => n + b.seen, 0)}, labelled ${cb(true).reduce((n, b) => n + b.labelled, 0)}); calls with a miss ${cb(true).filter((b) => b.misses).map((b) => b.at).join(', ') || 'none'}; to check (cites a file) ${cb(true).filter((b) => b.toCheck).map((b) => b.at).join(', ') || 'none'}; calls not naming it that show entries ${cb(false).length}`);
   const en = s.entries.filter((e) => !e.excluded);
   console.log(`  C6 entries (main): ${en.length} (${en.filter((e) => e.by === 'bash').length} by Bash); format ok ${en.filter((e) => e.area && e.quote && e.source && e.when).length}; forbidden ${en.filter((e) => e.forbidden.length).length}; verbatim ${en.filter((e) => e.found).length}`);
   console.log(`  C7 named paths after a change: ${s.named.length}, not found ${s.named.filter((n) => !n.exists).length}`);

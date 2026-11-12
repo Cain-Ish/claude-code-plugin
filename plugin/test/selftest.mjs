@@ -62,7 +62,7 @@ walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // alpha.8: 2o, the unreviewed label by the repo's state (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), 'ac6d00173453', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '02bc0eae190b', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -95,7 +95,7 @@ assert.equal(labels(repo, '.project-map/private.md'), `[project map] Labels on t
 fs.rmSync(path.join(repo, '.gitignore'));
 fs.rmSync(path.join(repo, '.project-map', 'private.md'));
 assert.equal(labels(repo, '.project-map/captured.md'), `[project map] Labels on the entries of .project-map/captured.md, in file order:\n`
-  + '1. components: unverified quote, captured 2026-10-20\n'
+  + 'unverified quote, committed: entries 1 (captured 2026-10-20)\n'
   + `2. avatars: ${UNREVIEWED}; unverified quote, captured 2026-10-24\n`
   + `${UNVERIFIED_NOTE}\n`);
 assert.equal(labels(repo, '.project-map/new.md'), `[project map] Labels on the entries of .project-map/new.md, in file order:\n`
@@ -121,11 +121,11 @@ put('.project-map/bare.md', '### pages\n> Each page has one h1.\n');
 git('add', '-A');
 git('commit', '-q', '-m', 'cited');
 // PM5: a committed entry with no source line is still labelled
-assert.equal(labels(repo, '.project-map/bare.md'), `[project map] Labels on the entries of .project-map/bare.md, in file order:\n1. pages: unverified quote\n${UNVERIFIED_NOTE}\n`);
+assert.equal(labels(repo, '.project-map/bare.md'), `[project map] Labels on the entries of .project-map/bare.md, in file order:\nunverified quote, committed: entries 1\n${UNVERIFIED_NOTE}\n`);
 assert.equal(labels(repo, '.project-map/cited.md'), `[project map] Labels on the entries of .project-map/cited.md, in file order:\n`
+  + 'unverified quote, committed: entries 4 (captured 2026-10-22)\n'
   + '2. condensed: not found word for word in docs/style.md; check it, captured 2026-10-22\n'
   + '3. gone: not found word for word in docs/avatars.md; check it, captured 2026-10-22\n'
-  + '4. outside: unverified quote, captured 2026-10-22\n'
   + `${UNVERIFIED_NOTE}\n`);
 put('docs/style.md', '# Style\n\nColours come from the theme tokens. No hex values anywhere.\n');
 assert.ok(labels(repo, '.project-map/cited.md').includes('1. verbatim: not found word for word in docs/style.md; check it, captured 2026-10-22'));
@@ -151,9 +151,20 @@ const run = (command) => { const r = spawnSync('bash', ['-c', command], { cwd: r
 const bash = (command, out) => hook('bash', { tool_input: { command }, tool_response: out === undefined ? run(command) : { stdout: out, stderr: '', interrupted: false, isImage: false } });
 // the expected text, written by hand: the labels a Read gives, cut to the entries (by number) a Bash command gets.
 // From 2o that is every uncommitted entry, and the committed ones its output shows
+// 2p: the grouped line is cut to the entries in nums too, its ranges re-formed from what is left
+const GROUP = 'unverified quote, committed: entries ';
+const regroup = (g, nums) => {
+  const kept = g.slice(GROUP.length).split(', ').flatMap((r) => {
+    const [, a, b = a, date] = /^(\d+)(?:-(\d+))?(?: \(captured (.*)\))?$/.exec(r);
+    return Array.from({ length: b - a + 1 }, (_, k) => ({ i: +a + k, date })).filter((e) => nums.includes(e.i));
+  });
+  const runs = [];
+  for (const e of kept) { const r = runs.at(-1); if (r && e.date && r.date === e.date && r.to === e.i - 1) r.to = e.i; else runs.push({ from: e.i, to: e.i, date: e.date }); }
+  return runs.length ? [GROUP + runs.map((r) => `${r.from}${r.to > r.from ? `-${r.to}` : ''}${r.date ? ` (captured ${r.date})` : ''}`).join(', ')] : [];
+};
 const only = (file, nums) => {
   const [head, ...rest] = labels(repo, file).trimEnd().split('\n');
-  const ls = rest.filter((l) => nums.includes(parseInt(l, 10)));
+  const ls = rest.flatMap((l) => (l.startsWith(GROUP) ? regroup(l, nums) : nums.includes(parseInt(l, 10)) ? [l] : []));
   return ls.length ? `${head.replace(', in file order:', ' not yet committed, and on those this output shows, in file order:')}\n${ls.join('\n')}\n${ls.some((l) => l.includes('unverified quote')) ? `${UNVERIFIED_NOTE}\n` : ''}` : '';
 };
 const C = '.project-map/captured.md';
@@ -482,6 +493,47 @@ fs.rmSync(path.join(repo, '.project-map', 'bom.md'));
   put('.project-map/long.md', entry('x'.repeat(10_000), 'A rule.', '2026-10-27'));
   assert.equal(labels(repo, '.project-map/long.md'), '[project map] Labels on the entries of .project-map/long.md, in file order:\n(1 label not shown: treat every entry in this file as unreviewed and unverified.)\n');
   fs.rmSync(path.join(repo, '.project-map', 'long.md'));
+}
+// 2p: committed entries whose only label is "unverified quote" share one line of ranges, split by a date change, a
+// gap and an entry with no date; every other entry keeps its own line
+{
+  const G = '.project-map/grouped.md';
+  put(G, [entry('a', 'Rule a.', '2026-10-26'), entry('b', 'Rule b.', '2026-10-26'),
+    cited('mid', 'Not in the file.', 'README.md, 2026-10-26'), entry('c', 'Rule c.', '2026-10-26'),
+    entry('d', 'Rule d.', '2026-10-27'), '### nodate\n> Rule n.\n', entry('e', 'Rule e.', '2026-10-27'), entry('f', 'Rule f.', '2026-10-27')].join('\n'));
+  git('add', '-A'); git('commit', '-q', '-m', 'grouped');
+  fs.appendFileSync(path.join(repo, G), `\n${entry('g', 'Rule g.', '2026-11-01')}`);
+  assert.equal(labels(repo, G), `[project map] Labels on the entries of ${G}, in file order:\n`
+    + 'unverified quote, committed: entries 1-2 (captured 2026-10-26), 4 (captured 2026-10-26), 5 (captured 2026-10-27), 6, 7-8 (captured 2026-10-27)\n'
+    + '3. mid: not found word for word in README.md; check it, captured 2026-10-26\n'
+    + `9. g: ${UNREVIEWED}; unverified quote, captured 2026-11-01\n${UNVERIFIED_NOTE}\n`);
+  // a Bash output that shows entries 2 and 7 only: the uncommitted one, and those two in the line
+  assert.equal(bash(`grep -n "Rule [bf]" ${G}`), `[project map] Labels on the entries of ${G} not yet committed, and on those this output shows, in file order:\n`
+    + `unverified quote, committed: entries 2 (captured 2026-10-26), 8 (captured 2026-10-27)\n9. g: ${UNREVIEWED}; unverified quote, captured 2026-11-01\n${UNVERIFIED_NOTE}\n`);
+  // attempt 2: when the grouped text does not fit, the output is 2.0.0's: one line per entry, cut at the cap, and
+  // every entry after the last one shown fails closed
+  const perEntry = (l, n) => {
+    const last = Math.max(...(l.match(/^\d+(?=\. )/gm) ?? []).map(Number));
+    assert.ok(l.length <= CAP && !l.includes('committed: entries') && l.includes('\n1. ') && last < n);
+    assert.ok(l.endsWith(`(${n - last} more labels not shown: treat every entry after entry ${last} in this file as unreviewed and unverified.)\n${UNVERIFIED_NOTE}\n`));
+  };
+  put(G, Array.from({ length: 150 }, (_, i) => entry(`old ${i + 1}`, `Old rule ${i + 1}.`, '2026-10-26')).join('\n'));
+  git('add', '-A'); git('commit', '-q', '-m', 'grouped 150');
+  fs.appendFileSync(path.join(repo, G), `\n${Array.from({ length: 300 }, (_, i) => entry(`new ${i + 1}`, `New rule ${i + 1}.`, '2026-11-01')).join('\n')}`);
+  perEntry(labels(repo, G), 450);
+  // a grouped line too wide by itself (the verifier's F2)
+  put(G, Array.from({ length: 500 }, (_, i) => entry(`alt ${i + 1}`, `Alt rule ${i + 1}.`, i % 2 ? '2026-10-27' : '2026-10-26')).join('\n'));
+  git('add', '-A'); git('commit', '-q', '-m', 'grouped wide');
+  perEntry(labels(repo, G), 500);
+  // F1: a file that fits on 2.0.0 and whose grouped form does not keeps 2.0.0's whole output
+  put(G, entry('a', 'Rule.', '2026-10-26'));
+  git('add', '-A'); git('commit', '-q', '-m', 'grouped f1');
+  const wideHead = `b${'x'.repeat(9630)}`;
+  fs.appendFileSync(path.join(repo, G), `\n${entry(wideHead, 'Rule b.', '2026-11-01')}`);
+  assert.equal(labels(repo, G), `[project map] Labels on the entries of ${G}, in file order:\n1. a: unverified quote, captured 2026-10-26\n`
+    + `2. ${wideHead}: ${UNREVIEWED}; unverified quote, captured 2026-11-01\n${UNVERIFIED_NOTE}\n`);
+  fs.rmSync(path.join(repo, G));
+  git('add', '-A'); git('commit', '-q', '-m', 'grouped gone');
 }
 // J4: a UTF-16 map file (Windows PowerShell 5.1's Out-File and >) gets its labels
 {

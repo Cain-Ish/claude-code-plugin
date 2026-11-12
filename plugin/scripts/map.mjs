@@ -218,7 +218,9 @@ export function labels(root, file, output) {
   const picked = all.map((b, i) => !seen || !held.has(b) || seen[i]);
   const docs = new Map();
   const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
-  const out = all.flatMap((b, i) => {
+  // 06, 2p: a committed entry whose only label is "unverified quote" joins one line of ranges (D16's content kept)
+  const plain = [];
+  const per = all.flatMap((b, i) => {
     if (!picked[i]) return [];
     const src = /^- source:(.*)$/m.exec(b)?.[1] ?? '';
     const date = /(\d{4}-\d{2}-\d{2})\s*$/.exec(src)?.[1];
@@ -233,17 +235,32 @@ export function labels(root, file, output) {
       if (found === null) ls.push(`cannot read ${at}; check it${date ? `, captured ${date}` : ''}`);
       else if (!found) ls.push(`not found word for word in ${at}; check it${date ? `, captured ${date}` : ''}`);
     }
-    return ls.length ? [`${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`] : [];
+    if (!ls.length) return [];
+    const line = `${i + 1}. ${b.split('\n')[0].slice(4)}: ${ls.join('; ')}`;
+    if (ls.length === 1 && ls[0].startsWith('unverified quote')) plain.push({ i, date, line });
+    return [line];
   });
+  const runs = [];
+  for (const { i, date } of plain) {
+    const r = runs.at(-1);
+    if (r && date && r.date === date && r.to === i - 1) r.to = i; else runs.push({ from: i, to: i, date });
+  }
+  const grouped = runs.length ? `unverified quote, committed: entries ${runs.map((r) => `${r.from + 1}${r.to > r.from ? `-${r.to + 1}` : ''}${r.date ? ` (captured ${r.date})` : ''}`).join(', ')}` : '';
+  const out = per;
   if (!out.length) return '';
   // the note follows the list: before it, Claude paraphrased the labels (06, 2n attempt 3's smoke)
   const note = (ls) => (ls.some((l) => l.includes('unverified quote')) ? `${UNVERIFIED_NOTE}\n` : '');
   const top = `[project map] Labels on the entries of ${file}${output === undefined ? '' : ' not yet committed, and on those this output shows'}, in file order:\n`;
-  const whole = `${top}${out.join('\n')}\n${note(out)}`;
-  if (whole.length <= CAP) return whole;
+  // grouped only when the whole text fits; past the cap the output is 2.0.0's (06, 2p attempt 2)
+  const solo = new Set(plain.map((p) => p.line));
+  const short = grouped ? [grouped, ...per.filter((l) => !solo.has(l))] : per;
+  const brief = `${top}${short.join('\n')}\n${note(short)}`;
+  if (brief.length <= CAP) return brief;
   // past the cap, Claude would see only a preview, so the labels are cut at a line and the rest fail closed (D18, J3)
   const tail = (k, n = out.length - k) => (k ? `(${n} more ${n === 1 ? 'label' : 'labels'} not shown: treat every entry after entry ${parseInt(out[k - 1], 10)} `
     : `(${n} ${n === 1 ? 'label' : 'labels'} not shown: treat every entry `) + 'in this file as unreviewed and unverified.)\n';
+  const whole = `${top}${out.join('\n')}\n${note(out)}`;
+  if (whole.length <= CAP) return whole;
   let k = 0;
   for (let used = top.length + note(out).length; k < out.length && used + out[k].length + 1 + tail(k + 1).length <= CAP; k++) used += out[k].length + 1;
   // the note goes when no line it explains is left, which only shortens the text
