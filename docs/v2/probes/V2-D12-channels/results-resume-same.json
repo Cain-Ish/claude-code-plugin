@@ -1,0 +1,72 @@
+{
+ "date": "2026-11-12",
+ "cli": "2.1.322 (Claude Code)",
+ "runs": 3,
+ "arms": {
+  "SAME": [
+   {
+    "run": 1,
+    "sessionId": true,
+    "transcript": true,
+    "resumeHookRan": false,
+    "attachedAtResume": false,
+    "deliveries": 1,
+    "quoted": true
+   },
+   {
+    "run": 2,
+    "sessionId": true,
+    "transcript": true,
+    "resumeHookRan": false,
+    "attachedAtResume": false,
+    "deliveries": 1,
+    "quoted": true
+   },
+   {
+    "run": 3,
+    "sessionId": true,
+    "transcript": true,
+    "resumeHookRan": false,
+    "attachedAtResume": false,
+    "deliveries": 1,
+    "quoted": true
+   }
+  ],
+  "DIFF": [
+   {
+    "run": 1,
+    "sessionId": true,
+    "transcript": true,
+    "resumeHookRan": true,
+    "attachedAtResume": true,
+    "deliveries": 1,
+    "quoted": true
+   },
+   {
+    "run": 2,
+    "sessionId": true,
+    "transcript": true,
+    "resumeHookRan": true,
+    "attachedAtResume": true,
+    "deliveries": 1,
+    "quoted": true
+   },
+   {
+    "run": 3,
+    "sessionId": true,
+    "transcript": true,
+    "resumeHookRan": true,
+    "attachedAtResume": true,
+    "deliveries": 1,
+    "quoted": true
+   }
+  ]
+ },
+ "summary": {
+  "DIFF_attached": 3,
+  "SAME_attached": 0,
+  "SAME_quoted": 3,
+  "DIFF_quoted": 3
+ },
+ "hypothesis": "pass"
+}

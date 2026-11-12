@@ -3306,3 +3306,17 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   reopen trigger, C1 counting context present in the restored conversation, and release at count 4.
 - *Otherwise:* if SAME is attached in 3 of 3, the hypothesis falls and the cause stays open. A mixed result is
   unreliable. Either way, the miss stays a defect and goes back to the user.
+
+### C1's resume probe: result (2026-11-12, CLI 2.1.322): the hypothesis passes
+
+- [`results-resume-same.json`](probes/V2-D12-channels/results-resume-same.json):
+  - *DIFF:* attached at the resume in 3 of 3, nonce quoted in 3 of 3;
+  - *SAME:* attached in 0 of 3, nonce quoted in 3 of 3, from the startup's delivery in the restored conversation.
+- *The hook ran in SAME:* the resumed process's stream shows its `hook_started` and `hook_response`, with the output.
+  The transcript keeps no record of it at all. In the field, the interactive CLI kept the hook's `hook_success` and
+  dropped only the context. Either way, identical context is not attached again.
+- *Reading:* count 4's miss is Claude Code skipping context that the resumed conversation already holds. The plugin's
+  instruction was in Claude's context at the miss.
+- *Still the user's call (D24):* the registered recommendation is D24's reopen trigger. C1 would count context present
+  in the restored conversation, and the release would go ahead at count 4. Until the user answers, the miss stays a
+  defect and nothing is tagged.
