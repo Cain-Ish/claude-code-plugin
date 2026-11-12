@@ -3444,3 +3444,31 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *Release:* tag `v2.0.1` and its page. The direct push to `main` was refused by the permission check (merge
   without review), so `main` moves by a pull request. Installs with no ref follow `main`, so the field installs
   update once it is merged.
+
+### D24's field count 5 (2026-11-12, 10:12Z): no defect
+
+- *Run:* by hand, at the user's question. Frozen to the counting session's scratchpad, as count 4 was.
+- *Installs:* both repos run `2.0.0` (product hash `ac6d00173453`, checked on the cached copy). `2.0.1` waits on
+  `main`. The scanner attributes these epochs to alpha.8, whose product `2.0.0` is.
+- *Corpus:* in the first repo, the main session counted at count 4 (7 new epochs), a new session (3 epochs) and a
+  one-turn session (1 epoch). In the second repo, its first session with the plugin (3 epochs). 14 new epochs.
+- **C1: 14 of 14.** 11 carry the context. The 3 without it are resumes whose hook printed context byte-identical to
+  the last one delivered (3,107 and 3,317 bytes), which passes under C1's amendment. Count 4's 14:40Z resume is the
+  same case.
+- **C2:** one force per epoch, each on the epoch's first human prompt (13 forces); the one-turn session had no human
+  prompt.
+- **C3, reported:** 12 of 13 forced epochs answered per directory. The miss delegated the work to a subagent with no
+  directory statement.
+- **C5b, by output:** 2 calls flagged by the scanner, each with one entry shown and unlabelled. Read: both entries are
+  committed, and their quotes are found word for word in the repo file their source names, so D16 gives them no
+  label. *Not a defect;* the scanner counts every shown entry as needing a label, which a verified entry does not.
+- **C6:** 6 new entries, all in format, none with a forbidden item, 5 found verbatim. The sixth (second repo) splices
+  two of the session's human prompts into one quote and corrects a spelling: a paraphrase of found statements, not
+  unsourced. It is a D14 observation.
+- **C7:** 4 named paths in the second repo, all exist; the first repo's session total is 28, all exist. **C8:** 0
+  plugin hook errors. The second repo's 14 are its own hooks.
+- **`field-scope.mjs`, reported:** over the first repo's three sessions whole (count 4's pairs included), 98 pairs:
+  D 84 (85.7%), R 5 (5.1%), X 9 (9.2%). Within the bar.
+- *Reported:* C9, 142 subagents in the first repo's sessions and 5 in the second, none with the index; 60 wrote repo
+  files. The first repo's map holds 56 entries, all committed; the second's holds 1.
+- *Result:* no defect in C1, C2, C5, C6b, C7 or C8; D24 stays locked.
