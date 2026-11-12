@@ -62,7 +62,7 @@ walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // alpha.8: 2o, the unreviewed label by the repo's state (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), '34298485285b', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '02bc0eae190b', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -510,18 +510,28 @@ fs.rmSync(path.join(repo, '.project-map', 'bom.md'));
   // a Bash output that shows entries 2 and 7 only: the uncommitted one, and those two in the line
   assert.equal(bash(`grep -n "Rule [bf]" ${G}`), `[project map] Labels on the entries of ${G} not yet committed, and on those this output shows, in file order:\n`
     + `unverified quote, committed: entries 2 (captured 2026-10-26), 8 (captured 2026-10-27)\n9. g: ${UNREVIEWED}; unverified quote, captured 2026-11-01\n${UNVERIFIED_NOTE}\n`);
-  // past the cap: the grouped line stays, and every entry after the last per-entry line shown fails closed
+  // attempt 2: when the grouped text does not fit, the output is 2.0.0's: one line per entry, cut at the cap, and
+  // every entry after the last one shown fails closed
+  const perEntry = (l, n) => {
+    const last = Math.max(...(l.match(/^\d+(?=\. )/gm) ?? []).map(Number));
+    assert.ok(l.length <= CAP && !l.includes('committed: entries') && l.includes('\n1. ') && last < n);
+    assert.ok(l.endsWith(`(${n - last} more labels not shown: treat every entry after entry ${last} in this file as unreviewed and unverified.)\n${UNVERIFIED_NOTE}\n`));
+  };
   put(G, Array.from({ length: 150 }, (_, i) => entry(`old ${i + 1}`, `Old rule ${i + 1}.`, '2026-10-26')).join('\n'));
   git('add', '-A'); git('commit', '-q', '-m', 'grouped 150');
   fs.appendFileSync(path.join(repo, G), `\n${Array.from({ length: 300 }, (_, i) => entry(`new ${i + 1}`, `New rule ${i + 1}.`, '2026-11-01')).join('\n')}`);
-  const l = labels(repo, G);
-  const last = Math.max(...(l.match(/^\d+(?=\. )/gm) ?? []).map(Number));
-  assert.ok(l.length <= CAP && l.includes('\nunverified quote, committed: entries 1-150 (captured 2026-10-26)\n') && last > 150 && last < 450);
-  assert.ok(l.endsWith(`(${450 - last} more labels not shown: treat every entry after entry ${last} in this file as unreviewed and unverified.)\n${UNVERIFIED_NOTE}\n`));
-  // a grouped line too wide by itself: every entry fails closed
+  perEntry(labels(repo, G), 450);
+  // a grouped line too wide by itself (the verifier's F2)
   put(G, Array.from({ length: 500 }, (_, i) => entry(`alt ${i + 1}`, `Alt rule ${i + 1}.`, i % 2 ? '2026-10-27' : '2026-10-26')).join('\n'));
   git('add', '-A'); git('commit', '-q', '-m', 'grouped wide');
-  assert.equal(labels(repo, G), `[project map] Labels on the entries of ${G}, in file order:\n(1 label not shown: treat every entry in this file as unreviewed and unverified.)\n`);
+  perEntry(labels(repo, G), 500);
+  // F1: a file that fits on 2.0.0 and whose grouped form does not keeps 2.0.0's whole output
+  put(G, entry('a', 'Rule.', '2026-10-26'));
+  git('add', '-A'); git('commit', '-q', '-m', 'grouped f1');
+  const wideHead = `b${'x'.repeat(9630)}`;
+  fs.appendFileSync(path.join(repo, G), `\n${entry(wideHead, 'Rule b.', '2026-11-01')}`);
+  assert.equal(labels(repo, G), `[project map] Labels on the entries of ${G}, in file order:\n1. a: unverified quote, captured 2026-10-26\n`
+    + `2. ${wideHead}: ${UNREVIEWED}; unverified quote, captured 2026-11-01\n${UNVERIFIED_NOTE}\n`);
   fs.rmSync(path.join(repo, G));
   git('add', '-A'); git('commit', '-q', '-m', 'grouped gone');
 }
