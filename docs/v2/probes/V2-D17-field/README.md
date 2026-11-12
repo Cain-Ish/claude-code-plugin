@@ -29,7 +29,7 @@ with its own registered check, in a new release epoch.
 
 | # | What | Measured | Pass |
 | --- | --- | --- | --- |
-| C1 | Arrival (D12) | each epoch start carries the plugin's `SessionStart` context, holding the frozen capture instruction's first sentence | every epoch; a miss is a defect |
+| C1 | Arrival (D12) | each epoch start carries the plugin's `SessionStart` context, holding the frozen capture instruction's first sentence. *Amended 2026-11-12 (D24):* a resume whose hook printed the same text the restored conversation already holds passes, since Claude Code does not attach it again | every epoch; a miss is a defect |
 | C2 | Force placement (D22) | the forced-decision text arrives as `UserPromptSubmit` context on the epoch's first human prompt, once | a force on a machine turn, a missing force, or a second force in one epoch: each a defect |
 | C3 | Forced decision answered (D22) | in the turn that got the force, before its first Write, Edit or NotebookEdit (or by turn end), Claude states per index directory yes or no. A yes list plus an explicit "the rest no" counts. Judged by reading, against this rubric | at least 80% of forced epochs |
 | C4 | Read before change (D22) | in answered epochs with at least one yes and a file change before the next human prompt: at least one document of every yes directory Read before the first change (lenient), and every document (strict, reported) | lenient at least 80% |

@@ -100,6 +100,12 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
   names the folder, by the repo's state, and committed entries by what the command printed. A Bash read no longer
   carries the whole file's labels.
 
+**In the owner's own sessions** (the release's field check, alpha.5 to alpha.8, one repo, CLI 2.1.318 to 2.1.322):
+every session start carried the index, and the forced decision came on each first typed prompt and was answered per
+directory. Claude wrote 16 map entries, none invented and none with private data. Every map entry printed through Bash
+on alpha.8 was labelled. At 44 of 52 file changes, the rule that applied had reached Claude first, delivered by
+Claude Code. No hook error. Subagents never saw the index: 42 of 96 wrote files.
+
 **Where it helped:**
 - *A designer's spec, read in an earlier session:* kept in 10 of 10 runs (auto memory: 2), and followed in a fresh
   session before the first write in 10 of 10 (auto memory: 0).
@@ -321,6 +327,8 @@ Then remove them in this order:
   loads one was not checked.
 - **An automatic compaction in the middle of a turn** lets that turn keep writing before the next prompt brings the
   forced decision back.
+- **On a resume,** Claude Code does not attach session-start text identical to what the resumed conversation already
+  holds. Claude still has it, from the earlier delivery. A transcript then shows the hook's run without its context.
 - **The closing line** about decisions followed appears even where nothing applies ("none").
 - **Letter case** in map file names is folded as git's `core.ignorecase` says, ASCII letters only, as git does. It
   is read from the repo's own config file, where `git init` and `git clone` set it. A value set only in your global
