@@ -3392,3 +3392,19 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
     rise. It is stated as an accepted gap.
 - **On a pass:** tag `v2.0.1` and its release page. Both field installs update. A later count reads the labels'
   bytes again.
+
+### 2p: checks 1 to 6 (2026-11-12): pass
+
+- *Built* in `1f70345`. Product hash `34298485285b`, version `2.0.1`.
+- *Check 1, the self-test:* passes. Three existing cases changed, each one where an entry's only label was "unverified
+  quote". The Bash helper `only()` cuts the grouped line to the entries it keeps. New cases: ranges split by a date,
+  a gap and an entry with no date; a mixed file; a Bash subset; the cap with per-entry lines cut; the grouped line
+  alone too wide.
+- *Check 2, no label lost:* on a clone of the field repo, 17 commits touching the map, each committed and with its
+  entries uncommitted. 34 cases, 34 identical once the grouped line is expanded. *Pass.*
+- *Check 3, size:* the same 34 cases, 151,755 bytes on `2.0.0` and 26,961 on `2.0.1` (82% less).
+- *Check 4, byte identity:* session start and the prompt hook are identical to `2.0.0`'s, on this repo and the field
+  repo's clone. *Pass.*
+- *Check 5, the smoke* on CLI 2.1.322: every assertion. *Pass.*
+- *Check 6, CI* on three systems. *Pass.*
+- *Check 7,* the verifier round, is running.
