@@ -3352,3 +3352,43 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
     backup.
   - Running sessions keep alpha.8's hooks until the user types `/reload-plugins` in them.
 - *Next:* later field counts, under D24's reopen trigger (a defect in C1, C2, C5, C6b, C7 or C8).
+
+### 2p: the labels' trim, as `2.0.1` (registered 2026-11-12, before the code)
+
+- *Why:* D24's answer made the labels' trim a registered fix after `2.0.0`, and the user asked for it on 2026-11-12.
+  - *The field on alpha.8,* from the reload at 03:13Z on 2026-11-09 to 2026-11-12, both repos: 93 label blocks, 196 KB,
+    1,663 label lines. 64 blocks listed 40 to 48 lines each.
+  - About 95% of the lines are a committed entry whose only label is "unverified quote, captured <date>". The field
+    session called the labels noise it never used (count 3's question).
+- *Scope:* D16's content is kept. Every committed entry is still labelled unverified, with its capture date, so no
+  locked decision changes. Dropping those labels would change D16's "delivered with its date", and no D16 trigger
+  fired. That option is the user's, not built here.
+- **The change,** in `labels()` only, which the Read hook and the Bash handler share:
+  1. An entry whose labels hold anything besides "unverified quote" keeps its own line, as now: unreviewed, not found
+     or cannot read.
+  2. The other entries go into one line, before the per-entry lines: `unverified quote, committed: entries <ranges>`.
+     A range is a run of consecutive entries with the same capture date, written `1-6 (captured 2026-10-26)`. An entry
+     with no date stands alone, with no date.
+  3. *The cap, still fail-closed:* the grouped line comes first. If the per-entry lines are cut, the tail covers every
+     entry after the last one shown, as now. If even the grouped line does not fit, the tail covers every entry.
+  4. The header, the note and the Bash rules (which entries are picked) are unchanged.
+  - The version becomes `2.0.1` in both manifests, and the self-test's hash is pinned again.
+- **Checks:**
+  1. *The self-test:* the existing cases change only where an entry's only label is "unverified quote". New cases:
+     - ranges split by a date change, by a non-consecutive entry and by an entry with no date;
+     - a file mixing grouped and per-entry entries;
+     - the cap cutting the per-entry lines, and the grouped line alone too wide.
+  2. *No label lost:* a replay over the field repo's map files, in their current state and at each commit of them
+     since 2026-10-26, Read case. Expanding each grouped line back to one line per entry gives exactly alpha.8's output.
+     *Pass:* identical in every case.
+  3. *Size:* the same replay. Reported, with no bar: bytes before and after.
+  4. *Byte identity* of session start and the prompt hook with `2.0.0`, on this repo and the field repo.
+  5. *The smoke* on CLI 2.1.322. *Pass:* every assertion. Its read and Bash assertions already use uncommitted entries,
+     which keep their own lines.
+  6. *CI* on three systems.
+  7. *A verifier round,* one refute-first agent: any entry whose label the new output loses or changes, or a cut that
+     fails open, is a finding that survives.
+  - *Not run:* the reference bench. The change only builds a shorter string from the same work, so D18's cost cannot
+    rise. It is stated as an accepted gap.
+- **On a pass:** tag `v2.0.1` and its release page. Both field installs update. A later count reads the labels'
+  bytes again.
