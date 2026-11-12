@@ -3408,3 +3408,18 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *Check 5, the smoke* on CLI 2.1.322: every assertion. *Pass.*
 - *Check 6, CI* on three systems. *Pass.*
 - *Check 7,* the verifier round, is running.
+
+### 2p, attempt 1: check 7 failed; attempt 2 registered (2026-11-12, before the code)
+
+- *The verifier:* no difference without a cut (1,800 fuzz comparisons), and no cut fails open (472 capped cases). But
+  near and past the cap, the grouped line shows fewer labels than `2.0.0`:
+  - F1: a file just under the cap on `2.0.0` goes over it, since a lone grouped entry's line is longer;
+  - F2: a grouped line too wide by itself hides every per-entry line;
+  - F3: the grouped line takes budget from per-entry lines;
+  - F4: with only the grouped line shown, the closing line covers the entries it has just listed.
+
+  Each is a lost label under check 7's bar, so attempt 1 fails.
+- *Attempt 2:* the grouped form is used only when its whole text fits under the cap. Otherwise the output is
+  `2.0.0`'s per-entry form, cut exactly as before. So past the cap the output equals `2.0.0`'s, byte for byte.
+- *Checks:* the same seven. The self-test's cap cases assert `2.0.0`'s output past the cap, and a new case covers F1.
+  Check 7 re-runs the verifier's own scripts on attempt 2, and every capped case must equal `2.0.0`'s output.
