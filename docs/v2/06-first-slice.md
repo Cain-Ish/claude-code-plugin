@@ -3281,3 +3281,28 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
      consecutive epochs and with a queued notification at the resume.
   2. *Or accept it as Claude Code's* (D24's reopen trigger: the user sets a different bar). The release then goes
      ahead at this count, with the miss a known issue.
+
+### C1's resume miss: the field since count 4, and a probe (registered 2026-11-12, before the probe is written)
+
+- *The user's word:* "continue", after count 4 put the miss to them with a probe recommended first.
+- *The field since count 4, read by session-start records only:*
+  - A second resume in the first repo, on 2026-11-10, missed in the same way. No notification was queued at it.
+  - Every compaction since then got its context, and so did a `clear`, two startups and a resume in the second repo
+    (its first session, CLI 2.1.322).
+  - Across the four resumes seen, the context was attached each time it differed from the last one delivered (2 of 2).
+    It was missing each time it was identical to the last one (2 of 2). The queue explains only one of the two misses.
+- *Hypothesis:* on `resume`, Claude Code does not attach session-start context identical to context already in the
+  restored conversation.
+- *Probe* (`probes/V2-D12-channels/resume-same.mjs`), on the installed CLI, D12's method: a fresh repo and probe plugin
+  per run, Haiku, user settings excluded. One process replies OK, a second `--resume`s it and lists the `PRB-` tokens
+  in its context. Two arms, 3 runs each:
+  - *SAME:* the `startup` and `resume` hooks print the same text (one nonce);
+  - *DIFF:* the `resume` hook prints a new nonce, which is D12's `RE` cell (the control).
+
+  *Measured:* in the session's transcript, the resume's `hook_additional_context` records holding the hook's text.
+  Also reported: whether the resumed reply quotes the nonce.
+- *Pass for the hypothesis:* DIFF attached in 3 of 3, SAME attached in 0 of 3, with the SAME nonce quoted after the
+  resume in 3 of 3. Then the miss is Claude Code's, and the text was in context. Recommended to the user: D24's
+  reopen trigger, C1 counting context present in the restored conversation, and release at count 4.
+- *Otherwise:* if SAME is attached in 3 of 3, the hypothesis falls and the cause stays open. A mixed result is
+  unreliable. Either way, the miss stays a defect and goes back to the user.
