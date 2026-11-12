@@ -62,7 +62,7 @@ walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // alpha.8: 2o, the unreviewed label by the repo's state (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), 'e427a546cc6a', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'ac6d00173453', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));

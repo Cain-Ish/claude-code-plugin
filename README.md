@@ -1,4 +1,4 @@
-# second-brain v2 (alpha)
+# second-brain v2
 
 A Claude Code plugin that keeps Claude aware of what your project has already decided. At every session start, its
 hooks give Claude an index of the repo's own documents. At the first prompt they give it an instruction to say which
@@ -6,10 +6,10 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.0-alpha.8`, a pre-release from branch `v2`.
+**Status:** `2.0.0`, built on branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
-- v1 (0.57.1) is frozen on [`main`](https://github.com/Cain-Ish/claude-code-plugin).
+- v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
 
 ## What it does
 
@@ -142,11 +142,13 @@ sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field
 ## Install
 
 ```
-claude plugin marketplace add Cain-Ish/claude-code-plugin#v2.0.0-alpha.8 --scope project
-claude plugin install second-brain@second-brain-v2 --scope project
+claude plugin marketplace add Cain-Ish/claude-code-plugin --scope project
+claude plugin install second-brain@second-brain --scope project
 ```
 
 - `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
+- To pin a release, add `#v2.0.0` to the repo in the first command. Without it, `claude plugin marketplace update
+  second-brain`, then `claude plugin update second-brain@second-brain`, bring the latest release.
 - To try the plugin only for yourself in one repo, use `--scope local` for both commands instead.
 - Start Claude at the repo's root. With a project-scope install, the plugin does not load when Claude starts in a
   subdirectory (checked on 2.1.311). A local-scope install keeps its settings in the same root `.claude/` folder, so
@@ -155,14 +157,14 @@ claude plugin install second-brain@second-brain-v2 --scope project
 
 ## Coming from v1
 
-Updating from v1 (`0.57.1`) replaces v1's code. It leaves behind what v1 wrote outside the plugin: a statusline and a
-timer that runs every 30 minutes.
+Updating from v1 (`0.57.1`) replaces v1's code: run `claude plugin marketplace update second-brain`, then
+`claude plugin update second-brain@second-brain`. Claude Code does not update this marketplace on its own unless you
+turned that on. The update leaves behind what v1 wrote outside the plugin: a statusline and a timer that runs every
+30 minutes.
 - Claude Code keeps v1's old copy for 14 days, and until then both still run it.
 - After that, the statusline prints "buddy: no second-brain renderer found". That command no longer exists.
 - While v1's statusline or timer script is on disk, v2's session start shows you one line that points here. Claude
   does not see it.
-- An alpha of v2 installs beside v1, under another marketplace name, and does not replace it. Uninstall v1 first:
-  `claude plugin uninstall second-brain@second-brain`.
 
 First quit every running Claude Code session. A session that started before the update keeps v1's hooks, and its
 next start, `/clear`, resume or fork puts v1's timer back.
@@ -336,16 +338,14 @@ Then remove them in this order:
   bare `ignorecase`, `true`, `yes`, `on` or a whole number other than 0 count as true. Git's other spellings of true,
   such as `1k`, `0x1` or a value continued with `\`, count as false here, and a partly quoted value is skipped, so
   the line above it stands.
-- **The line about v1's leftovers links to `main`'s README,** which is v1's until v2 moves there. The steps are in
-  [Coming from v1](https://github.com/Cain-Ish/claude-code-plugin/tree/v2#coming-from-v1), on branch `v2`.
 - **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
-  name `second-brain-v2`, so only one of them can be registered on a machine.
+  name `second-brain`, so only one of them can be registered on a machine.
 
 ## Uninstall
 
 ```
-claude plugin uninstall second-brain@second-brain-v2 --scope project
-claude plugin marketplace remove second-brain-v2 --scope project
+claude plugin uninstall second-brain@second-brain --scope project
+claude plugin marketplace remove second-brain --scope project
 ```
 
 - For a `--scope local` install, use `--scope local` in both commands.
