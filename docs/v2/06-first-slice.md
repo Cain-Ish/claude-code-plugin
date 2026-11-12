@@ -3320,3 +3320,35 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *Still the user's call (D24):* the registered recommendation is D24's reopen trigger. C1 would count context present
   in the restored conversation, and the release would go ahead at count 4. Until the user answers, the miss stays a
   defect and nothing is tagged.
+
+### 18f: `2.0.0` released (2026-11-12)
+
+- *The branch:* `release-2.0.0` rebuilt on `v2`'s head (alpha.8 plus documents) as `66ee916`, by the same edits as
+  before. Product hash `ac6d00173453`.
+- *Checks, all passed:*
+  1. `git diff v2.0.0-alpha.8 -- plugin/scripts plugin/hooks plugin/commands` is empty. Under `plugin/`, only
+     `plugin.json`'s version and the self-test's pin differ.
+  2. The self-test passes. The smoke passes on CLI 2.1.322, the current one.
+  3. CI on the branch passed on three systems, and so did D26's workflow.
+  4. Install from the branch in an isolated config: marketplace `second-brain`, plugin `second-brain@second-brain`,
+     version `2.0.0`, hash `ac6d00173453`. The uninstall and the removal succeeded, and the user's registry files are
+     unchanged by checksum.
+  5. The release review: 2.0.0's review closed on alpha.7 (2m). alpha.8's only change, 2o, closed its own five
+     verifier rounds. The devils-advocate workflow was not run again on this branch: a multi-agent run needs the
+     user's go.
+- *Published:*
+  - `v2` fast-forwarded to `66ee916`, tagged `v2.0.0`;
+  - the release page, marked latest, by the session;
+  - `main` fast-forwarded to the tag, so v1's `ci.yml` left it. *A correction to 18f:* `main` is not unprotected.
+    Its rules (a pull request, 3 required checks) were bypassed with the owner's admin rights. The commit had passed
+    the same checks on the branch.
+- *Checks after the move:* `main`'s README is v2's and holds "Coming from v1". An install from the repo with no ref, in
+  an isolated config, gives `2.0.0` at `ac6d00173453`. The user's registry files are unchanged.
+- *The user's installs:* both field repos are on `second-brain@second-brain` `2.0.0` at local scope, with the
+  installed copy at `ac6d00173453`.
+  - In the first repo, `second-brain-v2` was uninstalled and its marketplace removed. That removed it machine-wide,
+    with the second repo's install.
+  - The second repo's local settings still named the old plugin and marketplace. Those two keys were removed, after a
+    backup.
+  - Running sessions keep alpha.8's hooks until the user types `/reload-plugins` in them.
+- *Next:* later field counts, under D24's reopen trigger (a defect in C1, C2, C5, C6b, C7 or C8).
