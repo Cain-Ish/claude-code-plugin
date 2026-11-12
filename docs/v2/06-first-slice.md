@@ -3472,3 +3472,7 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *Reported:* C9, 142 subagents in the first repo's sessions and 5 in the second, none with the index; 60 wrote repo
   files. The first repo's map holds 56 entries, all committed; the second's holds 1.
 - *Result:* no defect in C1, C2, C5, C6b, C7 or C8; D24 stays locked.
+- *The scanner, after this count* (the field README's amendment of 2026-11-12, registered in `8cb89b7` before the
+  code): C5b prints a miss whose entry's source names a file apart, as "to check (cites a file)". *Pass:* on counts 4
+  and 5's frozen corpora every other printed count and the JSON (apart from the split field) are unchanged; count 4's
+  miss stays a miss; count 5's two flags print as "to check".
