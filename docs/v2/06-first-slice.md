@@ -3423,3 +3423,24 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   `2.0.0`'s per-entry form, cut exactly as before. So past the cap the output equals `2.0.0`'s, byte for byte.
 - *Checks:* the same seven. The self-test's cap cases assert `2.0.0`'s output past the cap, and a new case covers F1.
   Check 7 re-runs the verifier's own scripts on attempt 2, and every capped case must equal `2.0.0`'s output.
+
+### 2p, attempt 2: result (2026-11-12): pass
+
+- *Built* in `e5f83d9`. Product hash `02bc0eae190b`, version `2.0.1`.
+- *Check 1:* the self-test passes. The cap cases now assert `2.0.0`'s form past the cap, and the verifier's F1 input
+  is a case.
+- *Check 2:* 34 of 34 field cases identical once expanded. *Check 3:* 151,755 bytes down to 26,961 (82% less).
+- *Check 4:* session start and the prompt hook are byte-identical to `2.0.0`'s on both repos.
+- *Check 5:* the smoke on CLI 2.1.322 passes. *Check 6:* CI passes on three systems.
+- *Check 7, the verifier's scripts on attempt 2:*
+  - F1 to F4's inputs all give `2.0.0`'s output;
+  - the fuzz, 3 seeds and 8,800 cases with about 2,350 capped, has 0 failures;
+  - every output that is cut equals `2.0.0`'s byte for byte (436 of 436 in seed 3).
+
+  In 64 cases of seed 3, `2.0.0` cut but the grouped form fits whole. Those now show every label, more than `2.0.0`
+  showed, never less. *Pass.*
+- *Disclosed:* a first re-run of the fuzz counted 230,000 failures. The cause was my uncapped copy, whose cap had not
+  been lifted. Once that was fixed, the count was 0.
+- *Release:* tag `v2.0.1` and its page. The direct push to `main` was refused by the permission check (merge
+  without review), so `main` moves by a pull request. Installs with no ref follow `main`, so the field installs
+  update once it is merged.
