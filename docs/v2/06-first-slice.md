@@ -4002,3 +4002,26 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   - D14, D16 and D23 re-lock, and D28 locks on (LIN), in the ledger.
   - `2.2.0` lands on `v2`, tagged `v2.2.0`.
   - *Still direction:* D28's (N) in use, and G4's sentence in use.
+
+### 2r and 2s: the release notes (drafted as release drafts, published after `main` moves)
+
+> **second-brain 2.1.0.** Map entries that have stopped binding are labelled as such.
+> 
+> - An entry with a `- status:` line gets a label that quotes the line's head, for example `status: superseded 2026-11-18 by "Avatars (CDN first)"`. So a Bash command such as `grep` that shows the entry without its status line still says the entry was superseded, narrowed, expired or done.
+> - The label quotes the line rather than saying "ended", because a narrowed entry still binds in part.
+> - A status line that is not committed leaves the entry "unreviewed".
+> 
+> Session start and the prompt hook are byte-identical to 2.0.2.
+> 
+> Checks: the self-test; a replay over a field map's history (its 10 status entries labelled, every other label identical to 2.0.2's); a fuzz near the 10,000-character cap (10,094 labels, 0 violations); the smoke; CI on three systems. Record: `docs/v2/06-first-slice.md`, 2r. Product hash `b53f5c4c5245`.
+
+> **second-brain 2.2.0.** The capture instruction and the closing line learn from the field.
+> 
+> - **Replaced decisions are marked.** When a new decision replaces, narrows or ends a recorded one, Claude keeps the old entry and adds `- status: <superseded|narrowed|expired|done> <date> by "<new heading>": <what still holds>`. With 2.1.0's labels, a superseded rule no longer looks current. In a test where the PM reversed a decision, the old entry was marked in 5 of 5 runs, against 0 of 5 before.
+> - **The capture date comes last** on the source line, with any other detail in parentheses before it, so every label keeps its date. 5 of 5 runs, against 1 of 5 before.
+> - **Project decisions go in the map,** not in Claude's auto memory, which is for its own way of working.
+> - **Decisions are named once per session.** The closing "decisions I followed" list names a decision the first time it shapes the work, not again in every reply, and never one whose status line ends it. In a two-turn test, the second reply repeated none, against both before.
+> 
+> Checks: scenario A1 on Opus 5.5 over 20 runs. Every pass item at its bar, and naming its sources in 8 and 9 of 10 against a bar of 8. Over-attribution 0. The three scenarios above, each against a 2.1.0 control. The self-test, the smoke, and CI on three systems.
+> 
+> Session start grows by about 540 characters. Record: `docs/v2/06-first-slice.md`, 2s. Product hash `ee8625f06842`.
