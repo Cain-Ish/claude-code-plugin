@@ -3616,3 +3616,122 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   - Check 1 adds the verifier's inputs as cases, and a staged map file for onboarding.
   - Check 2 replays against the frozen list from attempt 1.
   - Check 7 is a second verifier round, on attempt 2's diff from `2.0.1`. The bar is unchanged.
+
+### 2q, attempt 2: result (2026-11-18): checks 1 to 5 pass; check 7 failed
+
+- *Built* in `cf59996` on the side branch `v2-2q`. Product hash `5963394b10e6`.
+- *Checks 1 to 4:* the self-test passes, with the verifier's inputs as cases. Check 2 gives 0 mismatches against the
+  frozen list, with the same counts as attempt 1. Check 3 is unchanged. Check 4 is byte-identical.
+- *Check 5:* the smoke on CLI 2.1.327 passes.
+- *Check 6:* CI, 5 of 6 jobs passed. The macOS self-test was still running when check 7 failed the attempt, so its
+  result changes nothing.
+- *Check 7, the second verifier round:* partial. `agy` hit its 10-minute print timeout in its second category, so
+  nothing is known about new fail-opens. Findings that survive the bar:
+  - *A regression attempt 2 made:* a stray `)` later on the line drops a real path at its start,
+    `docs/x.md, section 2) Auth flow, <date>`. `2.0.1` and attempt 1 kept it. It comes from the rule added for round
+    one's stray `)`.
+  - *A wrong date where `2.0.1` gave none:* `reply to "What broke on 2026-10-15?", 2026-11-18 (in chat)` gives
+    2026-10-15. This is round one's quoted-date case with a parenthesis appended. The instance was fixed, but not
+    the class.
+  - *Real documents dropped:* a title with its path and an anchor, a section or backticks in the parentheses.
+  - *Behaviour `2.0.1` already had:* a date at the line's end taken from trailing text; `--docs/x.md`; `./hook.mjs`; a
+    parenthesis inside a file name.
+- *Result:* attempt 2 fails (rule 4, attempt 2 of 3).
+
+### 2q: the rethink before attempt 3 (rule 4, 2026-11-18)
+
+- *What failed is the bar, not the regexes.* Check 7 counts a dropped real document and a fail-open as the same kind
+  of finding. Yet 2q's registration says "where the rule is unsure it drops the path". On free text, a fresh adversary
+  can always hit one side or the other, so no rule passes such a bar. Two rounds showed it: each fix for one side
+  opened the other, or moved a case one character over.
+- *The failed assumption:* that a source's free text can be parsed into its true file and capture date. The format
+  (`<who stated it, or the document's title or path>, <date>`) does not make either one unambiguous.
+- *What can be guaranteed is a direction, relative to `2.0.1`:*
+  - **I1, the path:** `2.0.2` either takes `2.0.1`'s path or withholds it, and never picks a different token. It
+    withholds the path when it lies inside parentheses, and when it is a fragment that follows `/`, `\`, `:`, `@`, `=`,
+    `?` or `#`, as in a URL, a Windows path or a longer path. If the parentheses do not pair, the path is withheld
+    once any `(` comes before it. A withheld path gives "unverified quote", so a label never moves toward a silent
+    pass.
+  - **I2, the date:** a date `2.0.1` gave never changes. Where it gave none, `2.0.2` gains one only when it is
+    unambiguous. There must be exactly one standalone date outside parentheses, or, when none stands outside, exactly
+    one anywhere. Otherwise the entry stays undated.
+- *The change of bar, stated as one and open to the user's override:*
+  - Check 7 becomes mechanical, as 2p's attempt 2 did. It is a seeded differential fuzz against `2.0.1` that passes
+    when I1 and I2 hold on every case. To it is added a table of both rounds' 49 inputs, written before the code, each
+    marked as fixed, withheld, or identical to `2.0.1`.
+  - What this no longer claims: that every real document is re-found. A real document the rule withholds is a stated
+    limit, on the safe side. So is behaviour `2.0.1` already had.
+  - This is a reduced claim. It is weaker than the bar attempt 1 registered, and the user may hold 2q to that bar
+    instead. Then 2q stops here, unlanded.
+- *Prototype* (scratch script): the I1 and I2 rule gives exactly the frozen list, with the same path and date on all
+  57 field lines and all 362 repo lines, and breaks neither invariant there. On the 49 inputs, every path is
+  `2.0.1`'s or withheld, and every date is `2.0.1`'s or the single candidate. One gain is still wrong: a date inside a
+  parenthesized file name, which stays a stated limit.
+- *A second opinion on the bar,* before attempt 3 is registered: asked whether the change is a goalpost move. If it
+  says yes for a reason that cannot be answered, 2q goes to the user unlanded.
+- *The second opinion's answer (Gemini 4 Argon, the rethink above as its brief): YES, a goalpost move,* for two
+  reasons:
+  1. the prototype still gains a wrong date where `2.0.1` gave none, from a parenthesized file name, which breaks the
+     direction it claims;
+  2. "gain only when unambiguous" restates the code's own recipe, so fuzzing it is circular.
+
+  It agreed that "withhold rather than guess" is sound. Its bar for attempt 3 was zero false date gains, the
+  differential fuzz, the 49-input table, and a fresh refute-first round. In that round a finding survives only if
+  `2.0.2` regresses against `2.0.1`: it newly fails open, gains a date that is not the capture date, or drops an
+  unparenthesized path that is not a fragment and that `2.0.1` kept.
+- *Answered by narrowing, not by arguing:*
+  - In free text, a capture date cannot be told from a topic date ("the PM, about the 2026-10-01 outage"). So any
+    rule that gains dates fails that bar. **I2's gain is withdrawn.** B2 leaves 2q and goes to the user as a format
+    question. The writer can put the date last, or the capture instruction can say so (D14's frozen text). Under
+    rule 4 it is not re-registered as a new step.
+  - The path keeps only the parenthesis withhold. Under a relative bar, `2.0.1`'s fragment fail-opens (URLs, `\`) are
+    not findings, and withholding them could itself regress (`/docs/x.md`). Where the parentheses do not pair, `2.0.2`
+    does exactly what `2.0.1` does.
+  - The user may still hold 2q to attempt 1's bar instead. Then 2q stops unlanded.
+
+### 2q, attempt 3 (registered 2026-11-18, before the code). The last under rule 4
+
+- **The change, against `2.0.1`:**
+  1. *The path:* `2.0.1`'s path, unless it lies inside parentheses that pair across the whole source line. Then no
+     path, so the label is "unverified quote". `2.0.2` never picks another token.
+  2. *The date:* `2.0.1`'s, unchanged.
+  3. *Onboarding:* the `Map:` line counts the map files that HEAD lacks (`git ls-tree`), staged ones included.
+- *The frozen list* (scratch, written before the code):
+  - field, 57 lines: the path is withheld on 5, every other path is unchanged, and no date changes;
+  - repo, 362 lines: the path is withheld on 2, and nothing else changes.
+- *The 49-input table* (both verifier rounds' inputs, classified before the code). 7 are withheld, each a path inside
+  paired parentheses. 42 are identical to `2.0.1`. None is changed otherwise.
+- **Stated limits** (all as in `2.0.1`, or on the safe side):
+  - A real document cited only inside parentheses loses its re-find and its drift alarm. Examples are
+    `Title (docs/x.md)`, `Title (docs/x.md#anchor)` and the Markdown link `[title](docs/x.md)`.
+  - Unchanged from `2.0.1`:
+    - unpaired parentheses (a list marker `1)` inside a parenthesis);
+    - URL and Windows-path fragments;
+    - dates read only at the line's end, so 41 of the field map's 67 entries stay undated, and a date from trailing
+      text is taken.
+- **Checks:**
+  1. *The self-test.* The 2q cases of attempts 1 and 2 now assert `2.0.1`'s label wherever attempt 3 keeps
+     `2.0.1`'s behaviour: every date gain, and the fragment, stray-`)` and fused-name cases. They assert "unverified
+     quote" where a path inside paired parentheses is withheld. The onboarding cases stay as they are.
+  2. *The frozen list, end to end,* as before: the field clone at 22 commits, both states, and the corpus repo.
+  3. *Size,* reported. 4. *Byte identity* of session start and the prompt hook. 5. *The smoke.* 6. *CI.*
+  7. *Against `2.0.1`, mechanically and adversarially:*
+     - (a) *A seeded differential fuzz* of generated source lines (people, paths, URLs, nested and unpaired
+       parentheses, quotes, dates). Both libraries' real `labels()` run in a scratch repo where every file `2.0.1`
+       picks holds the quote. *Pass:* every entry's label is `2.0.1`'s, or `2.0.1`'s path is withheld and the label
+       is "unverified quote" with `2.0.1`'s date.
+     - (b) *The 49-input table* above, run through both libraries. *Pass:* as classified.
+     - (c) *A fresh refute-first round,* through `agy`.
+       - *The brief:* only the diff from `2.0.1` and this bar. Fail-opens are asked for first, and findings are capped
+         at 8.
+       - *Triage by execution:* each claimed input is run through both libraries.
+       - *A finding survives only if the outputs show one of these:*
+         - a label that moves toward a silent pass against `2.0.1`;
+         - a date that differs from `2.0.1`'s;
+         - a path `2.0.1` kept that `2.0.2` withholds, when that path is not inside paired parentheses;
+         - an onboarding line that misstates which map files HEAD lacks.
+       - *A partial round* (a timeout): the findings of the categories it completed are triaged. If it ended before its
+         fail-open category was complete, it is re-run once, with the cap at 4. If that run is partial too, (c) is
+         recorded as unrun, and 2q goes to the user unlanded: not passed, not BLOCKED.
+- **On a fail:** 2q is BLOCKED. `v2`'s plugin and PR #116 stay at `2.0.1`, and the level above goes to the user.
+- **On a pass:** the change lands on `v2` as `2.0.2`, tagged, and PR #116 carries it. The user is told.
