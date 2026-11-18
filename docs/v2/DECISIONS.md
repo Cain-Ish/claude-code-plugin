@@ -31,6 +31,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux); REOPENED 2026-11-07 (2.0.0's release review: a running v1 session re-installs the timer; v1's custom config folders); re-LOCKED unchanged 2026-11-07 (the README fixed; D26's workflow passes on it) | evidence | D25 |
 | V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
+| V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18 | user | D13, D14, D16, D23 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -62,7 +63,8 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   - *Re-locked:* D14, 2026-11-08, on the user's (S): every Bash command that names the map folder carries the
     "unreviewed" label of every uncommitted entry (06, 2o). It had been reopened the same day by a field sighting:
     a Bash map read with `|` inside quotes arrived unlabelled.
-  - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
+  - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries. V2-D28, an entry's
+    end (2026-11-18), waits on the user.
   - *Deferred:* D20's net.
 
 ---
@@ -4824,3 +4826,50 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - the release bench shows the two checks add time against D18's budget;
   - a Claude Code release stops showing a SessionStart `systemMessage`, or starts passing it to Claude;
   - the line shows for a user with no v1 leftovers.
+
+### V2-D28 — How a captured entry stops binding
+- **Question:** when a later decision replaces, narrows or ends a captured entry, how does the map show that the old
+  one no longer binds the work?
+- **Why now:** the map issue's Fog has held it since 2026-11-03: "a replaced rule stays in the map beside the rule
+  that replaced it, and D16's re-find cannot flag it while its source is unchanged."
+  - On 2026-11-18 the first field repo's session reported that old decisions were steering current work.
+  - A manual review there, with three questions to the owner, found 10 of 64 entries outdated:
+    - superseded by a later entry;
+    - expired, for example a rule for one evening;
+    - answered, or done;
+    - in direct conflict with a newer statement by the owner.
+  - That session marked each of the 10 with a line after `- when:`: `- status: <superseded|expired|answered|done|
+    narrowed> <date> [by "<heading>"]: <note>`. The plugin ignores the line. A Read shows it, but a Bash command that
+    shows the entry without that line does not.
+  - No locked decision answers this. D16's drift kinds are changes to a cited file, not one entry replacing another.
+- **Options:**
+  - (N) *No plugin change,* which is what plain files under review already allow. A replaced entry is edited or
+    deleted, and git keeps its history. Nothing asks for it: in the field, nothing marked the 10 until the review.
+  - (L) *The labels read a status line,* in the field's form. An entry with one leaves the grouped line, and its status
+    and date become its label, for example `superseded 2026-11-18`. So any Read, or any Bash command that shows the
+    entry, says it no longer binds.
+    - Session start and the prompt hook stay byte-identical, and no frozen text changes.
+    - It works only where someone writes the line.
+  - (LI) *(L), plus one sentence in D14's capture instruction:* when a new decision replaces, narrows or ends an
+    existing entry, add a status line to the old one.
+    - This changes the frozen instruction (`8aa72396af72`), so D14 reopens on the user's word, and D16's trigger "the
+      capture instruction changes" fires.
+    - The same sentence could say which store takes project rules (the map) and which takes working habits (auto
+      memory): the Fog's drift item of 2026-11-03, seen again in the field.
+  - (LIN) *(LI), plus D23's line:* do not name an entry with a status line as followed. This changes D23's frozen
+    line.
+  - *Rejected up front:* a session-start count of live and ended entries. It adds a map read to every session start
+    (D18), and tells Claude nothing that the label at the read does not.
+- **Check (registered 2026-11-18, before any build):**
+  - *For (L):*
+    - the self-test, with a status line on committed and uncommitted entries, and inside and outside the grouped line;
+    - a replay on a clone of the field repo's map, in which the 10 marked entries carry their status and every other
+      label is byte-identical to `2.0.2`;
+    - session start and the prompt hook byte-identical.
+  - *For (LI) and (LIN), added:*
+    - D14's capture arm re-run on A1 at M1's counts, an eval re-run that is the user's call since 2026-10-29;
+    - one new scenario, in which a later session states a decision that replaces an earlier entry. *Pass:* the old
+      entry gets a status line in 4 of 5 runs, and no other entry gets one.
+- **Rule:** the user chooses the scope. The matching check then runs, from a plugin copy, as a build step in 06.
+- **Note for the field:** until this locks, the field's status lines are the candidate form. Changing them would risk a
+  second migration.
