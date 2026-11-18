@@ -236,6 +236,11 @@ export function labels(root, file, output) {
     const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
     const at = sourcePath(src);
     const ls = held.has(b) ? [] : [UNREVIEWED];
+    // 06, 2r (D28's L): a status line's own head, so an output that shows the entry without that line still says it;
+    // never "ended", since a narrowed entry binds in part
+    const status = /^- status:[ \t]*(\S.*)$/m.exec(b)?.[1].trim();
+    const cut = status?.lastIndexOf(' ', 60);
+    if (status) ls.push(`status: ${status.length <= 60 ? status : `${status.slice(0, cut > 0 ? cut : 60)}…`}`);
     if (!at) ls.push(`unverified quote${date ? `, captured ${date}` : ''}`);
     else {
       // a source that exists but cannot be read gets its own label, so one locked file costs no other entry its label

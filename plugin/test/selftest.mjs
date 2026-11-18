@@ -61,8 +61,8 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// 2.0.2: 2q attempt 3, the source's path withheld inside paired parentheses (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), '41b9b34034a9', 'the product changed: record its hash with a new epoch (06)');
+// 2.1.0: 2r, the labels read a status line (06); checked by this self-test, the smoke and CI
+assert.equal(product.digest('hex').slice(0, 12), 'b53f5c4c5245', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -697,6 +697,35 @@ ${NAME}` } });
   // a BRAIN_DIR that is a file, not a folder: no line, no failure
   fs.writeFileSync(path.join(tmp, 'brain-file'), '');
   assert.equal(start({ BRAIN_DIR: path.join(tmp, 'brain-file') }), before);
+}
+
+// 06, 2r (D28's L): a status line's head is a label, so an output that shows the entry without the line still says it
+{
+  const r = path.join(tmp, 'status');
+  const g = (...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: r, encoding: 'utf8' }); assert.equal(x.status, 0, x.stderr); };
+  const e = (area, src, status) => `### ${area}\n> Spacing uses the four-pixel grid.\n\n- source: ${src}\n- when: ["ui"]\n${status ? `- status: ${status}\n` : ''}`;
+  const LONG = 'superseded 2026-11-18 by "spacing: the eight-pixel grid": the old grid stays for print';
+  const S = '.project-map/captured.md';
+  fs.mkdirSync(path.join(r, '.project-map'), { recursive: true });
+  fs.mkdirSync(path.join(r, 'docs'));
+  fs.writeFileSync(path.join(r, 'docs', 'grid.md'), 'Spacing uses the four-pixel grid everywhere.\n');
+  fs.writeFileSync(path.join(r, S), [e('a', 'the PM, 2026-11-01'), e('b', 'the PM, 2026-11-01', 'narrowed 2026-11-18: print only'),
+    e('c', 'the PM, 2026-11-01'), e('d', 'docs/grid.md, 2026-11-02', 'done 2026-11-18'), e('e', 'the PM, 2026-11-03', LONG), e('f', 'the PM, 2026-11-04')].join('\n'));
+  g('init', '-q');
+  g('add', '-A');
+  g('commit', '-q', '-m', 'c');
+  const HEAD = `[project map] Labels on the entries of ${S}, in file order:\n`;
+  const cutLong = 'status: superseded 2026-11-18 by "spacing: the eight-pixel grid":…';
+  // committed: b leaves the grouped line, a re-found entry (d) gets its own line, a long status is cut at a space
+  assert.equal(labels(r, S), `${HEAD}unverified quote, committed: entries 1 (captured 2026-11-01), 3 (captured 2026-11-01), 6 (captured 2026-11-04)\n`
+    + '2. b: status: narrowed 2026-11-18: print only; unverified quote, captured 2026-11-01\n4. d: status: done 2026-11-18\n'
+    + `5. e: ${cutLong}; unverified quote, captured 2026-11-03\n${UNVERIFIED_NOTE}\n`);
+  // a status line HEAD does not hold never reads as reviewed: the entry is unreviewed
+  fs.appendFileSync(path.join(r, S), '- status: superseded 2026-11-19 by "g"\n');
+  assert.ok(labels(r, S).includes(`6. f: ${UNREVIEWED}; status: superseded 2026-11-19 by "g"; unverified quote, captured 2026-11-04\n`));
+  // a Bash output that shows the heading and quote but not the status line still carries the status
+  const out = hook('bash', { tool_input: { command: 'grep -A1 "### b" .project-map/captured.md' }, tool_response: { stdout: '### b\n> Spacing uses the four-pixel grid.\n', stderr: '', interrupted: false, isImage: false } }, r);
+  assert.ok(out.includes('2. b: status: narrowed 2026-11-18: print only; unverified quote, captured 2026-11-01\n'), out);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });
