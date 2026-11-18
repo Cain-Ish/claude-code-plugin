@@ -1579,9 +1579,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - *Note, 2026-11-18, not a reopen (06, 2q):* the field found the source's path taken from inside parentheses. A
   person's words that mention a repo file there were re-found in that file: one false not-found label, and three
   silent passes where the words happened to be repeated in it. It also found the capture date read only at the line's
-  end. No trigger fired: the not-found quote is not in the file the parser named. The choice stands. 2q reads the
-  path from the source's text outside parentheses, and the date as the first that stands alone, outside parentheses
-  first.
+  end. No trigger fired: the not-found quote is not in the file the parser named. The choice stands. As shipped in
+  `2.0.2`, after three attempts: the path is `2.0.1`'s, withheld when it lies inside parentheses that pair across the
+  source, and the date is unchanged. B2, the date, is open with the user as a format question. A document cited only
+  inside parentheses loses its re-find and its drift alarm, which is a stated limit.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the

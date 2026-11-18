@@ -3760,3 +3760,40 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   - *Added:* onboarding's count of map files that HEAD lacks.
   - *Not fixed, and with the user:* B2, a capture date not at the line's end. It is a format question.
   - *The claim's reduction* in the rethink stays open to the user's override.
+
+### 2q: corrections to the record (2026-11-18)
+
+- *Attempt 1's result* said every gained date was "the date the source's `<who>, <date>` gives". That was not true of
+  every one: several sat inside parentheses, as in `(read <date> …)` or `(owner, <date>)`. Attempt 3 gains no dates,
+  so nothing shipped rests on it.
+- *The repo corpus* (362 lines) includes lines from frozen transcripts of the field repo. One of its 2 withheld paths
+  duplicates a field line, so the repo-only withhold is 1, a web address in parentheses.
+- **D24's field count 5 rested on B1.** Its two C5b flags were read as "not a defect": the entries were committed,
+  and their quotes were found word for word in the file their source names.
+  - Re-run with `2.0.0`'s `labels()` at the map's state of that count (56 entries). `2.0.0` left exactly 3 entries
+    unlabelled, and in each the source names the file only inside parentheses: B1's silent passes.
+  - Under `2.0.2` all 56 are labelled. So the two flagged calls showed entries that should have carried "unverified
+    quote".
+  - Whether that is a C5 defect under D24, for the released `2.0.0`, is the user's call. It is not settled here.
+  - The field scanner's `CITES` (`field.mjs`) matches a path anywhere in the source, the same class as B1. It only
+    routes a miss to a hand read. A change to it is a probe change, registered first.
+
+### 2q: the release notes (drafted before the page, which is the user's)
+
+> **second-brain 2.0.2.** A map entry's label no longer checks a person's words against a file they only mention in
+> parentheses.
+> - An entry whose source reads `the lead developer, 2026-11-03 (after reading docs/grid.md)` holds the lead
+>   developer's words. 2.0.1 checked the quote against `docs/grid.md`, which gave a false "not found word for word
+>   in docs/grid.md; check it", or no label when the words happened to be repeated there. Now it is labelled
+>   "unverified quote".
+>   - A source that starts with its document, or names it outside parentheses (`via docs/x.md`), is still re-found.
+>   - Where the parentheses do not pair, the path is read as in 2.0.1.
+>   - Limit: a document cited only inside parentheses (`Title (docs/x.md)`, `[title](docs/x.md)`) is no longer
+>     re-found. Write its path first.
+> - `/second-brain:onboard` says how many map files are not committed. Their entries stay labelled "unreviewed"
+>   until they are.
+> - Unchanged: the capture date is read only at the end of the source line.
+>
+> Session start and the prompt hook are byte-identical to 2.0.1. Checks: the self-test, a replay over a field map's
+> history against a list fixed before the code, a differential fuzz against 2.0.1 (12,000 labels), the smoke on
+> Claude Code 2.1.327, and CI on three systems. Product hash `41b9b34034a9`.
