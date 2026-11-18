@@ -4025,3 +4025,17 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 > Checks: scenario A1 on Opus 5.5 over 20 runs. Every pass item at its bar, and naming its sources in 8 and 9 of 10 against a bar of 8. Over-attribution 0. The three scenarios above, each against a 2.1.0 control. The self-test, the smoke, and CI on three systems.
 > 
 > Session start grows by about 540 characters. Record: `docs/v2/06-first-slice.md`, 2s. Product hash `ee8625f06842`.
+
+### 2s: corrections to the record (2026-11-19)
+
+- *2s's registration* said "the self-test … checks that every old line survives in order". The self-test pins the new
+  hash and size. The in-order check of INSTRUCTION's old lines ran once, as a scratch script, before the build, and
+  it passed.
+- *2q's claim* that no legitimate re-find was lost held on its registered corpora, but not on A1's captured maps:
+  - the `2.1.0` control's capture cited the style guide as `Title (docs/style-guide.md)`, so `2.0.2`'s rule withheld
+    the re-find of 6 of 6 file-citing entries;
+  - under `2.2.0`'s capture text, 114 of 120 file-citing entries over 20 runs put the path first. 6, in one run, lost
+    the re-find.
+  - Recorded in D16, with a field trigger. This is the limit the user approved with 2.0.2, now measured.
+- *Session start's added bytes:* 537 characters, always-on. D13 records them with no cap. Before the index is cut,
+  8,199 characters remain for it, against about 8,736 before.

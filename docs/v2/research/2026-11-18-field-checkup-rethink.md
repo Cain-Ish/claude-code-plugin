@@ -105,15 +105,21 @@ re-read, and two memory files.
   - "In every final answer" is false: a list ends 41 of the 123 replies.
   - Lists also follow short typed questions and "continue".
   - *Spot check by hand,* on three lists from 2026-11-18: 3 restated of 12 named, about 25%, close to the count. One
-    standing decision ("everything ends up on master") is named in 6 of 7 lists read.
+    standing decision, a branch-handling rule, is named in 6 of 7 lists read.
   - **Rule outcome:** above 20% in at least 20 lists, so **D23 reopens on its own field trigger**. Its record names
     (d), session-scoped naming, as the next attempt, and 2s builds it.
 - **G4, the delegated count:** 35 auto-memory files, of which 7 are project decisions (P), 18 working habits (H) and
   10 reference (R).
   - 3 P files are missing from the map, or only partly in it. None is in direct conflict.
-  - The field's example "merge green PRs without asking" is in memory only. It is an owner statement of 2026-11-13,
-    read by hand.
-  - The tooltip example is Claude's wording, not an owner quote. Read by hand.
+  - The field session gave two examples, both read by hand:
+    - a workflow rule the owner stated on 2026-11-13, which is in memory only;
+    - a source-ranking line, which is Claude's wording rather than an owner quote.
   - **Rule outcome:** 2 or more, so the store sentence goes into 2s, as direction.
+- **B2, D28's (I) and (N), G4 and D23's (d):** built as 2s, `2.2.0`. It passed on its second attempt; the first
+  failed on a negative whose premise was wrong (06, "2s").
+  - S2: the date last in 5 of 5 runs, against 1 of 5 for the control, so B2's sentence stays.
+  - S1: 5 of 5 against 0 of 5. S3: 5 of 5 against 0 of 5.
+  - A1 over 20 runs: every pass item at its bar, T5f 8 and 9 of 10, over-attribution 0.
+- **G3:** no change, by D22's record.
 - **The field scanner:** the `CITES` change passes its check. Counts 4 and 5's output is unchanged, except count 5's
   two "to check" flags, which become misses.

@@ -814,6 +814,18 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - two folder names that decode alike.
   - *Committed entries' labels* ("unverified quote", "not found") come by sight. When the output is reshaped they can
     be missing. They are informational, and not this record's trigger.
+- **REOPENED and re-LOCKED 2026-11-18,** by the user's delegation, through the field checkup's rethink
+  (`research/2026-11-18-field-checkup-rethink.md`). The capture instruction gains three sentences and one format
+  line. Every old line is kept, in order:
+  - project decisions belong in the map, not in auto memory (G4);
+  - the date ends the source line, with other detail in parentheses before it (B2);
+  - a replaced, narrowed or ended entry keeps its place and gets a `- status:` line (D28's I).
+  - *The frozen text is now* sha256 `bd491ace7f2f…`, 1,349 bytes (was `8aa72396af72`, 904). The self-test pins both
+    the hash and the size. The in-order check of the old lines ran as a scratch script before the build.
+  - *Check* (06, 2s), over 20 A1 runs: C1 to C4 in 20 of 20, over-attribution 0, and a status line only on the rule
+    H1 retracts. S1 and S2 passed 5 of 5 against a `2.1.0` control.
+  - *Reopen if:* the triggers above; and a status line written on an entry nobody replaced, in 2 or more of 10
+    counted cases (shared with D28).
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -1581,8 +1593,20 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   silent passes where the words happened to be repeated in it. It also found the capture date read only at the line's
   end. No trigger fired: the not-found quote is not in the file the parser named. The choice stands. As shipped in
   `2.0.2`, after three attempts: the path is `2.0.1`'s, withheld when it lies inside parentheses that pair across the
-  source, and the date is unchanged. B2, the date, is open with the user as a format question. A document cited only
-  inside parentheses loses its re-find and its drift alarm, which is a stated limit.
+  source, and the date is unchanged. B2, the date, is answered by `2.2.0`'s capture instruction, which puts the date
+  last (06 2s: S2 5 of 5 against 1 of 5). A document cited only inside parentheses loses its re-find and its drift
+  alarm, which is a stated limit.
+  - *Measured on A1's captured maps (2026-11-19), against 2q's claim that no legitimate re-find was lost* (which held
+    on its corpora):
+    - under the old capture text, the control run cited the style guide as `Title (docs/style-guide.md)`, so 6 of 6
+      file-citing entries lost their re-find;
+    - under `2.2.0`'s text, 114 of 120 file-citing entries over 20 runs put the path first and are re-found. 6, all
+      in one run, lost it;
+    - every withheld entry is labelled "unverified quote", never a silent pass.
+  - *Reopen if:* in the field, re-finds lost this way pass 10% of file-citing entries.
+- *Note, 2026-11-18 (06 2s): its trigger "the capture instruction changes (D14)" fired.* Re-locked unchanged. The
+  instruction's new sentences change where the date and the status go, not how a quote is re-found. 2s's A1 runs pass
+  C1 to C4 in 20 of 20.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the

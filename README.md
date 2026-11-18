@@ -6,7 +6,7 @@ of those documents bear on the task, and to read them before changing anything. 
 decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
 change. These are instructions Claude follows, not locks: no hook blocks a write.
 
-**Status:** `2.0.1`, built on branch `v2`.
+**Status:** `2.2.0`, built on branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
@@ -23,13 +23,21 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   directory whether it bears on the task (yes or no), and to read the yes ones before it changes anything. A
   background subagent's report or another Claude session's message does not count as that prompt.
 - **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude is told
-  to add it to `.project-map/captured.md`, with its source and date.
+  to add it to `.project-map/captured.md`, with its source and date. It is told:
+  - to keep project decisions there rather than in its auto memory;
+  - to end the source line with the date, putting other detail in parentheses before it;
+  - when a new decision replaces, narrows or ends an entry, to keep the old one and add
+    `- status: <superseded|narrowed|expired|done> <date> by "<new heading>": <what still holds>` under its when
+    line (2.2.0).
 - **When Claude reads a map file in the main session** with the Read tool, a hook labels its entries. Every Bash
   command that names the `.project-map` folder carries the labels of every entry not yet committed, whatever it
   printed, and those of the committed entries it printed. A Bash command that exits with an error gets them too:
   - "unreviewed, not yet committed", until you commit them;
+  - an entry with a `- status:` line gets `status: <the line's start>`. So a command that shows the entry without
+    that line still says it was superseded or narrowed (2.1.0);
   - an entry whose source names a repo file has each stretch of three or more words in its quote checked against that
-    file now. If the file is missing, or a stretch is not there word for word, the label says so, and a file that
+    file now. A file named only inside parentheses that pair, as in `the PM (after reading docs/x.md)`, is not taken as
+    the source (2.0.2). Write a document's path first: `docs/x.md (section 2), <date>`. If the file is missing, or a stretch is not there word for word, the label says so, and a file that
     cannot be read gets a label too. Shorter quotes, or stretches between ellipses, are not checked, and get no
     label once committed;
   - an entry whose source names no repo file, such as a person's words, is labelled "unverified quote", with its
@@ -40,7 +48,10 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
   limit, which it saves to a file), it gives every map file's labels. Reads by subagents, map text met through the
   Grep tool or PowerShell, and the output of a Bash command that does not name the folder are not labelled: see Known
   issues.
-- **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from.
+- **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from:
+  - each one once per session (2.2.0);
+  - never one whose status line says it no longer holds.
+- **`/second-brain:onboard`** checks Node and git, sizes the index, and says how many map files are not committed.
 
 It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
 your machine.
@@ -147,7 +158,7 @@ claude plugin install second-brain@second-brain --scope project
 ```
 
 - `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
-- To pin a release, add `#v2.0.1` to the repo in the first command. Without it, `claude plugin marketplace update
+- To pin a release, add `#v2.2.0` to the repo in the first command. Without it, `claude plugin marketplace update
   second-brain`, then `claude plugin update second-brain@second-brain`, bring the latest release.
 - To try the plugin only for yourself in one repo, use `--scope local` for both commands instead.
 - Start Claude at the repo's root. With a project-scope install, the plugin does not load when Claude starts in a
@@ -271,7 +282,7 @@ Then remove them in this order:
 - **Without Node,** session start says so once. After that, every prompt and every file read shows a hook error.
   Install Node 20 or later, or disable the plugin.
 - **A large index is cut.** Claude Code documents a 10,000-character limit for one hook's output. Once the
-  session-start text would pass it (an index of about 8,880 characters, roughly 250 one-document directories), the
+  session-start text would pass it (since 2.2.0, an index of about 8,200 characters, roughly 230 one-document directories), the
   index lists as many directories as fit, and says how many more there are. Onboarding warns. The forced decision
   then covers only the listed directories. On 2.1.311 the real limit sat higher, between about 12,400 and 16,300
   characters. Past it, Claude saw only a 2,000-character preview.
@@ -312,6 +323,14 @@ Then remove them in this order:
   `>` markers stripped or its spaces changed, or only through a line that other entries of its file share.
 - **Another repo's map entries printed through Bash get no label,** as a Read of them gets none. An entry there with
   the same line as one in this repo gets this repo's labels for it.
+- **A document cited only inside parentheses is not re-found** (2.0.2). For example, in `Style guide
+  (docs/style-guide.md), <date>` the entry is labelled "unverified quote", and its quote is not checked against the
+  file.
+  - The parentheses rule keeps a file a person merely mentioned from being taken as the source.
+  - In scenario A1, 2.2.0's capture put the path first in 114 of 120 file-citing entries. The other 6, in one run,
+    lost their check.
+- **Decisions are named once per session** (2.2.0). A later report in the same session does not repeat them, so it is
+  not a full list on its own. After a compaction, "named earlier" rests on what the summary kept.
 - **Each read repeats its labels.** A Read carries the whole file's, and a Bash command those of the uncommitted
   entries and of the entries it printed. So until you commit the map, each such command lists its new entries.
   Committed entries whose only label is "unverified quote" share one line of entry ranges (2.0.1); in the owner's map
