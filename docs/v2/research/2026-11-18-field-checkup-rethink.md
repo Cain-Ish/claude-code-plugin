@@ -95,6 +95,25 @@ re-read, and two memory files.
   that pair. *Pass:* on counts 4 and 5's frozen corpora, the only changes are entries whose source names a file only
   inside such parentheses.
 
-## Results
+## Results (2026-11-18)
 
-(Filled in as each item's evidence comes in.)
+- **G1 (L):** built as 2r, `2.1.0`, and passed its seven checks (06, "2r: result").
+- **G5, the delegated count** (a subagent, four field sessions from 2026-11-11 to 11-18; D23's definitions):
+  - 123 finishing replies, 41 of them with a naming list.
+  - 123 decisions named: 88 applied and 35 restated, or **28%**. Counted strictly, treating a brief to an agent as
+    not applied, it is 49%.
+  - "In every final answer" is false: a list ends 41 of the 123 replies.
+  - Lists also follow short typed questions and "continue".
+  - *Spot check by hand,* on three lists from 2026-11-18: 3 restated of 12 named, about 25%, close to the count. One
+    standing decision ("everything ends up on master") is named in 6 of 7 lists read.
+  - **Rule outcome:** above 20% in at least 20 lists, so **D23 reopens on its own field trigger**. Its record names
+    (d), session-scoped naming, as the next attempt, and 2s builds it.
+- **G4, the delegated count:** 35 auto-memory files, of which 7 are project decisions (P), 18 working habits (H) and
+  10 reference (R).
+  - 3 P files are missing from the map, or only partly in it. None is in direct conflict.
+  - The field's example "merge green PRs without asking" is in memory only. It is an owner statement of 2026-11-13,
+    read by hand.
+  - The tooltip example is Claude's wording, not an owner quote. Read by hand.
+  - **Rule outcome:** 2 or more, so the store sentence goes into 2s, as direction.
+- **The field scanner:** the `CITES` change passes its check. Counts 4 and 5's output is unchanged, except count 5's
+  two "to check" flags, which become misses.

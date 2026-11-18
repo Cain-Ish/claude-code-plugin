@@ -161,6 +161,15 @@ function scan(file) {
     rd.labelledUnreviewed = rd.ctx.some((c) => /unreviewed/.test(c));
   }
   const CITES = /[\w.-]+(?:\/[\w.-]+)+\.\w+|\b[\w.-]+\.md\b/;
+  // the README's amendment of 2026-11-18 (2.0.2's rule): a path inside parentheses that pair is not the source's
+  const outside = (s) => {
+    let d = 0;
+    for (const c of s) { if (c === '(') d++; if (c === ')' && --d < 0) return s; }
+    if (d) return s;
+    let t = s;
+    while (t !== (t = t.replace(/\([^()]*\)/g, ' ')));
+    return t;
+  };
   // C5b (README, count 4): the map's entries in the result Claude saw, by a looser rule than the plugin's (a quote line
   // of 20 or more characters without its marker, or the heading text), and whether the call's labels name them
   const known = [...mapEntries(cwd), ...S.entries].filter((e, i, a) => e.area && a.findIndex((o) => o.area === e.area) === i);
@@ -169,7 +178,7 @@ function scan(file) {
     const seen = known.filter((e) => t.includes(e.area) || e.lines.some((l) => l.length >= 20 && t.includes(l))).map((e) => e.area);
     const named = new Set((ctxByTool.get(b.id) ?? []).filter((c) => c.startsWith(LABEL)).flatMap((c) => [...c.matchAll(/^\d+\. (.+): (?:unreviewed|unverified quote|not found|cannot read)/gm)].map((m) => m[1])));
     // count 5's amendment: a miss whose entry cites a repo file may be one D16 verified (no label due); read by hand
-    const cites = new Set(known.filter((e) => CITES.test(e.source ?? '')).map((e) => e.area));
+    const cites = new Set(known.filter((e) => CITES.test(outside(e.source ?? ''))).map((e) => e.area));
     const missed = seen.filter((a) => !named.has(a));
     Object.assign(b, { seen: seen.length, labelled: seen.length - missed.length, misses: missed.filter((a) => !cites.has(a)).length, toCheck: missed.filter((a) => cites.has(a)).length });
   }
