@@ -3476,3 +3476,86 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   code): C5b prints a miss whose entry's source names a file apart, as "to check (cites a file)". *Pass:* on counts 4
   and 5's frozen corpora every other printed count and the JSON (apart from the split field) are unchanged; count 4's
   miss stays a miss; count 5's two flags print as "to check".
+
+### 2q: the source's path and date, and onboarding's uncommitted map, as `2.0.2` (registered 2026-11-18, before the code)
+
+- *Why:* on 2026-11-18 the first field repo's session sent a checkup of `2.0.0`. Re-run here on that repo's map (67
+  entries) with `2.0.0`'s and `2.0.1`'s `labels()`:
+  - *B1, the path.* The source's path is the first path token anywhere in the source line, parentheses included. 4 of
+    67 entries are the owner's words with a repo file named only inside parentheses. One gets "not found word for word
+    in <file>; check it", a false alarm the session saw 16 times. Three get no label at all, because the owner's words
+    happen to be repeated in the file named.
+  - *B2, the date.* The capture date is read only at the end of the source line. 41 of 67 put text after it, so their
+    labels lose the date. Since `2.0.1` an undated entry also stands alone in the grouped line.
+  - *G6, onboarding.* In the second field repo the whole map folder is untracked, so every entry stays "unreviewed"
+    for good, and `/onboard` says nothing about it.
+- *Scope:* D16's choice is unchanged: a source that names a repo file is re-found in it, and any other entry carries
+  its capture date as unverified. This step fixes how the name and the date are read from the source text, which D16's
+  attempt 3 described as "a token with a `/` or a document extension". No D16 trigger fired literally. The not-found
+  label was on a quote that is not in the file the parser named. So this is a fix under the lock, as 2p was (D16's
+  note of 2026-11-18). The checkup's other items are not in this step (see the end of this entry).
+- **The change:**
+  1. *The path:* the first path token, as now, in the source text with every parenthesized part removed (nested ones
+     too). An opening parenthesis that is never closed cuts the text to its end. Where the rule is unsure it drops the
+     path. A dropped path costs a re-find ("unverified quote"), while a wrong one can give a silent "verified".
+  2. *The date:* the first date that stands alone, that is, not inside a file name or a longer token, in that same
+     text. If there is none, the first date that stands alone anywhere in the source.
+  3. *Onboarding:* the `Map:` line adds how many of its files git does not track, and that their entries stay labelled
+     "unreviewed" until committed.
+  - The version becomes `2.0.2` in both manifests, and the self-test's hash is pinned again.
+- **The expected differences**, fixed now from the two corpora by a scratch script that applies these rules to every
+  distinct `- source:` line. Each line was read by hand.
+  - *The field corpus,* 57 distinct source lines from the first field repo's map at its 22 commits and in its working
+    tree:
+    - the path is dropped on 5, each the owner's words with a repo file named only inside parentheses;
+    - a date is gained on 42;
+    - no date changes and none is lost.
+  - *The repo corpus,* 362 distinct source lines from this repo's eval and probe records:
+    - the path is dropped on 2: a person's words with a file in parentheses, and a web page's address in parentheses,
+      which `2.0.1` labels "not found";
+    - a date is gained on 24;
+    - no date changes and none is lost.
+    - Kept: a person's source that names the file outside parentheses ("via <path>", "recorded in <path>").
+  - *Rejected rules,* on the same corpora:
+    - the path from the text before the first `(` drops a "recorded in <path>" source;
+    - the path only when the source starts with it drops "via <path>" and "recorded in <path>";
+    - the first date anywhere takes a file name's date or a date in a quoted question, wrong on 6 repo lines and 1
+      field line;
+    - the last date takes a date from trailing text.
+- **Checks:**
+  1. *The self-test.* New cases:
+     - a person's words with the cited file inside parentheses: no path, the date kept;
+     - a document followed by a section in parentheses, re-found as now;
+     - "via <path>" re-found;
+     - a date followed by text;
+     - a date only inside a file name: no date;
+     - a date only inside parentheses: taken;
+     - a quoted question holding an earlier date in parentheses: the outer date wins;
+     - onboarding with an untracked map file, and with none.
+  2. *The expected differences, end to end,* with the built `labels()` against `2.0.1`'s. Grouped lines are expanded to
+     one label per entry.
+     - (a) A clone of the first field repo: each of the map's 22 commits, with the entries committed and with them
+       uncommitted, Read case.
+     - (b) A scratch repo with one entry per repo-corpus source line, each quoting one fixed sentence, and every file
+       any rule names created to hold that sentence.
+     - *Pass:* an entry's label differs only when its source is on the list, and only as listed (a dropped path gives
+       "unverified quote", a gained date adds ", captured <date>"). Every other label is identical.
+  3. *Size,* on (a): bytes before and after, reported with no bar.
+  4. *Byte identity* of session start and the prompt hook with `2.0.1`, on this repo and on the field clone.
+  5. *The smoke* on CLI 2.1.327. *Pass:* every assertion.
+  6. *CI* on three systems, dispatched on a side branch, so `v2` and PR #116 do not move before the pass.
+  7. *A verifier round,* refute-first, through the Antigravity CLI (rule 10; public text only: the diff and this
+     entry). A finding survives if it shows a source whose real document the rule drops, a date other than the capture
+     date, or a label that fails open.
+  - *Not run:* the reference bench. The change only adds a short scan of the source line, so D18's cost cannot rise
+    beyond noise. This is an accepted gap, as in 2p.
+- **On a pass:** the change lands on `v2`, tagged `v2.0.2`. PR #116 then carries `2.0.2`, and the user is told it no
+  longer equals the `v2.0.1` tag.
+- *Not in this step,* from the same checkup:
+  - *G2, label noise:* answered by `2.0.1`. On the map above it cuts one Read's labels from 6,778 to 830 characters,
+    and it waits on PR #116.
+  - *G1, a lifecycle for entries* (superseded, expired): a new question, registered as its own decision. Its options
+    touch D14's frozen instruction and D23's line.
+  - *G3, the forced decision's "read every document" in a large directory,* and *G5, the named decisions at every
+    finish:* field observations for D22 and D23. Neither is a count, nor the user's own finding, so no trigger fires.
+  - *G4, decisions kept in Claude Code's auto memory and not in the map:* a D14 observation.

@@ -1574,6 +1574,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       common setup. Either removes the walk (git's second call, with D18's budget back to the user) or the fold.
 
   Attempts at this reopen: 0 failed.
+- *Note, 2026-11-18, not a reopen (06, 2q):* the field found the source's path taken from inside parentheses. A
+  person's words that mention a repo file there were re-found in that file: one false not-found label, and three
+  silent passes where the words happened to be repeated in it. It also found the capture date read only at the line's
+  end. No trigger fired: the not-found quote is not in the file the parser named. The choice stands. 2q reads the
+  path from the source's text outside parentheses, and the date as the first that stands alone, outside parentheses
+  first.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
