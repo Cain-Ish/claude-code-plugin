@@ -3866,3 +3866,69 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
     reading only.
 - *Size:* the field cases go from 154,499 bytes to 156,835 (2% more), since 10 entries leave the grouped line.
 - *Result:* pass. D28's (L) is built. D28 stays OPEN for (I) and (N), which are 2s.
+
+### 2s: the texts: D28's (I) and (N), B2's date, G4's store, D23's (d), as `2.2.0` (registered 2026-11-18, before the code)
+
+- *Why:* the rethink's outcomes (`research/2026-11-18-field-checkup-rethink.md`).
+  - D28's (I) and (N) follow 2r.
+  - B2: a capture date put last.
+  - G4: the store sentence, adopted by its count.
+  - D23 reopened on its own field trigger: 28% restated in 41 lists, so its record names (d) as the next attempt.
+  - D14 and D23 reopen for their frozen texts, through the user's delegation of 2026-11-18 and D23's trigger. D16's
+    trigger "the capture instruction changes" fires, and D16 re-locks on this step's checks.
+  - The forced decision (D22) stays frozen (the rethink, G3).
+- **The texts.** Additive only: every line of the old text stays, byte for byte and in order.
+  - *INSTRUCTION:*
+    - after "…leave out one-off details of the current task.", the new line "Decisions and rules for this project
+      belong in this map, not in your auto memory, which is for your own way of working." (G4);
+    - after the `- when:` line of the format, these three lines:
+      1. "End the source line with the date, as YYYY-MM-DD; put any other detail in parentheses before it." (B2)
+      2. "When a new entry replaces, narrows or ends an existing one, keep the old entry and add this line under its
+         when line:" (D28's I)
+      3. `- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by "<the new entry's heading>": <what still holds>`
+  - *NAME:*
+    - after "…as the map entry or document gives it", the clause ", unless you named it earlier in this session"
+      (D23's d);
+    - after "Do not name a decision you did not follow,", the clause "one whose status line says it no longer holds,"
+      (D28's N).
+  - The version becomes `2.2.0`. The self-test pins the new hashes and bytes, and checks that every old line survives
+    in order.
+- **Checks.** All are run from a plugin copy, on Opus 5.5 with the pinned CLI 2.1.305 (A1's epoch), against a `2.1.0`
+  control. A same-day `2.1.0` A1 run (1 run) first proves the harness still works.
+  1. *The self-test,* the smoke and CI.
+  2. **A1, the V2 arm, 10 runs.** *Pass:*
+     - each pass item at A1's Opus bar: C1 10, C2 at least 2, C3 10, C4 10, T1 10, T2 10, T3 at least 8, T4 10,
+       T5f at least 8, N1 to N3 10;
+     - over-attribution in at most 1 of 10 (D23);
+     - *the negative,* that no run writes a `- status:` line, since A1 replaces nothing.
+     - *Reported:* the share of captured entries whose source line ends with the date; always-on bytes.
+     - *Attribution, fixed now:* a miss on C1 to C4, or a status line in the negative, implicates INSTRUCTION. A miss
+       on T5f, or over-attribution, implicates NAME. Misses on T1 to T4 or N1 to N3 implicate neither text alone, and
+       are read by hand.
+  3. **Scenario S1, a decision replaced (D28's I),** 5 runs per arm. A1's fixture, with a committed map of 3 entries:
+     the folder rule (the lead developer), "avatars load locally, never from the CDN" (the PM), and an unrelated
+     test rule. The prompt brings the PM's reversal: avatars load from the CDN when an address exists, with the
+     local file as the fallback. *Pass:* in at least 4 of 5 `2.2.0` runs the avatar entry gets a `- status:` line
+     that starts with one of the four kinds and a date, and no other entry gets one. The control's count is
+     reported.
+  4. **Scenario S2, the date (B2),** 5 runs per arm, in the field's shape: the owner answers a question Claude
+     asked, with a condition and a later review. *Pass,* the rethink's rule: the new entry's source line ends with
+     the date in at least 4 of 5 `2.2.0` runs, and in at least 2 more runs than the control. Otherwise the B2
+     sentence is dropped from the build.
+  5. **Scenario S3, naming across turns (D23's d),** 5 runs per arm. A two-turn session (the second resumed) on the
+     same map: "Create a UserAvatar component.", then a TeamAvatars component built from it. *Pass:*
+     - turn 1 names at least one recorded source role in at least 4 of 5 runs;
+     - turn 2 names none of the roles turn 1 named, in at least 4 of 5 `2.2.0` runs. A1's role patterns are the
+       scorer.
+     - The control's repeats are reported.
+  6. *Session start's size:* on the field clone, and on this repo's own index, every directory is still listed under
+     the cap. The added bytes are reported.
+  - *Not checked, and stated as direction:*
+    - that a status label stops a superseded entry from being followed or named (D28's N in use);
+    - G4's sentence in use (A1's V2 arm does not compete with auto memory).
+  - *Not run:* the reference bench. Session start gains about 0.5 KB of text and no work.
+- **On a fail:** each failed check is attempt 1 of 2s, under rule 4. A text whose check fails is dropped or revised
+  alone, by the attribution above.
+- **On a pass:**
+  - D14, D16 and D23 re-lock, and D28 locks on (LIN).
+  - Tag `v2.2.0`. The field session is asked to migrate its source lines and status kinds to the locked format.
