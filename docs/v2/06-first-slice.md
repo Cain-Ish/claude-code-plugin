@@ -3932,3 +3932,56 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - **On a pass:**
   - D14, D16 and D23 re-lock, and D28 locks on (LIN).
   - Tag `v2.2.0`. The field session is asked to migrate its source lines and status kinds to the locked format.
+
+### 2s, attempt 1: result (2026-11-18): every check passes except A1's negative, which failed as written
+
+- *Built* in `v2-2s` (product hash `ee8625f06842`, `2.2.0`). The texts are as registered: INSTRUCTION sha
+  `bd491ace7f2f`, 1,349 bytes, with every old line in order; NAME 304 bytes. Self-test, smoke (CLI 2.1.327) and CI
+  pass.
+- *The same-day control* (`2.1.0`, A1's V2 arm, 1 run on the pinned epoch): valid, and every item passes. The harness
+  works.
+- **A1, the V2 arm, 10 runs** (`results/V2-opus-ee8625f.json`), all valid:
+  - every item at its bar except the negative: C1 to C4 10, T1 to T4 10, N1 to N3 10 (both variants);
+  - **T5f** 8 of 10 on "same" and 9 of 10 on "second". The bar is at least 8: met, at the bar;
+  - **over-attribution:** 0 of 10.
+  - **The negative failed as written:**
+    - 5 of 10 runs wrote a `- status:` line. Read by hand, every one is on the same entry: H1's "Last month I said
+      new components should go under src/widgets/. Scrap that, it's off". It is marked superseded by the folder rule.
+    - No other entry got one.
+    - The registration's premise, "A1 replaces nothing", was false: A1's own history holds a replacement. The
+      behaviour is D28's (I) working.
+    - The bar was the bar, so under rule 2 this attempt fails.
+  - *Reported:* 179 of 180 captured source lines end with the date. Each run cost about 1.35 USD.
+  - *T5f's two misses, read:* each reply names the designer's decisions by the document's title alone ("Profile page
+    notes (v3)"). That run's capture had put the role in parentheses ("(the designer's notes, …)"), and the reply
+    dropped the parenthesis.
+    - In the control, the role stands in the main text ("from the project's designer").
+    - So the B2 sentence ("other detail in parentheses before it") plausibly moves the role out of sight when an
+      entry is named.
+    - An observation at the bar, not a fail.
+- **S1, a decision replaced** (`V2-D28-lifecycle/results/S1.json`):
+  - the candidate passes in 5 of 5: the avatar entry gets `- status: superseded <date> by "…"`, and no other entry
+    gets one;
+  - the control: 0 of 5. It added no entry at all for the reversal.
+- **S2, the date:** the candidate 5 of 5, the control 1 of 5. The control wrote the field's shape: `<user>,
+  2026-11-18 (the CDN contract ends March 2027)`. **B2's sentence stays,** by the rethink's rule.
+- **S3, naming across turns:**
+  - the candidate passes in 5 of 5: turn 1 names both roles, and turn 2 names neither again ("the ones I named last
+    time apply again");
+  - the control repeats both in 5 of 5.
+- *Session start:* every directory is still listed. On a synthetic P2-shaped repo it goes from 9,029 to 9,566 of
+  10,000 characters, which leaves 434 of headroom. The field repo goes from 3,496 to 4,033.
+- *Result:* attempt 1 fails, on the negative only (rule 2).
+
+### 2s, attempt 2 (registered 2026-11-18, before its runs)
+
+- *The build is unchanged* (`ee8625f06842`). Only the negative's premise is corrected.
+- **The negative, corrected:** no run writes a `- status:` line on any entry other than one for the widgets rule H1
+  retracts. *Reported:* how many runs mark that rule, and with which kind.
+- **The other bars, unchanged,** on 10 fresh A1 runs (`D17_TAG=-opus-ee8625f-a2`, the same plugin copy and epoch):
+  - every pass item at its Opus bar;
+  - T5f at least 8 of 10;
+  - over-attribution at most 1 of 10.
+- S1 to S3, the self-test, the smoke and CI are not re-run: the build is the same, and they passed.
+- *If T5f falls below its bar,* attempt 3 revises the B2 sentence so that the role stays outside the parentheses. That
+  text would need A1 and S2 again.
