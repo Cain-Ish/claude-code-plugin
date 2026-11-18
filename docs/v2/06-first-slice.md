@@ -3559,3 +3559,60 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   - *G3, the forced decision's "read every document" in a large directory,* and *G5, the named decisions at every
     finish:* field observations for D22 and D23. Neither is a count, nor the user's own finding, so no trigger fires.
   - *G4, decisions kept in Claude Code's auto memory and not in the map:* a D14 observation.
+
+### 2q, attempt 1: result (2026-11-18): checks 1 to 6 pass; check 7 failed
+
+- *Built* in `69bf479`. Product hash `631345c67f8c`, version `2.0.2`.
+- *Check 1:* the self-test passes. Every existing case is unchanged.
+- *Check 2:* 0 mismatches.
+  - (a) The field clone: 44 cases (22 commits, committed and uncommitted). Of 2,056 entry labels, 1,052 differ, every
+    one as listed.
+  - (b) The scratch repo: 724 entry labels, 30 differ as listed, and the 592 named files were all created.
+  - The expected list was frozen to a file before the replay, and its counts equal the registration's. Each gained date
+    was then read in its line: every one is the date the source's `<who>, <date>` gives.
+- *Check 3, size:* on (a), 154,681 bytes before and 166,886 after (8% more). Uncommitted entries gain their dates.
+  On the map's current committed state, one Read's labels go from 830 to 785 characters, and every entry is dated.
+- *Check 4:* session start and the prompt hook are byte-identical on both repos, at startup and at compact.
+- *Check 5:* the smoke on CLI 2.1.327 passes. *Check 6:* CI passes on three systems (self-test and load).
+- *Check 7, the verifier* (Gemini 4 Argon through `agy`, given this entry and the diff). Findings that survive the bar:
+  - *Fail open, in 2q's own target:* a `1)` or `a)` inside a parenthesis closes it early, so the path inside leaks
+    out: `Owner (1) discussed in <path>), <date>`.
+  - *A file the rule makes up:* removing `(v2)` from `docs/guide(v2).md` leaves `docs/guide.md`, a different file.
+  - *Wrong dates* where `2.0.1` was right:
+    - a stray `(` in a quote cuts the outer date;
+    - an earlier date in a quote that is not in parentheses;
+    - a date after `+`, `#` or `=`, or inside a range `..`.
+  - *A real document dropped:* `Title (docs/adr-016.md), <date>`, where the parenthesis holds only the path.
+  - *Fail open, already in `2.0.1`:* the path is a fragment taken after a non-path character. A URL gives
+    `main/README.md` or `README.md`; `docs/(archive)/README.md` and `../(backup)/README.md` give the root `README.md`;
+    `docs\guide.md` gives `guide.md`. The bar does not exempt old behaviour.
+  - *Onboarding:* `git ls-files` counts a staged file as committed, while the labels read HEAD.
+- *Not surviving:*
+  - a folder named in parentheses (`app/(auth)/page.tsx`) is not read as a path, before or after the change;
+  - "Owner on <path>" outside parentheses is re-found there, which is the registered "via <path>" choice;
+  - entries not yet committed inside a committed file are the labels' job, not the onboarding line's;
+  - outside git, "not committed" is true.
+- *Result:* attempt 1 fails (rule 4, attempt 1 of 3).
+
+### 2q, attempt 2 (registered 2026-11-18, before the code)
+
+- **The change, from attempt 1:**
+  1. *The date:* the date at the line's end first, `2.0.1`'s rule, so no date `2.0.1` gave can change. Else the first
+     date that stands alone outside parentheses. Else the first one anywhere. "Stands alone" is now named, not
+     excluded: the date follows the start, a space, `(`, `[` or a quote. It is followed by the end, a space, `)`,
+     `]`, a quote, `,`, `;`, `:`, or a `.` that ends the text or comes before a space.
+  2. *The parentheses:* a parenthesized part becomes a space, not nothing, so no two tokens fuse. One that holds only a
+     path stays, as the source's path. A `)` left over once the pairs are gone drops everything before it, and an
+     unclosed `(` still drops everything after it.
+  3. *The path:* a token counts only where it starts a word. It may not follow a word character, `/`, `.`, `\`,
+     `-`, `:`, `@`, `=`, `?` or `#`, so no fragment of a URL, a Windows path or a longer path is taken.
+  4. *Onboarding:* committed means in HEAD (`git ls-tree`), as the labels read it.
+- *Prototype, on the same corpora* (scratch script): attempt 2 gives exactly attempt 1's path and date on all 57 field
+  lines and all 362 repo lines. So the frozen expected list stands unchanged.
+  - Of the verifier's 21 inputs, attempt 2 answers each surviving one correctly.
+  - The stated limit: an undated source whose only date sits in a parenthesized file name (`notes-(2026-10-01).md`)
+    is taken as its capture date.
+- **Checks:** the same seven.
+  - Check 1 adds the verifier's inputs as cases, and a staged map file for onboarding.
+  - Check 2 replays against the frozen list from attempt 1.
+  - Check 7 is a second verifier round, on attempt 2's diff from `2.0.1`. The bar is unchanged.
