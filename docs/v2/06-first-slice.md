@@ -3735,3 +3735,28 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
          recorded as unrun, and 2q goes to the user unlanded: not passed, not BLOCKED.
 - **On a fail:** 2q is BLOCKED. `v2`'s plugin and PR #116 stay at `2.0.1`, and the level above goes to the user.
 - **On a pass:** the change lands on `v2` as `2.0.2`, tagged, and PR #116 carries it. The user is told.
+
+### 2q, attempt 3: result (2026-11-18): pass
+
+- *Built* in `v2-2q`'s last commit, fast-forwarded onto `v2`. Product hash `41b9b34034a9`, version `2.0.2`.
+- *Check 1:* the self-test passes, with the 2q cases asserting `2.0.1`'s label except where a path inside paired
+  parentheses is withheld.
+- *Check 2:* 0 mismatches against the frozen list.
+  - The field clone: 2,056 entry labels, of which 102 differ, each a listed withheld path across the map's history.
+  - The corpus repo: 724 entry labels, of which 4 differ, as listed.
+- *Check 3, size:* the field cases go from 154,681 bytes to 154,499. On the map's current committed state, one Read's
+  labels go from 830 characters to 688, and the false "not found" line is gone.
+- *Check 4:* session start and the prompt hook are byte-identical on both repos, at startup and at compact.
+- *Check 5:* the smoke on CLI 2.1.327 passes. *Check 6:* CI passes on three systems, self-test and load.
+- *Check 7:*
+  - (a) *The differential fuzz,* seeds 1 to 3 with 2,000 sources each, uncommitted and committed: 12,000 entry labels,
+    0 violations. 456 are withheld to "unverified quote" with `2.0.1`'s date, and every other one is `2.0.1`'s.
+  - (b) *The 49-input table,* through both libraries: 42 identical and 7 withheld, exactly as classified, with 0
+    violations.
+  - (c) *The fresh round* (Gemini 4 Argon, a 5 KB brief: the diff and the bar) completed with no timeout and answered
+    "NONE". The answer gave no reasoning, so it is weak evidence by itself; (a) and (b) carry the check.
+- *Result:* pass. 2q lands as `2.0.2`.
+  - *Fixed:* the field's false not-found label, and its three silent passes.
+  - *Added:* onboarding's count of map files that HEAD lacks.
+  - *Not fixed, and with the user:* B2, a capture date not at the line's end. It is a format question.
+  - *The claim's reduction* in the rethink stays open to the user's override.
