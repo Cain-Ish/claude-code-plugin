@@ -12,16 +12,16 @@ import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
 
-// the texts, as the ledger fixed them
-assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '8aa72396af72');
-assert.equal(Buffer.byteLength(INSTRUCTION), 904);
+// the texts, as the ledger fixed them (06, 2s: INSTRUCTION 8aa72396af72 at 904 bytes until 2.1.0, kept line for line)
+assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), 'bd491ace7f2f');
+assert.equal(Buffer.byteLength(INSTRUCTION), 1349);
 assert.equal(Buffer.byteLength(FORCE), 227);
 assert.equal(HEADER, "IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any task in this project. This project's documents, by directory:");
 assert.equal(UNREVIEWED, 'unreviewed, not yet committed');
-// V2-D23's line, as the ledger froze it
-assert.equal(NAME, "When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.");
+// V2-D23's line, as the ledger froze it; 06, 2s added (d) and D28's (N)
+assert.equal(NAME, "When you finish, name each of this project's recorded decisions you followed and its source, as the map entry or document gives it, unless you named it earlier in this session. Do not name a decision you did not follow, one whose status line says it no longer holds, or a source the record does not give.");
 
-assert.equal(Buffer.byteLength(NAME), 212);
+assert.equal(Buffer.byteLength(NAME), 304);
 
 // PM8: product lines within 06's budget (the hooks, the library, the command, the manifest)
 const lines = (d) => fs.readdirSync(path.join(PLUGIN, d)).reduce((n, f) => n + fs.readFileSync(path.join(PLUGIN, d, f), 'utf8').split('\n').length, 0);
@@ -61,8 +61,8 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// 2.1.0: 2r, the labels read a status line (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), 'b53f5c4c5245', 'the product changed: record its hash with a new epoch (06)');
+// 2.2.0: 2s, the texts: D28's I and N, B2's date, G4's store, D23's (d) (06); checked by this self-test, the smoke and CI
+assert.equal(product.digest('hex').slice(0, 12), 'ee8625f06842', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));

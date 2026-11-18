@@ -7,11 +7,13 @@ import { spawnSync } from 'node:child_process';
 
 export const MAP = '.project-map';
 
-// D14's capture instruction, frozen: its sha256 is in the ledger, and D17's capture arm ran on this text
+// D14's capture instruction, frozen: its sha256 is in the ledger. 06, 2s added three sentences and the status line
+// (G4, B2, D28's I), each old line kept in order; A1's V2 arm ran on this text
 export const INSTRUCTION = `This project keeps a map of its knowledge in the folder .project-map/. When, during your work, someone states a
 decision or rule for this project, or you receive or read a document that states requirements, specifications or
 rules the project's work must follow, add each one to .project-map/captured.md as its own entry, in the words used,
 with its source. Keep what will still matter in later sessions; leave out one-off details of the current task.
+Decisions and rules for this project belong in this map, not in your auto memory, which is for your own way of working.
 Entry format:
 
 ### <the part of the project it governs>
@@ -19,6 +21,10 @@ Entry format:
 
 - source: <who stated it, or the document's title or path>, <date>
 - when: ["<kind of work it applies to>", "..."]
+
+End the source line with the date, as YYYY-MM-DD; put any other detail in parentheses before it.
+When a new entry replaces, narrows or ends an existing one, keep the old entry and add this line under its when line:
+- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by "<the new entry's heading>": <what still holds>
 
 Never write session ids, email addresses or absolute file paths into an entry. The map is plain files in this
 repository: your changes to it stay in the working tree and are reviewed with the commit, like any other change.`;
@@ -32,9 +38,11 @@ export const FORCE = 'Before you start: for each directory in this project\'s do
   + 'documents bear on this task (yes or no). Then read the documents in every directory you marked yes before you '
   + 'change anything.';
 
-// V2-D23: A1 item (5), the decisions followed and their sources, named when Claude finishes; frozen with D23's check
+// V2-D23: A1 item (5), the decisions followed and their sources, named when Claude finishes; frozen with D23's check.
+// 06, 2s: (d) once per session, and not an entry a status line ends (D28's N)
 export const NAME = 'When you finish, name each of this project\'s recorded decisions you followed and its source, as the '
-  + 'map entry or document gives it. Do not name a decision you did not follow, or a source the record does not give.';
+  + 'map entry or document gives it, unless you named it earlier in this session. Do not name a decision you did not '
+  + 'follow, one whose status line says it no longer holds, or a source the record does not give.';
 
 export const UNREVIEWED = 'unreviewed, not yet committed';
 // 06, 2n: the field found "unverified quote" unexplained; wording only, D16's choice unchanged
