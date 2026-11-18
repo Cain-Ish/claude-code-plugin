@@ -3797,3 +3797,49 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 > Session start and the prompt hook are byte-identical to 2.0.1. Checks: the self-test, a replay over a field map's
 > history against a list fixed before the code, a differential fuzz against 2.0.1 (12,000 labels), the smoke on
 > Claude Code 2.1.327, and CI on three systems. Product hash `41b9b34034a9`.
+
+### 2r: D28's (L), the labels read a status line, as `2.1.0` (registered 2026-11-18, before the code)
+
+- *Why:* the field checkup's G1 and the rethink (`research/2026-11-18-field-checkup-rethink.md`). The first field
+  repo's map holds 10 `- status:` lines, which `2.0.2` ignores. A Bash command that shows an entry without its status
+  line delivers a superseded entry as current.
+- *Scope:* D28's (L) alone, with its check as registered, plus the rethink's additions. No frozen text changes:
+  INSTRUCTION, FORCE and NAME stay byte-identical. (I) and (N) are 2s.
+- **The change,** in `labels()` only:
+  1. An entry with a `- status:` line gets the label `status: <head>`. The head is the line's text, cut at the last
+     space before 60 characters and ended with `…` when cut. It comes after "unreviewed" and before the quote's
+     label.
+  2. So such an entry never joins the grouped "unverified quote" line. One whose quote is re-found, which had no
+     label, now gets its own line.
+  3. The status line is part of the entry's block. A status line that HEAD does not hold makes the entry
+     "unreviewed", so an uncommitted status never reads as reviewed.
+  4. The label quotes the line's own words and never says "ended": "narrowed" and "refined" entries still bind in
+     part.
+  - The version becomes `2.1.0` in both manifests, and the self-test's hash is pinned again.
+- **Checks:**
+  1. *The self-test.* New cases:
+     - a status line on a committed entry and on an uncommitted one;
+     - an entry inside the grouped line, and one re-found in its file;
+     - a status line added to a committed entry and not committed, which gives "unreviewed" and the status;
+     - a long status line, which is cut;
+     - a Bash output that shows an entry's heading but not its status line, which still gives the status label.
+  2. *The field replay,* on a clone of the first field repo:
+     - at its current map, the 10 marked entries carry their status label;
+     - at every map commit and in both states, every entry without a status line has a label byte-identical to
+       `2.0.2`'s once grouped lines are expanded.
+  3. *Byte identity* of session start and the prompt hook with `2.0.2`, on this repo and the field clone.
+  4. *A differential fuzz against `2.0.2`,* near and past the 10,000-character cap. Maps are generated with and
+     without status lines, both committed and uncommitted. *Pass:* in every uncut output, each entry's label is
+     `2.0.2`'s with the status label added where the entry has a status line. In a cut output, every entry not shown
+     is covered by the closing line.
+  5. *The smoke* on the current CLI. 6. *CI* on three systems.
+  7. *A verifier round* through `agy`, given the diff and this bar. A finding survives only if executing it shows one
+     of these:
+     - a label `2.0.2` gives that `2.1.0` drops or changes, other than by adding the status;
+     - a status that HEAD does not hold, shown without "unreviewed";
+     - a cut that fails open.
+
+     A partial round is handled as in 2q's attempt 3.
+  - *Not run:* A1, since no text changes; and the reference bench, since the change adds one regex per entry. Both
+    are stated gaps.
+- **On a pass:** the change lands on `v2` after PR #116 is merged, or rides with it, and is tagged `v2.1.0`.
