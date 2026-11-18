@@ -3843,3 +3843,26 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   - *Not run:* A1, since no text changes; and the reference bench, since the change adds one regex per entry. Both
     are stated gaps.
 - **On a pass:** the change lands on `v2` after PR #116 is merged, or rides with it, and is tagged `v2.1.0`.
+
+### 2r: result (2026-11-18): pass
+
+- *Built* in `7b58f96`. Product hash `b53f5c4c5245`, version `2.1.0`.
+- *Check 1:* the self-test passes with the new cases.
+- *Check 2, the field replay:*
+  - at the current map, the 10 marked entries carry their status label;
+  - across the map's 22 commits in both states, 2,056 entry labels: 2,036 identical to `2.0.2`'s, and 20 with the
+    status added as specified;
+  - 0 violations.
+- *Check 3:* session start and the prompt hook are byte-identical to `2.0.2`'s, on both repos, at startup and at
+  compact.
+- *Check 4, the fuzz near and past the cap* (3 seeds, 72 map files of 40 to 220 entries, both states):
+  - 10,094 entry labels: 7,030 identical, 1,398 with the status added, and 1,666 covered by the closing line of a cut
+    output;
+  - 0 violations.
+- *Check 5:* the smoke on CLI 2.1.327 passes. *Check 6:* CI passes on three systems.
+- *Check 7, the verifier (agy):* "NONE". It checked that existing labels are kept, that an uncommitted status line
+  still gives "unreviewed", and that the cap logic is unchanged.
+  - A first call returned nothing: `agy` tried to run a command, which headless mode denies. It was re-run with
+    reading only.
+- *Size:* the field cases go from 154,499 bytes to 156,835 (2% more), since 10 entries leave the grouped line.
+- *Result:* pass. D28's (L) is built. D28 stays OPEN for (I) and (N), which are 2s.
