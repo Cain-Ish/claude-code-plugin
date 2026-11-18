@@ -17,21 +17,21 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
 | V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes); REOPENED 2026-11-07 (2.0.0's release review: a Bash map read that exits non-zero, and a sibling repo's map file, arrive without their labels; the delivery is fixed in 06, 2m); re-LOCKED 2026-11-07 (2m attempt 3 passes; the command parse's gaps are accepted risks until labelling by output); REOPENED 2026-11-08 (the field: one of those gaps, a `|` inside quotes, seen); the output step BLOCKED 2026-11-08 after three attempts (06, 2n); the user chose (S), the label by repo state (06, 2o); re-LOCKED 2026-11-08 on (S) (2o attempt 5 passes) | user + evidence | D11, D13 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes); REOPENED 2026-11-07 (2.0.0's release review: a Bash map read that exits non-zero, and a sibling repo's map file, arrive without their labels; the delivery is fixed in 06, 2m); re-LOCKED 2026-11-07 (2m attempt 3 passes; the command parse's gaps are accepted risks until labelling by output); REOPENED 2026-11-08 (the field: one of those gaps, a `|` inside quotes, seen); the output step BLOCKED 2026-11-08 after three attempts (06, 2n); the user chose (S), the label by repo state (06, 2o); re-LOCKED 2026-11-08 on (S) (2o attempt 5 passes); REOPENED and re-LOCKED 2026-11-18 (the capture instruction gains three sentences and the status line, by the user's delegation; 06 2s) | user + evidence | D11, D13 |
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2); its trigger "the capture instruction changes" fired 2026-11-18, re-LOCKED unchanged on 06 2s's checks | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
 | V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled); re-LOCKED 2026-10-27 (labels cut fail-closed at the cap, UTF-16 decoded; 2g attempt 5 passed at da81530cb1c3); REOPENED 2026-10-27 (2h: session start added 113.7 ms at 1 session on the Windows runner); re-LOCKED unchanged 2026-10-27 (old and new paired within one job: at most 0.8 ms of cost on any runner; the 113.7 was one run's tail); REOPENED 2026-10-27 (2h attempt 3: the map read at 101.6 ms at 8 concurrent on a loaded reference machine; the reference state is the user's question); re-LOCKED 2026-10-27 (the user's answer: the reference state is a CPU sample of at most 10% and empty Node's p95 at most 100 ms at 8 concurrent); REOPENED 2026-11-07 (2m's bench: the published alpha.6's map read at 106.8 ms in one valid pair; a second window decides); re-LOCKED unchanged 2026-11-07 (the second window: both builds at most 66.8 ms) | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
 | V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch) | evidence | D12, D13, D15, D20 |
-| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
+| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0); REOPENED 2026-11-18 on its own field trigger (28% restated in 41 lists), re-LOCKED on (d), session-scoped naming (06 2s) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06; LOCKED 2026-11-07 ((b): the user's "continue as we plan", with a deadline of their return; the field bar set before the count); REOPENED and re-LOCKED 2026-11-12 (the user's C1 for a resume Claude Code skips; the bar met at count 4) | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux); REOPENED 2026-11-07 (2.0.0's release review: a running v1 session re-installs the timer; v1's custom config folders); re-LOCKED unchanged 2026-11-07 (the README fixed; D26's workflow passes on it) | evidence | D25 |
 | V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
-| V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18 | user | D13, D14, D16, D23 |
+| V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18; LOCKED 2026-11-18 on (LIN), by the user's delegation: the labels read a status line (06 2r), the instruction asks for it and the naming line skips an ended entry (2s) | user | D13, D14, D16, D23 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4349,6 +4349,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   (84.6%), R 1.
   - Of the 5 new X pairs, Claude Code delivered every rule with or after the write.
   - Whether a rule bore on its change is not judged. No trigger fired.
+- **Observation (2026-11-18, the field checkup's G3; `research/2026-11-18-field-checkup-rethink.md`):** "read the
+  documents in every directory you marked yes" cannot be done in a directory of about 60 documents, several over
+  100 KB. Claude reads selectively there.
+  - The suggested fix, reading "the ones that bear on the task", is the route 17f5's scope probe refuted: names do
+    not show which documents bind.
+  - The forced decision stays frozen. No trigger fired.
+  - *Reopen if:* a P2-cell check with a `2.1.0` control is run on a candidate text.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
@@ -4496,6 +4503,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - under-naming reaches 2 or more of 20 task-completion reports;
     - restated decisions pass 20% of those named, in a count of at least 20 lists;
     - the user finds the repeated standing decisions cost them reading (then (d) is the next attempt).
+- **REOPENED 2026-11-18 on its own field trigger:** restated decisions passed 20% of those named in at least 20 lists.
+  - *The count:* a delegated count, spot-checked by hand, over four field sessions from 2026-11-11 to 11-18. 35 of
+    123 named decisions were restated (28%), in 41 lists (`research/2026-11-18-field-checkup-rethink.md`).
+  - **Re-LOCKED on (d), session-scoped naming**, the next attempt this record named. The line adds "unless you named
+    it earlier in this session", and D28's clause "one whose status line says it no longer holds" (06, 2s).
+  - *D23's check:* A1's V2 arm, 10 runs. T5f was 8 of 10 in attempt 1 and 9 in attempt 2, against a bar of 8.
+    Over-attribution was 0. Every other item was 10 of 10.
+  - *S3, two turns, 5 runs:* turn 2 repeated no role turn 1 named, in 5 of 5 runs, against 0 of 5 for the control.
+  - *What (d) costs,* as rejected 2026-11-03 says: a later report no longer stands alone as an audit. After a
+    compaction, "named earlier" rests on what the summary kept.
+  - *Observation:* T5f's misses name the designer's document by its title alone. The capture instruction's new
+    "other detail in parentheses" moved the role into the parentheses, and the naming dropped it.
+  - *Reopen if:*
+    - T5f falls below 8 of 10 in a re-run;
+    - under-naming after a compaction reaches 2 or more of 10 counted reports;
+    - the triggers above.
 
 ### V2-D24 — The bar for `2.0.0` and for `main`
 - **Question:** what must hold before v2 leaves alpha and replaces v1 on `main`?
@@ -4874,3 +4897,24 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Rule:** the user chooses the scope. The matching check then runs, from a plugin copy, as a build step in 06.
 - **Note for the field:** until this locks, the field's status lines are the candidate form. Changing them would risk a
   second migration.
+- **LOCKED 2026-11-18 on (LIN),** by the user's delegation of 2026-11-18. The rethink's rule decided it
+  (`research/2026-11-18-field-checkup-rethink.md`), and each part passed its registered check:
+  - (L), 06's 2r, `2.1.0`:
+    - a status line's head becomes a label, so a Bash command that shows the entry without the line still carries
+      it;
+    - the field map's 10 status entries are labelled, and every other label is identical to `2.0.2`'s;
+    - session start and the prompt hook are byte-identical.
+  - (I), 06's 2s, `2.2.0`: the capture instruction asks for `- status: <superseded|narrowed|expired|done> <date> by
+    "<heading>": <what still holds>`.
+    - S1: 5 of 5, against 0 of 5 for the control.
+    - In A1, 9 runs over two attempts marked the rule H1 retracts, and no run marked any other entry.
+  - (N), 06's 2s: the naming line skips an entry whose status line says it no longer holds. It is direction, not
+    measured.
+  - *Rejected:*
+    - (N), no plugin change: nothing asked for a status line, and the control marked 0 of 5 in S1.
+    - (L) alone: it labels only the lines someone writes.
+    - A session-start count: rejected up front (D18).
+  - *Reopen if:*
+    - a status line is written on an entry that was not replaced, in 2 or more of 10 counted cases;
+    - a superseded entry is named as followed in the field;
+    - the field's kinds outside the four (answered, refined, used) recur. Then the kinds are revisited.

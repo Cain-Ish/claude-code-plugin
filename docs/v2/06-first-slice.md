@@ -3985,3 +3985,20 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - S1 to S3, the self-test, the smoke and CI are not re-run: the build is the same, and they passed.
 - *If T5f falls below its bar,* attempt 3 revises the B2 sentence so that the role stays outside the parentheses. That
   text would need A1 and S2 again.
+
+### 2s, attempt 2: result (2026-11-18): pass
+
+- *The build:* `ee8625f06842` (`2.2.0`), unchanged from attempt 1. 10 fresh A1 runs (`results/V2-opus-ee8625f-a2.json`),
+  all valid.
+- **Pass items:** C1 to C4, T1 to T4 and N1 to N3 in 10 of 10, both variants. **T5f:** 9 of 10 on "same", 10 of 10
+  on "second".
+- **Over-attribution:** 0 of 10.
+- **The corrected negative:** 4 runs mark the widgets rule H1 retracts (3 superseded, 1 expired), and no run marks
+  any other entry, in H, T or N.
+- *Reported:* 185 of 185 captured source lines end with the date. Each run cost about 1.36 USD.
+- *With attempt 1's scenarios* (S1 5 of 5, S2 5 of 5, S3 5 of 5, against the control's 0, 1 and 0), every registered
+  check of 2s has passed.
+- *Result:* pass.
+  - D14, D16 and D23 re-lock, and D28 locks on (LIN), in the ledger.
+  - `2.2.0` lands on `v2`, tagged `v2.2.0`.
+  - *Still direction:* D28's (N) in use, and G4's sentence in use.
