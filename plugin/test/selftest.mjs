@@ -61,8 +61,8 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// 2.0.2: 2q, the source's path and date read outside its parentheses (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), '5963394b10e6', 'the product changed: record its hash with a new epoch (06)');
+// 2.0.2: 2q attempt 3, the source's path withheld inside paired parentheses (06); checked by this self-test, the smoke and CI
+assert.equal(product.digest('hex').slice(0, 12), '41b9b34034a9', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -130,7 +130,8 @@ assert.equal(labels(repo, '.project-map/cited.md'), `[project map] Labels on the
 put('docs/style.md', '# Style\n\nColours come from the theme tokens. No hex values anywhere.\n');
 assert.ok(labels(repo, '.project-map/cited.md').includes('1. verbatim: not found word for word in docs/style.md; check it, captured 2026-10-22'));
 
-// 06, 2q: the path from the source's own words, outside parentheses; the date that stands alone, outside them first
+// 06, 2q attempt 3: 2.0.1's path, withheld inside parentheses that pair across the source; 2.0.1's date. Every other
+// shape below keeps 2.0.1's label, the limits included
 put('docs/grid.md', '# Grid\n\nSpacing uses the four-pixel grid everywhere.\n');
 const grid = (area, src) => cited(area, 'Spacing uses the four-pixel grid.', src);
 put('.project-map/sourced.md', [
@@ -142,7 +143,7 @@ put('.project-map/sourced.md', [
   grid('inner', 'the PM (asked 2026-11-07)'),
   grid('quoted', 'the PM (answer to "the 2026-10-28 rule (grid): still on?"), 2026-11-18'),
   grid('unclosed', 'the PM, 2026-11-08 (from docs/grid.md'),
-  // 2q attempt 1's verifier: each file a wrong reading would take holds the quote, so a leak shows as a missing label
+  // the verifiers' shapes: each file a reading could take holds the quote, so a kept path shows as no label
   grid('titled', 'Record 16 (docs/grid.md), 2026-11-09'),
   grid('stray', 'the PM (1) said it in lib/run.mjs), 2026-11-10'),
   grid('fused', 'docs/guide(v2).md, 2026-11-11'),
@@ -157,15 +158,15 @@ put('.project-map/sourced.md', [
 const README = fs.readFileSync(path.join(repo, 'README.md'));
 for (const f of ['README.md', 'docs/guide.md', 'lib/run.mjs']) put(f, 'Spacing uses the four-pixel grid everywhere.\n');
 assert.equal(labels(repo, '.project-map/sourced.md'), '[project map] Labels on the entries of .project-map/sourced.md, in file order:\n'
-  + `1. mentioned: ${UNREVIEWED}; unverified quote, captured 2026-11-03\n2. section: ${UNREVIEWED}\n3. via: ${UNREVIEWED}\n`
-  + `4. trailing: ${UNREVIEWED}; unverified quote, captured 2026-11-06\n5. filename: ${UNREVIEWED}; unverified quote\n`
-  + `6. inner: ${UNREVIEWED}; unverified quote, captured 2026-11-07\n7. quoted: ${UNREVIEWED}; unverified quote, captured 2026-11-18\n`
-  + `8. unclosed: ${UNREVIEWED}; unverified quote, captured 2026-11-08\n9. titled: ${UNREVIEWED}\n`
-  + `10. stray: ${UNREVIEWED}; unverified quote, captured 2026-11-10\n11. fused: ${UNREVIEWED}; unverified quote, captured 2026-11-11\n`
-  + `12. url: ${UNREVIEWED}; unverified quote, captured 2026-11-12\n13. folder: ${UNREVIEWED}; unverified quote, captured 2026-11-13\n`
-  + `14. asked: ${UNREVIEWED}; unverified quote, captured 2026-11-14\n15. open quote: ${UNREVIEWED}; unverified quote, captured 2026-11-15\n`
+  + `1. mentioned: ${UNREVIEWED}; unverified quote\n2. section: ${UNREVIEWED}\n3. via: ${UNREVIEWED}\n`
+  + `4. trailing: ${UNREVIEWED}; unverified quote\n5. filename: ${UNREVIEWED}; unverified quote\n`
+  + `6. inner: ${UNREVIEWED}; unverified quote\n7. quoted: ${UNREVIEWED}; unverified quote, captured 2026-11-18\n`
+  + `8. unclosed: ${UNREVIEWED}\n9. titled: ${UNREVIEWED}; unverified quote, captured 2026-11-09\n`
+  + `10. stray: ${UNREVIEWED}\n11. fused: ${UNREVIEWED}; unverified quote, captured 2026-11-11\n`
+  + `12. url: ${UNREVIEWED}\n13. folder: ${UNREVIEWED}\n`
+  + `14. asked: ${UNREVIEWED}; unverified quote, captured 2026-11-14\n15. open quote: ${UNREVIEWED}\n`
   + `16. build tag: ${UNREVIEWED}; unverified quote\n17. range: ${UNREVIEWED}; unverified quote\n`
-  + `18. backslash: ${UNREVIEWED}; unverified quote, captured 2026-11-16\n${UNVERIFIED_NOTE}\n`);
+  + `18. backslash: ${UNREVIEWED}; not found word for word in grid.md; check it, captured 2026-11-16\n${UNVERIFIED_NOTE}\n`);
 fs.writeFileSync(path.join(repo, 'README.md'), README);
 fs.rmSync(path.join(repo, 'docs', 'guide.md'));
 fs.rmSync(path.join(repo, 'lib'), { recursive: true });
