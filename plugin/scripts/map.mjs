@@ -184,6 +184,10 @@ const foundIn = (quote, low) => quote.split(/…|\.\.\./).map(words).filter((w) 
 // is text Claude wrote, so only relative paths inside the repo count
 const sourcePath = (src) => (src.match(/[\w.-]+(?:\/[\w.-]+)*\.\w+/g) ?? []).map((p) => p.replace(/^\.\//, ''))
   .find((p) => (p.includes('/') || DOC.test(p)) && !p.split('/').includes('..'));
+// 06, 2q: the source's own words, without its parentheses, where a person's words may mention a file that is not their
+// source; an unclosed one runs to the end. A date stands alone: not inside a file name or a longer token
+const outer = (s) => { let t = s; while (t !== (t = t.replace(/\([^()]*\)/g, ''))); return t.replace(/\(.*$/, ''); };
+const DATE = /(?<![\w./-])(\d{4}-\d{2}-\d{2})(?![\w/-]|\.\w)/;
 // 06, 2n: an entry is shown when the output holds its heading line, a quote line with text, or any other line with
 // text that no other entry of the file holds (a shared source or when line does not say which entry was shown).
 // Runs of spaces and tabs count as one space on both sides, so filters that re-space the output still match.
@@ -223,9 +227,10 @@ export function labels(root, file, output) {
   const per = all.flatMap((b, i) => {
     if (!picked[i]) return [];
     const src = /^- source:(.*)$/m.exec(b)?.[1] ?? '';
-    const date = /(\d{4}-\d{2}-\d{2})\s*$/.exec(src)?.[1];
+    const own = outer(src);
+    const date = (DATE.exec(own) ?? DATE.exec(src))?.[1];
     const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
-    const at = sourcePath(src);
+    const at = sourcePath(own);
     const ls = held.has(b) ? [] : [UNREVIEWED];
     if (!at) ls.push(`unverified quote${date ? `, captured ${date}` : ''}`);
     else {

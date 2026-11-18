@@ -69,13 +69,16 @@ if (which === 'session-start') {
   const idx = index(root);
   const fit = startText(idx);
   const mapDir = path.join(root, MAP);
-  const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')).length : 0;
+  const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')) : [];
+  // 06, 2q: a map file git does not track keeps its entries labelled unreviewed until it is committed
+  const tracked = spawnSync('git', ['ls-files', '-z', '--', MAP], { cwd: root, encoding: 'utf8' }).stdout?.split('\0') ?? [];
+  const loose = mapFiles.filter((f) => !tracked.includes(`${MAP}/${f}`)).length;
   console.log([
     `Node ${process.version}${Number(process.versions.node.split('.')[0]) < 20 ? ': the project map needs Node 20 or later' : ''}`,
     gitVersion ?? 'git not found: the project map needs git',
     idx === null ? 'Not a git repository: the index lists the files git tracks, so it is empty here.'
       : `Index: ${fit.total ? idx.split('\n').slice(1, -1).reduce((n, l) => n + l.split(', ').length, 0) : 0} documents in ${fit.total} directories, ${Buffer.byteLength(idx)} bytes at session start.`,
     ...(fit.listed < fit.total ? [`Warning: session start is past the 10,000-character limit of one hook output, so it lists ${fit.listed} of the index's ${fit.total} directories.`] : []),
-    `Map: ${mapFiles} file(s) in ${MAP}/.`,
+    `Map: ${mapFiles.length} file(s) in ${MAP}/${loose ? `; ${loose} not committed, so their entries stay labelled "unreviewed" until they are` : ''}.`,
   ].join('\n'));
 }

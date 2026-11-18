@@ -61,8 +61,8 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// alpha.8: 2o, the unreviewed label by the repo's state (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), '02bc0eae190b', 'the product changed: record its hash with a new epoch (06)');
+// 2.0.2: 2q, the source's path and date read outside its parentheses (06); checked by this self-test, the smoke and CI
+assert.equal(product.digest('hex').slice(0, 12), '631345c67f8c', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -129,6 +129,31 @@ assert.equal(labels(repo, '.project-map/cited.md'), `[project map] Labels on the
   + `${UNVERIFIED_NOTE}\n`);
 put('docs/style.md', '# Style\n\nColours come from the theme tokens. No hex values anywhere.\n');
 assert.ok(labels(repo, '.project-map/cited.md').includes('1. verbatim: not found word for word in docs/style.md; check it, captured 2026-10-22'));
+
+// 06, 2q: the path from the source's own words, outside parentheses; the date that stands alone, outside them first
+put('docs/grid.md', '# Grid\n\nSpacing uses the four-pixel grid everywhere.\n');
+const grid = (area, src) => cited(area, 'Spacing uses the four-pixel grid.', src);
+put('.project-map/sourced.md', [
+  grid('mentioned', 'the lead developer, 2026-11-03 (after docs/grid.md, section 2)'),
+  grid('section', 'docs/grid.md (section 2), 2026-11-04'),
+  grid('via', 'the designer, via docs/grid.md, 2026-11-05'),
+  grid('trailing', 'the PM, 2026-11-06; asked again in the review'),
+  grid('filename', 'the lead developer, in the 2026-01-02-sync call'),
+  grid('inner', 'the PM (asked 2026-11-07)'),
+  grid('quoted', 'the PM (answer to "the 2026-10-28 rule (grid): still on?"), 2026-11-18'),
+  grid('unclosed', 'the PM, 2026-11-08 (from docs/grid.md'),
+].join('\n'));
+assert.equal(labels(repo, '.project-map/sourced.md'), '[project map] Labels on the entries of .project-map/sourced.md, in file order:\n'
+  + `1. mentioned: ${UNREVIEWED}; unverified quote, captured 2026-11-03\n2. section: ${UNREVIEWED}\n3. via: ${UNREVIEWED}\n`
+  + `4. trailing: ${UNREVIEWED}; unverified quote, captured 2026-11-06\n5. filename: ${UNREVIEWED}; unverified quote\n`
+  + `6. inner: ${UNREVIEWED}; unverified quote, captured 2026-11-07\n7. quoted: ${UNREVIEWED}; unverified quote, captured 2026-11-18\n`
+  + `8. unclosed: ${UNREVIEWED}; unverified quote, captured 2026-11-08\n${UNVERIFIED_NOTE}\n`);
+// and onboarding counts the map files git does not track
+const onboard = () => spawnSync('node', [HOOK, 'onboard'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo } }).stdout;
+assert.ok(onboard().includes('\nMap: 5 file(s) in .project-map/; 1 not committed, so their entries stay labelled "unreviewed" until they are.\n'));
+fs.rmSync(path.join(repo, '.project-map', 'sourced.md'));
+fs.rmSync(path.join(repo, 'docs', 'grid.md'));
+assert.ok(onboard().includes('\nMap: 4 file(s) in .project-map/.\n'));
 
 // each hook as a process, as Claude Code runs it
 const hook = (which, input, dir = repo) => {
