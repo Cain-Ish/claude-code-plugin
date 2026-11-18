@@ -70,8 +70,8 @@ if (which === 'session-start') {
   const fit = startText(idx);
   const mapDir = path.join(root, MAP);
   const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')) : [];
-  // 06, 2q: a map file git does not track keeps its entries labelled unreviewed until it is committed
-  const tracked = spawnSync('git', ['ls-files', '-z', '--', MAP], { cwd: root, encoding: 'utf8' }).stdout?.split('\0') ?? [];
+  // 06, 2q: a map file HEAD lacks keeps its entries labelled unreviewed until it is committed
+  const tracked = spawnSync('git', ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', MAP], { cwd: root, encoding: 'utf8' }).stdout?.split('\0') ?? [];
   const loose = mapFiles.filter((f) => !tracked.includes(`${MAP}/${f}`)).length;
   console.log([
     `Node ${process.version}${Number(process.versions.node.split('.')[0]) < 20 ? ': the project map needs Node 20 or later' : ''}`,

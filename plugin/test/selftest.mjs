@@ -62,7 +62,7 @@ walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 2.0.2: 2q, the source's path and date read outside its parentheses (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), '631345c67f8c', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '5963394b10e6', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -142,15 +142,39 @@ put('.project-map/sourced.md', [
   grid('inner', 'the PM (asked 2026-11-07)'),
   grid('quoted', 'the PM (answer to "the 2026-10-28 rule (grid): still on?"), 2026-11-18'),
   grid('unclosed', 'the PM, 2026-11-08 (from docs/grid.md'),
+  // 2q attempt 1's verifier: each file a wrong reading would take holds the quote, so a leak shows as a missing label
+  grid('titled', 'Record 16 (docs/grid.md), 2026-11-09'),
+  grid('stray', 'the PM (1) said it in lib/run.mjs), 2026-11-10'),
+  grid('fused', 'docs/guide(v2).md, 2026-11-11'),
+  grid('url', 'https://example.com/view?file=README.md, 2026-11-12'),
+  grid('folder', 'docs/(archive)/README.md, 2026-11-13'),
+  grid('asked', 'the PM asked "what changed after 2026-10-01?", 2026-11-14'),
+  grid('open quote', 'the PM (asked "why fn(" broke), recorded in lib/run.mjs, 2026-11-15'),
+  grid('build tag', 'the PM, on release 2.0.1+2026-10-01 notes'),
+  grid('range', 'the PM, commits 2026-10-01..2026-10-15 reviewed'),
+  grid('backslash', 'docs\\grid.md, 2026-11-16'),
 ].join('\n'));
+const README = fs.readFileSync(path.join(repo, 'README.md'));
+for (const f of ['README.md', 'docs/guide.md', 'lib/run.mjs']) put(f, 'Spacing uses the four-pixel grid everywhere.\n');
 assert.equal(labels(repo, '.project-map/sourced.md'), '[project map] Labels on the entries of .project-map/sourced.md, in file order:\n'
   + `1. mentioned: ${UNREVIEWED}; unverified quote, captured 2026-11-03\n2. section: ${UNREVIEWED}\n3. via: ${UNREVIEWED}\n`
   + `4. trailing: ${UNREVIEWED}; unverified quote, captured 2026-11-06\n5. filename: ${UNREVIEWED}; unverified quote\n`
   + `6. inner: ${UNREVIEWED}; unverified quote, captured 2026-11-07\n7. quoted: ${UNREVIEWED}; unverified quote, captured 2026-11-18\n`
-  + `8. unclosed: ${UNREVIEWED}; unverified quote, captured 2026-11-08\n${UNVERIFIED_NOTE}\n`);
-// and onboarding counts the map files git does not track
+  + `8. unclosed: ${UNREVIEWED}; unverified quote, captured 2026-11-08\n9. titled: ${UNREVIEWED}\n`
+  + `10. stray: ${UNREVIEWED}; unverified quote, captured 2026-11-10\n11. fused: ${UNREVIEWED}; unverified quote, captured 2026-11-11\n`
+  + `12. url: ${UNREVIEWED}; unverified quote, captured 2026-11-12\n13. folder: ${UNREVIEWED}; unverified quote, captured 2026-11-13\n`
+  + `14. asked: ${UNREVIEWED}; unverified quote, captured 2026-11-14\n15. open quote: ${UNREVIEWED}; unverified quote, captured 2026-11-15\n`
+  + `16. build tag: ${UNREVIEWED}; unverified quote\n17. range: ${UNREVIEWED}; unverified quote\n`
+  + `18. backslash: ${UNREVIEWED}; unverified quote, captured 2026-11-16\n${UNVERIFIED_NOTE}\n`);
+fs.writeFileSync(path.join(repo, 'README.md'), README);
+fs.rmSync(path.join(repo, 'docs', 'guide.md'));
+fs.rmSync(path.join(repo, 'lib'), { recursive: true });
+// and onboarding counts the map files HEAD lacks, staged ones too
 const onboard = () => spawnSync('node', [HOOK, 'onboard'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo } }).stdout;
 assert.ok(onboard().includes('\nMap: 5 file(s) in .project-map/; 1 not committed, so their entries stay labelled "unreviewed" until they are.\n'));
+git('add', '.project-map/sourced.md');
+assert.ok(onboard().includes('; 1 not committed, so'));
+git('rm', '-q', '--cached', '.project-map/sourced.md');
 fs.rmSync(path.join(repo, '.project-map', 'sourced.md'));
 fs.rmSync(path.join(repo, 'docs', 'grid.md'));
 assert.ok(onboard().includes('\nMap: 4 file(s) in .project-map/.\n'));
