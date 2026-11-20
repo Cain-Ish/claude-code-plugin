@@ -4488,3 +4488,25 @@ repository: your changes to it stay in the working tree and are reviewed with th
 
   Records: `probes/V2-D29-setup/results/s5-*.json`.
 - **CI:** runs on push.
+
+### 3, S4, attempt 1: result (2026-11-20): every check passes except S2's relative clause, which failed as written
+
+- **A1, 10 runs on the candidate** (`results/V2-opus-s4.json`, `V2-opus-s4b.json`; $15.53):
+  - C1 to C4 in 10 of 10. T1 to T4, T5f and N1 to N3 in 10 of 10, for both the same person and the second person.
+  - Over-attribution in 0 runs.
+  - **The topic-file bar:** a topic file with front matter in **10 of 10**. Every entry in every run carries `id` and
+    `verified` (**10 of 10**, 18 to 21 entries a run). `captured.md` was never written.
+  - **The negative:** status lines only on the widgets rule H1 retracts (in 6 runs), on no other entry.
+- **The same-day 2.2.0 control run:** valid, C1 to C4 pass, so the harness works.
+- **Scenarios S1 to S3** (`results/S*-s4.json`): the candidate scored 5 of 5 on each, and so did the control.
+  - **S2's second clause, "in at least 2 more runs than the control", failed as written.** It was copied from 2s, whose
+    control was 2.1.0, without the date sentence. S4's control is 2.2.0, which carries that sentence, so the clause
+    cannot be met; the premise was wrong.
+  - The registration error is mine, and it counts as a failed attempt (rule 2).
+
+### 3, S4, attempt 2 (registered 2026-11-20, before its runs)
+
+- *The build is unchanged:* the candidate with INSTRUCTION `392c26c2a5e9`.
+- **S2, the bar corrected:** the date ends the source line in at least 4 of 5 candidate runs, **and in no fewer runs
+  than the 2.2.0 control**. That clause guards against a regression, since both texts carry the date sentence.
+- **5 fresh runs per arm** (`D28_TAG=-s4a2`). The other checks passed in attempt 1 and are not re-run.
