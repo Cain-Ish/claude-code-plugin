@@ -4369,3 +4369,53 @@ repository: your changes to it stay in the working tree and are reviewed with th
 - **Attribution, fixed now:**
   - a miss on C1 to C4, on the topic-file bar or on S1 and S2 implicates the new text;
   - a miss on T or N items implicates neither text alone, and is judged against the control.
+
+### 3, S5: setup, the templates, the three project agents (registered 2026-11-20, before the code)
+
+- **The surface.**
+  - A plugin skill, `/second-brain:setup` (`disable-model-invocation: true`). Its `` !` `` line runs
+    `node scripts/hook.mjs setup`.
+  - `scripts/setup.mjs` copies `plugin/templates/` into the repo, creating each file with `wx`. It **never modifies a
+    file that exists**: this step's bar is strict, and D29's table, which appended a block to an existing
+    `CLAUDE.md`, is read through it. For an existing `CLAUDE.md` or `.gitattributes`, the report gives the line to
+    add. The skill body then asks the user, and Claude adds it with an ordinary, visible edit only when they agree.
+- **The templates** (D29's table):
+  - `CLAUDE.md`: under 40 lines, from Anthropic's include list, with a pointer to the team memory. The skill body
+    asks Claude to fill its commands from the repo's build files, and to drop any line it cannot fill;
+  - `.claude/rules/project-map.md`: `paths: [".project-map/**"]`, the entry format, and the "proposed" rule;
+  - `.claude/skills/map-review/SKILL.md`: `disable-model-invocation: true`. It reviews proposals (accept: the
+    `proposed:` line becomes `origin:` plus `verified: … accepted in review`), drafts (promote: rename
+    `*.md.draft` to `*.md`), and due entries;
+  - `.claude/agents/decision-checker.md`, `codebase-guide.md` and `memory-curator.md`: `memory: project`, no Bash
+    (P6c), each told where it may write (P6);
+  - `.project-map/README.md`, `.project-map/decisions.md` (front matter, no entries) and `.project-map/dreams.md`
+    (the log's header);
+  - `.gitattributes`: `.project-map/dreams.md merge=union`, only when no `.gitattributes` exists.
+- **Guards:**
+  - setup refuses writes under a `.claude/` that resolves outside the repo;
+  - it warns when auto memory is off (in user, project or local settings, or in the environment), because
+    `memory: project` then does nothing;
+  - it reports what it created, skipped and left to the user.
+- **Checks:**
+  1. *Self-test, five repo shapes:*
+     - empty;
+     - an existing `CLAUDE.md`;
+     - an existing `.claude/` with a `decision-checker.md` of the user's own;
+     - a dirty tree;
+     - a linked worktree.
+
+     **Pass:** every file that existed has the same sha256 afterwards; every template that did not exist is
+     created; a second run creates nothing and changes nothing.
+  2. *Smoke,* pinned CLI 2.1.305, in a temp repo after setup:
+     - the starter rule loads only when a map file is touched;
+     - the skill's description is not in the listing;
+     - `claude agents` lists the three agents.
+  3. *The agents' outcomes* (PM6), Opus 5.5, 5 runs each, as registered in section 3 and its S0 result:
+     - decision-checker flags a change that breaks a committed entry in at least 4 of 5, and treats a `proposed:`
+       entry as a proposal in 5 of 5;
+     - codebase-guide answers a repeated where-is question with fewer tool calls than its first answer, in at least
+       3 of 5;
+     - memory-curator flags a due entry and a duplicate, changes a committed claim in 0 of 5, and writes only
+       uncommitted edits;
+     - each agent writes outside its memory folder (memory-curator: outside the map) in 0 of 5.
+  4. *CI* on three systems.
