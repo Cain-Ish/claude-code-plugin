@@ -5042,3 +5042,21 @@ This is the acceptance check's first strike of three.
     delegation, or should the checker be one the user invokes?
 - **Then attempt 2:** 5 new counted runs, in a new scratch folder, on a CI-green candidate. S7's check 2 is not
   re-run: neither arm changes `dream.mjs`, the dream skill or the analyzer.
+
+**The focused probe's result** (`results/s8-agent-probe-{control,C,AC}.json`; $7.3):
+
+| Arm | Delegated | Named | Tool calls before the Agent call |
+|---|---|---|---|
+| control | 9 of 10 | 10 of 10 | 0 in 8 runs; the run that read 5 files first answered itself |
+| C | **10 of 10** | 10 of 10 | 3 to 5 in every run, and it still delegated |
+| AC | 10 of 10 | 10 of 10 | 2 to 4 |
+
+- **By the registered rule, C qualifies and is the smaller change, so C goes in:** the `CLAUDE.md` template's pointer
+  now says to hand a check to `decision-checker` even after reading the map, and why. Product hash `a4a4a64f5099`.
+  AC is not adopted. Its index change stays a candidate for a later release, with the hook-step checks it needs.
+- **What the probe shows, and what it does not:**
+  - The control arm also reached 9 of 10 here, mostly by delegating before reading anything. So this setting does
+    not reproduce attempt 1's rate, and the probe cannot say how often attempt 2 will delegate.
+  - It does show C holding delegation through attempt 1's failure pattern: in C, Claude read 3 to 5 files first and
+    still delegated in 10 of 10.
+  - Attempt 2 decides.
