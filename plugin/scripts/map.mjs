@@ -248,6 +248,18 @@ export function labels(root, file, output) {
   const picked = all.map((b, i) => !seen || !held.has(b) || seen[i]);
   const docs = new Map();
   const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
+  // 06, section 3, S3 (D30): the ids every map file holds, read only when a status line names one
+  let ids;
+  const mapIds = () => {
+    if (!ids) {
+      ids = new Set();
+      try { for (const f of under(root, MAP).filter((p) => p.endsWith('.md') && !p.includes('/.dream-run/'))) for (const m of decode(fs.readFileSync(path.join(root, f))).matchAll(/^- id:[ \t]*(\S+)[ \t]*\r?$/gm)) ids.add(m[1]); } catch {}
+    }
+    return ids;
+  };
+  // the user's local date, so a review date passes when their day ends (agy's S3 round)
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   // 06, 2p: a committed entry whose only label is "unverified quote" joins one line of ranges (D16's content kept)
   const plain = [];
   const per = all.flatMap((b, i) => {
@@ -262,6 +274,16 @@ export function labels(root, file, output) {
     const status = /^- status:[ \t]*(\S.*)$/m.exec(b)?.[1].trim();
     const cut = status?.lastIndexOf(' ', 60);
     if (status) ls.push(`status: ${status.length <= 60 ? status : `${status.slice(0, cut > 0 ? cut : 60)}…`}`);
+    // 06, section 3, S3 (D30): lines no 2.2.0 map holds. A dream's proposal until review accepts it; a review date
+    // that has passed; a status line naming an id that no map file holds, in a map that has ids at all
+    const proposed = /^- proposed:[ \t]*dream[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$/m.exec(b)?.[1];
+    if (proposed) ls.push(`proposed by a dream ${proposed}, not yet accepted`);
+    const review = /^- review:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/m.exec(b)?.[1];
+    if (review && review < today) ls.push(`review due since ${review}`);
+    // an id stands right after the status line's kind and date, and holds a digit or a hyphen, so free text such as
+    // "done 2026-11-18 by hand" or a note "… off by default" never reads as one (agy's S3 round)
+    const by = status && /^\S+[ \t]+\d{4}-\d{2}-\d{2}[ \t]+by[ \t]+((?=[\w.-]*[\d-])[A-Za-z0-9][\w.-]*)[ \t]*(?::|$)/.exec(status)?.[1];
+    if (by && mapIds().size && !mapIds().has(by)) ls.push(`replaced by ${by}, which the map does not hold`);
     if (!at) ls.push(`unverified quote${date ? `, captured ${date}` : ''}`);
     else {
       // a source that exists but cannot be read gets its own label, so one locked file costs no other entry its label

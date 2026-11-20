@@ -63,7 +63,7 @@ const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey; every hook's output
 // byte-identical to 2.2.0 (ee8625f06842), checked by probes/V2-D30-entries/diff.mjs
-assert.equal(product.digest('hex').slice(0, 12), '6672b7f811f8', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '844fe48349d8', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -746,6 +746,74 @@ ${NAME}` } });
   assert.notEqual(repoKey(path.join(tmp, 'foo-bar')), repoKey(path.join(tmp, 'foo_bar')));
   assert.notEqual(repoKey(r), repoKey(repo));
   assert.throws(() => gitDir(path.join(tmp, 'nowhere')));
+}
+
+// 06, section 3, S3 (D30): the proposed, review-due and missing-id states, from lines no 2.2.0 map holds
+{
+  const r = path.join(tmp, 's3');
+  fs.mkdirSync(path.join(r, '.project-map'), { recursive: true });
+  const g = (...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: r, encoding: 'utf8' }); assert.equal(x.status, 0, x.stderr); };
+  const e3 = (area, extra) => `### ${area}\n> Spacing uses the four-pixel grid.\n\n- source: the lead developer, 2026-11-01\n- when: ["ui"]\n${extra}`;
+  const F = '.project-map/decisions.md';
+  const write = (s) => fs.writeFileSync(path.join(r, F), s);
+  g('init', '-q');
+  write([
+    e3('a', '- id: grid-a\n- proposed: dream 2026-11-19\n'),
+    e3('b', '- id: grid-b\n- review: 2000-01-01\n'),
+    e3('c', '- id: grid-c\n- review: 2999-01-01\n'),
+    e3('d', '- id: grid-d\n- status: superseded 2026-11-19 by grid-b: nothing\n'),
+    e3('e', '- id: grid-e\n- status: superseded 2026-11-19 by grid-zz: nothing\n'),
+    e3('f', '- id: grid-f\n- verified: 2026-11-19 restated by the lead developer\n- origin: dream 2026-11-18\n'),
+  ].join('\n'));
+  // uncommitted: every entry unreviewed, and each new state beside it
+  const L = labels(r, F);
+  assert.ok(L.includes(`1. a: ${UNREVIEWED}; proposed by a dream 2026-11-19, not yet accepted; unverified quote, captured 2026-11-01\n`), L);
+  assert.ok(L.includes(`2. b: ${UNREVIEWED}; review due since 2000-01-01; unverified quote, captured 2026-11-01\n`), L);
+  assert.ok(L.includes(`3. c: ${UNREVIEWED}; unverified quote, captured 2026-11-01\n`), L);
+  assert.ok(L.includes(`4. d: ${UNREVIEWED}; status: superseded 2026-11-19 by grid-b: nothing; unverified quote, captured 2026-11-01\n`), L);
+  assert.ok(L.includes(`5. e: ${UNREVIEWED}; status: superseded 2026-11-19 by grid-zz: nothing; replaced by grid-zz, which the map does not hold; unverified quote, captured 2026-11-01\n`), L);
+  assert.ok(L.includes(`6. f: ${UNREVIEWED}; unverified quote, captured 2026-11-01\n`), L);
+  // committed: the proposal still says so; a future review date and an id that resolves add nothing; verified and
+  // origin add nothing, so f joins the grouped line
+  g('add', '-A');
+  g('commit', '-q', '-m', 's3');
+  const C = labels(r, F);
+  assert.equal(C, `[project map] Labels on the entries of ${F}, in file order:\n`
+    + 'unverified quote, committed: entries 3 (captured 2026-11-01), 6 (captured 2026-11-01)\n'
+    + '1. a: proposed by a dream 2026-11-19, not yet accepted; unverified quote, captured 2026-11-01\n'
+    + '2. b: review due since 2000-01-01; unverified quote, captured 2026-11-01\n'
+    + '4. d: status: superseded 2026-11-19 by grid-b: nothing; unverified quote, captured 2026-11-01\n'
+    + '5. e: status: superseded 2026-11-19 by grid-zz: nothing; replaced by grid-zz, which the map does not hold; unverified quote, captured 2026-11-01\n'
+    + `${UNVERIFIED_NOTE}\n`);
+  // an id another map file holds resolves; an id only in the dream's run folder does not
+  fs.writeFileSync(path.join(r, '.project-map', 'other.md'), e3('z', '- id: grid-zz\n'));
+  assert.ok(!labels(r, F).includes('replaced by grid-zz'));
+  fs.rmSync(path.join(r, '.project-map', 'other.md'));
+  fs.mkdirSync(path.join(r, '.project-map', '.dream-run', 'proposals'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.project-map', '.dream-run', 'proposals', 'x.md'), e3('z', '- id: grid-zz\n'));
+  assert.ok(labels(r, F).includes('replaced by grid-zz, which the map does not hold'));
+  // a map with no ids keeps 2.2.0's labels for any "by" form, the field's free text included
+  write([e3('p', '- status: superseded 2026-11-19 by the PM: nothing\n'), e3('q', '- status: done 2026-11-19 by grid-zz\n')].join('\n'));
+  const N = labels(r, F);
+  assert.ok(!N.includes('which the map does not hold'), N);
+  // agy's S3 round, in a map that has ids: free text after "by" is never an id; an id with capitals and digits is one;
+  // a proposed line with trailing text is not a proposal
+  write([
+    e3('h', '- id: grid-h\n- status: done 2026-11-18 by hand\n'),
+    e3('i', '- id: grid-i\n- status: narrowed 2026-11-18 by "x": off by default\n'),
+    e3('j', '- id: grid-j\n- status: superseded 2026-11-18 by D31: the new one\n'),
+    e3('k', '- id: grid-k\n- proposed: dream 2026-11-18-draft\n'),
+  ].join('\n'));
+  const A = labels(r, F);
+  assert.ok(!/replaced by (hand|default|x)\b/.test(A), A);
+  assert.ok(A.includes('replaced by D31, which the map does not hold'), A);
+  assert.ok(!A.includes('proposed by a dream'), A);
+  // a Bash output that shows a proposed entry carries the state
+  write(e3('a', '- id: grid-a\n- proposed: dream 2026-11-19\n'));
+  g('add', '-A');
+  g('commit', '-q', '-m', 's3b');
+  const out = hook('bash', { tool_input: { command: `cat ${F}` }, tool_response: { stdout: fs.readFileSync(path.join(r, F), 'utf8'), stderr: '', interrupted: false, isImage: false } }, r);
+  assert.ok(out.includes('1. a: proposed by a dream 2026-11-19, not yet accepted'), out);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

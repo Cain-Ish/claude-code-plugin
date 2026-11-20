@@ -4231,3 +4231,63 @@ them.
      - a cut that fails open.
   - *Not run:* A1 and the bench, since no frozen text changes and the work per entry is a few regexes. Both are
     stated gaps.
+
+### 3, S3: result (2026-11-20): pass
+
+- **The change.** `labels()` gives three new states, each only from lines no 2.2.0 map holds:
+  - `proposed by a dream <date>, not yet accepted`;
+  - `review due since <date>`, by the user's local date;
+  - `replaced by <id>, which the map does not hold`.
+- **The checks:**
+  1. *Self-test:* passes, with every case registered and agy's inputs added. Product hash `844fe48349d8`.
+  2. *Byte identity on 2.2.0 entries:* 3 seeds × 40 repos, 1,062 hook calls, **0 differences**.
+  3. *The format-3 fuzz:* 2 seeds × 200 maps, 800 label outputs (258 cut past the cap), **0 failures**.
+  4. *CI:* runs on push.
+  5. *The agy round* (Gemini 4 Argon, refute-first). It found three breaks of this step's own bar, all fixed, each
+     with a self-test case:
+     - `by <word>` read free text as an id (`done … by hand`, a note ending "off by default"). The id must now follow
+       the status line's date and hold a digit or a hyphen;
+     - `today` used UTC, so a review could fall due a day early west of UTC. It now uses the local date;
+     - `proposed:` accepted trailing text after the date. It is now anchored.
+
+     Two claims did not hold on inspection:
+     - CRLF on `review:`: `entries()` strips `\r` before the match;
+     - backslash paths in the run-folder exclusion: `under()` always joins with `/`.
+- *Not run, as registered:* A1 and the bench. These are stated gaps.
+
+### 3, S8 gains the user's end-to-end acceptance check (registered 2026-11-20, before S8's code)
+
+The user (2026-11-20): "make sure that plugin installed in claude and runned in new project will pass the researched
+best approach and will keep claude to be aware of them and use them".
+
+**Route.** The release candidate is installed as a user installs it: the marketplace route from a local clone of the
+tag, into an isolated `CLAUDE_CONFIG_DIR`, in a **brand-new repo** (a small app with no `CLAUDE.md` and no
+`.claude/`). The pinned CLI runs on Opus 5.5, 5 runs.
+
+**Pass, all of:**
+1. *Layout:* `/second-brain:setup` creates every file of D29's table, with Anthropic's rules met:
+   - `CLAUDE.md` under 200 lines;
+   - every rule scoped by `paths:`;
+   - the skill with `disable-model-invocation: true`;
+   - three agents with `memory: project`;
+   - the team memory's README and first topic file with front matter.
+
+   A second run creates nothing. In 5 of 5.
+2. *Aware:* in a fresh session after setup, asked "Where does this project keep its decisions, and how should you
+   record a new one?", Claude names `.project-map/` and the entry format. In at least 4 of 5.
+3. *Capture used:* a session where the user states a project decision in passing writes it into a topic file, with
+   `id`, `source` and `verified`. In at least 4 of 5.
+4. *Rule used:* the starter rule loads when a map file is touched (`InstructionsLoaded` or the transcript). In
+   5 of 5.
+5. *Agent used:* asked to check a change against the project's decisions, Claude uses `decision-checker` and names
+   the entry it checked. In at least 4 of 5.
+6. *Dream loop:* after three sessions that state decisions with capture off, `/second-brain:dream` proposes them:
+   - its map entries carry `proposed:`;
+   - a draft rule lands as `*.md.draft`, never loaded;
+   - the next session's labels show "proposed by a dream".
+
+   In at least 4 of 5.
+7. *Nudge:* with 10 synthetic sessions past the watermark, session start shows the due line in `systemMessage`, and
+   it is absent from Claude's context. In 5 of 5.
+
+Each item, with its count, goes into S8's result.
