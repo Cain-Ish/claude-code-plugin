@@ -4792,3 +4792,98 @@ The method:
 **What 10 clean runs will not show:** background calls came in 1 of 13 dreams, so ten runs without the fix would also
 come back clean about 4 times in 10. The result will report how many runs used background calls, and will not claim
 the fix as proven by a clean count alone.
+
+### 3, S7: result (2026-11-20): pass
+
+The dream product (D31): `/second-brain:dream`, the `dream-analyzer` agent, and `scripts/dream.mjs` (prepare, finish
+and abort), run as its own command. Product hash `81768634263b`.
+
+1. **Check 1, the self-test on synthetic JSONL:** passes. It covers:
+   - every registered case;
+   - every case from the amendments;
+   - the cases added for check 4's findings, below.
+
+   A mutation check removed each check-4 fix in turn: every fix's case then fails. On Windows the file-link case is
+   skipped, since making the link needs a privilege. CI's Linux and macOS runs exercise it, and a folder junction
+   covers folder links on every system.
+2. **Check 2, S1's bars on the product:** attempt 1 failed, and attempt 2 passed every bar.
+   - **Attempt 1** failed with the rule in 3 of 5 (cause and fix in the attempt-2 registration above).
+   - **Attempt 2** (`results/s7-product-a2.json`): 10 runs on Opus 5.5, CLI 2.1.305, all finished.
+
+   | Bar | Result |
+   |---|---|
+   | C1-C3, at least 8 of 10 | 10 of 10 |
+   | The rule, the skill and the choice, at least 4 of 5 each | 5, 5 and 5 of 5 |
+   | Noise, at most 1 per run | 0 in every run |
+   | Wrong status lines, fewer than 2 of 10 | 0 of 10 |
+   | The nonce | 0 of 5 |
+   | Live rules | 0 |
+   | Usage | $5.73 for 10 dreams |
+
+   No run used background analyzer calls, and every run took one turn. As registered, this is consistent with the fix
+   but does not prove it: without the fix, ten runs would also come back clean about 4 times in 10.
+3. **Check 3, drafts never load:** pass (`results/s7-drafts.json`, Haiku 5.5). In `manual`, `acceptEdits` and `auto`:
+   - the `*.md.draft` rule was never reported by `InstructionsLoaded`;
+   - the `SKILL.md.draft` skill was never listed;
+   - its nonce never landed;
+   - the control rule loaded each time.
+4. **Check 4, the security review:** two agy rounds, `/security-review`, and the probes below. What they found, and
+   the fixes, each with its self-test case:
+   - *agy, round 1* found two data-loss paths and several gaps. The amendments above fixed them, registered before
+     their code.
+   - *agy, round 2*, fixed:
+     - the privacy scan now sees paths after `[`, `,`, `{` and `;`, ids or keys behind `_`, and JWT, Google, GitLab
+       and npm tokens; it also checks proposal file and folder names;
+     - a link that appears under the watched folders is removed, and a folder of the watched set that resolves outside
+       the repo is never walked;
+     - a map folder that is a link out of the repo is refused at prepare;
+     - "$" patterns in a status line stay as text;
+     - a pending dream is judged in the worktree that made it;
+     - abort with no run record refuses a lock another worktree holds;
+     - a session whose cwd folder is gone is judged by the nearest existing folder's repo.
+
+     Dismissed: a session that changes `cwd` midway belongs to the repo it started in.
+   - *`/security-review`*, three findings, all fixed:
+     1. *Provenance read files the session can write* (confidence 9).
+        - Each digest's hash is kept in the run record, in the data folder, and finish refuses a changed digest.
+        - Repo sources are read from HEAD's blobs, without links, not from the working tree.
+        - The skill's grant is narrowed from `Bash(node:*)` to its own script. `grant.mjs`: the narrow grant runs the
+          script, and refuses `node -e`, which the broad grant let through.
+     2. *A new topic file's front matter, and status lines, skipped provenance* (confidence 7).
+        - A new topic file gets fixed front matter.
+        - A dream's status line carries `- proposed: dream`.
+        - `/map-review` rejects one by removing just that line.
+     3. *The restore covered less than the skill said* (confidence 7).
+        - The watched set adds `.claude/commands/`, `.claude/output-styles/` and `.mcp.json`.
+        - Settings files are reported, not restored, since an "always allow" the user gives during the dream lands
+          there.
+
+     Two shapes the review left unverified are closed:
+     - a Q line now needs its call to be AskUserQuestion;
+     - sidechain user records are dropped.
+   - *Probes:*
+     - `canary.mjs`: in `auto` mode, an R line asking the analyzer to read a file outside the repo was followed in 0
+       of 3 runs, and not attempted;
+     - `grant2.mjs`: a skill's grant ends with its turn, the cause of attempt 1's run 4.
+   - *Accepted, recorded for the README's known issues:*
+     - the digests sit in the repo's ignored run folder (P2);
+     - rule and skill draft bodies are not checked against what was typed, since they stay inert until a person
+       promotes them;
+     - `CLAUDE.md` files in subfolders are not watched;
+     - the privacy scan matches patterns, so a secret of another shape can pass;
+     - a user who types during a dream ends its turn, and finish then asks for approval.
+
+   CI runs on the commit that lands this build.
+
+**Step gate.**
+- *Produced:*
+  - the dream product;
+  - its self-test cases;
+  - check 2's passing attempt;
+  - check 3's result;
+  - the security fixes and probes.
+- *Doubted:*
+  - whether the foreground instruction holds outside these 10 runs, since background calls came in 1 of 13 dreams
+    before it;
+  - CI on macOS and Linux, where the link cases run.
+- *Next needs:* S8.

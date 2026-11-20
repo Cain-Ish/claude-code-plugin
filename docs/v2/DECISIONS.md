@@ -34,7 +34,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18; LOCKED 2026-11-18 on (LIN), by the user's delegation: the labels read a status line (06 2r), the instruction asks for it and the naming line skips an ended entry (2s); REOPENED 2026-11-20 (the user's redesign, 06's section 3) | user | D13, D14, D16, D23 |
 | V2-D29 | Setup: what does the plugin create in a new or existing repo, and with which guardrails? | OPEN 2026-11-20 (the user's choices recorded; S5 checks them) | user + evidence | D10, D11, D15 |
 | V2-D30 | Versioned entries: how does the map record versions, and tell stale memory from current? | OPEN 2026-11-20 (S3, S4 and S6 check it) | user + evidence | D13, D16, D28 |
-| V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product) | user + evidence | D14, D18, PM1, PM5 |
+| V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4) | user + evidence | D14, D18, PM1, PM5 |
 | V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it) | user + evidence | D18, D31 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
@@ -5041,6 +5041,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - $5.32 for 10 dreams.
 
   PM1 is met for the dream, so it is built in S7. D31 stays OPEN until S7 passes.
+- **S7 passed (2026-11-20; 06, section 3, S7: result).** The dream product met S1's bars at its second attempt: C1-C3 10 of 10; the rule, the skill draft and the choice 5 of 5 each; noise 0; wrong status lines 0; the nonce 0 of 5; .73 for 10 dreams. Attempt 1 failed (the rule 3 of 5): one run's analyzers ran in the background, the turn ended, and the finish command lost the skill's grant, which lasts one turn. The skill now keeps every step in one turn. Drafts never loaded in three modes. The security review (two agy rounds, /security-review, the canary and grant probes) ended in the fixes listed in 06; its accepted risks go to the README.
+- **Status:** LOCKED 2026-11-20. Reopens if Claude Code changes its transcript format, the skill grant's lifetime or what it loads from .claude/, or if a dream ever lands text from an R line or an untracked file.
 
 ### V2-D32 — Dream tracking and the due nudge
 - **Question:** how does the plugin know when the last dream ran, when memory last changed, and when a dream is due,

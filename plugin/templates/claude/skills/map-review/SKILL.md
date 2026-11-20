@@ -12,6 +12,8 @@ Work through each list with the user, one item at a time. Done when every list i
    - Accept: replace the line with `- origin: dream <date>` and add `- verified: <today> accepted in review`.
    - Reject: delete the entry if it is not yet committed. If it is committed, add
      `- status: expired <today> by review: rejected`.
+   - A committed entry that a dream gave a `- status:` line is a proposal about that line only. Accept: replace the
+     `proposed` line as above. Reject: delete the status line and the `proposed` line, and leave the entry as it was.
 2. **Drafts.** Files named `.claude/rules/*.md.draft` and `.claude/skills/*/SKILL.md.draft`. Show each one.
    - Promote: rename it without `.draft`. Claude Code loads it from the next session.
    - Discard: delete it.
