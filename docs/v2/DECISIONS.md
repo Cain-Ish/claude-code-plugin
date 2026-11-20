@@ -557,6 +557,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - the first slice's eval shows a captured entry read and not followed, which would be a question of form;
     - Claude Code adds a native format for a project's shared memory.
 - **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the map becomes topic files with `name` and `description` front matter, holding versioned entries (`id`, `verified`, `review`, `origin`). `captured.md` stays valid (D30). Re-locks when S3 and S4 pass.
+- **Re-LOCKED 2026-11-20 on topic files with versioned entries** (06, section 3). S3 passed: the new states, and 2.2.0 entries byte-identical in 1,062 hook calls. S4 passed: A1 at every bar, a topic file in 10 of 10 runs, and `id` and `verified` on every entry. *Reopen if:* a topic-file map loses a capture item that `captured.md` kept, in the eval or the field.
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
@@ -1616,6 +1617,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   instruction's new sentences change where the date and the status go, not how a quote is re-found. 2s's A1 runs pass
   C1 to C4 in 20 of 20.
 - **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: freshness gains a dated `verified` line, a `review` date, and a status report of sources changed since their verified date (D30). Its trigger "the capture instruction changes" fires again in S4. Re-locks when S3 and S4 pass.
+- **Re-LOCKED 2026-11-20** (06, section 3). Its trigger "the capture instruction changes" fired again with S4. The re-find is unchanged, and the new `verified`, `review` and `proposed` lines (S3) add states without changing a re-find. The A1 scenarios pass at 2s's bars. *Reopen if:* the triggers above.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
@@ -4998,6 +5000,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Why:* project agents cannot see git. P6c showed that `tools: Bash(git diff:*)` does not limit Bash, so the agents
     get no Bash. Grep and Bash reads get no labels either. So the file itself must say what is still a proposal.
   - The read hook's "proposed by a dream" state keys on that line.
+- **S3 and S4 passed (2026-11-20).** The states are in the read hook, and capture v3 writes topic files whose entries carry `id` and `verified`. D30 stays OPEN until S6 (the catalog) and S8 (the status report) pass.
 
 ### V2-D31 — The dream
 - **Question:** how does an on-demand run over this repo's past sessions improve the map (missed decisions, repeated

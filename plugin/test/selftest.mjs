@@ -13,8 +13,8 @@ const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
 
 // the texts, as the ledger fixed them (06, 2s: INSTRUCTION 8aa72396af72 at 904 bytes until 2.1.0, kept line for line)
-assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), 'bd491ace7f2f');
-assert.equal(Buffer.byteLength(INSTRUCTION), 1349);
+assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '392c26c2a5e9');
+assert.equal(Buffer.byteLength(INSTRUCTION), 1765);
 assert.equal(Buffer.byteLength(FORCE), 227);
 assert.equal(HEADER, "IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any task in this project. This project's documents, by directory:");
 assert.equal(UNREVIEWED, 'unreviewed, not yet committed');
@@ -66,7 +66,7 @@ const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey; every hook's output
 // byte-identical to 2.2.0 (ee8625f06842), checked by probes/V2-D30-entries/diff.mjs
-assert.equal(product.digest('hex').slice(0, 12), '8a03cece2265', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '95fa7c3f71f7', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));

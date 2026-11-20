@@ -4510,3 +4510,10 @@ repository: your changes to it stay in the working tree and are reviewed with th
 - **S2, the bar corrected:** the date ends the source line in at least 4 of 5 candidate runs, **and in no fewer runs
   than the 2.2.0 control**. That clause guards against a regression, since both texts carry the date sentence.
 - **5 fresh runs per arm** (`D28_TAG=-s4a2`). The other checks passed in attempt 1 and are not re-run.
+
+### 3, S4, attempt 2: result (2026-11-20): pass
+
+- **S2,** 5 fresh runs per arm (`results/S2-s4a2.json`): the date ends the source line in **5 of 5** candidate runs, and
+  in 5 of 5 for the control. That is at least 4, and no fewer than the control.
+- **S4 passes.** Capture v3 (`392c26c2a5e9`) is in `plugin/`. Product hash `95fa7c3f71f7`. D13 and D16 re-lock on S3's
+  and S4's passes (the records).

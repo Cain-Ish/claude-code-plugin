@@ -8,24 +8,36 @@ import { spawnSync } from 'node:child_process';
 
 export const MAP = '.project-map';
 
-// D14's capture instruction, frozen: its sha256 is in the ledger. 06, 2s added three sentences and the status line
-// (G4, B2, D28's I), each old line kept in order; A1's V2 arm ran on this text
+// D14's capture instruction, frozen: its sha256 is in the ledger. 06, section 3, S4: new entries go to topic files
+// with front matter, and carry id and verified lines; a review line where a decision is time-bound; status lines
+// name the new entry's id
 export const INSTRUCTION = `This project keeps a map of its knowledge in the folder .project-map/. When, during your work, someone states a
 decision or rule for this project, or you receive or read a document that states requirements, specifications or
-rules the project's work must follow, add each one to .project-map/captured.md as its own entry, in the words used,
-with its source. Keep what will still matter in later sessions; leave out one-off details of the current task.
+rules the project's work must follow, add each one as its own entry, in the words used, with its source, to the
+topic file in .project-map/ that covers its area. If none fits, create one named for the area, such as avatars.md,
+that starts with this front matter:
+
+---
+name: <the area>
+description: <what it covers, and when to read it>
+---
+
+Keep what will still matter in later sessions; leave out one-off details of the current task.
 Decisions and rules for this project belong in this map, not in your auto memory, which is for your own way of working.
 Entry format:
 
 ### <the part of the project it governs>
 > <the decision, rule or requirement, in the words used>
 
+- id: <a short unique slug, such as avatars-local-only>
 - source: <who stated it, or the document's title or path>, <date>
 - when: ["<kind of work it applies to>", "..."]
+- verified: <YYYY-MM-DD> <how you know it holds, such as "stated by the PM">
 
 End the source line with the date, as YYYY-MM-DD; put any other detail in parentheses before it.
+If a decision holds only until a known date, add the line: - review: <YYYY-MM-DD>
 When a new entry replaces, narrows or ends an existing one, keep the old entry and add this line under its when line:
-- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by "<the new entry's heading>": <what still holds>
+- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by <the new entry's id>: <what still holds>
 
 Never write session ids, email addresses or absolute file paths into an entry. The map is plain files in this
 repository: your changes to it stay in the working tree and are reviewed with the commit, like any other change.`;
