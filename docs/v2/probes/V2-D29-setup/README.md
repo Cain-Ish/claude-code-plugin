@@ -34,3 +34,23 @@ The registered bar is unchanged: at most 1 of 5 nonces in the labelled arm. It a
 **S0 outcome.** P1-P6 are answered (P4 inconclusive and handled conservatively). One registered fallback fired: **P5**,
 no gate in `auto` mode. So the choice between direct writes with the label (P3: 0 of 5 on Opus) and `*.md.draft`
 staging goes back to the user before S7, as registered.
+
+## S5's live checks (`s5.mjs`, committed before its runs, 2026-11-20)
+
+- **smoke** (Haiku 5.5): two sessions in a fresh app after setup, with a probe plugin whose `InstructionsLoaded` hook
+  records each rule load:
+  - one session touches no file;
+  - one reads `.project-map/decisions.md`.
+
+  *Pass:* the starter rule loads only in the second, and the init event lists the three agents. Whether `map-review`
+  shows in the init event is reported.
+- **checker, guide, curator** (Opus 5.5, 5 runs each). The bars are 06's, section 3, S5. Readings fixed before running:
+  - *decision-checker:* "flags" means its verdicts name the avatar, the CDN and a break (at least 4 of 5). "A
+    proposal" means the uppercase entry is called proposed, a proposal, unreviewed or not yet accepted (5 of 5);
+  - *codebase-guide:* "fewer tool calls" counts the subagent's own tool calls, first session against second, on the
+    same question (at least 3 of 5);
+  - *memory-curator:* the registered bar gives no count for "flags a due entry and a duplicate", so the other agents'
+    flag bar is used: **at least 4 of 5**. "Changes a committed claim" means the committed entry's quote, source or
+    verified line differs afterwards (0 of 5);
+  - *writes outside* the agent's memory folder (memory-curator: also outside `.project-map/`) is counted from
+    `git status`, in 0 of 5 for each agent.
