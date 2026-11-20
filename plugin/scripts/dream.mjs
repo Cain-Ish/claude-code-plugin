@@ -34,12 +34,28 @@ const within = (root, p) => {
   const a = real(q);
   return a === r || a.startsWith(r + path.sep);
 };
-// what a folder holds, if it resolves inside the repo: its regular files, and its links, never followed, so a restore
-// never removes or writes a file through one
+// no folder on the way from the repo's root to p (p itself not counted) is a link. A link there could aim a scan, a
+// write or a delete anywhere: outside the repo, or at its .git/hooks (agy's release round). Such a path is never
+// watched, written or removed; a link that was there before the dream is kept, and not followed
+const plain = (root, p) => {
+  const rel = path.relative(root, p);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  let q = root;
+  for (const s of rel.split(path.sep).slice(0, -1)) {
+    q = path.join(q, s);
+    const st = lstat(q);
+    if (!st) return true;
+    if (st.isSymbolicLink()) return false;
+  }
+  return true;
+};
+// what a folder holds, if it and every folder above it are plain: its regular files, and its links, never followed, so
+// a restore never removes or writes a file through one
 const scan = (root, d) => {
   const files = [];
   const links = [];
-  if (!fs.existsSync(path.join(root, d)) || !within(root, path.join(root, d))) return { files, links };
+  const top = path.join(root, d);
+  if (!lstat(top)?.isDirectory() || !plain(root, top) || !within(root, top)) return { files, links };
   const walk = (rel) => { let es = []; try { es = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; } for (const e of es) { const p = `${rel}/${e.name}`; if (p === RUN) continue; if (e.isSymbolicLink()) links.push(p); else if (e.isDirectory()) walk(p); else if (e.isFile()) files.push(p); } };
   walk(d);
   return { files, links };
@@ -54,21 +70,21 @@ const sha = (p) => { try { return crypto.createHash('sha256').update(fs.readFile
 const settingsNow = (root) => Object.fromEntries(SETTINGS.map((f) => [f, sha(path.join(root, f))]));
 const mapFiles = (root) => scan(root, MAP).files.filter((p) => p.endsWith('.md')).sort();
 // shortcut: copies every file under those folders; a repo with large skill assets pays for the copy, add a size cap if one does
-const watched = (root) => [...new Set([...mapFiles(root), ...DIRS.flatMap((d) => scan(root, d).files), ...TOP.filter((f) => lstat(path.join(root, f))?.isFile())])].sort();
+const watched = (root) => [...new Set([...mapFiles(root), ...DIRS.flatMap((d) => scan(root, d).files), ...TOP.filter((f) => plain(root, path.join(root, f)) && lstat(path.join(root, f))?.isFile())])].sort();
 // the links in the same places, with where each points: Claude Code follows a linked rule or skill, so a link that
 // appears or changes during the dream is removed. The watched folders themselves count too: a .claude/rules made a
 // link to a folder of rules elsewhere would load them (the devils-advocate review)
 const FOLDERS = [MAP, '.claude', ...DIRS];
-const links = (root) => Object.fromEntries([...FOLDERS.filter((f) => lstat(path.join(root, f))?.isSymbolicLink()), ...scan(root, MAP).links, ...DIRS.flatMap((d) => scan(root, d).links), ...TOP.filter((f) => lstat(path.join(root, f))?.isSymbolicLink())]
+const linkAt = (root, f) => plain(root, path.join(root, f)) && lstat(path.join(root, f))?.isSymbolicLink();
+const links = (root) => Object.fromEntries([...FOLDERS.filter((f) => linkAt(root, f)), ...scan(root, MAP).links, ...DIRS.flatMap((d) => scan(root, d).links), ...TOP.filter((f) => linkAt(root, f))]
   .map((f) => [f, (() => { try { return fs.readlinkSync(path.join(root, f)); } catch { return ''; } })()]));
-// a path the dream watches: a map file, a file under a watched folder, or a top file, with no ".." on it. A run record
-// naming any other path is refused, so a forged one cannot aim the restore at settings or git hooks
-const watchable = (f) => typeof f === 'string' && !f.split('/').includes('..') && ((f.startsWith(`${MAP}/`) && f.endsWith('.md') && !f.startsWith(`${RUN}/`)) || DIRS.some((d) => f.startsWith(`${d}/`)) || TOP.includes(f));
-// a write target: not a link, and its nearest existing folder inside the repo
-const inside = (root, p) => {
-  try { if (fs.lstatSync(p).isSymbolicLink()) return false; } catch {}
-  return within(root, path.dirname(p));
-};
+// a path the dream watches: a map file outside the run folder, a file under a watched folder, or a top file. Every
+// segment is a plain name (no "", ".", ".." or backslash), so a forged run record cannot aim the restore at settings,
+// the run folder or git hooks (agy's release round)
+const watchable = (f) => typeof f === 'string' && !f.includes('\\') && !f.split('/').some((s) => !s || s === '.' || s === '..')
+  && ((f.startsWith(`${MAP}/`) && f.endsWith('.md') && !f.startsWith(`${RUN}/`)) || DIRS.some((d) => f.startsWith(`${d}/`)) || TOP.includes(f));
+// a write target: plain, not a link itself, and its nearest existing folder inside the repo
+const inside = (root, p) => plain(root, p) && !lstat(p)?.isSymbolicLink() && within(root, path.dirname(p));
 // puts the watched set back to the snapshot. Each file it replaces or removes is copied to undone/ first, so nothing
 // is destroyed: another session may have captured an entry during the dream
 function restore(root, dir, runDir, list, before) {
@@ -84,11 +100,11 @@ function restore(root, dir, runDir, list, before) {
     fs.rmSync(path.join(root, f), { force: true });
     changed.push(`removed the link ${f}`);
   }
-  for (const f of watched(root)) if (!keep.has(f)) { save(f); fs.rmSync(path.join(root, f), { force: true }); changed.push(`removed ${f}`); }
+  for (const f of watched(root)) if (!keep.has(f) && plain(root, path.join(root, f))) { save(f); fs.rmSync(path.join(root, f), { force: true }); changed.push(`removed ${f}`); }
   for (const f of list) {
     const p = path.join(root, f);
-    // a folder on its path that now leads outside the repo: nothing there is touched
-    if (!within(root, path.dirname(p))) { changed.push(`not restored ${f} (a link on its path leads outside the repo)`); continue; }
+    // a link on its path, or a folder that leads outside the repo: nothing there is touched
+    if (!plain(root, p) || !within(root, path.dirname(p))) { changed.push(`not restored ${f} (a link is on its path)`); continue; }
     const bytes = fs.readFileSync(path.join(snap, f));
     let link = false, now = null;
     try { link = fs.lstatSync(p).isSymbolicLink(); if (!link) now = fs.readFileSync(p); } catch {}
@@ -109,13 +125,23 @@ function record(root, dir, step) {
   if (!job) return { runDir, job: null, whole: false };
   if (job.root !== real(root)) throw new Error(`this dream was prepared in another worktree of this repo: run ${step} there`);
   const forged = !Array.isArray(job.watched) || !job.watched.every(watchable) || Object.keys(job.links ?? {}).some((f) => !FOLDERS.includes(f) && !watchable(f));
-  const whole = !forged && fs.existsSync(path.join(runDir, 'snapshot')) && job.watched.every((f) => fs.existsSync(path.join(runDir, 'snapshot', f)));
+  const whole = !forged && fs.existsSync(path.join(runDir, 'snapshot')) && job.watched.every((f) => lstat(path.join(runDir, 'snapshot', f))?.isFile());
   return { runDir, job, whole, forged };
 }
 // the data folder the command is given: Claude Code's plugin data root, never inside the repo. The skill's grant
 // allows the command with any arguments, so a session could otherwise point it at a run record it wrote itself (the
 // devils-advocate review)
-const dataOk = (root, data) => { const d = path.resolve(data); return /[\\/]plugins[\\/]data[\\/]/.test(`${d}${path.sep}`) && !within(root, d); };
+// The test is on real paths: the folder's nearest existing ancestor, through any link, lies under Claude Code's own
+// plugins/data, not inside the repo (agy's release round: a link named plugins/data passed a test on the name)
+const dataOk = (root, data) => {
+  try {
+    const base = real(path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'plugins', 'data'));
+    let q = path.resolve(data);
+    while (!lstat(q) && path.dirname(q) !== q) q = path.dirname(q);
+    const a = real(q);
+    return (a === base || a.startsWith(base + path.sep)) && !within(root, path.resolve(data));
+  } catch { return false; }
+};
 
 // ---------- the lock: it names the root that holds it; its age is its file's mtime (a reader between create and
 // write would see no time in it) ----------
@@ -301,7 +327,9 @@ export async function prepare(root, data) {
       // run folder, which is inside the repo)
       manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10) });
     }
-    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: git(root, 'rev-parse', 'HEAD').stdout?.trim() ?? '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: today() }, null, 1));
+    // the commit the tracked sources come from; none before the first commit (rev-parse would print "HEAD" itself)
+    const pinned = git(root, 'rev-parse', '--verify', '-q', 'HEAD');
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: pinned.status === 0 ? pinned.stdout.trim() : '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: today() }, null, 1));
     const digests = manifest.filter((m) => m.digest);
     return [
       `Dream prepared: ${digests.length} session digest(s) in ${RUN}/digests/: ${digests.map((m) => `${m.digest} (${m.first}${m.last && m.last !== m.first ? ` to ${m.last}` : ''})`).join(', ') || 'none'}.`,
@@ -315,7 +343,7 @@ export async function prepare(root, data) {
 // ---------- finish: validate, apply, log ----------
 // email addresses; drive, UNC and home-like absolute paths; UUIDs (session ids); common key shapes. A word character
 // such as "_" before an id or a key does not hide it
-const PRIVATE = /[\w.+-]+@[\w-]+\.[\w.]+|\b[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
+const PRIVATE = /[\w.+-]+@[\w-]+\.[\w.]+|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
 const front = (t) => /^---\n([\s\S]*?)\n---\n/.exec(t.replace(/\r/g, ''));
 const quoteOf = (b) => b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
@@ -364,16 +392,24 @@ export function finish(root, data) {
   // choice (/code-review's finding)
   const lines = Object.values(digests).flat();
   const userText = lines.filter((l) => l.startsWith('U: ')).join('\n').toLowerCase();
-  const answers = lines.filter((l) => l.startsWith('Q: ') && l.includes(' = ')).map((l) => ({ line: l.toLowerCase(), answer: l.slice(l.lastIndexOf(' = ') + 3).toLowerCase().match(WORD) ?? [] }));
+  const answers = lines.filter((l) => l.startsWith('Q: ') && l.includes(' = ')).map((l) => ({ question: l.slice(3, l.lastIndexOf(' = ')).toLowerCase(), answer: (l.slice(l.lastIndexOf(' = ') + 3).toLowerCase().match(WORD) ?? []).join(' ') }));
+  // the quote holds the choice as its own part, "<the question> = <the answer>": its question part (three words or
+  // more) is found in the Q line's question, and its answer part is the answer chosen, word for word. Before, an
+  // answer's word that also occurred in the question let a quote of the question alone pass (agy's release round)
   const chosen = (q) => {
-    const qw = q.toLowerCase().match(WORD) ?? [];
-    return answers.some((a) => a.answer.length > 0 && foundIn(q, a.line) && qw.some((_, i) => a.answer.every((w, k) => qw[i + k] === w)));
+    const k = q.lastIndexOf(' = ');
+    if (k < 0) return false;
+    const asked = q.slice(0, k);
+    const picked = (q.slice(k + 3).toLowerCase().match(WORD) ?? []).join(' ');
+    return (asked.match(WORD) ?? []).length >= 3 && answers.some((a) => a.answer && picked === a.answer && foundIn(asked, a.question));
   };
   // a tracked file's text as HEAD holds it: an uncommitted edit, or a tracked link to an ignored file, is no source.
   // shortcut: blobs over 2 MB are skipped and the rest are read at once; stream them if a repo's text outgrows memory
   let repoText = null;
   const headText = () => {
-    const tree = spawnSync('git', ['ls-tree', '-r', '-l', '-z', job.head || 'HEAD'], { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20 }).stdout ?? '';
+    // a repo with no commit at prepare has no tracked source: HEAD at finish would count commits made during the dream
+    if (!job.head) return '';
+    const tree = spawnSync('git', ['ls-tree', '-r', '-l', '-z', job.head], { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20 }).stdout ?? '';
     const oids = tree.split('\0').map((l) => /^(\d+) blob ([0-9a-f]+) +(\d+)\t(.*)$/s.exec(l)).filter((m) => m && m[1] !== '120000' && Number(m[3]) <= 2 << 20 && !m[4].startsWith(`${MAP}/`)).map((m) => m[2]);
     if (!oids.length) return '';
     const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: `${oids.join('\n')}\n`, maxBuffer: 1 << 30 }).stdout ?? Buffer.alloc(0);
@@ -411,12 +447,14 @@ export function finish(root, data) {
     for (let b of entries(text)) {
       if (!safe) { drop('a link on its path'); continue; }
       if (wide) { drop('a UTF-16 map file'); continue; }
+      // the privacy scan reads the entry whole, before tidy cuts its lines, and again once its id is made from its heading
+      if (PRIVATE.test(b)) { drop('private data'); continue; }
       b = tidy(b);
       const q = quoteOf(b);
-      if (PRIVATE.test(b)) { drop('private data'); continue; }
       if (!q.trim() || !provable(q) || !(foundIn(q, userText) || chosen(q) || inRepo(q))) { drop('no typed or tracked source'); continue; }
       let id = /^- id:[ \t]*(\S+)/m.exec(b)?.[1];
       if (!id || ids.has(id)) { const base = slug(id ?? b.split('\n')[0].slice(4)); id = base; for (let k = 2; ids.has(id); k++) id = `${base}-${k}`; b = /^- id:/m.test(b) ? b.replace(/^- id:.*$/m, `- id: ${id}`) : `${b}\n- id: ${id}`; }
+      if (PRIVATE.test(b)) { drop('private data'); continue; }
       ids.add(id);
       keep.push(`${b.trimEnd()}\n- proposed: dream ${date}`);
     }

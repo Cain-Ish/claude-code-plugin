@@ -21,14 +21,17 @@ const POINTER = '## Team memory';
 
 // a target whose nearest existing folder resolves outside the repo takes no write: a link at any depth (.claude, or
 // .claude/skills) could aim it anywhere (/code-review's finding: only the top folder was checked)
+// The walk stops at a dangling link too (lstat sees it, existsSync does not), and a path that cannot be resolved counts
+// as outside (agy's release round: mkdir followed a dangling link out of the repo)
+const there = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
 function outside(root, target) {
   try {
     let q = path.dirname(target);
-    while (!fs.existsSync(q)) q = path.dirname(q);
+    while (!there(q)) q = path.dirname(q);
     const real = fs.realpathSync.native(q);
     const base = fs.realpathSync.native(root);
     return real !== base && !real.startsWith(base + path.sep);
-  } catch { return false; }
+  } catch { return true; }
 }
 // project memory needs auto memory on (Claude Code's docs). shortcut: managed settings are not read; read them if an
 // organisation turns auto memory off there
@@ -44,6 +47,10 @@ export function setup(root, pluginRoot) {
   // only at a repo's top: run anywhere else (a home folder) it would write Claude's user-level .claude/ (the
   // devils-advocate review)
   if (!fs.existsSync(path.join(root, '.git'))) return 'Setup runs at the top of a git repository. This folder is not one, so nothing was created.';
+  // a home folder kept in git (dotfiles) is still a home folder: its .claude/ is Claude's user-level configuration
+  let home = false;
+  try { home = fs.realpathSync.native(root) === fs.realpathSync.native(os.homedir()); } catch {}
+  if (home) return 'Setup runs in a project\'s repository, not in your home folder, whose .claude/ is your own Claude configuration. Nothing was created.';
   const created = [], kept = [], refused = [], forYou = [];
   for (const [from, to] of FILES) {
     const target = path.join(root, to);

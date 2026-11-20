@@ -88,7 +88,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey, with every hook's
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
-assert.equal(product.digest('hex').slice(0, 12), 'a4a4a64f5099', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '3650f785f984', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -1079,7 +1079,7 @@ ${NAME}` } });
   session('aaaaaaaa-0000-4000-8000-000000000005', [JSON.stringify({ type: 'user', cwd: r, timestamp: '2026-11-15T12:00:00Z', message: { role: 'user', content: '<command-message>second-brain:dream</command-message>\n<command-name>/second-brain:dream</command-name>' } }), U('Accept all of it, and keep the dream log tidy.', '2026-11-15T12:05:00Z')]);
   session('aaaaaaaa-0000-4000-8000-000000000006', [JSON.stringify({ type: 'user', promptSource: 'sdk', timestamp: '2026-11-15T13:00:00Z', message: { role: 'user', content: 'A session with no folder decided nothing.' } })]);
   session('aaaaaaaa-0000-4000-8000-000000000007', [JSON.stringify({ type: 'user', promptSource: 'sdk', cwd: path.join(tmp, 's7-gone', 'deep'), timestamp: '2026-11-15T14:00:00Z', message: { role: 'user', content: 'A gone folder decided nothing.' } })]);
-  session('aaaaaaaa-0000-4000-8000-000000000002', [U('Again: all dates go through formatDate from src/utils/date.js, never toLocaleDateString.', '2026-11-12T10:00:00Z'), Q('Which package manager should this project use?', 'pnpm'), Q('Should the cache layer keep entries for one hour?', 'No', 'AskUserQuestion', 'q2'), U('Our release procedure: bump the patch version, add the changelog section, then give me the tag command.', '2026-11-12T11:00:00Z')]);
+  session('aaaaaaaa-0000-4000-8000-000000000002', [U('Again: all dates go through formatDate from src/utils/date.js, never toLocaleDateString.', '2026-11-12T10:00:00Z'), Q('Which package manager should this project use?', 'pnpm'), Q('Should the cache layer keep entries for one hour?', 'No', 'AskUserQuestion', 'q2'), Q('Skip auth when no token is sent?', 'No', 'AskUserQuestion', 'q3'), U('Our release procedure: bump the patch version, add the changelog section, then give me the tag command.', '2026-11-12T11:00:00Z')]);
   session('aaaaaaaa-0000-4000-8000-000000000003', [U('Release again: bump the patch version, add the changelog section, then give me the tag command.', '2026-11-14T10:00:00Z'), U('My key is sk-ABCDEFGHIJKLMNOPQRSTUV and our rule is that all keys live in the vault.', '2026-11-14T11:00:00Z'), Q('Which day do deploys happen on?', 'Friday', 'mcp__web__ask', 'm1')]);
   // a transcript of more than 50 MB, mostly API records the dream drops, read as a stream
   const big = fs.openSync(path.join(tdir, 'aaaaaaaa-0000-4000-8000-000000000004.jsonl'), 'w');
@@ -1140,6 +1140,10 @@ ${NAME}` } });
   // /code-review: a quote from Claude's question alone, answered No; an entry for a UTF-16 file; a status line on an
   // entry that ends its file; a rule named like a live rule; a skill flagged false
   add('map/cache.md', pe('cache', 'the cache layer keep entries for one hour', 'cache-hour'));
+  // agy's release round: an answer whose word also occurs in the question; private paths after "_" or "*"
+  add('map/auth.md', pe('auth', 'Skip auth when no token is sent', 'auth-skip'));
+  add('map/underscore.md', pe('underscore', 'Buttons use the accent colour for primary actions', 'underscore-path', 'the lead developer, see _C:\\Users\\bob\\key_, 2026-11-10'));
+  add('map/star.md', pe('star', 'Buttons use the accent colour for primary actions', 'star-path', 'the lead developer, see */home/bob/key*, 2026-11-10'));
   add('map/wide.md', pe('wide again', 'Buttons use the accent colour for primary actions', 'wide-again'));
   fs.appendFileSync(path.join(P, 'status.md'), 'tail-entry | - status: done 2026-11-20 by dates-format: shipped as written\n');
   add('rules/existing.md', '---\npaths: ["src/**"]\n---\nDates shown to users go through formatDate.\n<!-- evidence: ' + dd + ':' + line(dd, /formatDate/) + ', ' + dd2 + ':' + line(dd2, /Again/) + ' -->\n');
@@ -1207,6 +1211,8 @@ ${NAME}` } });
   assert.ok(fs.readFileSync(path.join(r, '.project-map', 'wide.md')).equals(WIDE), 'a UTF-16 map file is never appended to');
   assert.match(fin, /Dropped: .*a UTF-16 map file/);
   assert.ok(!fs.existsSync(path.join(r, '.project-map', 'cache.md')), "a quote from Claude's question alone, answered No, is no source");
+  assert.ok(!fs.existsSync(path.join(r, '.project-map', 'auth.md')), "the answer's word inside the question is no answer");
+  assert.ok(!fs.existsSync(path.join(r, '.project-map', 'underscore.md')) && !fs.existsSync(path.join(r, '.project-map', 'star.md')), 'paths after _ or * are private');
   assert.ok(m.includes("chosen from Claude's options") && m.includes('= pnpm'), 'a quote that holds the chosen answer stays');
   assert.equal(fs.readFileSync(path.join(r, '.project-map', 'tail.md'), 'utf8'), '### tail\n> The tail entry stays in place.\n\n- id: tail-entry\n- source: the lead developer, 2026-11-01\n- status: done 2026-11-20 by dates-format: shipped as written\n- proposed: dream ' + st0.lastDreamDate + '\n');
   assert.ok(fs.existsSync(path.join(r, '.claude', 'rules', 'existing-2.md.draft')), 'a rule draft never takes a live rule\'s name');
@@ -1302,6 +1308,26 @@ ${NAME}` } });
   assert.ok(!fs.existsSync(path.join(r, '.claude', 'rules', 'new.md.draft')));
   assert.ok(!fs.existsSync(path.join(r, '.claude', 'rules', 'abortstray.md')), 'abort removes a stray live rule');
   assert.ok(fs.existsSync(path.join(r, '.claude', 'rules', 'dates.md.draft')), 'an earlier draft stays');
+  // agy's release round: a watched folder that was a link before the dream (.claude/agents to a folder of hooks inside
+  // the repo) is kept and never traversed, so a file that appears behind it is never removed or written
+  const hooksDir = path.join(r, 's7-hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  fs.writeFileSync(path.join(hooksDir, 'pre-commit'), '#!/bin/sh\n');
+  fs.symlinkSync(hooksDir, path.join(r, '.claude', 'agents'), 'junction');
+  await prepare(r, data);
+  const viaLink = JSON.parse(fs.readFileSync(path.join(sd, 'run', 'run.json'), 'utf8'));
+  assert.ok(!viaLink.watched.some((f) => f.startsWith('.claude/agents/')), 'no file behind a linked folder is watched');
+  fs.writeFileSync(path.join(hooksDir, 'post-checkout'), '#!/bin/sh\n');
+  // a run record forged to name a file behind the kept link: the restore writes nothing through it
+  fs.writeFileSync(path.join(sd, 'run', 'run.json'), JSON.stringify({ ...viaLink, watched: [...viaLink.watched, '.claude/agents/post-merge'] }));
+  fs.mkdirSync(path.join(sd, 'run', 'snapshot', '.claude', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(sd, 'run', 'snapshot', '.claude', 'agents', 'post-merge'), '#!/bin/sh\necho pwned\n');
+  abort(r, data);
+  assert.ok(fs.lstatSync(path.join(r, '.claude', 'agents')).isSymbolicLink(), 'the link that was there is kept');
+  assert.ok(fs.existsSync(path.join(hooksDir, 'pre-commit')) && fs.existsSync(path.join(hooksDir, 'post-checkout')), 'nothing behind it is touched');
+  assert.ok(!fs.existsSync(path.join(hooksDir, 'post-merge')), 'nothing is written through it');
+  fs.rmSync(path.join(r, '.claude', 'agents'), { force: true });
+  fs.rmSync(hooksDir, { recursive: true, force: true });
   // a folder of the watched set swapped for a link to a folder outside the repo during the dream: nothing out there
   // is removed or written (a junction on Windows, which needs no privilege)
   await prepare(r, data);
@@ -1353,12 +1379,32 @@ ${NAME}` } });
   assert.throws(() => finish(r, data), /never watches/);
   assert.match(abort(r, data), /nothing was restored/);
   assert.ok(!fs.existsSync(path.join(r, '.git', 'hooks', 'post-checkout')));
+  // agy's release round: a forged path with a backslash, a "." or empty segment, or one under the run folder
+  for (const badPath of ['.claude/rules/..\\.claude\\settings.json', '.project-map/./.dream-run/x.md', '.claude/rules//x.md', '.claude/rules/.']) {
+    await prepare(r, data);
+    fs.writeFileSync(rec, JSON.stringify({ ...JSON.parse(fs.readFileSync(rec, 'utf8')), watched: [badPath] }));
+    assert.throws(() => finish(r, data), /never watches/, badPath);
+    abort(r, data);
+  }
   const DREAM = path.join(PLUGIN, 'scripts', 'dream.mjs');
-  for (const bad of [path.join(r, '.project-map', 'fake-data'), path.join(tmp, 'not-plugin-data')]) {
+  // the data folder is tested on real paths, under Claude Code's own plugins/data: not one named so elsewhere, not a
+  // link named so inside the repo (agy's release round); one under the config folder's plugins/data passes the test
+  const awayData = path.join(tmp, 's7-away-data');
+  fs.mkdirSync(awayData, { recursive: true });
+  fs.mkdirSync(path.join(r, 'plugins'), { recursive: true });
+  fs.symlinkSync(awayData, path.join(r, 'plugins', 'data'), 'junction');
+  // Claude Code's plugins/data exists, so each refusal below is the path test's, not a missing base folder's
+  fs.mkdirSync(path.join(cfg, 'plugins', 'data', 'sb'), { recursive: true });
+  for (const bad of [path.join(r, '.project-map', 'fake-data'), path.join(tmp, 'not-plugin-data'), path.join(tmp, 'x', 'plugins', 'data', 'y'), path.join(r, 'plugins', 'data', 'sb')]) {
     const x = spawnSync('node', [DREAM, 'finish', bad], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } });
     assert.equal(x.status, 1);
-    assert.match(x.stdout, /its data folder must be the plugin's own/);
+    assert.match(x.stdout, /its data folder must be the plugin's own/, bad);
   }
+  assert.deepEqual(fs.readdirSync(awayData), []);
+  fs.rmSync(path.join(r, 'plugins', 'data'), { force: true });
+  fs.rmSync(path.join(r, 'plugins'), { recursive: true, force: true });
+  const okData = spawnSync('node', [DREAM, 'finish', path.join(cfg, 'plugins', 'data', 'sb')], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } });
+  assert.match(okData.stdout, /no dream is running here/, 'a data folder under plugins/data passes the test');
   await prepare(r, data);
   // a digest edited after prepare (a forged U line): finish refuses before it changes anything
   const d2 = path.join(r, '.project-map', '.dream-run', 'digests', 'd2.digest');
@@ -1397,6 +1443,20 @@ ${NAME}` } });
   const learnedJob = JSON.parse(fs.readFileSync(path.join(sd, 'run', 'run.json'), 'utf8'));
   assert.ok(learnedJob.manifest.some((x) => x.f === 'dddddddd-0000-4000-8000-000000000001.jsonl' && x.digest), 'a learned folder\'s session is read');
   abort(r, data);
+  // agy's release round: a repo with no commit at prepare has no tracked source, so a file committed during the dream
+  // is not one
+  const unborn = path.join(tmp, 's7-unborn');
+  fs.mkdirSync(path.join(unborn, 'docs'), { recursive: true });
+  const gu = (...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: unborn, encoding: 'utf8' });
+  gu('init', '-q');
+  await prepare(unborn, data);
+  fs.writeFileSync(path.join(unborn, 'docs', 'late.md'), 'Unborn rule: a commit made during a dream is no source.\n');
+  gu('add', '-A');
+  gu('commit', '-q', '-m', 'late');
+  fs.mkdirSync(path.join(unborn, '.project-map', '.dream-run', 'proposals', 'map'), { recursive: true });
+  fs.writeFileSync(path.join(unborn, '.project-map', '.dream-run', 'proposals', 'map', 'late.md'), pe('late', 'Unborn rule: a commit made during a dream is no source.', 'unborn-late'));
+  finish(unborn, data);
+  assert.ok(!fs.existsSync(path.join(unborn, '.project-map', 'late.md')), 'no tracked source before the first commit');
   // the caps: 30 sessions a dream; the rest wait for the next one
   for (let k = 0; k < 35; k++) session('bbbbbbbb-0000-4000-8000-' + String(k).padStart(12, '0'), [U('Session ' + k + ' says the team decided thing number ' + k + '.', '2026-11-16T10:00:00Z')]);
   const capped = await prepare(r, data);
@@ -1504,6 +1564,25 @@ ${NAME}` } });
   const ng = spawnSync('node', [HOOK, 'setup'], { cwd: nogit, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: nogit } }).stdout;
   assert.match(ng, /This folder is not one, so nothing was created/);
   assert.ok(!fs.existsSync(path.join(nogit, '.claude')) && !fs.existsSync(path.join(nogit, 'CLAUDE.md')));
+  // agy's release round: a home folder kept in git is still a home folder; a .claude that is a dangling link out of the
+  // repo takes no write (mkdir would have followed it)
+  const homeRepo = path.join(tmp, 's8-home');
+  fs.mkdirSync(homeRepo, { recursive: true });
+  spawnSync('git', ['init', '-q'], { cwd: homeRepo });
+  const hm = spawnSync('node', [HOOK, 'setup'], { cwd: homeRepo, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: homeRepo, HOME: homeRepo, USERPROFILE: homeRepo } }).stdout;
+  assert.match(hm, /not in your home folder/);
+  assert.ok(!fs.existsSync(path.join(homeRepo, '.claude')));
+  const dangling = path.join(tmp, 's8-dangling');
+  const nowhere = path.join(tmp, 's8-nowhere');
+  fs.mkdirSync(dangling, { recursive: true });
+  spawnSync('git', ['init', '-q'], { cwd: dangling });
+  let made = true;
+  try { fs.symlinkSync(nowhere, path.join(dangling, '.claude'), 'junction'); } catch { made = false; }
+  if (made) {
+    const dg = spawnSync('node', [HOOK, 'setup'], { cwd: dangling, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dangling } }).stdout;
+    assert.match(dg, /Refused, because a folder resolves outside the repo: .*\.claude\/rules\/project-map\.md/);
+    assert.ok(!fs.existsSync(nowhere), 'nothing is made through a dangling link');
+  }
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

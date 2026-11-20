@@ -5105,3 +5105,44 @@ This is the acceptance check's first strike of three.
   - the index still lists `.claude/agents`, `skills`, `commands` and `output-styles` (the AC arm, left for a later
     release).
 - *Next needs:* the user merges PR #116 to main, which carries 2.3.0.
+
+### 3, S8: the release's own checks on the final hook code (registered 2026-11-20, before the tag)
+
+The advisor's release review asked for three checks on the code as it stands. `hook.mjs` and `map.mjs` changed after
+S6's bench, and the post-review security code had not been read by an outside reviewer.
+- **The diff harness** (S6's build `faf872a` against the final build, 60 generated 2.2.0-shaped repos): 582 hook
+  calls, 0 differences.
+- **agy, two rounds** (split after a single round timed out):
+  - **write safety:**
+    - a link named `plugins/data`, or any outside folder so named, passed the data-folder test, which matched on the
+      name;
+    - a watched folder that was a link before the dream, then retargeted, let the restore delete or write through
+      it, as far as `.git/hooks`;
+    - forged paths with a backslash, `.` or empty segments, or a nested run-folder path, passed `watchable`;
+  - **provenance, setup, status:**
+    - in an unborn repo, the pin fell back to `HEAD` at finish;
+    - a quote of Claude's question alone passed when the answer's word also occurred in it;
+    - paths after `_` or `*` passed the privacy scan, which also ran after `tidy` cut lines;
+    - a dangling link defeated setup's guard;
+    - a home folder kept in git was taken for a project;
+    - status: holds.
+
+  All are fixed, each with a self-test case, and a mutation check confirms each case fails without its fix:
+  - no link on the way from the repo root is ever traversed, though a link that was there is kept;
+  - the data folder is tested on real paths under Claude Code's own `plugins/data`;
+  - `watchable` rejects every irregular segment, and snapshot entries must be regular files;
+  - the pin uses `rev-parse --verify` (in an unborn repo, plain `rev-parse` prints "HEAD" itself, which the test
+    caught);
+  - a Q-based quote must hold `<question> = <answer>`, with the answer chosen word for word;
+  - the privacy scan sees paths after `_`, `*`, `~` and `|`, reads the whole entry before `tidy`, and reads it
+    again after the id is made;
+  - setup walks by `lstat` and fails closed, and refuses a home folder.
+- **Which checks run again on the new candidate:**
+  - the self-test and CI;
+  - S7's check 2 in full, because `chosen()` and the privacy scan act on every dream;
+  - one uncounted acceptance run, as a smoke of the normal flow. Its counted runs are not repeated: these fixes
+    change behaviour only for links, home folders, unborn repos and Q quotes, none of which the acceptance check's
+    repo has.
+- **The 8-session bench on the reference machine** (D18) runs when the machine is in its reference state. At the
+  time of this registration, the user's own applications held the CPU at about 19%, above the 10% that state
+  requires. The tag waits for it, or for the user's word.
