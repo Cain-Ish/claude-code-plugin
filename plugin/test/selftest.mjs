@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
@@ -46,7 +46,7 @@ for (const f of ['hook.mjs', 'map.mjs']) {
   const src = fs.readFileSync(path.join(PLUGIN, 'scripts', f), 'utf8');
   const imports = [...src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
   assert.equal(imports.length, (src.match(/^\s*import\b/gm) ?? []).length, `${f}: every import has a module path`);
-  for (const m of imports) assert.ok(['node:fs', 'node:os', 'node:path', 'node:child_process', './map.mjs'].includes(m), `${f} imports ${m}`);
+  for (const m of imports) assert.ok(['node:crypto', 'node:fs', 'node:os', 'node:path', 'node:child_process', './map.mjs'].includes(m), `${f} imports ${m}`);
   for (const [, names] of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]node:child_process['"]/g)) assert.deepEqual(names.split(',').map((n) => n.trim()), ['spawnSync'], `${f}: only spawnSync`);
   // a bare call, so a RegExp's .exec() is not one
   assert.ok(!/(?<![.\w$])(exec|execSync|execFile|execFileSync|fork|spawn)\s*\(/.test(src), `${f} starts processes only with spawnSync`);
@@ -61,8 +61,9 @@ const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })
 walk(PLUGIN);
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
-// 2.2.0: 2s, the texts: D28's I and N, B2's date, G4's store, D23's (d) (06); checked by this self-test, the smoke and CI
-assert.equal(product.digest('hex').slice(0, 12), 'ee8625f06842', 'the product changed: record its hash with a new epoch (06)');
+// 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey; every hook's output
+// byte-identical to 2.2.0 (ee8625f06842), checked by probes/V2-D30-entries/diff.mjs
+assert.equal(product.digest('hex').slice(0, 12), '6672b7f811f8', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -726,6 +727,25 @@ ${NAME}` } });
   // a Bash output that shows the heading and quote but not the status line still carries the status
   const out = hook('bash', { tool_input: { command: 'grep -A1 "### b" .project-map/captured.md' }, tool_response: { stdout: '### b\n> Spacing uses the four-pixel grid.\n', stderr: '', interrupted: false, isImage: false } }, r);
   assert.ok(out.includes('2. b: status: narrowed 2026-11-18: print only; unverified quote, captured 2026-11-01\n'), out);
+}
+
+// 06, section 3, S2: one key per repo for the per-machine state, the same from a linked worktree; another repo differs
+{
+  const r = path.join(tmp, 'key');
+  const w = path.join(tmp, 'key-wt');
+  fs.mkdirSync(r);
+  const g = (cwd, ...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd, encoding: 'utf8' }); assert.equal(x.status, 0, x.stderr); };
+  g(r, 'init', '-q');
+  g(r, 'commit', '-q', '--allow-empty', '-m', 'k');
+  g(r, 'worktree', 'add', '-q', w);
+  assert.equal(fs.realpathSync(gitDir(w)), fs.realpathSync(gitDir(r)));
+  assert.equal(repoKey(w), repoKey(r));
+  assert.match(repoKey(r), /^[0-9a-f]{16}$/);
+  // two paths that differ only in punctuation keep their own keys (agy's S2 round)
+  for (const d of ['foo-bar', 'foo_bar']) { fs.mkdirSync(path.join(tmp, d)); g(path.join(tmp, d), 'init', '-q'); }
+  assert.notEqual(repoKey(path.join(tmp, 'foo-bar')), repoKey(path.join(tmp, 'foo_bar')));
+  assert.notEqual(repoKey(r), repoKey(repo));
+  assert.throws(() => gitDir(path.join(tmp, 'nowhere')));
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

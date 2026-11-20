@@ -1,5 +1,6 @@
 // The project map's hook library (V2-D14, D16, D18, D22). No model and no network: hooks spawn only git, and no map
 // text reaches a process.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -85,16 +86,28 @@ export const under = (root, d, seen) => fs.readdirSync(path.join(root, d), { wit
   return under(root, p, seen);
 });
 
-// git's core.ignorecase, read from the repo's config file, so session start keeps one git call (D18). A .git file (a
-// linked worktree, a submodule) names the git folder, whose commondir holds the shared config. Unset, false or
+// The git folder a repo's worktrees share, found with no git call (D18). `root` is the repo's top level, as toplevel()
+// gives it: a .git file (a linked worktree, a submodule) names the git folder, whose commondir names the shared one.
+// Throws when root holds no .git, or a .git file names no gitdir; a gitdir that is gone is returned as it is.
+// shortcut: a relative commondir is resolved without following a symlinked gitdir first, as 2.2.0's ignoreCase did;
+// realpath the gitdir first if a worktree's .git names a link
+export function gitDir(root) {
+  let dir = path.join(root, '.git');
+  if (fs.statSync(dir).isFile()) dir = path.resolve(root, /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dir, 'utf8'))[1]);
+  try { dir = path.resolve(dir, fs.readFileSync(path.join(dir, 'commondir'), 'utf8').trim()); } catch {}
+  return dir;
+}
+// One key per repo for the plugin's per-machine state (D32), the same from the repo and its linked worktrees: a hash
+// of the shared git folder's real path, so two paths never share a key. Throws when that folder does not exist
+export const repoKey = (root) => crypto.createHash('sha256').update(fs.realpathSync(gitDir(root))).digest('hex').slice(0, 16);
+
+// git's core.ignorecase, read from the repo's config file, so session start keeps one git call (D18). Unset, false or
 // unreadable means no fold, as in git: a name listed twice loses nothing (06, 2h).
 // shortcut: global, system and included config files and config.worktree are not read; read them if a repo sets the
 // value there
 function ignoreCase(root) {
   try {
-    let dir = path.join(root, '.git');
-    if (fs.statSync(dir).isFile()) dir = path.resolve(root, /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dir, 'utf8'))[1]);
-    try { dir = path.resolve(dir, fs.readFileSync(path.join(dir, 'commondir'), 'utf8').trim()); } catch {}
+    const dir = gitDir(root);
     let core = false, on = false;
     for (let line of fs.readFileSync(path.join(dir, 'config'), 'utf8').split(/\r?\n/)) {
       const s = /^\s*\[([^\]]*)\](.*)$/.exec(line);
@@ -166,7 +179,7 @@ export function takeForce(id) {
 
 // A map file's entries: each '### ' block that quotes something, up to the next heading, as its text. A leading
 // byte-order mark (Windows PowerShell 5.1 writes one) would hide the first entry, so it goes (D18, 2g).
-const entries = (text) => text.replace(/^﻿/, '').replace(/\r/g, '').split(/^(?=#{1,3} )/m).filter((b) => b.startsWith('### ') && /^>/m.test(b)).map((b) => b.trim());
+export const entries = (text) => text.replace(/^﻿/, '').replace(/\r/g, '').split(/^(?=#{1,3} )/m).filter((b) => b.startsWith('### ') && /^>/m.test(b)).map((b) => b.trim());
 
 // D16's re-find (attempt 2's match): every stretch of three or more words between ellipses is in the file's words.
 // Found where the stretch's first word starts a word of the lowercased file and the words read on from there match
@@ -187,11 +200,11 @@ const holds = (w, low) => {
   }
   return false;
 };
-const foundIn = (quote, low) => quote.split(/…|\.\.\./).map(words).filter((w) => w.length >= 3).every((w) => holds(w, low));
+export const foundIn = (quote, low) => quote.split(/…|\.\.\./).map(words).filter((w) => w.length >= 3).every((w) => holds(w, low));
 // the first path an entry's source names (it has a '/' or a document extension, so "Node.js" is not one); the source
 // is text Claude wrote, so only relative paths inside the repo count. 06, 2q: none when that path lies inside
 // parentheses that pair across the source, where a person's words may mention a file that is not their source
-const sourcePath = (src) => {
+export const sourcePath = (src) => {
   const depth = [];
   let d = 0;
   for (const c of src.split('')) { if (c === ')') d--; depth.push(d); if (c === '(') d++; if (d < 0) break; }

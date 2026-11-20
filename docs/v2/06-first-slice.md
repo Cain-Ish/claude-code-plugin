@@ -4171,3 +4171,26 @@ The probe results are in [probes/V2-D29-setup/README.md](probes/V2-D29-setup/REA
 
 These are changes made on the user's word, before any result of the steps they touch, so no attempt counts against
 them.
+
+### 3, S2: result (2026-11-20): pass
+
+- **The change.** `map.mjs` now exports `entries`, `foundIn` and `sourcePath`. It factors `gitDir` out of
+  `ignoreCase`, unchanged, and adds `repoKey`, a 16-hex sha256 of the shared git folder's real path.
+- **Byte identity with 2.2.0.** `probes/V2-D30-entries/diff.mjs` runs both builds' hooks on generated repos: maps with
+  1-160 entries, person and file sources, sources in parentheses, status lines, a byte-order mark, UTF-16, uncommitted
+  entries and drifted documents. It covered session start, the prompt, read, bash, bash-failure and onboard.
+  - **Four seeds, 1,506 hook calls: 0 differences.** Two seeds ran on the copy and two on `plugin/` after agy's
+    changes.
+  - A path bug in the harness gave 372 false differences once (a relative build path). It was fixed, and the run
+    repeated.
+- **The self-test passes.** New: `gitDir` and `repoKey` are the same from a linked worktree; two repos whose paths
+  differ only in punctuation keep their own keys; a missing `.git` throws. The product hash moves to `6672b7f811f8`.
+- **The agy round** (Gemini 4 Argon, refute-first, on the diff):
+  - it found **no input on which the hooks differ**;
+  - on the new helpers' stated contract, it found key collisions for paths that differ only in punctuation, a
+    comment that overstated the subdirectory case, and dangling gitdir behaviour;
+  - **fixed:** the key became a hash, so `node:crypto` joins the tripwire's import list, and the comments now state
+    what holds;
+  - **left as a `shortcut:` note:** a relative `commondir` under a symlinked gitdir resolves lexically. 2.2.0's
+    `ignoreCase` does the same, and changing it would break the S2 bar.
+- **CI:** runs on push.
