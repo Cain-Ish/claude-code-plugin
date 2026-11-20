@@ -4517,3 +4517,19 @@ repository: your changes to it stay in the working tree and are reviewed with th
   in 5 of 5 for the control. That is at least 4, and no fewer than the control.
 - **S4 passes.** Capture v3 (`392c26c2a5e9`) is in `plugin/`. Product hash `95fa7c3f71f7`. D13 and D16 re-lock on S3's
   and S4's passes (the records).
+
+### 3, S6, attempt 1 (2026-11-20): check 2 failed as written
+
+- **What happened.** S6 was rebased onto S4 and S5, and its self-test passes. Check 2 compared S6 with **2.2.0**: in
+  every repo, session start differed (40 of 40 per seed), and nothing else did.
+- **Why.** Every difference is S4's registered INSTRUCTION swap: with INSTRUCTION removed, the session-start texts are
+  identical. The premise was wrong, because S4 changed session start before S6 landed.
+- **Measured while diagnosing it,** against the S4-S5 build (`plugin/` at `f1d1204`): 0 differences in 1,062 calls.
+  It does not count, because it was run before the corrected bar was registered.
+
+### 3, S6, attempt 2 (registered 2026-11-20, before its runs)
+
+- **Check 2, corrected:** `diff.mjs` compares the previous step's build (`plugin/` at `f1d1204`, S4 and S5) with S6,
+  at fresh seeds 41, 53 and 67, × 40 repos. **Pass:** 0 differences.
+- **Checks 1, 3 and 4 as registered.** The bench pairs the candidate, with the nudge's 300-transcript worst case,
+  against the 2.2.0 control, in D18's reference state.
