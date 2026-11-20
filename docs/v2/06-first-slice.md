@@ -4714,3 +4714,36 @@ the cases below are added to check 1. That build never reached `plugin/`.
   - a committed map gives its commit date;
   - an uncommitted agent-memory file, a proposed entry and a draft are counted;
   - a repo with no `.project-map/` says so and points to `/second-brain:setup`.
+
+### 3, S8: the acceptance check's route, amended (registered 2026-11-20, before any run)
+
+The registered route cannot run as written. A session in an isolated `CLAUDE_CONFIG_DIR` cannot log in (P4), and
+copying the user's credentials was declined. The marketplace install itself needs no login (checked 2026-11-20, CLI
+2.1.305: `marketplace add` and `plugin install`, at project scope, both succeed in an empty config folder). The route,
+changed before any run:
+
+- **Check 0, the install.** The candidate is installed as a user installs it, in each run's brand-new repo, into an
+  isolated `CLAUDE_CONFIG_DIR`:
+  - `claude plugin marketplace add <a clone of the candidate> --scope project`;
+  - `claude plugin install second-brain@second-brain --scope project`.
+
+  Both must succeed, and the installed copy's files must equal the candidate's `plugin/` byte for byte, in 5 of 5.
+- **The sessions** run under the user's own login:
+  - `--plugin-dir` set to that installed copy;
+  - `--setting-sources project,local`;
+  - the install's `.claude/settings.json` set aside first. It names the marketplace, and the user's own config holds
+    one of the same name, so a second copy would load.
+- **Items 1-7 and their bars are unchanged.** How each is read is fixed in `probes/V2-D29-setup/e2e.mjs`, committed
+  with this amendment:
+  - *aware:* the reply names `.project-map` and at least 3 of `source`, `id`, `verified`, `when` and the quote;
+  - *capture:* an entry holding the stated decision has `id`, `source` and `verified` lines in a topic file;
+  - *rule:* `InstructionsLoaded` reports `.claude/rules/project-map.md`;
+  - *agent:* an Agent call with subagent type `decision-checker`, and a reply that names `widgets-home` or
+    `src/widgets`;
+  - *dream loop:* three sessions without the plugin state the decisions. Then:
+    - the dream's map entries carry `proposed:`;
+    - a `*.md.draft` rule exists and `InstructionsLoaded` never reports it;
+    - a `PostToolUse` hook output in the next session holds "proposed by a dream";
+  - *nudge:* the `SessionStart` hook output's `systemMessage` holds "a dream is due", and its `additionalContext`
+    does not.
+- Before the 5 counted runs, the candidate passes CI, and one uncounted run checks the probe itself.
