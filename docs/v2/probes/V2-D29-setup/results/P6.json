@@ -21,7 +21,7 @@
   "subTools": [
    {
     "name": "Bash",
-    "cmd": "cd \"C:\\Users\\curst\\AppData\\Local\\Temp\\claude\\f354bf50bfaa3c2"
+    "cmd": "cd \"<scratch>"
    }
   ],
   "denials": [],

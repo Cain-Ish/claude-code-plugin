@@ -1,6 +1,6 @@
 {
  "probe": "S7 skill grant",
- "cli": "C:/Workplace/Projects/claude-code-plugin-v2/docs/v2/research/raw/cli/claude-2.1.305.exe",
+ "cli": "<pinned CLI 2.1.305>",
  "rows": [
   {
    "skill": "narrow",

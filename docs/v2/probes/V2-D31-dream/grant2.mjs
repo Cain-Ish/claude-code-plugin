@@ -25,7 +25,7 @@ for (let i = 1; i <= 2; i++) {
     const r = spawnSync(CLAUDE, ['-p', ...extra, '--model', 'claude-haiku-5-5', '--setting-sources', 'project,local', '--strict-mcp-config', '--permission-mode', 'acceptEdits',
       '--plugin-dir', plugin, '--output-format', 'stream-json', '--verbose'], { cwd: dir, input, encoding: 'utf8', env: env(), timeout: 600_000, maxBuffer: 64 << 20 });
     const res = parse(r.stdout ?? '').find((e) => e.type === 'result') ?? {};
-    return { ok: res.subtype === 'success', denials: (res.permission_denials ?? []).map((d) => `${d.tool_name}: ${JSON.stringify(d.tool_input).slice(0, 120)}`) };
+    return { ok: res.subtype === 'success', denials: (res.permission_denials ?? []).map((d) => `${d.tool_name}: ${JSON.stringify(d.tool_input).replace(/[A-Za-z]:[\\/][^"]*?scratchpad/g, '<scratch>').slice(0, 120)}`) };
   };
   const t1 = run('/grant:narrow');
   const t2 = run(`Run this exact command with the Bash tool and report its output: node "${script}" narrow-third`, ['--continue']);

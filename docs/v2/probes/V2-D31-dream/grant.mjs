@@ -35,10 +35,10 @@ for (const name of ['narrow', 'broad']) {
   const ev = parse(r.stdout ?? '');
   const res = ev.find((e) => e.type === 'result') ?? {};
   rows.push({ skill: name, sessionOk: res.subtype === 'success', bangRan: fs.existsSync(path.join(dir, `${name}-first.ran`)), scriptRan: fs.existsSync(path.join(dir, `${name}-second.ran`)),
-    nodeERan: fs.existsSync(path.join(dir, `pwned-${name}.txt`)), denials: (res.permission_denials ?? []).map((d) => `${d.tool_name}: ${JSON.stringify(d.tool_input).slice(0, 100)}`) });
+    nodeERan: fs.existsSync(path.join(dir, `pwned-${name}.txt`)), denials: (res.permission_denials ?? []).map((d) => `${d.tool_name}: ${JSON.stringify(d.tool_input).replace(/[A-Za-z]:[\\/][^"]*?scratchpad/g, '<scratch>').slice(0, 100)}`) });
 }
 const narrow = rows[0];
-const out = { probe: 'S7 skill grant', cli: CLAUDE, rows, narrowWorks: narrow.bangRan && narrow.scriptRan && !narrow.nodeERan };
+const out = { probe: 'S7 skill grant', cli: path.basename(CLAUDE), rows, narrowWorks: narrow.bangRan && narrow.scriptRan && !narrow.nodeERan };
 fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
 fs.writeFileSync(path.join(HERE, 'results', 's7-grant.json'), `${JSON.stringify(out, null, 1)}\n`);
 console.log(JSON.stringify(out, null, 1));

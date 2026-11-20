@@ -8,7 +8,7 @@
    "turn2Ok": true,
    "thirdRan": false,
    "turn2Denials": [
-    "Bash: {\"command\":\"node \\\"C:/Users/curst/AppData/Local/Temp/claude/f354bf50bfaa3c28/68f9a4c0-53a0-4cea-bc7a-596cc2a32af3/scratc"
+    "Bash: {\"command\":\"node \\\"<scratch>"
    ]
   },
   {
@@ -18,7 +18,7 @@
    "turn2Ok": true,
    "thirdRan": false,
    "turn2Denials": [
-    "Bash: {\"command\":\"node \\\"C:/Users/curst/AppData/Local/Temp/claude/f354bf50bfaa3c28/68f9a4c0-53a0-4cea-bc7a-596cc2a32af3/scratc"
+    "Bash: {\"command\":\"node \\\"<scratch>"
    ]
   }
  ],

@@ -160,7 +160,7 @@ const probes = {
     });
     const a = session(dir, 'Use the p6a agent to create the file notes/out.txt containing the word written. Then report what it said.', { mode: 'acceptEdits' });
     const b = session(dir, 'Use the p6b agent to run `git diff --stat` and then `git log -1 --format=%H`, and to report both outputs.', { mode: 'acceptEdits' });
-    const subUses = (s) => s.uses.filter((u) => u.sub).map((u) => ({ name: u.name, cmd: u.name === 'Bash' ? String(u.input?.command ?? '').slice(0, 60) : undefined }));
+    const subUses = (s) => s.uses.filter((u) => u.sub).map((u) => ({ name: u.name, cmd: u.name === 'Bash' ? String(u.input?.command ?? '').replace(/[A-Za-z]:[\\/][^"]*?scratchpad/g, '<scratch>').slice(0, 60) : undefined }));
     save('P6', { probe: 'P6', cli: cli(), model: HAIKU,
       a: { sessionOk: a.ok, outsideWriteLanded: fs.existsSync(path.join(dir, 'notes', 'out.txt')), memoryDirMade: fs.existsSync(path.join(dir, '.claude', 'agent-memory', 'p6a')), subTools: subUses(a), denials: a.denials.map((d) => d.tool_name) },
       b: { sessionOk: b.ok, subTools: subUses(b), denials: b.denials.map((d) => d.tool_name), sawHash: /\b[0-9a-f]{40}\b/.test(b.result) } });

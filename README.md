@@ -45,10 +45,11 @@ locks: no hook blocks a write.
     entries due for review and proposals (2.3.0);
   - a short instruction to keep the project's decisions in `.project-map/`.
 
-  You, not Claude, also see two lines when they apply (2.3.0):
+  You, not Claude, also see three lines when they apply (2.3.0):
   - *waiting for review:* what a dream proposed, and its drafts;
   - *a dream is due:* after 10 or more new sessions; or after 7 days with 3 or more; or when Claude Code's cleanup
-    will delete unread sessions within 5 days.
+    will delete unread sessions within 5 days;
+  - *a dream did not finish:* one is running in another session, or stopped before it finished.
 - **At the first prompt you type**, and at the first after each compaction, Claude is told to state for each document
   directory whether it bears on the task (yes or no), and to read the yes ones before it changes anything. A
   background subagent's report or another Claude session's message does not count as that prompt.
@@ -107,7 +108,7 @@ locks: no hook blocks a write.
   - a quote must be found in what a person typed, an answer they chose, or a committed file, never in tool output
     alone;
   - email addresses, absolute paths, session ids and common key shapes are refused;
-  - a rule needs `paths:` and two sessions behind it, and so does a skill;
+  - a rule needs `paths:` and two sessions behind it; a skill needs two sessions too;
   - a committed entry only ever gains a status line, also marked proposed.
 
   It then writes:
@@ -152,7 +153,8 @@ to Claude.
   - `codebase-guide` answered a repeated question with fewer tool calls in 4 of 5;
   - `memory-curator` flagged a due entry and a duplicate in 5 of 5, and changed a committed claim in 0 of 5;
   - none wrote outside its allowed folders.
-- *The dream,* run as `/second-brain:dream` over 9 fresh sessions per run, 10 runs, on the final build:
+- *The dream,* run as `/second-brain:dream` over 9 fresh sessions per run, 10 runs, on the reviewed build. The final
+  build changed only a template, not the dream:
   - the three decisions the scenario's sessions state were recovered in 10 of 10;
   - the repeated correction became a scoped rule draft in 5 of 5;
   - the repeated procedure became a skill draft in 5 of 5;
