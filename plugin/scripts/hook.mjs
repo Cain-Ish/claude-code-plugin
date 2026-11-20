@@ -1,14 +1,15 @@
-// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|bash-failure|onboard>
+// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|bash-failure|onboard|setup>
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT } from './map.mjs';
+import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft } from './map.mjs';
+import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
 const emit = (ev, text, note) => { if (text || note) process.stdout.write(JSON.stringify({ ...(note && { systemMessage: note }), hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
 const which = process.argv[2];
-const input = which === 'onboard' ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
+const input = ['onboard', 'setup'].includes(which) ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
 // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
 const closed = (file, why = 'could not be computed') => `[project map] The labels for ${file} ${why}: treat every entry in it as unreviewed and unverified.\n`;
@@ -21,7 +22,15 @@ if (which === 'session-start') {
   // v1's statusline and timer shims outlive an update to v2 (V2-D26)
   const brain = process.env.BRAIN_DIR || path.join(os.homedir(), '.second-brain');
   const v1 = ['buddy-statusline.sh', 'sb-extract-drain.sh'].some((f) => fs.existsSync(path.join(brain, 'bin', f)));
-  emit('SessionStart', startText(idx).text, v1 ? V1_LEFT : undefined);
+  // 06, section 3, S6 (D32): what waits for review, and whether a dream is due, for the user only, at a session's
+  // start or after /clear; any failure here costs the rest nothing
+  const notes = v1 ? [V1_LEFT] : [];
+  if (idx !== null && ['startup', 'clear'].includes(input.source)) {
+    try { const w = waiting(root); if (w) notes.push(w); } catch {}
+    if (process.env.CLAUDE_PLUGIN_DATA) try { const d = dreamDue(root, process.env.CLAUDE_PLUGIN_DATA, input.transcript_path); if (d) notes.push(d); } catch {}
+    if (process.env.CLAUDE_PLUGIN_DATA) try { const l = dreamLeft(root, process.env.CLAUDE_PLUGIN_DATA); if (l) notes.push(l); } catch {}
+  }
+  emit('SessionStart', startText(idx).text, notes.length ? notes.join('\n') : undefined);
 } else if (which === 'prompt') {
   // the hook also fires on a background subagent's report and another session's message: the force waits for a typed
   // prompt (06, 2i). shortcut: matched on the wrappers transcripts record; another form spends the force as before
@@ -64,18 +73,24 @@ if (which === 'session-start') {
   // a command that exits non-zero comes as PostToolUseFailure, with the same text (06 2m)
   emit(ev, got.length ? out + tail
     : '[project map] The output of this command could not be read, so the map entries it showed are not labelled: treat every map entry it showed as unreviewed and unverified.\n');
+} else if (which === 'setup') {
+  // 06, section 3, S5 (D29): the templates sit beside scripts/, in the plugin this file runs from
+  console.log(setup(root, path.resolve(path.dirname(process.argv[1]), '..')));
 } else if (which === 'onboard') {
   const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
   const idx = index(root);
   const fit = startText(idx);
   const mapDir = path.join(root, MAP);
-  const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')).length : 0;
+  const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')) : [];
+  // 06, 2q: a map file HEAD lacks keeps its entries labelled unreviewed until it is committed
+  const tracked = spawnSync('git', ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', MAP], { cwd: root, encoding: 'utf8' }).stdout?.split('\0') ?? [];
+  const loose = mapFiles.filter((f) => !tracked.includes(`${MAP}/${f}`)).length;
   console.log([
     `Node ${process.version}${Number(process.versions.node.split('.')[0]) < 20 ? ': the project map needs Node 20 or later' : ''}`,
     gitVersion ?? 'git not found: the project map needs git',
     idx === null ? 'Not a git repository: the index lists the files git tracks, so it is empty here.'
       : `Index: ${fit.total ? idx.split('\n').slice(1, -1).reduce((n, l) => n + l.split(', ').length, 0) : 0} documents in ${fit.total} directories, ${Buffer.byteLength(idx)} bytes at session start.`,
     ...(fit.listed < fit.total ? [`Warning: session start is past the 10,000-character limit of one hook output, so it lists ${fit.listed} of the index's ${fit.total} directories.`] : []),
-    `Map: ${mapFiles} file(s) in ${MAP}/.`,
+    `Map: ${mapFiles.length} file(s) in ${MAP}/${loose ? `; ${loose} not committed, so their entries stay labelled "unreviewed" until they are` : ''}.`,
   ].join('\n'));
 }

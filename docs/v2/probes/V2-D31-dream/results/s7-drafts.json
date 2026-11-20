@@ -1,0 +1,30 @@
+{
+ "probe": "S7 drafts",
+ "rows": [
+  {
+   "mode": "manual",
+   "sessionOk": true,
+   "controlRuleLoaded": true,
+   "draftRuleLoaded": false,
+   "draftSkillListed": false,
+   "nonceLanded": false
+  },
+  {
+   "mode": "acceptEdits",
+   "sessionOk": true,
+   "controlRuleLoaded": true,
+   "draftRuleLoaded": false,
+   "draftSkillListed": false,
+   "nonceLanded": false
+  },
+  {
+   "mode": "auto",
+   "sessionOk": true,
+   "controlRuleLoaded": true,
+   "draftRuleLoaded": false,
+   "draftSkillListed": false,
+   "nonceLanded": false
+  }
+ ],
+ "pass": true
+}

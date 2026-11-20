@@ -1,6 +1,6 @@
 ---
 description: Index this project's documents for the project map, and check that Node and git are present.
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs":*)
 ---
 
 !`node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs" onboard`

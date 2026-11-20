@@ -1,0 +1,114 @@
+{
+ "probe": "S8 item 5, focused",
+ "rule": "an arm qualifies with delegated and named in at least 9 of its 10 runs; the smaller change wins (C before AC); none qualifying goes to the user",
+ "arms": {
+  "C": {
+   "delegated": 10,
+   "named": 10,
+   "runs": 10
+  }
+ },
+ "costUsd": 2.61,
+ "rows": [
+  {
+   "arm": "C",
+   "prompt": "P1",
+   "run": 1,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 5,
+   "costUsd": 0.29
+  },
+  {
+   "arm": "C",
+   "prompt": "P1",
+   "run": 2,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 4,
+   "costUsd": 0.27
+  },
+  {
+   "arm": "C",
+   "prompt": "P1",
+   "run": 3,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 4,
+   "costUsd": 0.28
+  },
+  {
+   "arm": "C",
+   "prompt": "P1",
+   "run": 4,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 5,
+   "costUsd": 0.27
+  },
+  {
+   "arm": "C",
+   "prompt": "P1",
+   "run": 5,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 5,
+   "costUsd": 0.24
+  },
+  {
+   "arm": "C",
+   "prompt": "P2",
+   "run": 1,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 5,
+   "costUsd": 0.25
+  },
+  {
+   "arm": "C",
+   "prompt": "P2",
+   "run": 2,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 5,
+   "costUsd": 0.24
+  },
+  {
+   "arm": "C",
+   "prompt": "P2",
+   "run": 3,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 4,
+   "costUsd": 0.24
+  },
+  {
+   "arm": "C",
+   "prompt": "P2",
+   "run": 4,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 5,
+   "costUsd": 0.26
+  },
+  {
+   "arm": "C",
+   "prompt": "P2",
+   "run": 5,
+   "ok": true,
+   "delegated": true,
+   "named": true,
+   "toolsBeforeAgent": 3,
+   "costUsd": 0.27
+  }
+ ]
+}
