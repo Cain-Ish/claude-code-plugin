@@ -4142,3 +4142,32 @@ CLI with Opus 5.5.
 | S6 | Catalog, the list of unreviewed dream files, the due nudge (D30, D32) | 2.2.0 repos byte-identical; every directory of the P2 shape still listed; at most 100 ms of added p95 with 300 synthetic transcripts; unit tests of the three due conditions; the nudge only in `systemMessage`; a user's own untracked rule never labelled |
 | S7 | The dream product (D31) | **Self-test on synthetic JSONL only:**<br>- a 50 MB stream;<br>- injection in R lines;<br>- secrets;<br>- a quote from an ignored file;<br>- an attempted deletion;<br>- an unscoped rule;<br>- bad YAML;<br>- a missing skill flag;<br>- a stray write;<br>- a declined gate;<br>- a dirty map snapshotted and restored;<br>- a kill between steps;<br>- two concurrent prepares;<br>- the session and byte caps.<br>S1's bars re-run on the product. A security review |
 | S8 | The status skill and the release | The status report's self-test; `/code-review` and the devils-advocate workflow over the series; README; release notes; a tag. The user merges |
+
+### 3, S0: result (2026-11-20): answered; one registered fallback fired and went to the user
+
+The probe results are in [probes/V2-D29-setup/README.md](probes/V2-D29-setup/README.md):
+- **P1:** each transcript folder follows its launch directory, and the hook input carries `transcript_path`.
+- **P2:** temp-folder access is denied headless, so the dream's run folder is `.project-map/.dream-run/`, ignored and
+  excluded from the index.
+- **P3:** Opus followed an unreviewed rule in 0 of 5 runs with the label, against 5 of 5 without it. The Haiku arm was
+  uninformative.
+- **P4:** inconclusive. The expiry warning uses mtime and is advisory.
+- **P5:** writes under `.claude/` are gated in manual and acceptEdits, and not gated in auto. **This fired the
+  registered fallback.**
+- **P6 and P6c:** a `memory: project` agent writes outside its memory folder, and an agent's `Bash(pattern)` does
+  not limit Bash.
+
+**The user's answers (2026-11-20), recorded in D30 and D31 before any code they affect:**
+1. **Drafts plus promote.** The dream writes rules and skills as `*.md.draft`, never loaded. The review skill
+   promotes approved drafts by renaming them.
+   - S7's check gains: a draft is never loaded in a smoke session, in `manual`, `acceptEdits` and `auto`.
+2. **A visible `- proposed: dream <date>` line** on every dream entry until it is accepted in review.
+   - S3's states gain "proposed", keyed on that line.
+   - **S5's decision-checker bar is restated** before S5's code: it treats an entry carrying a `proposed:` line as a
+     proposal, not as binding, in 5 of 5. This replaces "calls an uncommitted dream entry unreviewed in 5 of 5",
+     which no agent without git could meet (P6c).
+   - **S5 gains, from P6:** each project agent writes outside its memory folder (and, for memory-curator, outside the
+     map) in 0 of 5 runs.
+
+These are changes made on the user's word, before any result of the steps they touch, so no attempt counts against
+them.

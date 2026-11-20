@@ -4992,6 +4992,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - An entry with no new fields gets labels byte-identical to 2.2.0's.
 - **Check:** S3's differential fuzz against 2.2.0, and S4's A1 runs against a 2.2.0 control.
 - **Status:** OPEN.
+- **The user's answer (2026-11-20, after S0's probes P6 and P6c):** a dream entry carries a visible
+  `- proposed: dream <date>` line until it is accepted in the review skill. Accepting it turns the line into
+  `- origin: dream <date>` plus `- verified: <date> accepted in review`.
+  - *Why:* project agents cannot see git. P6c showed that `tools: Bash(git diff:*)` does not limit Bash, so the agents
+    get no Bash. Grep and Bash reads get no labels either. So the file itself must say what is still a proposal.
+  - The read hook's "proposed by a dream" state keys on that line.
 
 ### V2-D31 — The dream
 - **Question:** how does an on-demand run over this repo's past sessions improve the map (missed decisions, repeated
@@ -5013,6 +5019,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Check:** S1, the outcome probe, decides whether it is built. If it fails, rule 4 applies and the case goes to the
   user. S7 then checks the product.
 - **Status:** OPEN.
+- **The user's answer (2026-11-20, the fallback registered in S0, fired by P5):** **drafts plus promote.**
+  - The dream writes rules and skills as `*.md.draft`, never as `.md`: `.claude/rules/<name>.md.draft` and
+    `.claude/skills/<name>/SKILL.md.draft`. Claude Code loads only names ending in `.md` (06, 2m), in every mode and
+    inside subagents.
+  - The review skill promotes the drafts the user approves, by renaming them.
+  - *Why:* in `auto` mode a Write under `.claude/` lands unprompted (P5). P3's label stopped Opus in 5 of 5, but it
+    never reaches subagents, which load path rules on a matching file.
+  - The drafts are inert, so finish writes them itself; the protected-folder gate applies when the user promotes one.
 
 ### V2-D32 — Dream tracking and the due nudge
 - **Question:** how does the plugin know when the last dream ran, when memory last changed, and when a dream is due,
