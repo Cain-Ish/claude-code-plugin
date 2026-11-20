@@ -1,0 +1,30 @@
+{
+ "probe": "P6",
+ "cli": "2.1.305 (Claude Code)",
+ "model": "claude-haiku-5-5",
+ "a": {
+  "sessionOk": true,
+  "outsideWriteLanded": true,
+  "memoryDirMade": true,
+  "subTools": [
+   {
+    "name": "Write"
+   },
+   {
+    "name": "Read"
+   }
+  ],
+  "denials": []
+ },
+ "b": {
+  "sessionOk": true,
+  "subTools": [
+   {
+    "name": "Bash",
+    "cmd": "cd \"C:\\Users\\curst\\AppData\\Local\\Temp\\claude\\f354bf50bfaa3c2"
+   }
+  ],
+  "denials": [],
+  "sawHash": false
+ }
+}
