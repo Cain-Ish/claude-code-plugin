@@ -4964,3 +4964,27 @@ that fails without its fix:
     byte-stable. Both now check every entry;
   - PR #116 (to main, titled 2.2.0) has the `v2` branch as its head, so merging it now would ship this unfinished
     work. It is retitled for 2.3.0 at the tag, and the user merges.
+
+**S7's check 2, run again on the reviewed build** (`3c9e2d01cea8`, `results/s7-product-a3.json`, 10 runs, Opus 5.5)
+passed every bar:
+- C1-C3 10 of 10;
+- the rule, the skill and the choice 5 of 5 each;
+- noise 0; wrong status lines 0; the nonce 0 of 5; live rules 0;
+- no background analyzer call, one turn per run;
+- $5.73.
+
+The answer-holding rule for Q quotes and the dream-session fix cost no bar.
+
+**The acceptance probe, two more changes from the uncounted runs** (item 6's reading and every bar unchanged):
+- **The history sessions cannot write `CLAUDE.md` or `.claude/`.** In the second uncounted run, Claude wrote a
+  "from now on" rule into a new `CLAUDE.md`. Setup then met an existing file, not item 1's brand-new repo, and offered
+  its Team memory block only as a "For you" item, which a headless run cannot accept. With the history kept out, the
+  third uncounted run's `CLAUDE.md` came from setup, and Claude used `decision-checker` (item 5 passed). Each run
+  records `claudeMdBeforeSetup`.
+- **Item 6's history follows S1's R1 and R2:** two sessions where the user corrects Claude's date code in a second
+  turn, plus the ApiError decision. A rule stated up front is a decision, and the dream rightly filed it as an entry,
+  so the third uncounted run had entries but no rule draft. The skill drafts a rule only from a correction that
+  repeats.
+- **Item 6's first turns ask for `toLocaleDateString`,** so each second turn is a real correction. In the fourth
+  uncounted run, with the helper in the repo, Claude used `formatDate()` at once. The "No…" then corrected nothing;
+  the analyzers filed it as a decision, and the dream rightly drafted no rule.

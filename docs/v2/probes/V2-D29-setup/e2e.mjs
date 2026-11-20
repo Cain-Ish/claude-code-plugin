@@ -13,6 +13,9 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+// the history sessions run where nothing tells Claude to capture; left alone, Claude wrote 'from now on' rules into a new
+// CLAUDE.md (the second uncounted run), and setup then met an existing CLAUDE.md, not item 1's brand-new repo
+const HISTORY_DENY = ',Write(./CLAUDE.md),Edit(./CLAUDE.md),Write(./.claude/**),Edit(./.claude/**)';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLAUDE = process.env.D17_CLAUDE ?? 'claude';
 const MODEL = 'claude-opus-5-5';
@@ -35,6 +38,9 @@ function run(i, clone) {
   // the brand-new repo: a small app
   put(path.join(repo, 'package.json'), '{ "name": "shop", "version": "0.1.0", "type": "module" }\n');
   put(path.join(repo, 'README.md'), '# shop\n\nA small shop front.\n');
+  // the helper the history's corrections name, and the card one of them changes
+  put(path.join(repo, 'src', 'utils', 'date.js'), 'export function formatDate(d) { const p = (n) => String(n).padStart(2, "0"); return [p(d.getDate()), p(d.getMonth() + 1), d.getFullYear()].join("."); }\n');
+  put(path.join(repo, 'src', 'components', 'UserCard.jsx'), 'export function UserCard({ user }) { return <div>{user.name}</div>; }\n');
   put(path.join(repo, 'src', 'price.js'), 'export const currency = "EUR";\n');
   put(path.join(repo, 'src', 'components', 'Button.jsx'), 'export function Button({ label }) { return <button>{label}</button>; }\n');
   const git = (...a) => spawnSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@example.invalid', ...a], { cwd: repo, encoding: 'utf8' });
@@ -62,17 +68,17 @@ function run(i, clone) {
   put(path.join(ilPlugin, 'hooks', 'hooks.json'), JSON.stringify({ hooks: { InstructionsLoaded: [{ hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/dump.mjs'] }] }] } }));
   const loads = () => (fs.existsSync(path.join(il, 'loads.jsonl')) ? parse(fs.readFileSync(path.join(il, 'loads.jsonl'), 'utf8')).map((l) => String(l.file_path ?? '').replace(/\\/g, '/')) : []);
   let cost = 0;
-  const session = (input, { plugin = true, probe = false } = {}) => {
+  const session = (input, { plugin = true, probe = false, deny = '', resume = null } = {}) => {
     fs.rmSync(il, { recursive: true, force: true });
-    const r = spawnSync(CLAUDE, ['-p', '--model', MODEL, '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', 'WebFetch,WebSearch',
+    const r = spawnSync(CLAUDE, ['-p', '--model', MODEL, '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', `WebFetch,WebSearch${deny}`,
       '--permission-mode', 'acceptEdits', ...(plugin && installed ? ['--plugin-dir', installed] : []), ...(probe ? ['--plugin-dir', ilPlugin] : []),
-      '--output-format', 'stream-json', '--verbose', '--include-hook-events'], { cwd: repo, input, encoding: 'utf8', env: env(), timeout: 3_600_000, maxBuffer: 256 << 20 });
+      '--output-format', 'stream-json', '--verbose', '--include-hook-events', ...(resume ? ['--resume', resume] : [])], { cwd: repo, input, encoding: 'utf8', env: env(), timeout: 3_600_000, maxBuffer: 256 << 20 });
     const ev = parse(r.stdout ?? '');
     const res = ev.find((e) => e.type === 'result') ?? {};
     cost += res.total_cost_usd ?? 0;
     const uses = ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => (e.message?.content ?? []).filter((c) => c.type === 'tool_use'));
     const hook = (event) => ev.filter((e) => e.subtype === 'hook_response' && e.hook_event === event).map((e) => String(e.output ?? ''));
-    return { ok: res.subtype === 'success', text: String(res.result ?? ''), uses, hook, loads: loads() };
+    return { ok: res.subtype === 'success', text: String(res.result ?? ''), uses, hook, loads: loads(), sid: res.session_id ?? null };
   };
   const out = { run: i, installOk: add.status === 0 && inst.status === 0, installedSame: Boolean(same), version };
   if (!installed) { put(path.join(base, 'e2e.json'), JSON.stringify(out, null, 1)); return; }
@@ -81,11 +87,20 @@ function run(i, clone) {
   // capture them, as in a repo's history from before the plugin came in. (After setup, CLAUDE.md tells Claude to
   // record decisions even without the plugin, so the uncounted run's sessions captured them and the dream had nothing
   // left to find; 06, the uncounted run's amendment)
-  session('From now on all dates shown to users go through formatDate from src/utils/date.js, never toLocaleDateString. Create src/utils/date.js with a formatDate(d) that returns DD.MM.YYYY.', { plugin: false });
-  session('Add src/components/OrderDate.jsx that shows an order date. Again: all dates shown to users go through formatDate from src/utils/date.js, never toLocaleDateString.', { plugin: false });
-  session('We decided that API errors are wrapped in ApiError from src/errors.js. Create src/errors.js with that class.', { plugin: false });
+  // two corrected sessions, as S1's R1 and R2: a task, then the correction in the same session. The dream's rule
+  // candidates come from a correction that repeats; a rule stated up front is a decision, and became an entry in the
+  // uncounted runs. Then one decision
+  const corrected = (task, fix) => { const a = session(task, { plugin: false, deny: HISTORY_DENY }); session(fix, { plugin: false, deny: HISTORY_DENY, resume: a.sid }); };
+  // the first turn asks for toLocaleDateString, so the second is a real correction (the fourth uncounted run: with the
+  // helper in the repo, Claude used it at once, the "correction" corrected nothing, and the dream rightly drafted no rule)
+  corrected('Add a function formatOrderDate(d) to src/orders/format.js that formats an order date for display with toLocaleDateString.',
+    'No. In this project dates shown to users are always formatted with formatDate() from src/utils/date.js, never with toLocaleDateString or a new helper. Please change it.');
+  corrected("Add a 'joined on' date line to src/components/UserCard.jsx, formatted with toLocaleDateString.",
+    'Again: any date we show to users goes through formatDate() from src/utils/date.js. Never toLocaleDateString. Fix it.');
+  session('We decided that API errors are wrapped in ApiError from src/errors.js. Create src/errors.js with that class.', { plugin: false, deny: HISTORY_DENY });
   git('add', '-A', '--', 'src');
   git('commit', '-q', '-m', 'work');
+  out.claudeMdBeforeSetup = fs.existsSync(path.join(repo, 'CLAUDE.md')) || fs.existsSync(path.join(repo, '.claude'));
 
   // 1. layout: setup creates D29's files with Anthropic's rules met; a second run creates nothing
   const s1 = session('/second-brain:setup');
