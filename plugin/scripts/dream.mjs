@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { spawnSync } from 'node:child_process';
-import { MAP, entries, foundIn, stateDir, loadState, knownDirs, localDate, toplevel } from './map.mjs';
+import { MAP, entries, foundIn, stateDir, loadState, knownDirs, localDate, toplevel, decode, dreamDate, reviewStep } from './map.mjs';
 
 const RUN = `${MAP}/.dream-run`;
 const MAX_SESSIONS = 30;
@@ -56,9 +56,14 @@ const mapFiles = (root) => scan(root, MAP).files.filter((p) => p.endsWith('.md')
 // shortcut: copies every file under those folders; a repo with large skill assets pays for the copy, add a size cap if one does
 const watched = (root) => [...new Set([...mapFiles(root), ...DIRS.flatMap((d) => scan(root, d).files), ...TOP.filter((f) => lstat(path.join(root, f))?.isFile())])].sort();
 // the links in the same places, with where each points: Claude Code follows a linked rule or skill, so a link that
-// appears or changes during the dream is removed
-const links = (root) => Object.fromEntries([...scan(root, MAP).links, ...DIRS.flatMap((d) => scan(root, d).links), ...TOP.filter((f) => lstat(path.join(root, f))?.isSymbolicLink())]
+// appears or changes during the dream is removed. The watched folders themselves count too: a .claude/rules made a
+// link to a folder of rules elsewhere would load them (the devils-advocate review)
+const FOLDERS = [MAP, '.claude', ...DIRS];
+const links = (root) => Object.fromEntries([...FOLDERS.filter((f) => lstat(path.join(root, f))?.isSymbolicLink()), ...scan(root, MAP).links, ...DIRS.flatMap((d) => scan(root, d).links), ...TOP.filter((f) => lstat(path.join(root, f))?.isSymbolicLink())]
   .map((f) => [f, (() => { try { return fs.readlinkSync(path.join(root, f)); } catch { return ''; } })()]));
+// a path the dream watches: a map file, a file under a watched folder, or a top file, with no ".." on it. A run record
+// naming any other path is refused, so a forged one cannot aim the restore at settings or git hooks
+const watchable = (f) => typeof f === 'string' && !f.split('/').includes('..') && ((f.startsWith(`${MAP}/`) && f.endsWith('.md') && !f.startsWith(`${RUN}/`)) || DIRS.some((d) => f.startsWith(`${d}/`)) || TOP.includes(f));
 // a write target: not a link, and its nearest existing folder inside the repo
 const inside = (root, p) => {
   try { if (fs.lstatSync(p).isSymbolicLink()) return false; } catch {}
@@ -103,9 +108,14 @@ function record(root, dir, step) {
   const job = readJson(path.join(runDir, 'run.json'), null);
   if (!job) return { runDir, job: null, whole: false };
   if (job.root !== real(root)) throw new Error(`this dream was prepared in another worktree of this repo: run ${step} there`);
-  const whole = fs.existsSync(path.join(runDir, 'snapshot')) && job.watched.every((f) => fs.existsSync(path.join(runDir, 'snapshot', f)));
-  return { runDir, job, whole };
+  const forged = !Array.isArray(job.watched) || !job.watched.every(watchable) || Object.keys(job.links ?? {}).some((f) => !FOLDERS.includes(f) && !watchable(f));
+  const whole = !forged && fs.existsSync(path.join(runDir, 'snapshot')) && job.watched.every((f) => fs.existsSync(path.join(runDir, 'snapshot', f)));
+  return { runDir, job, whole, forged };
 }
+// the data folder the command is given: Claude Code's plugin data root, never inside the repo. The skill's grant
+// allows the command with any arguments, so a session could otherwise point it at a run record it wrote itself (the
+// devils-advocate review)
+const dataOk = (root, data) => { const d = path.resolve(data); return /[\\/]plugins[\\/]data[\\/]/.test(`${d}${path.sep}`) && !within(root, d); };
 
 // ---------- the lock: it names the root that holds it; its age is its file's mtime (a reader between create and
 // write would see no time in it) ----------
@@ -157,7 +167,7 @@ export function tag(r, names = new Map()) {
 async function digestFrom(file, start, accept) {
   const lines = [];
   const names = new Map();
-  let first = null, last = null, cwd = null;
+  let first = null, last = null, cwd = null, dream = false;
   const input = fs.createReadStream(file, { start, encoding: 'utf8' });
   const rl = readline.createInterface({ input, crlfDelay: Infinity });
   for await (const l of rl) {
@@ -166,16 +176,19 @@ async function digestFrom(file, start, accept) {
     if (cwd === null && typeof r.cwd === 'string') { cwd = r.cwd; if (!accept(cwd)) break; }
     if (r.timestamp) { first ??= r.timestamp; last = r.timestamp; }
     if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_use') names.set(x.id, x.name);
+    // Claude Code records a slash command as a command-name record, not as a typed prompt (/code-review's finding)
+    if (r.type === 'user' && typeof r.message?.content === 'string' && r.message.content.includes('<command-name>/second-brain:dream</command-name>')) dream = true;
     lines.push(...tag(r, names));
   }
   input.destroy();
-  return { lines, first, last, cwd };
+  return { lines, first, last, cwd, dream };
 }
 // this repo's transcript folders: the ones session start learned, plus the folders of the root and its worktrees
 function folders(root, dir) {
   const projects = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
   const roots = [root, ...git(root, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9))];
-  const prefixes = [...new Set(roots.map((r) => enc(real(r))))];
+  // a worktree whose folder was deleted but never pruned is still listed by git
+  const prefixes = [...new Set(roots.map((r) => { try { return enc(real(r)); } catch { return enc(path.resolve(r)); } }))];
   let names = [];
   try { names = fs.readdirSync(projects); } catch {}
   const found = names.filter((n) => prefixes.some((p) => n === p || n.startsWith(`${p}-`))).map((n) => path.join(projects, n));
@@ -196,9 +209,10 @@ export async function prepare(root, data) {
       const head = git(at, 'show', `HEAD:./${MAP}/dreams.md`).stdout ?? '';
       const work = (() => { try { return fs.readFileSync(path.join(at, MAP, 'dreams.md'), 'utf8'); } catch { return ''; } })();
       if (!head.includes(st.pending.line) && work.includes(st.pending.line)) {
-        throw new Error(`the last dream is still waiting for review${at === here ? '' : ` in the worktree ${at}`}: accept or reject its proposals (/map-review) and commit, or discard them, then dream again`);
+        throw new Error(`the last dream is still waiting for review${at === here ? '' : ` in the worktree ${at}`}: accept or reject its proposals and commit, or discard them, then dream again. ${reviewStep(root)}`);
       }
-      if (!head.includes(st.pending.line)) st.seen = st.pending.prevSeen;
+      // discarded: its sessions and its date go back, so the next log line and the nudge count from the dream before
+      if (!head.includes(st.pending.line)) { st.seen = st.pending.prevSeen; st.lastDream = st.pending.prevLastDream ?? null; st.lastDreamDate = st.pending.prevLastDreamDate ?? null; }
       st.pending = null;
       fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(st, null, 1));
     }
@@ -235,7 +249,10 @@ export async function prepare(root, data) {
     const roots = [root, ...git(root, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9))];
     const rootsReal = roots.map((r) => { try { return real(r); } catch { return path.resolve(r); } });
     // whose session: the repo of its cwd, or of the nearest folder above it that still exists. A session of another
-    // repo is foreign; one whose folder is gone and whose nearest folder is not ours is left, never marked seen
+    // repo is foreign. One whose folder is gone and whose nearest folder is not ours is ours when it sits in a
+    // transcript folder this repo's session start learned (a removed worktree's), and otherwise is marked seen
+    // unread, so the due nudge cannot count it for ever (/code-review's finding)
+    const known = new Set(knownDirs(dir));
     const owners = new Map();
     const owner = (cwd) => {
       if (!owners.has(cwd)) {
@@ -254,7 +271,7 @@ export async function prepare(root, data) {
         const p = path.join(d, f);
         const size = fs.statSync(p).size;
         const from = st.seen[f] ?? 0;
-        if (size > from) candidates.push({ p, f, from, size, mtime: fs.statSync(p).mtimeMs });
+        if (size > from) candidates.push({ p, f, d, from, size, mtime: fs.statSync(p).mtimeMs });
       }
     }
     candidates.sort((a, b) => a.mtime - b.mtime);
@@ -264,11 +281,17 @@ export async function prepare(root, data) {
     for (const c of candidates) {
       if (manifest.filter((m) => m.digest).length >= MAX_SESSIONS || bytes >= MAX_BYTES) { left.push(c.f); continue; }
       let kind = 'none';
-      const dg = await digestFrom(c.p, c.from, (cwd) => (kind = owner(cwd)) === 'ours');
+      const dg = await digestFrom(c.p, c.from, (cwd) => {
+        kind = owner(cwd);
+        if (kind === 'gone' && known.has(c.d)) kind = 'ours';
+        return kind === 'ours';
+      });
       // a session of another repo, whose folder name this repo's prefix also matches: seen, and never read again
       if (kind === 'foreign') { manifest.push({ f: c.f, end: c.size, skipped: 'another repo' }); continue; }
-      if (kind !== 'ours') continue; // no cwd yet, or a folder that is gone and was outside the repo: left for later
-      if (dg.lines.some((l) => /^U: \/?(second-brain:)?dream\b/.test(l))) { manifest.push({ f: c.f, end: c.size, skipped: 'the dream itself' }); continue; }
+      if (kind === 'gone') { manifest.push({ f: c.f, end: c.size, skipped: 'its folder is gone' }); continue; }
+      if (kind === 'none') { manifest.push({ f: c.f, end: c.size, skipped: 'no working folder recorded' }); continue; }
+      // a session that ran a dream is never read, now or later: its turns are the dream's own work and its review
+      if (dg.dream || dg.lines.some((l) => /^U: \/second-brain:dream(\s|$)/.test(l))) { manifest.push({ f: c.f, end: Number.MAX_SAFE_INTEGER, skipped: 'the dream itself' }); continue; }
       if (!dg.lines.some((l) => /^(U|Q): /.test(l))) { manifest.push({ f: c.f, end: c.size, skipped: 'nothing typed' }); continue; }
       const name = `d${manifest.filter((m) => m.digest).length + 1}.digest`;
       const text = `${dg.lines.join('\n')}\n`;
@@ -278,7 +301,7 @@ export async function prepare(root, data) {
       // run folder, which is inside the repo)
       manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10) });
     }
-    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: today() }, null, 1));
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: git(root, 'rev-parse', 'HEAD').stdout?.trim() ?? '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: today() }, null, 1));
     const digests = manifest.filter((m) => m.digest);
     return [
       `Dream prepared: ${digests.length} session digest(s) in ${RUN}/digests/: ${digests.map((m) => `${m.digest} (${m.first}${m.last && m.last !== m.first ? ` to ${m.last}` : ''})`).join(', ') || 'none'}.`,
@@ -292,7 +315,7 @@ export async function prepare(root, data) {
 // ---------- finish: validate, apply, log ----------
 // email addresses; drive, UNC and home-like absolute paths; UUIDs (session ids); common key shapes. A word character
 // such as "_" before an id or a key does not hide it
-const PRIVATE = /[\w.+-]+@[\w-]+\.[\w.]+|\b[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
+const PRIVATE = /[\w.+-]+@[\w-]+\.[\w.]+|\b[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
 const front = (t) => /^---\n([\s\S]*?)\n---\n/.exec(t.replace(/\r/g, ''));
 const quoteOf = (b) => b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
@@ -320,8 +343,9 @@ export function finish(root, data) {
   const dir = stateDir(root, data);
   if (!fs.existsSync(path.join(dir, 'dream.lock'))) throw new Error('no dream is running here: run prepare first');
   // every check before the first change
-  const { runDir, job, whole } = record(root, dir, 'finish');
+  const { runDir, job, whole, forged } = record(root, dir, 'finish');
   if (!job) throw new Error('the run record is missing: run abort, then dream again');
+  if (forged) throw new Error('the run record names a path a dream never watches: run abort, then dream again');
   if (!whole) throw new Error('the snapshot is incomplete: run abort, then dream again');
   if (!inside(root, path.join(root, MAP, 'dreams.md'))) throw new Error(`${MAP}/ or its log is a link: the dream writes nothing through it; run abort`);
   const run = path.join(root, RUN);
@@ -335,12 +359,21 @@ export function finish(root, data) {
   // what changed during the dream goes back to the snapshot: proposals reach the repo only through this step (06, S7)
   const { changed: strays, undone } = restore(root, dir, runDir, job.watched, job.links ?? {});
   const settings = SETTINGS.filter((f) => (job.settings ?? {})[f] !== settingsNow(root)[f]);
-  const userText = Object.values(digests).flat().filter((l) => /^(U|Q): /.test(l)).join('\n').toLowerCase();
+  // what a person typed (U lines), and their answers to Claude's questions (Q lines). A quote resting on a Q line must
+  // hold the answer they chose: the question's text is Claude's, and quoted alone it can say the opposite of the
+  // choice (/code-review's finding)
+  const lines = Object.values(digests).flat();
+  const userText = lines.filter((l) => l.startsWith('U: ')).join('\n').toLowerCase();
+  const answers = lines.filter((l) => l.startsWith('Q: ') && l.includes(' = ')).map((l) => ({ line: l.toLowerCase(), answer: l.slice(l.lastIndexOf(' = ') + 3).toLowerCase().match(WORD) ?? [] }));
+  const chosen = (q) => {
+    const qw = q.toLowerCase().match(WORD) ?? [];
+    return answers.some((a) => a.answer.length > 0 && foundIn(q, a.line) && qw.some((_, i) => a.answer.every((w, k) => qw[i + k] === w)));
+  };
   // a tracked file's text as HEAD holds it: an uncommitted edit, or a tracked link to an ignored file, is no source.
   // shortcut: blobs over 2 MB are skipped and the rest are read at once; stream them if a repo's text outgrows memory
   let repoText = null;
   const headText = () => {
-    const tree = spawnSync('git', ['ls-tree', '-r', '-l', '-z', 'HEAD'], { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20 }).stdout ?? '';
+    const tree = spawnSync('git', ['ls-tree', '-r', '-l', '-z', job.head || 'HEAD'], { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20 }).stdout ?? '';
     const oids = tree.split('\0').map((l) => /^(\d+) blob ([0-9a-f]+) +(\d+)\t(.*)$/s.exec(l)).filter((m) => m && m[1] !== '120000' && Number(m[3]) <= 2 << 20 && !m[4].startsWith(`${MAP}/`)).map((m) => m[2]);
     if (!oids.length) return '';
     const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: `${oids.join('\n')}\n`, maxBuffer: 1 << 30 }).stdout ?? Buffer.alloc(0);
@@ -362,7 +395,9 @@ export function finish(root, data) {
   const drop = (why) => { dropped[why] = (dropped[why] ?? 0) + 1; };
   const written = [];
   // every id the map holds now, so a new entry never reuses one
-  const ids = new Set(mapFiles(root).flatMap((f) => [...fs.readFileSync(path.join(root, f), 'utf8').matchAll(/^- id:[ \t]*(\S+)/gm)].map((m) => m[1])));
+  const ids = new Set(mapFiles(root).flatMap((f) => [...decode(fs.readFileSync(path.join(root, f))).matchAll(/^- id:[ \t]*(\S+)/gm)].map((m) => m[1])));
+  // a UTF-16 map file (Windows PowerShell 5.1 writes one) is never appended to: UTF-8 text after it would corrupt it
+  const utf16 = (p) => { try { const b = fs.readFileSync(p); return (b[0] === 0xff && b[1] === 0xfe) || (b[0] === 0xfe && b[1] === 0xff); } catch { return false; } };
   const P = path.join(run, 'proposals');
   // map entries: appended to their topic file, each marked proposed, never replacing or changing what is there
   const mapDir = path.join(P, 'map');
@@ -371,13 +406,15 @@ export function finish(root, data) {
     const text = fs.readFileSync(path.join(mapDir, f), 'utf8').replace(/\r/g, '');
     const target = path.join(root, MAP, f);
     const safe = inside(root, target);
+    const wide = utf16(target);
     const keep = [];
     for (let b of entries(text)) {
       if (!safe) { drop('a link on its path'); continue; }
+      if (wide) { drop('a UTF-16 map file'); continue; }
       b = tidy(b);
       const q = quoteOf(b);
       if (PRIVATE.test(b)) { drop('private data'); continue; }
-      if (!q.trim() || !provable(q) || !(foundIn(q, userText) || inRepo(q))) { drop('no typed or tracked source'); continue; }
+      if (!q.trim() || !provable(q) || !(foundIn(q, userText) || chosen(q) || inRepo(q))) { drop('no typed or tracked source'); continue; }
       let id = /^- id:[ \t]*(\S+)/m.exec(b)?.[1];
       if (!id || ids.has(id)) { const base = slug(id ?? b.split('\n')[0].slice(4)); id = base; for (let k = 2; ids.has(id); k++) id = `${base}-${k}`; b = /^- id:/m.test(b) ? b.replace(/^- id:.*$/m, `- id: ${id}`) : `${b}\n- id: ${id}`; }
       ids.add(id);
@@ -402,14 +439,15 @@ export function finish(root, data) {
     if (!/^[\w.-]+$/.test(id) || !s || PRIVATE.test(raw)) { drop('malformed status line'); continue; }
     if (!ids.has(s[3])) { drop('status naming an unknown id'); continue; }
     const sline = `- status: ${s[1]} ${s[2]} by ${s[3]}: ${s[4].slice(0, 200)}`;
-    const file = mapFiles(root).find((p) => new RegExp(`^- id:[ \\t]*${id.replace(/[.]/g, '\\.')}[ \\t]*$`, 'm').test(fs.readFileSync(path.join(root, p), 'utf8')));
+    const file = mapFiles(root).find((p) => !utf16(path.join(root, p)) && new RegExp(`^- id:[ \\t]*${id.replace(/[.]/g, '\\.')}[ \\t]*$`, 'm').test(fs.readFileSync(path.join(root, p), 'utf8')));
     if (!file) { drop('status for an unknown id'); continue; }
     if (!inside(root, path.join(root, file))) { drop('a link on its path'); continue; }
     const t = fs.readFileSync(path.join(root, file), 'utf8');
-    const re = new RegExp(`(^- id:[ \\t]*${id.replace(/[.]/g, '\\.')}[ \\t]*\\r?\\n(?:- .*\\r?\\n)*)`, 'm');
+    // the entry's metadata lines, the last of them possibly the file's last line with no newline after it
+    const re = new RegExp(`(^- id:[ \\t]*${id.replace(/[.]/g, '\\.')}[ \\t]*(?:\\r?\\n|$)(?:- .*(?:\\r?\\n|$))*)`, 'm');
     if (/^- status:/m.test(t.slice(t.search(re)).split(/\n(?=#{1,3} )/)[0])) { drop('entry already has a status'); continue; }
     // marked proposed too, so the read hook labels it until review (a function, so "$&" in the text stays text)
-    fs.writeFileSync(path.join(root, file), t.replace(re, (all) => `${all}${sline}\n${/^- proposed:/m.test(all) ? '' : `- proposed: dream ${date}\n`}`));
+    fs.writeFileSync(path.join(root, file), t.replace(re, (all) => `${all}${all.endsWith('\n') ? '' : '\n'}${sline}\n${/^- proposed:/m.test(all) ? '' : `- proposed: dream ${date}\n`}`));
     written.push(file);
     n.status++;
   }
@@ -423,7 +461,11 @@ export function finish(root, data) {
     if (!paths) { drop('rule without paths'); continue; }
     if (t.split('\n').length > 60 || PRIVATE.test(t)) { drop('rule too long or private'); continue; }
     if (evidence(t, digests).size < 2) { drop('rule from fewer than two sessions'); continue; }
-    const target = freeName(path.join(root, '.claude', 'rules', `${f}.draft`));
+    // a name that neither a draft nor a live rule holds, so promoting the draft (dropping .draft) replaces no rule
+    const rd = path.join(root, '.claude', 'rules');
+    const stem = f.replace(/\.md$/, '');
+    let target;
+    for (let k = 1; ; k++) { const live = path.join(rd, `${k === 1 ? stem : `${stem}-${k}`}.md`); if (!fs.existsSync(live) && !fs.existsSync(`${live}.draft`)) { target = `${live}.draft`; break; } }
     if (!inside(root, target)) { drop('a link on its path'); continue; }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, t, { flag: 'wx' });
@@ -440,7 +482,8 @@ export function finish(root, data) {
     if (!fm || !/^name:\s*\S/m.test(fm[1]) || !/^description:\s*\S/m.test(fm[1])) { drop('skill without name or description'); continue; }
     if (PRIVATE.test(t)) { drop('skill with private data'); continue; }
     if (evidence(t, digests).size < 2) { drop('skill from fewer than two sessions'); continue; }
-    if (!/^disable-model-invocation:\s*true\s*$/m.test(fm[1])) t = t.replace(/^---\n/, '---\ndisable-model-invocation: true\n');
+    // the flag is set, and any other value of it removed: two keys would leave the last one, which may be false
+    t = `---\ndisable-model-invocation: true\n${fm[1].split('\n').filter((l) => !/^disable-model-invocation\s*:/.test(l)).join('\n')}\n---\n${t.slice(fm[0].length)}`;
     const folder = freeName(path.join(root, '.claude', 'skills', d));
     if (!inside(root, path.join(folder, 'SKILL.md.draft'))) { drop('a link on its path'); continue; }
     fs.mkdirSync(folder, { recursive: true });
@@ -451,7 +494,8 @@ export function finish(root, data) {
   // the log line: counts only, no ids; the previous dream's survival is what its proposals became in HEAD (G7)
   const st = loadState(dir);
   const head = git(root, 'show', `HEAD:./${MAP}/dreams.md`).status === 0 ? mapFiles(root).map((f) => git(root, 'show', `HEAD:./${f}`).stdout).join('\n') : '';
-  const prev = st.lastDream ? st.lastDream.slice(0, 10) : null;
+  // the previous dream's local date, the one its proposed lines carry (lastDream is UTC; /code-review's finding)
+  const prev = dreamDate(st);
   const accepted = prev ? (head.match(new RegExp(`^- origin: dream ${prev}`, 'gm')) ?? []).length : 0;
   const waiting = prev ? (head.match(new RegExp(`^- proposed: dream ${prev}`, 'gm')) ?? []).length : 0;
   const read = job.manifest.filter((m) => m.digest);
@@ -465,19 +509,22 @@ export function finish(root, data) {
     const log = path.join(root, MAP, 'dreams.md');
     fs.appendFileSync(log, `${fs.existsSync(log) ? '' : '# Dream log\n\n'}${line}\n`);
     // the watermark moves; it moves back if this log line is never kept (prepare's check)
+    st.pending = { line, prevSeen, prevLastDream: st.lastDream, prevLastDreamDate: st.lastDreamDate ?? null, root: real(root) };
     st.lastDream = new Date().toISOString();
-    st.pending = { line, prevSeen, root: real(root) };
+    st.lastDreamDate = date;
   }
-  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(st, null, 1));
+  // the state last, after the run is gone: a finish that stopped before it can be retried without a second pending
+  // record overwriting the first one's prevSeen (the devils-advocate review)
   fs.rmSync(run, { recursive: true, force: true });
   fs.rmSync(runDir, { recursive: true, force: true });
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(st, null, 1));
   unlock(dir);
   const drops = Object.entries(dropped).map(([k, v]) => `${v} ${k}`).join(', ');
   return [`Dream finished: ${line.slice(2)}.`,
     strays.length ? `Undone, because they changed during the dream (only its proposals reach the repo): ${strays.join(', ')}.${undone ? ` What they replaced is saved in ${undone}; copy back anything that was not the dream's.` : ''}` : '',
     settings.length ? `Changed during the dream and left as they are: ${settings.join(', ')}. An "always allow" you gave lands there; check the rest, hooks above all.` : '',
     drops ? `Dropped: ${drops}.` : '', written.length ? `Written (uncommitted): ${[...new Set(written)].join(', ')}.` : 'Nothing written.',
-    'Next: /map-review to accept or reject the proposals and promote drafts; then commit.'].filter(Boolean).join('\n');
+    `Next: ${reviewStep(root)} to accept or reject the proposals and promote drafts; then commit.`].filter(Boolean).join('\n');
 }
 
 // ---------- abort: the snapshot back, the lock released, the watermark untouched ----------
@@ -506,6 +553,9 @@ if (path.basename(process.argv[1] ?? '') === 'dream.mjs') {
   const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
   if (!['prepare', 'finish', 'abort'].includes(step) || !data) {
     console.log('usage: node dream.mjs <prepare|finish|abort> <the plugin data folder>; run it as /second-brain:dream');
+    process.exitCode = 1;
+  } else if (!dataOk(root, data)) {
+    console.log('The dream stopped: its data folder must be the plugin\'s own (under plugins/data), outside the repo. Run it as /second-brain:dream.');
     process.exitCode = 1;
   } else {
     try { console.log(step === 'prepare' ? await prepare(root, data) : step === 'finish' ? finish(root, data) : abort(root, data)); } catch (e) { console.log(`The dream stopped: ${e.message}`); process.exitCode = 1; }

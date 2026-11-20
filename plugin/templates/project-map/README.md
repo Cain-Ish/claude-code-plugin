@@ -10,13 +10,13 @@ the code does not show. It is plain Markdown, reviewed like code: an entry count
 ## An entry
 
 ```
-### <the part of the project it governs>
-> <the decision, rule or requirement, in the words used>
+  ### <the part of the project it governs>
+  > <the decision, rule or requirement, in the words used>
 
-- id: <a short unique slug>
-- source: <who stated it, or the document>, <YYYY-MM-DD>
-- when: ["<kind of work it applies to>"]
-- verified: <YYYY-MM-DD> <how you know it holds>
+  - id: <a short unique slug>
+  - source: <who stated it, or the document>, <YYYY-MM-DD>
+  - when: ["<kind of work it applies to>"]
+  - verified: <YYYY-MM-DD> <how you know it holds>
 ```
 
 ## Its life

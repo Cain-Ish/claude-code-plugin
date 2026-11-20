@@ -4887,3 +4887,80 @@ and abort), run as its own command. Product hash `81768634263b`.
     before it;
   - CI on macOS and Linux, where the link cases run.
 - *Next needs:* S8.
+
+### 3, S8: what the uncounted run and the reviews changed (registered 2026-11-20, before the counted runs)
+
+**The uncounted acceptance run** (candidate `f454bbd`, CLI 2.1.305, Opus 5.5) met check 0 and items 1, 2, 3, 4 and 7.
+It missed two:
+- **Item 5, the agent** (product). Claude named `widgets-home`, but checked the change itself and never called
+  `decision-checker`. S5 had always named the agent in its prompts, and nothing a session always loads tells Claude
+  the agents exist. The fix:
+  - the `CLAUDE.md` template's Team memory section names `decision-checker` for checking a change or plan against
+    the decisions, and `codebase-guide` for where-is questions. That section is also the block setup proposes for an
+    existing `CLAUDE.md`;
+  - `decision-checker`'s description now says to use it whenever someone asks for that check.
+- **Item 6, the dream loop** (the probe). The three sessions without the plugin ran after setup. Setup's `CLAUDE.md`
+  told Claude to record decisions even without the plugin, so the decisions were captured and the dream rightly
+  proposed nothing. `e2e.mjs` now runs those three sessions before setup, where nothing tells Claude to capture: a
+  repo's history from before the plugin came in. The item's bar and its reading are unchanged.
+
+**/code-review** (high, everything in `plugin/` since 2.2.0) found 12 issues. All are fixed, each with a self-test
+case, and a mutation check confirms each case fails without its fix:
+- a pruned-away worktree's missing folder made prepare throw;
+- the dream appended UTF-8 text to a UTF-16 map file; it now skips such a file, and status decodes UTF-16 as the read
+  hook does;
+- the log line's survival counts compared the dream's UTC date with local dates; the dream's local date is now kept;
+- the dream's own session was never recognized (Claude Code records the command as a command record), so its later
+  turns fed the next dream; it is now marked seen for good;
+- sessions with no working folder recorded, or a vanished folder outside the repo, were never marked seen, so the
+  nudge could never clear. They are now marked seen. A vanished folder inside a transcript folder that session start
+  learned, such as a removed worktree's, counts as this repo's and is read;
+- a discarded dream gave back its sessions but not its date;
+- a skill draft flagged `false` kept both flags;
+- a quote from Claude's question text alone passed as typed; a quote resting on a Q line must now hold the answer
+  chosen;
+- the map README's example parsed as an entry;
+- a rule draft could take a live rule's name, so promoting it would replace that rule;
+- a status line on an entry that ends its file without a newline was counted but not written;
+- setup's link guard checked only the top folder.
+
+**The dream changed after S7 passed,** so S7's check 2 runs again in full on the final build, at its bars, into
+`results/s7-product-a3.json`. The 5 counted acceptance runs follow, then the tag.
+
+**The devils-advocate workflow** (five lenses, refute-first, 48 agents) ran on the S8 candidate: 43 findings raised, 29
+survived refutation. Eleven repeat `/code-review`'s findings above. The rest are fixed, each with a self-test case
+that fails without its fix:
+- **The dream's command now refuses a data folder inside the repo or outside Claude Code's `plugins/data`.** The
+  skill's grant allows the command with any arguments, so a session could point finish at a run record it forged and
+  have it "restore" `.claude/settings.json` or a git hook. A run record naming any path the dream never watches is
+  refused as well.
+- **A link at a watched folder's own path** (`.claude/rules` itself, `.claude`, the map folder) is removed when it
+  appears during a dream, and the folder's files come back from the snapshot.
+- **The privacy scan** catches Git Bash and Cygwin paths (`/c/Users/…`, `/cygdrive/c/…`).
+- **A commit made during the dream is no source:** the tracked sources are HEAD as prepare found it.
+- **`/second-brain:status` checks every entry, as the read hook labels every entry.** A narrowed entry still binds in
+  part. The report also leaves `.git/index` alone (`--no-optional-locks`).
+- **A repo that never ran setup has no `/map-review`.** The waiting line, the dream's next step and its refusal now
+  point to `/second-brain:setup` first.
+- **Session start tells the user,** in one `systemMessage` line, when a dream holds the repo's lock: one running in
+  another session, or one stopped before it finished. The dream skill offers to abort the old one.
+- **Setup creates nothing outside the top of a git repo.** In a home folder it would have written Claude's
+  user-level `.claude/`.
+- **finish writes the state last,** so a retried finish cannot overwrite the first run's `prevSeen`.
+- **Only the dream's own invocation** marks a session as the dream itself. Before, any typed line starting with
+  "dream" did.
+- **The self-test's PM6 and PM8 checks** cover the skills, the agent and the templates: each names its outcome, and
+  their lines are counted.
+- **CI's gated bench** runs session start with the plugin's data folder and 300 unseen transcripts, so the nudge's
+  work is timed on every system.
+- **The record is corrected:**
+  - the D31 ledger line lost "$5" to a shell;
+  - section 3's budget row says "a repo shaped like 2.2.0 stays byte-identical", but since S4 session start carries
+    instruction v3 (1,765 B, not 1,349 B). What stays byte-identical for such a repo is its labels;
+  - the release notes say that 2.2.0 repos get the new instruction, and that a repo with 10 or more unseen
+    transcripts gets the nudge at its first session start.
+- **Recorded, not fixed:**
+  - status repeats the read hook's stale conditions rather than sharing `labels()`, whose output must stay
+    byte-stable. Both now check every entry;
+  - PR #116 (to main, titled 2.2.0) has the `v2` branch as its head, so merging it now would ship this unfinished
+    work. It is retitled for 2.3.0 at the tag, and the user merges.

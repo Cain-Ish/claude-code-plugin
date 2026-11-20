@@ -19,10 +19,13 @@ const FILES = [
 ];
 const POINTER = '## Team memory';
 
-// a top-level folder that resolves outside the repo takes no writes: a link could aim them anywhere
-function outside(root, top) {
+// a target whose nearest existing folder resolves outside the repo takes no write: a link at any depth (.claude, or
+// .claude/skills) could aim it anywhere (/code-review's finding: only the top folder was checked)
+function outside(root, target) {
   try {
-    const real = fs.realpathSync.native(path.join(root, top));
+    let q = path.dirname(target);
+    while (!fs.existsSync(q)) q = path.dirname(q);
+    const real = fs.realpathSync.native(q);
     const base = fs.realpathSync.native(root);
     return real !== base && !real.startsWith(base + path.sep);
   } catch { return false; }
@@ -38,12 +41,14 @@ function autoMemoryOff(root) {
 }
 
 export function setup(root, pluginRoot) {
+  // only at a repo's top: run anywhere else (a home folder) it would write Claude's user-level .claude/ (the
+  // devils-advocate review)
+  if (!fs.existsSync(path.join(root, '.git'))) return 'Setup runs at the top of a git repository. This folder is not one, so nothing was created.';
   const created = [], kept = [], refused = [], forYou = [];
   for (const [from, to] of FILES) {
-    const top = to.split('/')[0];
-    if (top !== to && outside(root, top)) { refused.push(to); continue; }
-    const text = fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8');
     const target = path.join(root, to);
+    if (outside(root, target)) { refused.push(to); continue; }
+    const text = fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8');
     fs.mkdirSync(path.dirname(target), { recursive: true });
     try { fs.writeFileSync(target, text, { flag: 'wx' }); created.push(to); } catch (e) { if (e.code !== 'EEXIST') throw e; kept.push(to); }
   }

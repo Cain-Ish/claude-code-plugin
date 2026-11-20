@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { MAP, entries, foundIn, sourcePath, under, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel } from './map.mjs';
+import { MAP, entries, foundIn, sourcePath, under, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, decode, dreamDate } from './map.mjs';
 
 const git = (root, ...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 const count = (s) => (s ?? '').split('\n').filter(Boolean).length;
@@ -15,10 +15,10 @@ export function status(root, data) {
   if (!fs.existsSync(path.join(root, MAP))) return `This repo has no team memory (${MAP}/). Run /second-brain:setup to create it.`;
   const today = localDate();
   const files = under(root, MAP).filter((p) => p.endsWith('.md') && !p.startsWith(`${MAP}/.dream-run/`));
-  const all = files.map((f) => { try { return { f, es: entries(fs.readFileSync(path.join(root, f), 'utf8')) }; } catch { return { f, es: [] }; } });
+  const all = files.map((f) => { try { return { f, es: entries(decode(fs.readFileSync(path.join(root, f)))) }; } catch { return { f, es: [] }; } });
   const ids = new Set(all.flatMap(({ es }) => es.flatMap((b) => [...b.matchAll(/^- id:[ \t]*(\S+)[ \t]*$/gm)].map((m) => m[1]))));
   const docs = new Map();
-  const doc = (p) => { if (!docs.has(p)) docs.set(p, fs.readFileSync(path.join(root, p), 'utf8').toLowerCase()); return docs.get(p); };
+  const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
   const commits = new Map();
   const lastCommit = (p) => { if (!commits.has(p)) commits.set(p, git(root, 'log', '-1', '--format=%cs', '--', p).stdout?.trim() ?? ''); return commits.get(p); };
   const stale = [];
@@ -27,26 +27,24 @@ export function status(root, data) {
     es.forEach((b, i) => {
       total++;
       const why = [];
+      // every entry gets every check, as the read hook gives every entry its labels: a narrowed entry still binds in
+      // part (the devils-advocate review). A status line adds the replaced-by check
       const st = /^- status:[ \t]*(\S.*)$/m.exec(b)?.[1].trim();
-      if (st) {
-        // a retired entry is history; it is listed only when the id that replaced it is not in the map
-        const by = /^\S+[ \t]+\d{4}-\d{2}-\d{2}[ \t]+by[ \t]+((?=[\w.-]*[\d-])[A-Za-z0-9][\w.-]*)[ \t]*(?::|$)/.exec(st)?.[1];
-        if (by && ids.size && !ids.has(by)) why.push(`replaced by ${by}, which the map does not hold`);
-      } else {
-        const review = /^- review:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/m.exec(b)?.[1];
-        if (review && review < today) why.push(`review due since ${review}`);
-        const at = sourcePath(/^- source:(.*)$/m.exec(b)?.[1] ?? '');
-        if (at) {
-          const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
-          let found;
-          try { found = Boolean(fs.statSync(path.join(root, at), { throwIfNoEntry: false })?.isFile() && foundIn(quote, doc(at))); } catch { found = null; }
-          if (found === null) why.push(`cannot read ${at}`);
-          else if (!found) why.push(`not found word for word in ${at}`);
-          else {
-            const verified = /^- verified:[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(b)?.[1];
-            const changed = verified && lastCommit(at);
-            if (changed && changed > verified) why.push(`its source ${at} changed on ${changed}, after it was verified on ${verified}`);
-          }
+      const by = st && /^\S+[ \t]+\d{4}-\d{2}-\d{2}[ \t]+by[ \t]+((?=[\w.-]*[\d-])[A-Za-z0-9][\w.-]*)[ \t]*(?::|$)/.exec(st)?.[1];
+      if (by && ids.size && !ids.has(by)) why.push(`replaced by ${by}, which the map does not hold`);
+      const review = /^- review:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/m.exec(b)?.[1];
+      if (review && review < today) why.push(`review due since ${review}`);
+      const at = sourcePath(/^- source:(.*)$/m.exec(b)?.[1] ?? '');
+      if (at) {
+        const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
+        let found;
+        try { found = Boolean(fs.statSync(path.join(root, at), { throwIfNoEntry: false })?.isFile() && foundIn(quote, doc(at))); } catch { found = null; }
+        if (found === null) why.push(`cannot read ${at}`);
+        else if (!found) why.push(`not found word for word in ${at}`);
+        else {
+          const verified = /^- verified:[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(b)?.[1];
+          const changed = verified && lastCommit(at);
+          if (changed && changed > verified) why.push(`its source ${at} changed on ${changed}, after it was verified on ${verified}`);
         }
       }
       if (why.length) stale.push(`  - ${f}, entry ${i + 1} "${b.split('\n')[0].slice(4)}": ${why.join('; ')}`);
@@ -63,12 +61,13 @@ export function status(root, data) {
   const due = dreamDue(root, data, null).replace(/^second-brain: a dream/, 'A dream');
   const wait = waiting(root).replace(/^second-brain: waiting/, 'Waiting');
   const last = git(root, 'log', '-1', '--format=%cs', '--', MAP).stdout?.trim();
-  const dirty = count(git(root, 'status', '--porcelain', '--', MAP).stdout);
-  const agents = count(git(root, 'status', '--porcelain', '--untracked-files=all', '--', '.claude/agent-memory').stdout);
+  // --no-optional-locks: a status refresh would rewrite .git/index, and the report changes no file
+  const dirty = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--', MAP).stdout);
+  const agents = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--', '.claude/agent-memory').stdout);
   return [
     `second-brain status, ${today}:`,
     `- Team memory: ${plural(total, 'entry', 'entries')} in ${plural(files.length, 'file', 'files')} under ${MAP}/; last committed ${last || 'never'}${dirty ? `; ${plural(dirty, 'uncommitted change', 'uncommitted changes')}` : ''}.`,
-    `- Dreams: ${state.lastDream ? `the last on ${state.lastDream.slice(0, 10)}` : 'none yet'}; ${plural(since, 'session', 'sessions')} since${due ? '' : '; no dream is due'}.`,
+    `- Dreams: ${state.lastDream ? `the last on ${dreamDate(state)}` : 'none yet'}; ${plural(since, 'session', 'sessions')} since${due ? '' : '; no dream is due'}.`,
     due ? `- ${due}` : '',
     `- ${wait || 'Nothing waits for review.'}`,
     agents ? `- Agent memory: ${plural(agents, 'uncommitted change', 'uncommitted changes')} under .claude/agent-memory/; review them as you review the map.` : '',

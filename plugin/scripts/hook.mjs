@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue } from './map.mjs';
+import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft } from './map.mjs';
 import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
@@ -28,6 +28,7 @@ if (which === 'session-start') {
   if (idx !== null && ['startup', 'clear'].includes(input.source)) {
     try { const w = waiting(root); if (w) notes.push(w); } catch {}
     if (process.env.CLAUDE_PLUGIN_DATA) try { const d = dreamDue(root, process.env.CLAUDE_PLUGIN_DATA, input.transcript_path); if (d) notes.push(d); } catch {}
+    if (process.env.CLAUDE_PLUGIN_DATA) try { const l = dreamLeft(root, process.env.CLAUDE_PLUGIN_DATA); if (l) notes.push(l); } catch {}
   }
   emit('SessionStart', startText(idx).text, notes.length ? notes.join('\n') : undefined);
 } else if (which === 'prompt') {

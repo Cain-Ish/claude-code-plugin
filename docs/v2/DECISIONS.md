@@ -5041,7 +5041,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - $5.32 for 10 dreams.
 
   PM1 is met for the dream, so it is built in S7. D31 stays OPEN until S7 passes.
-- **S7 passed (2026-11-20; 06, section 3, S7: result).** The dream product met S1's bars at its second attempt: C1-C3 10 of 10; the rule, the skill draft and the choice 5 of 5 each; noise 0; wrong status lines 0; the nonce 0 of 5; .73 for 10 dreams. Attempt 1 failed (the rule 3 of 5): one run's analyzers ran in the background, the turn ended, and the finish command lost the skill's grant, which lasts one turn. The skill now keeps every step in one turn. Drafts never loaded in three modes. The security review (two agy rounds, /security-review, the canary and grant probes) ended in the fixes listed in 06; its accepted risks go to the README.
+- **S7 passed (2026-11-20; 06, section 3, S7: result).** The dream product met S1's bars at its second attempt: C1-C3 10 of 10; the rule, the skill draft and the choice 5 of 5 each; noise 0; wrong status lines 0; the nonce 0 of 5; $5.73 for 10 dreams. Attempt 1 failed (the rule 3 of 5): one run's analyzers ran in the background, the turn ended, and the finish command lost the skill's grant, which lasts one turn. The skill now keeps every step in one turn. Drafts never loaded in three modes. The security review (two agy rounds, /security-review, the canary and grant probes) ended in the fixes listed in 06; its accepted risks go to the README.
 - **Status:** LOCKED 2026-11-20. Reopens if Claude Code changes its transcript format, the skill grant's lifetime or what it loads from .claude/, or if a dream ever lands text from an R line or an untracked file.
 
 ### V2-D32 — Dream tracking and the due nudge

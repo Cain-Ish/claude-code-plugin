@@ -68,7 +68,7 @@ export const V1_LEFT = 'second-brain v1 left its statusline or timer on this mac
 const DOC = /\.(md|mdx|markdown|txt|rst)$/i;
 const git = (root, args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 // UTF-16 with its byte-order mark (Windows PowerShell 5.1's Out-File and > write it), else UTF-8 (D18, J4)
-const decode = (b) => (b[0] === 0xff && b[1] === 0xfe ? b.toString('utf16le')
+export const decode = (b) => (b[0] === 0xff && b[1] === 0xfe ? b.toString('utf16le')
   : b[0] === 0xfe && b[1] === 0xff ? Buffer.from(b.subarray(0, b.length & ~1)).swap16().toString('utf16le') : b.toString('utf8'));
 export const rel = (root, p) => path.relative(root, String(p ?? '')).replace(/\\/g, '/');
 
@@ -207,6 +207,9 @@ export const loadState = (dir) => {
   s = obj(s) ?? {};
   return { ...s, seen: obj(s.seen) ?? {}, lastDream: typeof s.lastDream === 'string' && !Number.isNaN(Date.parse(s.lastDream)) ? s.lastDream : null, pending: obj(s.pending) };
 };
+// the last dream's date as the user's day, the one its proposed lines carry; a state from before 2.3.0's review fixes
+// has only lastDream, in UTC
+export const dreamDate = (st) => (typeof st.lastDreamDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(st.lastDreamDate) ? st.lastDreamDate : st.lastDream?.slice(0, 10) ?? null);
 export const knownDirs = (dir) => { try { return [...new Set(fs.readFileSync(path.join(dir, 'dirs.log'), 'utf8').split(/\r?\n/).filter(Boolean))]; } catch { return []; } };
 // the inert drafts a dream wrote: .claude/rules/*.md.draft and .claude/skills/*/SKILL.md.draft (D31)
 export function drafts(root) {
@@ -222,7 +225,17 @@ export function waiting(root) {
   const d = drafts(root).length;
   if (!proposed && !d) return '';
   const parts = [proposed ? `${proposed} proposed ${proposed === 1 ? 'entry' : 'entries'}` : '', d ? `${d} draft${d === 1 ? '' : 's'}` : ''].filter(Boolean);
-  return `second-brain: waiting for review: ${parts.join(' and ')}. Run /map-review.`;
+  return `second-brain: waiting for review: ${parts.join(' and ')}. ${reviewStep(root)}.`;
+}
+// where review happens: /map-review, which only setup creates; a repo that never ran setup is pointed there first
+// (the devils-advocate review)
+export const reviewStep = (root) => (fs.existsSync(path.join(root, '.claude', 'skills', 'map-review', 'SKILL.md')) ? 'Run /map-review' : 'Run /second-brain:setup, which adds /map-review, then /map-review');
+// a dream that holds this repo's lock: running in another session, or stopped before finish or abort (the
+// devils-advocate review). Its direct writes stay in place until it is aborted
+export function dreamLeft(root, data) {
+  const f = path.join(stateDir(root, data), 'dream.lock');
+  if (!fs.existsSync(f)) return '';
+  return 'second-brain: a dream is running in another session, or stopped before it finished. If none is running, run /second-brain:dream: it offers to abort the old one.';
 }
 // Claude Code's transcript cleanup, in days (its user settings, default 30). shortcut: project, local and managed
 // settings are not read; read them if a team sets cleanupPeriodDays there
@@ -260,7 +273,7 @@ export function dreamDue(root, data, transcriptPath, now = Date.now()) {
   const n = unseen.length;
   const days = (now - (st.lastDream ? Date.parse(st.lastDream) : oldest)) / day;
   if (!(n >= 10 || (days >= 7 && n >= 3) || expiring > 0)) return '';
-  return `second-brain: a dream is due: ${n} new session${n === 1 ? '' : 's'} since ${st.lastDream ? `the dream of ${st.lastDream.slice(0, 10)}` : 'tracking began'}`
+  return `second-brain: a dream is due: ${n} new session${n === 1 ? '' : 's'} since ${st.lastDream ? `the dream of ${dreamDate(st)}` : 'tracking began'}`
     + `${expiring ? `; ${expiring} will be deleted by Claude Code's cleanup within 5 days` : ''}. Run /second-brain:dream.`;
 }
 

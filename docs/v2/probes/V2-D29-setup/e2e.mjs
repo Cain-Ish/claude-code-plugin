@@ -77,6 +77,16 @@ function run(i, clone) {
   const out = { run: i, installOk: add.status === 0 && inst.status === 0, installedSame: Boolean(same), version };
   if (!installed) { put(path.join(base, 'e2e.json'), JSON.stringify(out, null, 1)); return; }
 
+  // item 6's three sessions, before setup and without the plugin: the decisions are stated where nothing tells Claude to
+  // capture them, as in a repo's history from before the plugin came in. (After setup, CLAUDE.md tells Claude to
+  // record decisions even without the plugin, so the uncounted run's sessions captured them and the dream had nothing
+  // left to find; 06, the uncounted run's amendment)
+  session('From now on all dates shown to users go through formatDate from src/utils/date.js, never toLocaleDateString. Create src/utils/date.js with a formatDate(d) that returns DD.MM.YYYY.', { plugin: false });
+  session('Add src/components/OrderDate.jsx that shows an order date. Again: all dates shown to users go through formatDate from src/utils/date.js, never toLocaleDateString.', { plugin: false });
+  session('We decided that API errors are wrapped in ApiError from src/errors.js. Create src/errors.js with that class.', { plugin: false });
+  git('add', '-A', '--', 'src');
+  git('commit', '-q', '-m', 'work');
+
   // 1. layout: setup creates D29's files with Anthropic's rules met; a second run creates nothing
   const s1 = session('/second-brain:setup');
   const at = (p) => path.join(repo, p);
@@ -121,13 +131,8 @@ function run(i, clone) {
   const named = /widgets-home|src\/widgets/.test(s5.text);
   out.agent = { used, named, pass: used && named };
 
-  // 6. the dream loop: three sessions state decisions with capture off (no plugin); the dream proposes them; the draft
-  // rule never loads; the next session's labels say "proposed by a dream"
-  session('From now on all dates shown to users go through formatDate from src/utils/date.js, never toLocaleDateString. Create src/utils/date.js with a formatDate(d) that returns DD.MM.YYYY.', { plugin: false });
-  session('Add src/components/OrderDate.jsx that shows an order date. Again: all dates shown to users go through formatDate from src/utils/date.js, never toLocaleDateString.', { plugin: false });
-  session('We decided that API errors are wrapped in ApiError from src/errors.js. Create src/errors.js with that class.', { plugin: false });
-  git('add', '-A', '--', 'src');
-  git('commit', '-q', '-m', 'work');
+  // 6. the dream loop: the three sessions run before setup stated decisions with capture off; the dream proposes them;
+  // the draft rule never loads; the next session's labels say "proposed by a dream"
   const s6 = session('/second-brain:dream');
   const proposed = blocks(mapText(repo)).filter((b) => /^- proposed: dream /m.test(b)).length;
   const drafts = walk(at('.claude/rules')).filter((p) => p.endsWith('.md.draft'));

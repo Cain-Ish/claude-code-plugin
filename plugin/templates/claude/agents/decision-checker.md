@@ -1,6 +1,6 @@
 ---
 name: decision-checker
-description: Checks a change or a plan against this project's recorded decisions in .project-map/ and .claude/rules/. Use before committing a change, or when a plan touches an area that has recorded decisions.
+description: Checks a change or a plan against this project's recorded decisions in .project-map/ and .claude/rules/. Use it whenever someone asks to check a change or a plan against the project's decisions, before committing a change, and when a plan touches an area that has recorded decisions.
 tools: Read, Grep, Glob
 memory: project
 ---
