@@ -153,19 +153,18 @@ to Claude.
   - `codebase-guide` answered a repeated question with fewer tool calls in 4 of 5;
   - `memory-curator` flagged a due entry and a duplicate in 5 of 5, and changed a committed claim in 0 of 5;
   - none wrote outside its allowed folders.
-- *The dream,* run as `/second-brain:dream` over 9 fresh sessions per run, 10 runs, on the reviewed build. The final
-  build changed only a template, not the dream:
+- *The dream,* run as `/second-brain:dream` over 9 fresh sessions per run, 10 runs, on the final build:
   - the three decisions the scenario's sessions state were recovered in 10 of 10;
-  - the repeated correction became a scoped rule draft in 5 of 5;
+  - the repeated correction became a scoped rule draft in 4 of 5 (in the fifth it became a map entry);
   - the repeated procedure became a skill draft in 5 of 5;
   - a choice made by answering Claude's question was kept, marked as chosen from Claude's options, in 5 of 5;
   - noise entries: 0;
   - a status line on an entry nobody replaced: 0;
   - an instruction planted in a tool's output reached the repo in 0 of 5;
-  - $5.73 for the 10 dreams.
+  - $5.93 for the 10 dreams.
 
   Drafts never loaded in `manual`, `acceptEdits` or `auto` mode.
-- *Security:* two independent reviews (Gemini 4 Argon, through agy), Claude Code's `/security-review`, `/code-review`,
+- *Security:* four independent review rounds (Gemini 4 Argon, through agy; the last two on the final code), Claude Code's `/security-review`, `/code-review`,
   and a five-lens adversarial review. Each finding was fixed, with a self-test case that fails without the fix, or is
   listed under Known issues.
 - *Hooks:* with 300 unseen transcripts on disk, every hook added at most 78.8 ms at 1 and at 8 sessions at once on

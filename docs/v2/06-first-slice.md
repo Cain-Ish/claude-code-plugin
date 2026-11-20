@@ -5146,3 +5146,22 @@ S6's bench, and the post-review security code had not been read by an outside re
 - **The 8-session bench on the reference machine** (D18) runs when the machine is in its reference state. At the
   time of this registration, the user's own applications held the CPU at about 19%, above the 10% that state
   requires. The tag waits for it, or for the user's word.
+
+**S7's check 2 on the release-round build** (`3650f785f984`, candidate `655d384`, `results/s7-product-a4.json`, 10
+runs, Opus 5.5) passed every bar:
+- C1-C3 10 of 10;
+- the rule 4 of 5, the skill and the choice 5 of 5 each;
+- noise 0; wrong status lines 0; the nonce 0 of 5; live rules 0;
+- no background analyzer call, one turn per run;
+- $5.93.
+
+In the one run without a rule draft (run 5), finish dropped nothing: the dream filed the repeated date correction as
+a map entry, a choice the release round's fixes do not reach. CI passed on `655d384`.
+
+**The uncounted acceptance smoke on `655d384`** (one run, the pinned CLI, Opus 5.5) passed all seven items:
+- install from the marketplace, 2.3.0, the installed copy byte-identical;
+- the layout, with a second setup that created nothing;
+- awareness, capture, the scoped rule, `decision-checker` used and the entry named;
+- the dream: 2 proposed entries and a draft, labelled and never loaded;
+- the nudge in the user's line only;
+- $2.27.
