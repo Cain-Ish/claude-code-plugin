@@ -4573,3 +4573,51 @@ repository: your changes to it stay in the working tree and are reviewed with th
   - a front-matter-less map file that opens with YAML-shaped front matter is front matter;
   - the double read of map files is inside the measured budget.
 - **CI:** runs on push.
+
+### 3, S7: the dream product (registered 2026-11-20, before the code)
+
+- **The surface:**
+  - the `/second-brain:dream` skill (`disable-model-invocation: true`). Its `` !` `` line runs `dream-prepare`; its
+    last step has Claude run `dream-finish`, or `dream-abort` on any failure;
+  - the plugin agent `dream-analyzer` (Read, Grep and Glob, front matter pinned by the self-test);
+  - `scripts/dream.mjs` (`prepare`, `finish` and `abort`, spawning only git);
+  - three `hook.mjs` cases.
+- **The rules, as in D31 and S0's result:**
+  - entries arrive with `- proposed: dream <date>`; rules and skills arrive as `*.md.draft`;
+  - provenance needs a U or Q line, or a tracked file;
+  - the privacy scan;
+  - a rule or skill needs 2 or more sessions behind it;
+  - committed entries only gain status lines;
+  - the run folder lives in the repo and ignores itself; the manifest, which names session ids, lives in the data
+    folder;
+  - a discarded dream's sessions return to the next one.
+  - **Added here: stray writes.** `finish` restores every map file Claude changed directly (not through the staged
+    proposals) to its snapshot, removes map files and live rules or skills that appeared during the dream, and says so.
+- **Checks:**
+  1. *The self-test, on synthetic JSONL only:*
+     - a stream of 50 MB or more;
+     - an injected quote that rests only on R lines (dropped);
+     - secrets (dropped);
+     - a quote found only in an ignored file (dropped);
+     - a committed entry deleted directly (restored);
+     - a live rule and a topic file written directly (removed);
+     - an unscoped rule and bad front matter (dropped);
+     - a skill missing its flag (the flag added);
+     - a dirty map snapshotted, and restored by abort byte for byte;
+     - a second prepare while one runs (refused);
+     - a stale lock (taken over);
+     - the session and byte caps;
+     - the watermark: it advances on finish, and returns after the log line is discarded;
+     - nothing from a transcript left in the repo after finish.
+  2. *S1's bars, re-run on the product:* fresh histories as in S1, then `claude -p "/second-brain:dream"` with the
+     plugin, on Opus 5.5. The bars are S1's, read on the product's output:
+     - entries carrying `proposed:`;
+     - the rule and the skill as drafts;
+     - C1-C3 in at least 8 of 10;
+     - the rule, the skill and the choice in at least 4 of 5;
+     - noise at most 1 per run;
+     - wrong status lines in fewer than 2 of 10;
+     - the nonce in 0 of 5.
+  3. *Drafts never load:* in `manual`, `acceptEdits` and `auto`, a session touching a file a `*.md.draft` rule's
+     `paths:` matches never loads it (InstructionsLoaded), and a `SKILL.md.draft` skill never lists.
+  4. *A security review* of the dream (the `/security-review` skill and an agy round), and *CI*.
