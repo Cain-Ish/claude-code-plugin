@@ -164,3 +164,18 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   - The user chose to name these cases as weaknesses rather than grow the plugin.
 - **"Verify each decision during the process, 3-4 runs then rethink"** became the decision record, the
   pre-registered check and the three-strike rule in 01-process.md.
+- **The redesign onto Anthropic's layout (2026-11-20, the user's decision).** After the research of that day
+  ([research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md)):
+  - a setup command creates Anthropic's layout in a repo, with project agents that use Claude Code's
+    `memory: project`;
+  - map entries become versioned, so stale memory is told from current;
+  - an on-demand dream over this repo's past sessions proposes improvements as uncommitted edits;
+  - the plugin tracks when a dream is due.
+
+  The non-goals stand:
+  - the dream runs only on demand and leaves a reviewable diff;
+  - it keeps no transcript copy;
+  - the agents are task agents;
+  - the decision-checker checks only the project's own recorded decisions.
+
+  Plan and checks: 06, section 3. Decisions: D29-D32, and the reopens of 2026-11-20.

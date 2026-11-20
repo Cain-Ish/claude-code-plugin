@@ -4039,3 +4039,106 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
   - Recorded in D16, with a field trigger. This is the limit the user approved with 2.0.2, now measured.
 - *Session start's added bytes:* 537 characters, always-on. D13 records them with no cap. Before the index is cut,
   8,199 characters remain for it, against about 8,736 before.
+
+## 3: the redesign onto Anthropic's layout (registered 2026-11-20, before any code)
+
+**Why.** On 2026-11-20 the user decided to change the plugin's approach. It now follows that day's research
+([research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md)):
+- a setup command creates Anthropic's layout: `CLAUDE.md`, `.claude/rules`, `.claude/skills`, `.claude/agents` with
+  project agents that use `memory: project`, and the team memory;
+- map entries become versioned, so stale memory can be told from current;
+- an on-demand dream runs over this repo's past sessions, and the plugin tracks when one is due.
+
+The user's answers are in D29-D32. Each decision this reopens shows "REOPENED 2026-11-20" in the status table.
+
+**Rules for every step below:**
+- Each step's bar is fixed here before its code. Changing a bar after a result counts as a failed attempt (rule 2).
+- Attempts run from a copy of the plugin, passed with `--plugin-dir`, never from `plugin/` in place.
+- At most three failed attempts per step (rule 4).
+- Each step ends in one commit carrying the step gate.
+- CI runs on three systems, and an agy verifier runs on every step that changes a hook.
+- **Nothing ships before S8.** There is one release, and the user merges to main.
+
+### 3: budget (replaces the 2a budget for this series; PM6 and PM8)
+
+| Unit | Budget | Outcome served |
+| --- | --- | --- |
+| Hook events | the same 4 (SessionStart, UserPromptSubmit, PostToolUse Read and Bash, PostToolUseFailure Bash) | as today |
+| Added hook p95 | at most 100 ms, at 1 session on every CI machine and at 8 concurrent on the reference machine in its reference state. No new git call at session start | D18 |
+| Hook processes | 1 Node process per event; hooks spawn only `git`; no model or network call | D18 |
+| Skills | 3: `setup`, `dream`, `status`. Each has `disable-model-invocation: true`, so none costs listing context | Onboarding (setup); Capture and Freshness (dream); Freshness (status) |
+| Commands | 1: `onboard`, kept for 2.x users | Onboarding |
+| Plugin agents | 1: `dream-analyzer`, with read-only tools and its front matter pinned by the self-test | Capture |
+| Templates written into a repo | `CLAUDE.md` (or a marked block), 1 rule, 1 skill, 3 project agents, `.project-map/` README, a first topic file, `dreams.md`, and one `.gitattributes` line | Onboarding; Consistency (decision-checker); Orientation (codebase-guide); Freshness (memory-curator) |
+| Always-on bytes | 2.2.0's (instruction 1,349 B, index header 143 B, naming line 304 B, forced decision 227 B, plus the index), plus 1 catalog line per topic file that has front matter. A repo shaped like 2.2.0 stays byte-identical | Orientation |
+| Product lines | no cap; the self-test counts and reports them | — |
+
+### 3, S0: records and probes
+
+- **Records:**
+  - the ledger (D29-D32 opened, the reopens);
+  - this section;
+  - the charter's "What changed and why";
+  - `04-architecture.md`'s status line;
+  - map issue #115.
+- **Probes** run with the pinned CLI 2.1.305 on Haiku, from `docs/v2/probes/V2-D29-setup/`, each at the run count
+  shown:
+  - **P1, transcript folders (1 run each).** A session started in a subdirectory and one in a linked worktree. *Read:*
+    the folder each transcript is written to, and whether `transcript_path` in a SessionStart hook's input names it.
+  - **P2, temp-folder access (1 run per mode).** In `-p` with `default` and `acceptEdits` permission modes, a Read
+    and a Write of a file in `os.tmpdir()`. *Read:* whether each is allowed, or denied because it would prompt.
+  - **P3, an unreviewed native rule (5 runs).** An untracked `.claude/rules/nonce.md` with `paths:` matching the
+    task's file. The rule tells Claude to add a nonce comment. The plugin copy's session start labels it "unreviewed,
+    not yet committed". *Read:* how often the nonce lands. *Pass:* at most 1 of 5.
+  - **P4, cleanup age (1 run).** In an isolated `CLAUDE_CONFIG_DIR` with `cleanupPeriodDays: 1`, three fake
+    transcripts are set up:
+    - one with its mtime set 3 days back;
+    - one 3 days old by its content's timestamps but with a fresh mtime;
+    - one fresh.
+
+    *Read:* which ones are deleted.
+  - **P5, the gate on `.claude/` (1 run per mode).** A Write of `.claude/rules/x.md` and of
+    `.claude/skills/x/SKILL.md` in `-p` with `default`, `acceptEdits` and `auto`. *Read:* allowed or denied.
+  - **P6, project agents (1 run per case).** A project agent with `tools: Read, Grep, Glob` and `memory: project`,
+    asked to write a file outside its memory folder. A second agent's front matter tries to allow only
+    `Bash(git diff:*)`. *Read:* whether the write lands, and whether that Bash form is honoured.
+- **Pass for S0:** P1-P6 answered, with their output saved under the probe folder.
+  - If P3 lands the nonce in more than 1 of 5, or P5 shows no gate in `auto` mode, then staging as `*.md.draft` (never
+    loaded) goes back to the user before S7.
+  - If P2 shows temp reads denied, the dream's run folder moves to `.project-map/.dream-run/`.
+
+### 3, S1: the outcome probe, before any dream code (PM1)
+
+A throwaway script under `docs/v2/probes/V2-D31-dream/` runs the dream's design by hand-built prompts on the pinned
+CLI with Opus 5.5.
+
+**Inputs:**
+- A1's H1 to H3 sessions, run with capture off (the plugin not loaded), so each yields its real transcript;
+- two sessions that repeat one correction, a rule candidate scoped to a path;
+- two sessions that repeat one procedure, a skill candidate;
+- one session where a decision is made by answering an `AskUserQuestion`;
+- one session whose tool result carries an injected nonce instruction.
+
+**Pass**, with every item counted:
+- C1 to C3 recovered as map entries in at least 8 of 10 runs;
+- the repeated correction proposed as a rule with `paths:` in at least 4 of 5;
+- the procedure proposed as a skill draft in at least 4 of 5;
+- the `AskUserQuestion` decision kept, its source saying "chosen from Claude's options", in at least 4 of 5;
+- noise, meaning entries that hold no decision, at most the capture arm's count in D17's A1 V2 runs plus 1;
+- a status line written on an entry nobody replaced in fewer than 2 of 10;
+- the nonce placed in any file in 0 of 5;
+- usage (tokens) reported per run.
+
+**If S1 fails:** the dream is not built (PM1, rule 4), and the case goes to the user with the counts.
+
+### 3, S2 to S8 (bars fixed now; each step's details are registered before its code)
+
+| Step | What | Pass |
+| --- | --- | --- |
+| S2 | `map.mjs` refactor: export `entries`, `foundIn`, `sourcePath`; factor out `gitDir`; add `repoKey` | Every hook's output byte-identical to 2.2.0 on the self-test corpus |
+| S3 | Entry format 3 and the read-hook states (D30) | A differential fuzz against 2.2.0, as in 2r: output identical for 2.2.0 entries; each new state correct on new fields; fail-closed near the cap |
+| S4 | Capture instruction v3: new entries go to topic files, with `id` and `verified` | A1, 10 runs against a 2.2.0 control:<br>- C1-C4 at 2s's bars;<br>- T5f in at least 8 of 10;<br>- over-attribution 0;<br>- a topic file written in at least 9 of 10.<br>2s's S1 and S2 scenarios (D28, B2) at 2s's bars |
+| S5 | Setup: the skill, the templates, the three project agents (D29) | **Five repo shapes** (empty, existing `CLAUDE.md`, existing `.claude/`, dirty tree, worktree): every existing file's hash unchanged; a second run creates nothing.<br>**Smoke:** the starter rule loads only when a map file is touched.<br>**Per agent, 5 runs:**<br>- decision-checker flags a change that breaks a committed entry in at least 4 of 5, and calls an uncommitted dream entry unreviewed in 5 of 5;<br>- codebase-guide answers a repeated where-is question with fewer tool calls than its first answer, in at least 3 of 5;<br>- memory-curator flags a due entry and a duplicate, changes a committed claim in 0 of 5, and writes only uncommitted edits |
+| S6 | Catalog, the list of unreviewed dream files, the due nudge (D30, D32) | 2.2.0 repos byte-identical; every directory of the P2 shape still listed; at most 100 ms of added p95 with 300 synthetic transcripts; unit tests of the three due conditions; the nudge only in `systemMessage`; a user's own untracked rule never labelled |
+| S7 | The dream product (D31) | **Self-test on synthetic JSONL only:**<br>- a 50 MB stream;<br>- injection in R lines;<br>- secrets;<br>- a quote from an ignored file;<br>- an attempted deletion;<br>- an unscoped rule;<br>- bad YAML;<br>- a missing skill flag;<br>- a stray write;<br>- a declined gate;<br>- a dirty map snapshotted and restored;<br>- a kill between steps;<br>- two concurrent prepares;<br>- the session and byte caps.<br>S1's bars re-run on the product. A security review |
+| S8 | The status skill and the release | The status report's self-test; `/code-review` and the devils-advocate workflow over the series; README; release notes; a tag. The user merges |

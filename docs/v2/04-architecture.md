@@ -1,6 +1,6 @@
 # v2 architecture
 
-**Status:** built only from locked decisions ([DECISIONS.md](DECISIONS.md), 2026-10-22). D20's write-time net is
+**Status:** built only from locked decisions ([DECISIONS.md](DECISIONS.md), 2026-10-22). Since 2026-11-20 a redesign is under way (06, section 3; D29-D32), and this page is rewritten when it ships. D20's write-time net is
 DEFERRED with a trigger, so it is not part of this. One page by design (charter, definition of done item 3).
 
 ## What runs
