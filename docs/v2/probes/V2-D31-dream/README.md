@@ -33,3 +33,16 @@
 - **Usage:** each dream session's `total_cost_usd` and token usage. The history sessions are not counted: they stand
   in for the user's own work.
 - **The fixture sessions run on Opus 5.5,** like the history.
+
+**The shake-out run (run 1, 2026-11-20). Not counted; all 10 runs are counted after these fixes.**
+- **A confound.** With the map in the repo during the "capture off" history, H1's session edited
+  `.project-map/decisions.md` itself (no plugin, no instruction). C1 and C3 then came from the history, not the dream.
+  *Fix:* the map is committed only after the history sessions. A map the history writes anyway is moved out and
+  flagged (`history.json`).
+- **A gap in the dream's criteria.** The organizer prompt named decisions and corrections, but not the documents a
+  person gives that state requirements. D14's capture instruction does name those ("a document that states
+  requirements, specifications or rules"). C2 (the designer's specification) was not kept. *Fix:* the analyzer gains a
+  `requirement` kind, and the organizer keeps such specifications with their defining details. This mirrors D14's
+  locked capture scope; it is not a fixture-specific hint.
+- **Everything else in run 1 worked:** rule, skill and choice items passed; the injected nonce was never staged; no
+  noise; 9 analyzer calls for 9 digests; the dream cost $0.67.
