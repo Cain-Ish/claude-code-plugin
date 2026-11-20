@@ -4988,3 +4988,57 @@ The answer-holding rule for Q quotes and the dream-session fix cost no bar.
 - **Item 6's first turns ask for `toLocaleDateString`,** so each second turn is a real correction. In the fourth
   uncounted run, with the helper in the repo, Claude used `formatDate()` at once. The "No…" then corrected nothing;
   the analyzers filed it as a decision, and the dream rightly drafted no rule.
+
+### 3, S8: the acceptance check, attempt 1 failed; its focused probe registered (2026-11-20, before it runs)
+
+**Attempt 1** (candidate `087e2ac`, CI green, 5 runs, Opus 5.5, CLI 2.1.305; `results/s8-e2e-a1.json`; $10.54) met
+every item but one:
+
+| Item | Result | Bar |
+|---|---|---|
+| Check 0, the install (bytes equal to the candidate's) | 5 of 5 | 5 |
+| Layout | 5 of 5 | 5 |
+| Aware | 5 of 5 | ≥ 4 |
+| Capture | 5 of 5 | ≥ 4 |
+| Rule | 5 of 5 | 5 |
+| **Agent** | **2 of 5** | ≥ 4 |
+| Dream loop | 4 of 5 | ≥ 4 |
+| Nudge | 5 of 5 | 5 |
+
+This is the acceptance check's first strike of three.
+
+- **Agent: the cause.** The reply named the entry in 5 of 5, but `decision-checker` was used in only 2.
+  - Every run that delegated (counted runs 1 and 2, uncounted runs 3 to 5) read at most two files before the Agent
+    call, or none.
+  - Every miss read 4 to 6 files first, then answered itself. The plugin's own forced decision drives that reading
+    ("read the yes directories"). Once the map has been read, the `CLAUDE.md` pointer gives no reason to delegate.
+  - In one miss the index listed `.claude/agents/` as a document directory. Claude read `decision-checker.md` itself
+    and followed it.
+- **Dream loop: run 5's miss is the model's, and is left alone.** Its history matched run 1's: the first turn wrote
+  `toLocaleDateString`, and the correction followed. Its analyzers returned both date corrections. The main session
+  filed them as an entry rather than drafting a rule. The rule wording is not changed.
+
+**The focused probe** (`probes/V2-D29-setup/agent-probe.mjs`, committed with this registration):
+- **Item 5 alone, three arms,** each a plugin build:
+  - *control:* the attempt-1 candidate;
+  - *C:* the `CLAUDE.md` pointer says to hand the check to `decision-checker` even after reading the map, and why
+    (it also checks `.claude/rules/`, and keeps notes on what earlier checks missed);
+  - *AC:* C, plus an index that leaves out the `.md` files under the root's `.claude/agents/`, `skills/`, `commands/`
+    and `output-styles/`. Claude Code loads those itself, as it loads `.claude/rules/`, which the index already
+    leaves out.
+- **The method:**
+  - each arm's repo is built as attempt 1's was at item 5: the app, setup run by its hook command, the widgets
+    decision and a captured prices entry, all committed;
+  - each run starts from a fresh copy;
+  - two prompts: the counted one, and one worded differently; 5 runs each, 10 per arm;
+  - Opus 5.5, acceptEdits.
+- **The decision rule:**
+  - an arm qualifies when Claude delegates and names the entry in at least 9 of its 10 runs. That is the rate that
+    clears 4 of 5 reliably;
+  - the smaller change wins, C before AC;
+  - AC changes hook output, so it would also need the hook-step checks before any counted run: the diff harness at 0
+    differences for repos without those folders, the bench, and an agy round;
+  - **if no arm qualifies,** no strike is spent on wording. The question goes to the user: should item 5 require
+    delegation, or should the checker be one the user invokes?
+- **Then attempt 2:** 5 new counted runs, in a new scratch folder, on a CI-green candidate. S7's check 2 is not
+  re-run: neither arm changes `dream.mjs`, the dream skill or the analyzer.
