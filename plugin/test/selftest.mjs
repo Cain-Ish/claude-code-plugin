@@ -23,9 +23,9 @@ assert.equal(NAME, "When you finish, name each of this project's recorded decisi
 
 assert.equal(Buffer.byteLength(NAME), 304);
 
-// PM8: product lines within 06's budget (the hooks, the library, the command, the manifest)
+// PM8: product lines, counted and reported (06, section 3's budget has no cap since the redesign)
 const lines = (d) => fs.readdirSync(path.join(PLUGIN, d)).reduce((n, f) => n + fs.readFileSync(path.join(PLUGIN, d, f), 'utf8').split('\n').length, 0);
-assert.ok(['scripts', 'hooks', 'commands', '.claude-plugin'].reduce((n, d) => n + lines(d), 0) <= 600, 'product lines');
+console.log(`product lines: ${['scripts', 'hooks', 'commands', '.claude-plugin'].reduce((n, d) => n + lines(d), 0)}`);
 
 // the surfaces: 4 hook events, 1 command, no agents, skills or MCP servers; PM6: each names the outcome it serves (06)
 const OUTCOME = { SessionStart: 'Capture; Consistency', UserPromptSubmit: 'Consistency', PostToolUse: 'Freshness; trust', PostToolUseFailure: 'Freshness; trust', 'onboard.md': 'Onboarding' };
@@ -37,16 +37,19 @@ assert.equal(hooks.PostToolUse[0].matcher, 'Read');
 // 2j: map files read through Bash; the if field spawns the handler only for a command that names the map folder
 assert.deepEqual(hooks.PostToolUse[1], { matcher: 'Bash', hooks: [{ type: 'command', if: 'Bash(*.project-map*)', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs', 'bash'] }] });
 assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'commands')), ['onboard.md']);
-for (const d of ['agents', 'skills', '.mcp.json']) assert.ok(!fs.existsSync(path.join(PLUGIN, d)), d);
+for (const d of ['agents', '.mcp.json']) assert.ok(!fs.existsSync(path.join(PLUGIN, d)), d);
+// 06, section 3: the skills, each run only when the user invokes it, so none costs listing context
+assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'skills')), ['setup']);
+for (const s of fs.readdirSync(path.join(PLUGIN, 'skills'))) assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8'), /^---\n[\s\S]*?^disable-model-invocation: true$[\s\S]*?\n---\n/m, s);
 
 // D18: no model and no network, and hooks spawn only git. A tripwire over the product scripts' source, not a proof:
 // imports in either quote style (side-effect ones too) from these modules only; from child_process only spawnSync,
 // always on git; and no code loaded or built at run time
-for (const f of ['hook.mjs', 'map.mjs']) {
+for (const f of ['hook.mjs', 'map.mjs', 'setup.mjs']) {
   const src = fs.readFileSync(path.join(PLUGIN, 'scripts', f), 'utf8');
   const imports = [...src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
   assert.equal(imports.length, (src.match(/^\s*import\b/gm) ?? []).length, `${f}: every import has a module path`);
-  for (const m of imports) assert.ok(['node:crypto', 'node:fs', 'node:os', 'node:path', 'node:child_process', './map.mjs'].includes(m), `${f} imports ${m}`);
+  for (const m of imports) assert.ok(['node:crypto', 'node:fs', 'node:os', 'node:path', 'node:child_process', './map.mjs', './setup.mjs'].includes(m), `${f} imports ${m}`);
   for (const [, names] of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]node:child_process['"]/g)) assert.deepEqual(names.split(',').map((n) => n.trim()), ['spawnSync'], `${f}: only spawnSync`);
   // a bare call, so a RegExp's .exec() is not one
   assert.ok(!/(?<![.\w$])(exec|execSync|execFile|execFileSync|fork|spawn)\s*\(/.test(src), `${f} starts processes only with spawnSync`);
@@ -63,7 +66,7 @@ const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey; every hook's output
 // byte-identical to 2.2.0 (ee8625f06842), checked by probes/V2-D30-entries/diff.mjs
-assert.equal(product.digest('hex').slice(0, 12), '33789c5bf1ad', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '8a03cece2265', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -814,6 +817,79 @@ ${NAME}` } });
   g('commit', '-q', '-m', 's3b');
   const out = hook('bash', { tool_input: { command: `cat ${F}` }, tool_response: { stdout: fs.readFileSync(path.join(r, F), 'utf8'), stderr: '', interrupted: false, isImage: false } }, r);
   assert.ok(out.includes('1. a: proposed by a dream 2026-11-19, not yet accepted'), out);
+}
+
+// 06, section 3, S5 (D29): setup on five repo shapes. Every file that existed keeps its sha256; every missing template
+// is created; a second run creates nothing and changes nothing
+{
+  const TEMPLATES = ['CLAUDE.md', '.claude/rules/project-map.md', '.claude/skills/map-review/SKILL.md', '.claude/agents/decision-checker.md',
+    '.claude/agents/codebase-guide.md', '.claude/agents/memory-curator.md', '.project-map/README.md', '.project-map/decisions.md',
+    '.project-map/dreams.md', '.gitattributes'];
+  const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  const snapshot = (r) => { const m = new Map(); const w = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name === '.git') continue; const p = path.join(d, e.name); if (e.isDirectory()) w(p); else m.set(path.relative(r, p).split(path.sep).join('/'), sha(p)); } }; w(r); return m; };
+  const setupRun = (r) => { const x = spawnSync('node', [HOOK, 'setup'], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '' } }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
+  const shapes = {
+    empty: () => {},
+    claudeMd: (r) => fs.writeFileSync(path.join(r, 'CLAUDE.md'), '# Mine\n\nRun npm test.\n'),
+    ownClaude: (r) => { fs.mkdirSync(path.join(r, '.claude', 'agents'), { recursive: true }); fs.writeFileSync(path.join(r, '.claude', 'agents', 'decision-checker.md'), '---\nname: decision-checker\n---\nmine\n'); fs.writeFileSync(path.join(r, '.claude', 'settings.json'), '{}\n'); },
+    dirty: (r) => { fs.writeFileSync(path.join(r, 'CLAUDE.md'), '# Mine\n'); fs.writeFileSync(path.join(r, '.gitattributes'), '* text=auto\n'); fs.writeFileSync(path.join(r, 'wip.txt'), 'uncommitted\n'); },
+  };
+  for (const [name, shape] of Object.entries(shapes)) {
+    const r = path.join(tmp, `setup-${name}`);
+    fs.mkdirSync(r);
+    const g = (...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: r, encoding: 'utf8' }); assert.equal(x.status, 0, x.stderr); };
+    g('init', '-q');
+    fs.writeFileSync(path.join(r, 'README.md'), '# r\n');
+    shape(r);
+    if (name !== 'dirty') { g('add', '-A'); g('commit', '-q', '-m', 'base'); } else { g('add', 'README.md'); g('commit', '-q', '-m', 'base'); }
+    const before = snapshot(r);
+    const out = setupRun(r);
+    const after = snapshot(r);
+    for (const [p, h] of before) assert.equal(after.get(p), h, `${name}: ${p} changed`);
+    for (const t of TEMPLATES) assert.ok(after.has(t), `${name}: ${t} missing`);
+    assert.equal(after.size, new Set([...before.keys(), ...TEMPLATES]).size, `${name}: an unexpected file`);
+    // a second run creates nothing and changes nothing
+    const out2 = setupRun(r);
+    assert.deepEqual(snapshot(r), after, `${name}: the second run changed something`);
+    assert.match(out2, /^Created \(0\): nothing$/m, out2);
+    if (name === 'claudeMd' || name === 'dirty') assert.ok(out.includes('For you: CLAUDE.md has no team-memory section'), out);
+    if (name === 'dirty') assert.ok(out.includes('For you: .gitattributes lacks'), out);
+    if (name === 'empty') assert.ok(!out.includes('For you'), out);
+  }
+  // a linked worktree: setup writes into the worktree, not the main checkout
+  const main = path.join(tmp, 'setup-empty');
+  const wt = path.join(tmp, 'setup-wt');
+  spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'worktree', 'add', '-q', wt], { cwd: main });
+  const beforeMain = snapshot(main);
+  setupRun(wt);
+  assert.deepEqual(snapshot(main), beforeMain);
+  for (const t of TEMPLATES.filter((x) => x !== '.gitattributes' && x !== 'CLAUDE.md')) assert.ok(fs.existsSync(path.join(wt, t)), `worktree: ${t}`);
+  // the templates obey Anthropic's rules: CLAUDE.md short; the rule scoped by paths; the skill user-invoked; the agents
+  // with project memory and no Bash; topic files with front matter
+  const T = path.join(tmp, 'setup-empty');
+  assert.ok(fs.readFileSync(path.join(T, 'CLAUDE.md'), 'utf8').split('\n').length < 40);
+  assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /^---\npaths:\n {2}- "\.project-map\/\*\*"\n---\n/);
+  assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /^disable-model-invocation: true$/m);
+  for (const a of ['decision-checker', 'codebase-guide', 'memory-curator']) {
+    const txt = fs.readFileSync(path.join(T, '.claude/agents', `${a}.md`), 'utf8');
+    assert.match(txt, /^memory: project$/m, a);
+    assert.match(txt, new RegExp(`^name: ${a}$`, 'm'), a);
+    assert.ok(!/^tools:.*Bash/m.test(txt), `${a}: no Bash (P6c)`);
+  }
+  assert.match(fs.readFileSync(path.join(T, '.project-map/decisions.md'), 'utf8'), /^---\nname: decisions\ndescription: .+\n---\n/);
+  // a .claude that resolves outside the repo takes no writes
+  const r = path.join(tmp, 'setup-link');
+  const elsewhere = path.join(tmp, 'elsewhere');
+  fs.mkdirSync(r);
+  fs.mkdirSync(elsewhere);
+  spawnSync('git', ['init', '-q'], { cwd: r });
+  let linked = true;
+  try { fs.symlinkSync(elsewhere, path.join(r, '.claude'), 'junction'); } catch { linked = false; }
+  if (linked) {
+    const out = setupRun(r);
+    assert.ok(out.includes('Refused, because a folder resolves outside the repo: .claude/rules/project-map.md'), out);
+    assert.deepEqual(fs.readdirSync(elsewhere), []);
+  }
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

@@ -1,0 +1,65 @@
+// 06, section 3, S5 (V2-D29): setup copies plugin/templates/ into a repo, Anthropic's layout for Claude. Each file is
+// created with 'wx', so a file that exists is never touched; nothing is committed. Templates sit under undotted names,
+// so this plugin's own repo never loads them as live rules, agents or a nested CLAUDE.md.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const FILES = [
+  ['CLAUDE.template.md', 'CLAUDE.md'],
+  ['claude/rules/project-map.md', '.claude/rules/project-map.md'],
+  ['claude/skills/map-review/SKILL.md', '.claude/skills/map-review/SKILL.md'],
+  ['claude/agents/decision-checker.md', '.claude/agents/decision-checker.md'],
+  ['claude/agents/codebase-guide.md', '.claude/agents/codebase-guide.md'],
+  ['claude/agents/memory-curator.md', '.claude/agents/memory-curator.md'],
+  ['project-map/README.md', '.project-map/README.md'],
+  ['project-map/decisions.md', '.project-map/decisions.md'],
+  ['project-map/dreams.md', '.project-map/dreams.md'],
+  ['gitattributes.txt', '.gitattributes'],
+];
+const POINTER = '## Team memory';
+
+// a top-level folder that resolves outside the repo takes no writes: a link could aim them anywhere
+function outside(root, top) {
+  try {
+    const real = fs.realpathSync.native(path.join(root, top));
+    const base = fs.realpathSync.native(root);
+    return real !== base && !real.startsWith(base + path.sep);
+  } catch { return false; }
+}
+// project memory needs auto memory on (Claude Code's docs). shortcut: managed settings are not read; read them if an
+// organisation turns auto memory off there
+function autoMemoryOff(root) {
+  if (process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY === '1') return true;
+  const user = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'settings.json');
+  return [user, path.join(root, '.claude', 'settings.json'), path.join(root, '.claude', 'settings.local.json')].some((f) => {
+    try { return JSON.parse(fs.readFileSync(f, 'utf8')).autoMemoryEnabled === false; } catch { return false; }
+  });
+}
+
+export function setup(root, pluginRoot) {
+  const created = [], kept = [], refused = [], forYou = [];
+  for (const [from, to] of FILES) {
+    const top = to.split('/')[0];
+    if (top !== to && outside(root, top)) { refused.push(to); continue; }
+    const text = fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8');
+    const target = path.join(root, to);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    try { fs.writeFileSync(target, text, { flag: 'wx' }); created.push(to); } catch (e) { if (e.code !== 'EEXIST') throw e; kept.push(to); }
+  }
+  // what an existing file lacks is the user's to add (S5: setup never modifies a file that exists)
+  const read = (f) => { try { return fs.readFileSync(path.join(root, f), 'utf8'); } catch { return ''; } };
+  if (kept.includes('CLAUDE.md') && !read('CLAUDE.md').includes(POINTER)) {
+    const block = fs.readFileSync(path.join(pluginRoot, 'templates', 'CLAUDE.template.md'), 'utf8').split(POINTER)[1];
+    forYou.push(`CLAUDE.md has no team-memory section. Proposed, at its end:\n${POINTER}${block.trimEnd()}`);
+  }
+  if (kept.includes('.gitattributes') && !/^\.project-map\/dreams\.md\s+merge=union\s*$/m.test(read('.gitattributes'))) {
+    forYou.push('.gitattributes lacks the dream log\'s merge line. Proposed, as its own line:\n.project-map/dreams.md merge=union');
+  }
+  const out = [`Created (${created.length}): ${created.join(', ') || 'nothing'}`, `Kept as they were (${kept.length}): ${kept.join(', ') || 'nothing'}`];
+  if (refused.length) out.push(`Refused, because a folder resolves outside the repo: ${refused.join(', ')}`);
+  if (autoMemoryOff(root)) out.push('Warning: auto memory is off here, so the three agents keep no project memory until it is on (/memory).');
+  out.push(...forYou.map((s) => `For you: ${s}`));
+  out.push('Nothing is committed: review the new files in the diff, and commit them.');
+  return out.join('\n');
+}

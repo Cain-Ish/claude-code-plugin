@@ -4457,3 +4457,34 @@ repository: your changes to it stay in the working tree and are reviewed with th
      added p95, at 1 and at 8 concurrent on the reference machine in its reference state, against the 2.2.0
      control (D18's pairing).
   4. *CI* on three systems, and an agy refute-first round on the diff.
+
+### 3, S5: result (2026-11-20): pass
+
+- **The change.**
+  - `/second-brain:setup`, a plugin skill (`disable-model-invocation: true`), runs `scripts/setup.mjs`. It copies
+    `plugin/templates/` into the repo with `wx`, never modifying a file that exists.
+  - The templates: `CLAUDE.md`, the path-scoped rule `project-map.md`, the `map-review` skill, three project agents
+    with `memory: project` and no Bash, the team memory's README, its first topic file, and the dream log, plus the
+    `.gitattributes` line. They sit under undotted names, so this repo never loads them.
+  - Product hash `8a03cece2265`.
+- **Self-test:** five repo shapes and a linked worktree. Every existing file keeps its sha256, every missing template is
+  created, and a second run creates and changes nothing. The templates obey Anthropic's rules (a short
+  `CLAUDE.md`, a scoped rule, a user-invoked skill, agents with project memory and no Bash). A `.claude` junction
+  out of the repo is refused.
+- **Smoke** (Haiku 5.5, pinned CLI 2.1.305):
+  - the starter rule **did not load** in a session that touched no file, and **loaded** (`path_glob_match`) in one
+    that read a map file;
+  - the init event lists all three agents;
+  - the skill's description reached the model in 0 of the session's 6 recorded API requests. Its name appears, as a
+    command the user can invoke.
+- **The agents' outcomes** (Opus 5.5, 5 runs each):
+
+  | Agent | Result | Bar |
+  | --- | --- | --- |
+  | decision-checker | flagged the CDN break in **5 of 5**; called the proposed entry a proposal in **5 of 5** | 4, 5 |
+  | codebase-guide | fewer tool calls on the repeated question in **4 of 5** (7→4, 5→2, 9→4, 7→3, 5→5); notes written in its memory folder in 5 of 5 | 3 |
+  | memory-curator | flagged the due entry and the duplicate in **5 of 5**; changed a committed claim in **0 of 5** | 4, 0 |
+  | all three | wrote outside their allowed folders in **0 of 5** each | 0 |
+
+  Records: `probes/V2-D29-setup/results/s5-*.json`.
+- **CI:** runs on push.

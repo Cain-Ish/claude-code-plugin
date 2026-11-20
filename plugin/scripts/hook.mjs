@@ -1,14 +1,15 @@
-// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|bash-failure|onboard>
+// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|bash-failure|onboard|setup>
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT } from './map.mjs';
+import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
 const emit = (ev, text, note) => { if (text || note) process.stdout.write(JSON.stringify({ ...(note && { systemMessage: note }), hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
 const which = process.argv[2];
-const input = which === 'onboard' ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
+const input = ['onboard', 'setup'].includes(which) ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
 // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
 const closed = (file, why = 'could not be computed') => `[project map] The labels for ${file} ${why}: treat every entry in it as unreviewed and unverified.\n`;
@@ -64,6 +65,9 @@ if (which === 'session-start') {
   // a command that exits non-zero comes as PostToolUseFailure, with the same text (06 2m)
   emit(ev, got.length ? out + tail
     : '[project map] The output of this command could not be read, so the map entries it showed are not labelled: treat every map entry it showed as unreviewed and unverified.\n');
+} else if (which === 'setup') {
+  // 06, section 3, S5 (D29): the templates sit beside scripts/, in the plugin this file runs from
+  console.log(setup(root, path.resolve(path.dirname(process.argv[1]), '..')));
 } else if (which === 'onboard') {
   const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
   const idx = index(root);
