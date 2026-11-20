@@ -4194,3 +4194,40 @@ them.
   - **left as a `shortcut:` note:** a relative `commondir` under a symlinked gitdir resolves lexically. 2.2.0's
     `ignoreCase` does the same, and changing it would break the S2 bar.
 - **CI:** runs on push.
+
+### 3, S3: entry format 3, and the read hook's new states (registered 2026-11-20, before the code)
+
+- *Why:* D30. The plugin must say which memory is stale and which is current.
+- **The change.** `labels()` reads three optional lines of an entry. An entry has new labels only through lines that
+  no 2.2.0 map holds:
+  1. **`- proposed: dream <YYYY-MM-DD>`** (the user's answer, D30) gives the label `proposed by a dream <date>, not
+     yet accepted`, whether or not the entry is committed. Acceptance in review replaces the line.
+  2. **`- review: <YYYY-MM-DD>`** gives `review due since <date>` once that date has passed.
+     - There is **no default review horizon**: one would relabel every 2.2.0 entry as time passes, and break this
+       step's bar.
+     - The capture instruction (S4) asks for the line where a decision is time-bound.
+  3. **A status line naming an id** (`- status: superseded <date> by <id>: …`) gives
+     `replaced by <id>, which the map does not hold` when no map file has `- id: <id>`.
+     - It applies only when the map has at least one `- id:` line. A 2.2.0 map, which has none, keeps its labels;
+       the field's free-text status lines, such as "by the PM", are untouched.
+- **Kept as they are:**
+  - `- id:`, `- verified:` and `- origin:` add no label. They feed the status skill (S8) and the dream (S7);
+  - an entry with any new label leaves the grouped "unverified quote, committed" line, as a status line already
+    does (2r).
+- **Checks:**
+  1. *The self-test.* New cases: each state on committed and uncommitted entries; a review date in the past and in the
+     future; a `by <id>` that resolves, one that does not, and one in a map with no ids; and a proposed entry in a
+     Bash output.
+  2. *Byte identity on 2.2.0 entries.* `probes/V2-D30-entries/diff.mjs`, 2.2.0 against S3, at 3 seeds × 40 repos.
+     **Pass:** 0 differences. The generator makes only 2.2.0-shaped entries.
+  3. *A fuzz with the new lines* (`probes/V2-D30-entries/fuzz3.mjs`), near and past the cap. Maps carry random
+     `proposed`, `review` (past and future), `id` and `by <id>` lines. **Pass:** in every uncut output, each entry has
+     exactly the new labels its lines call for, and its 2.2.0 labels unchanged. In every cut output, the closing
+     fail-closed line covers every entry not shown.
+  4. *CI* on three systems.
+  5. *An agy refute-first round* on the diff. A finding survives only if executing it shows:
+     - a 2.2.0-shaped entry whose label changed; or
+     - a new state missing or wrong; or
+     - a cut that fails open.
+  - *Not run:* A1 and the bench, since no frozen text changes and the work per entry is a few regexes. Both are
+    stated gaps.
