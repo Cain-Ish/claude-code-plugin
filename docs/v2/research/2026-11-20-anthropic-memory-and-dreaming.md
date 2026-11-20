@@ -20,9 +20,11 @@ for Claude (files, folders, indexes).
   generic and does not match the talk. The talk itself is a session on context engineering, memory and "dreaming",
   given by Lamis, a member of technical staff on Anthropic's Applied AI team. The transcript gives the first name
   only.
-- **The event.** AI Native DevCon, London, 2026. It is named in secondary sources:
-  - [Tessl's registry of the conference's sessions](https://tessl.io/registry/ainativedev/aidevcon-2026-ldn/files/talk-lamis-context-engineering-dreaming/transcript.md);
-  - [The New Stack, 2026-08-12](https://thenewstack.io/anthropic-agent-memory-dreaming/).
+- **The event.** AI Native DevCon 2026, London. It is named in secondary sources:
+  - [Tessl's registry of the conference's sessions](https://tessl.io/registry/ainativedev/aidevcon-2026-ldn/files/talk-lamis-context-engineering-dreaming/SKILL.md),
+    which lists the session as "Context Engineering, Memory Systems, And Dreaming - Lamis";
+  - [The New Stack, 2026-08-12](https://thenewstack.io/anthropic-agent-memory-dreaming/), which calls it AI DevCon in
+    London.
 - **A related session.** Anthropic gave one at Code w/ Claude 2026,
   ["Memory and dreaming for self-learning agents"](https://claude.com/code-with-claude/session/sf-memory-and-dreaming-for-self-learning-agents).
   Its page holds only the abstract: memory architectures for Managed Agents, and dreaming that verifies and enriches
@@ -48,7 +50,7 @@ documents. This table puts it in one place.
 | What the agent learned and wrote down | A memory folder: one index file (Claude Code's `MEMORY.md`, 200 lines or 25 KB; the cookbook's `_index.md`, one line per file) plus small topic files named so that grep and glob find them | The index at start, topic files on demand | **One file**, `.project-map/captured.md`, listed by the index. No index inside the map and no topic files |
 | Reference material and writable memory | Separate stores. Reference stores are read-only, partly as a defence against prompt injection ([Managed Agents memory](https://platform.claude.com/docs/en/managed-agents/memory)) | Mounted | Separated by labels, not enforced: committed entries are reviewed, uncommitted ones are labelled "unreviewed" |
 | One person's preferences | Auto memory (machine-local) or `CLAUDE.local.md` | At start | Left to auto memory (D10). Since 2.2.0, the capture instruction sends project decisions to the map instead (06, 2s; G4) |
-| Consolidated or curated memory | A Dreams output store, reviewed and then attached ([Dreams](https://platform.claude.com/docs/en/managed-agents/dreams)). For auto memory there is Claude Code's Auto-dream: it runs in the background and is toggled in `/memory`, with no manual `/dream` command since a 2026 release. The source is a Claude Code collaborator on [issue #39135](https://github.com/anthropics/claude-code/issues/39135), 2026-08-19; it is not on the memory page as fetched 2026-11-20 | Between sessions | **None in v2.** v1 had one (topic T16) |
+| Consolidated or curated memory | A Dreams output store, reviewed and then attached ([Dreams](https://platform.claude.com/docs/en/managed-agents/dreams)). There is also Claude Code's Auto-dream, shown in `/memory` beside auto memory. It runs in the background and is toggled there, with no manual `/dream` command since a 2026 release. The source is a Claude Code collaborator on [issue #39135](https://github.com/anthropics/claude-code/issues/39135), 2026-08-19; it is not on the memory page as fetched 2026-11-20 | Between sessions | **None in v2.** v1 had one (topic T16) |
 
 ## 3. Every topic of the talk, mapped to the plugin
 
@@ -67,7 +69,7 @@ The status column reads: done, partial, gap, or not applicable.
 | T9 | **Production problem: memory goes stale, was wrong, or was injected** | D16 re-finds an entry's quote in the file its source names, at read time. D28 adds status lines (superseded, narrowed, expired, done). An entry that quotes a person carries only "unverified quote, captured <date>", and nothing re-checks it. On injection, D14's probe saw an injected rule captured in 1 of 3 runs; it stays labelled until someone commits it | Partial |
 | T10 | **Principle: versioning.** Keep versions so a bad update can be rolled back; record which session or transcript led to an update, and who made it | Git holds the versions and the rollback; the source line holds who and when. A link to the session is deliberately absent: the capture instruction bans session ids. The reason given here is this note's inference, not the record's: a map can sit in a public repo | Done by git; the session link is left out on purpose |
 | T11 | **Principle: concurrency.** Take a hash before drafting an edit and again before writing it; on a mismatch, re-read and redraft | As T6 | Partial, unverified |
-| T12 | **Principle: permissions.** Tiers run from organisation-wide knowledge, which agents should only read, down to an agent's own scratchpad, which it may write | The plugin has tiers as labels, not enforcement: project documents are the people's source; committed map entries are reviewed; uncommitted entries are not; auto memory is personal. Nothing stops Claude editing a project document. In the D20 probe it edited a P2 canon document unasked in 2 of 5 runs (#115 Fog) | Partial, by the user's D14 answer (the commit review is the review) |
+| T12 | **Principle: permissions.** Tiers run from organisation-wide knowledge, which agents should only read, down to an agent's own scratchpad, which it may write | The plugin has tiers as labels, not enforcement: project documents are the people's source; committed map entries are reviewed; uncommitted entries are not; auto memory is personal. Nothing stops Claude editing a project document. In stage 1's P2 build runs it edited a canon rule document unasked in 2 of 5 (#115 Fog) | Partial, by the user's D14 answer (the commit review is the review) |
 | T13 | **Principle: portability.** Curated memory is worth a lot, so keep it behind a clean interface that several products and systems can reach | Plain Markdown in git, readable and correctable with the plugin off (PM4). The labels and the index exist only inside Claude Code | Done |
 | T14 | **The claimed results.** The second time an agent does a task it does it better, and the gain carries over to fewer tokens and faster one-shot runs | A1: the plugin kept the designer's document in 10 of 10 runs against native's 2, and followed it in 10 against 0. Tokens and steps were **the same as native, not fewer** ([charter](../00-charter.md), 2026-10-25) | Accuracy shown on A1; the cost claim is not met |
 | T15 | **The limit of in-band memory.** An agent asked to do a task and curate memory at once has to split its effort between them. It also sees only its own session: it cannot see a mistake repeated across sessions, or what other agents run into | The plugin is purely in-band. Field misses of that kind: 3 project decisions kept only in auto memory (G4, [rethink of 2026-11-18](2026-11-18-field-checkup-rethink.md)); an option Claude offered, captured as the owner's own words (#115 Fog, 2026-10-29) | Gap |
@@ -155,7 +157,7 @@ Read on `v2` at `8de667f` (release 2.2.0).
   - *Cost, quoted from the page:* "Dreaming over the eleven example transcripts (283 KB in all) with the default
     settings cost $0.36 at list price, the session's running time included, and took about two and a half minutes."
     And: "Over fifty long session transcripts (about 12 MB of text), a dream cost about $8 at list price with the
-    default settings and took about ten minutes."
+    default settings and took about ten minutes, …"
 - **[The memory tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool)** (Messages API).
   - *Protocol:* a system prompt line tells Claude to view its memory directory before anything else.
   - *Steering:* a line such as "Only write down information relevant to <topic> in your memory system."
@@ -183,12 +185,17 @@ Read on `v2` at `8de667f` (release 2.2.0).
   [best practices](https://code.claude.com/docs/en/best-practices)).
   - *Auto memory* loads `MEMORY.md` (200 lines or 25 KB) at start. It reads topic files on demand, is machine-local,
     and does not load into subagents.
-  - *The memory page names no dream or consolidation feature.* Auto-dream exists all the same. Per a Claude Code
-    collaborator's comment on [issue #39135](https://github.com/anthropics/claude-code/issues/39135) (2026-08-19),
-    `/memory` shows "Auto-dream: on", consolidation runs in the background, and there is no manual `/dream` command.
-    Its internals are known only from community reverse-engineering
-    ([guide note](2026-10-19-claude-code-ultimate-guide.md), finding 4).
-  - *Auto-dream works on auto memory only,* never on a repo's files.
+  - *The memory page names no dream or consolidation feature.* Auto-dream exists all the same. A Claude Code
+    collaborator commented on [issue #39135](https://github.com/anthropics/claude-code/issues/39135) (2026-08-19) on
+    2.1.233.
+    - `/memory` shows "Auto-dream: on · last ran …".
+    - In their words: "automatic memory consolidation now runs entirely in the background when auto-dream is on, and
+      you control it via the toggle in /memory — there's no manual /dream command to run."
+    - Its internals are known only from community reverse-engineering
+      ([guide note](2026-10-19-claude-code-ultimate-guide.md), finding 4).
+  - *What Auto-dream works on* is inferred, not documented. It sits in `/memory` beside auto memory, and the
+    reverse-engineering describes it pruning `MEMORY.md`. That it never touches a repo's files is this note's
+    inference.
   - *The best-practices page* says `CLAUDE.md` should hold decisions that are not in the repo, code that misleads, and
     anything Claude had to be corrected on twice. Its test for a line, paraphrased: could Claude find this in the code,
     and would it go and look? A rule that cannot have exceptions belongs in a hook.
@@ -296,8 +303,8 @@ native option where one exists, the decider, and the smallest check.
   trust policy is reused, and no hook code changes.
 - *Never:* commit, rewrite or delete a committed entry. Append, and use status lines (D28).
 
-*Native option:* Claude Code's Auto-dream already consolidates auto memory in the background, but it never reaches
-`.project-map/`. Using it alone means keeping project decisions out of auto memory, as 2.2.0's capture sentence asks,
+*Native option:* Claude Code's Auto-dream already consolidates memory in the background. By this note's inference
+(section 5), that memory is auto memory, so it does not reach `.project-map/`. Using it alone means keeping project decisions out of auto memory, as 2.2.0's capture sentence asks,
 and building nothing.
 
 *It collides with:*
@@ -341,7 +348,7 @@ and building nothing.
 **A-4. An eval cell for the talk's result claim** (T14).
 - *Change:* the same kind of task in a later session, after a correction. Does v2 one-shot it, and with fewer tokens?
 - *Touches:* D17.
-- *Decider:* evidence. It runs only when the user asks (D24's rule).
+- *Decider:* evidence. Eval re-runs happen only when the user asks (D24's record).
 
 ## 8. Not taken from the talk
 
