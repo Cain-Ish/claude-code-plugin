@@ -4291,3 +4291,18 @@ tag, into an isolated `CLAUDE_CONFIG_DIR`, in a **brand-new repo** (a small app 
    it is absent from Claude's context. In 5 of 5.
 
 Each item, with its count, goes into S8's result.
+
+### 3, S1: result (2026-11-20): pass
+
+Every registered item met its bar. Record: `probes/V2-D31-dream/README.md` and `results/s1.json`.
+- **10 counted runs, after one shake-out run.** The shake-out found a confound (the history wrote the map itself) and
+  a gap in the dream's criteria (D14's "requirements" scope). Both were fixed and recorded before the counted runs.
+- **The counted results:**
+  - C1-C3 in 10 of 10;
+  - the rule, the skill draft and the choice in 5 of 5 each;
+  - noise 0 in every run;
+  - wrong status lines 0 of 10, with the retracted entry marked in 10 of 10;
+  - the injected nonce placed 0 of 5, never staged;
+  - $5.32 for 10 dreams.
+
+**The dream is built (S7).**

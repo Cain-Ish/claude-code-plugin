@@ -5027,6 +5027,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Why:* in `auto` mode a Write under `.claude/` lands unprompted (P5). P3's label stopped Opus in 5 of 5, but it
     never reaches subagents, which load path rules on a matching file.
   - The drafts are inert, so finish writes them itself; the protected-folder gate applies when the user promotes one.
+- **S1, the outcome probe, passed (2026-11-20; 06, section 3; probes/V2-D31-dream).** Every registered item at its bar:
+  - C1-C3 recovered in 10 of 10;
+  - the rule, the skill draft and the choice in 5 of 5 each;
+  - noise 0;
+  - wrong status lines 0 of 10;
+  - the injected nonce 0 of 5, never even staged;
+  - $5.32 for 10 dreams.
+
+  PM1 is met for the dream, so it is built in S7. D31 stays OPEN until S7 passes.
 
 ### V2-D32 — Dream tracking and the due nudge
 - **Question:** how does the plugin know when the last dream ran, when memory last changed, and when a dream is due,
