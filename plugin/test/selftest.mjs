@@ -8,6 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { prepare, finish, abort } from '../scripts/dream.mjs';
+import { status } from '../scripts/status.mjs';
 import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -46,14 +47,19 @@ assert.match(fs.readFileSync(path.join(PLUGIN, 'agents', 'dream-analyzer.md'), '
 // the dream's grant names its own script only: a broad Bash(node:*) let an injected session run any node command (S7's
 // /security-review; probes/V2-D31-dream/grant.mjs)
 assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8'), /^allowed-tools: Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/dream\.mjs":\*\)$/m);
+// S8: every other skill and command grants its own script only, never a bare Bash(node:*)
+for (const [f, script] of [['skills/setup/SKILL.md', 'hook.mjs'], ['skills/status/SKILL.md', 'status.mjs'], ['commands/onboard.md', 'hook.mjs']]) {
+  const grants = [...fs.readFileSync(path.join(PLUGIN, f), 'utf8').matchAll(/^allowed-tools: (.*)$/gm)].map((m) => m[1]);
+  assert.deepEqual(grants, [`Bash(node "\${CLAUDE_PLUGIN_ROOT}/scripts/${script}":*)`], f);
+}
 // 06, section 3: the skills, each run only when the user invokes it, so none costs listing context
-assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'skills')), ['dream', 'setup']);
+assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'skills')), ['dream', 'setup', 'status']);
 for (const s of fs.readdirSync(path.join(PLUGIN, 'skills'))) assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8'), /^---\n[\s\S]*?^disable-model-invocation: true$[\s\S]*?\n---\n/m, s);
 
 // D18: no model and no network, and hooks spawn only git. A tripwire over the product scripts' source, not a proof:
 // imports in either quote style (side-effect ones too) from these modules only; from child_process only spawnSync,
 // always on git; and no code loaded or built at run time
-for (const f of ['hook.mjs', 'map.mjs', 'setup.mjs', 'dream.mjs']) {
+for (const f of ['hook.mjs', 'map.mjs', 'setup.mjs', 'dream.mjs', 'status.mjs']) {
   const src = fs.readFileSync(path.join(PLUGIN, 'scripts', f), 'utf8');
   const imports = [...src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
   assert.equal(imports.length, (src.match(/^\s*import\b/gm) ?? []).length, `${f}: every import has a module path`);
@@ -74,7 +80,7 @@ const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey; every hook's output
 // byte-identical to 2.2.0 (ee8625f06842), checked by probes/V2-D30-entries/diff.mjs
-assert.equal(product.digest('hex').slice(0, 12), '81768634263b', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'e92191a0fb83', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -1310,6 +1316,58 @@ ${NAME}` } });
   fs.renameSync(path.join(r, '.project-map-real'), path.join(r, '.project-map'));
   assert.ok(before.length > 0);
   if (savedCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCfg;
+}
+
+// 06, section 3, S8: the status report, on a fixture repo
+{
+  const r = path.join(tmp, 's8');
+  const data = path.join(tmp, 's8-data');
+  assert.match(status(path.join(tmp, 's8-none'), data), /no team memory .*Run \/second-brain:setup/);
+  fs.mkdirSync(path.join(r, '.project-map'), { recursive: true });
+  fs.mkdirSync(path.join(r, 'docs'));
+  const on = (date) => ({ ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date });
+  const g = (env, ...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: r, encoding: 'utf8', env }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
+  g(process.env, 'init', '-q');
+  fs.writeFileSync(path.join(r, 'docs', 'guide.md'), '# Guide\n\nNew components go under src/widgets/.\n');
+  const e = (h, q, id, lines) => '### ' + h + '\n> ' + q + '\n\n- id: ' + id + '\n' + lines.map((l) => '- ' + l + '\n').join('');
+  fs.writeFileSync(path.join(r, '.project-map', 'decisions.md'), '---\nname: decisions\ndescription: Team decisions.\n---\n' + [
+    e('components', 'New components go under src/widgets/.', 'widgets-home', ['source: docs/guide.md, 2026-11-01', 'verified: 2026-11-12 re-found in docs/guide.md']),
+    e('review', 'Ship on Fridays only after the freeze.', 'ship-friday', ['source: the lead developer, 2026-01-01', 'review: 2026-01-01']),
+    e('missing quote', 'This sentence is not in the guide at all.', 'not-there', ['source: docs/guide.md, 2026-11-01']),
+    e('changed', 'New components go under src/widgets/.', 'widgets-again', ['source: docs/guide.md, 2026-11-01', 'verified: 2026-11-05 re-found in docs/guide.md']),
+    e('old rule', 'Components went under src/parts/.', 'parts-home', ['source: the lead developer, 2026-10-01', 'status: superseded 2026-11-15 by widgets-home: nothing']),
+  ].join('\n'));
+  g(on('2026-11-10T12:00:00'), 'add', '-A');
+  g(on('2026-11-10T12:00:00'), 'commit', '-q', '-m', 's8');
+  // uncommitted: a dream's proposal, a draft, an agent's memory
+  fs.appendFileSync(path.join(r, '.project-map', 'decisions.md'), '\n' + e('buttons', 'Buttons use the accent colour for primary actions.', 'buttons-accent', ['source: the lead developer, 2026-11-19', 'proposed: dream 2026-11-19']));
+  fs.mkdirSync(path.join(r, '.claude', 'rules'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.claude', 'rules', 'dates.md.draft'), '---\npaths: ["src/**"]\n---\nDates.\n');
+  fs.mkdirSync(path.join(r, '.claude', 'agent-memory', 'decision-checker'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.claude', 'agent-memory', 'decision-checker', 'MEMORY.md'), '- Checks miss the widgets rule.\n');
+  // the state: a dream on 2026-11-12 read one session; three more since
+  const sd = path.join(data, 'repos', repoKey(r));
+  const tdir = path.join(tmp, 's8-transcripts');
+  fs.mkdirSync(sd, { recursive: true });
+  fs.mkdirSync(tdir, { recursive: true });
+  for (const n of ['a', 'b', 'c', 'd']) fs.writeFileSync(path.join(tdir, n + '.jsonl'), '{}\n');
+  fs.writeFileSync(path.join(sd, 'state.json'), JSON.stringify({ seen: { 'a.jsonl': 3 }, lastDream: '2026-11-12T10:00:00.000Z', pending: null }));
+  fs.writeFileSync(path.join(sd, 'dirs.log'), tdir + '\n');
+  const before = fs.readdirSync(sd).map((f) => f + fs.readFileSync(path.join(sd, f), 'utf8')).join('|') + g(process.env, 'status', '--porcelain', '--untracked-files=all');
+  const s = status(r, data);
+  assert.match(s, /Team memory: 6 entries in 1 file under \.project-map\/; last committed 2026-11-10; 1 uncommitted change\./, s);
+  assert.match(s, /Dreams: the last on 2026-11-12; 3 sessions since\./);
+  assert.match(s, /A dream is due: 3 new sessions since the dream of 2026-11-12/);
+  assert.match(s, /Waiting for review: 1 proposed entry and 1 draft\. Run \/map-review\./);
+  assert.match(s, /Agent memory: 1 uncommitted change under \.claude\/agent-memory\//);
+  assert.match(s, /Stale: 3 entries/);
+  assert.ok(s.includes('.project-map/decisions.md, entry 2 "review": review due since 2026-01-01'));
+  assert.ok(s.includes('.project-map/decisions.md, entry 3 "missing quote": not found word for word in docs/guide.md'));
+  assert.ok(s.includes('.project-map/decisions.md, entry 4 "changed": its source docs/guide.md changed on 2026-11-10, after it was verified on 2026-11-05'));
+  assert.ok(!s.includes('entry 1 ') && !s.includes('entry 5 '), 'a current and a retired entry are not listed');
+  assert.match(s, /Retired \(with a status line\): 1\. Proposed by a dream: 1\. Current: 1\./);
+  // the report changes no file
+  assert.equal(fs.readdirSync(sd).map((f) => f + fs.readFileSync(path.join(sd, f), 'utf8')).join('|') + g(process.env, 'status', '--porcelain', '--untracked-files=all'), before);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

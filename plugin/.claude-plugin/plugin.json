@@ -1,6 +1,6 @@
 {
   "name": "second-brain",
-  "version": "2.2.0",
-  "description": "A project map for Claude Code: an index of the project's own documents at session start, a forced look at the ones that bear on the task, and captured decisions labelled until they are committed.",
+  "version": "2.3.0",
+  "description": "A project map for Claude Code: sets up the layout Anthropic recommends, keeps the team's decisions in versioned entries labelled until they are committed, and dreams over past sessions on demand to propose what the map missed.",
   "license": "MIT"
 }

@@ -2,7 +2,7 @@
 name: setup
 description: Sets up this repo for Claude in Anthropic's recommended layout. It adds CLAUDE.md, a path-scoped rule, a review skill, three project agents with project memory, and the team memory folder. It creates only what is missing.
 disable-model-invocation: true
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs":*)
 ---
 !`node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs" setup`
 
