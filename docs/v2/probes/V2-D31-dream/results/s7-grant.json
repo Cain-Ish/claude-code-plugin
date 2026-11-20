@@ -1,0 +1,25 @@
+{
+ "probe": "S7 skill grant",
+ "cli": "C:/Workplace/Projects/claude-code-plugin-v2/docs/v2/research/raw/cli/claude-2.1.305.exe",
+ "rows": [
+  {
+   "skill": "narrow",
+   "sessionOk": true,
+   "bangRan": true,
+   "scriptRan": true,
+   "nodeERan": false,
+   "denials": [
+    "Bash: {\"command\":\"node -e \\\"require('fs').writeFileSync('pwned-narrow.txt','x')\\\"\",\"description\":\"Write pw"
+   ]
+  },
+  {
+   "skill": "broad",
+   "sessionOk": true,
+   "bangRan": true,
+   "scriptRan": true,
+   "nodeERan": true,
+   "denials": []
+  }
+ ],
+ "narrowWorks": true
+}

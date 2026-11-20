@@ -1,0 +1,26 @@
+{
+ "probe": "S7 grant lifetime",
+ "rows": [
+  {
+   "run": 1,
+   "turn1Ok": true,
+   "secondRan": true,
+   "turn2Ok": true,
+   "thirdRan": false,
+   "turn2Denials": [
+    "Bash: {\"command\":\"node \\\"C:/Users/curst/AppData/Local/Temp/claude/f354bf50bfaa3c28/68f9a4c0-53a0-4cea-bc7a-596cc2a32af3/scratc"
+   ]
+  },
+  {
+   "run": 2,
+   "turn1Ok": true,
+   "secondRan": true,
+   "turn2Ok": true,
+   "thirdRan": false,
+   "turn2Denials": [
+    "Bash: {\"command\":\"node \\\"C:/Users/curst/AppData/Local/Temp/claude/f354bf50bfaa3c28/68f9a4c0-53a0-4cea-bc7a-596cc2a32af3/scratc"
+   ]
+  }
+ ],
+ "grantEndsWithTurn": true
+}

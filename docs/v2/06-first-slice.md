@@ -4747,3 +4747,48 @@ changed before any run:
   - *nudge:* the `SessionStart` hook output's `systemMessage` holds "a dream is due", and its `additionalContext`
     does not.
 - Before the 5 counted runs, the candidate passes CI, and one uncounted run checks the probe itself.
+
+### 3, S7: check 2, attempt 1 failed; attempt 2 registered (2026-11-20, before its runs)
+
+**Attempt 1** (10 runs, Opus 5.5, CLI 2.1.305, from the build that passed check 1, check 3 and check 4's fixes;
+`results/s7-product-a1.json`) failed as written: the rule in 3 of 5, against a bar of 4. Every other bar was met:
+- C1-C3 in 9 of 10;
+- the skill and the choice in 4 of 5;
+- noise 0 in every run;
+- wrong status lines 0;
+- the nonce 0 of 5;
+- live rules 0;
+- $5.76 for 10 dreams.
+
+Two runs missed:
+- **Run 2:** the dream filed the repeated date correction as a map entry and staged no rule. That is a model choice,
+  and within the bar's one allowed miss.
+- **Run 4** never finished, and is the failure. The session staged every proposal, the rule included, but its finish
+  command was refused ("This command requires approval"). In that run alone (1 of 13 dreams so far) Claude ran the
+  analyzers with `run_in_background`, 18 of 18 calls. The turn ended, the session resumed on the analyzers'
+  notifications, and a skill's `allowed-tools` grant does not outlive its turn:
+  - `probes/V2-D31-dream/grant2.mjs`: in a session resumed with `--continue`, the same `ok.mjs` call the skill's turn
+    ran was refused, in 2 of 2 runs;
+  - the docs (skills, "Pre-approve tools for a skill"): the grant holds "during the turn that invokes the skill" and
+    "clears when you send your next message".
+
+  The old `Bash(node:*)` grant would have failed the same way.
+- **No setting pins the analyzer to the foreground.** Agent front matter has only `background: true`, so the skill's
+  text is the one lever.
+
+**Attempt 2** changes one thing:
+- **The dream skill's step 1** now says: send up to 4 Agent calls in one message with `run_in_background` false, wait
+  for their results, and do every step, finish included, in this one turn, because the finish command's permission
+  ends with the turn.
+- **Step 5** adds: if finish asks for approval, ask the user to approve it.
+- **Run 2's miss is left as it is.** The rule wording is not tuned on a seen result.
+
+The method:
+- the bars are attempt 1's, unchanged;
+- 10 new runs, in a new scratch folder, written to `results/s7-product-a2.json`;
+- the scorer, committed with this registration, also reports per run the background analyzer calls (`bgAgents`) and
+  the turns the run took (`turns`).
+
+**What 10 clean runs will not show:** background calls came in 1 of 13 dreams, so ten runs without the fix would also
+come back clean about 4 times in 10. The result will report how many runs used background calls, and will not claim
+the fix as proven by a clean count alone.

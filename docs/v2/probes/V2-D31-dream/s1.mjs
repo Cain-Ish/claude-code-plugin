@@ -366,7 +366,11 @@ function product(i) {
   const r = spawnSync(CLAUDE, args, { cwd: repo, input: '/second-brain:dream', encoding: 'utf8', env: env(), timeout: 3_600_000, maxBuffer: 256 << 20 });
   const ev = parse(r.stdout ?? '');
   const res = ev.find((e) => e.type === 'result') ?? {};
-  const agentCalls = ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => e.message?.content ?? []).filter((c) => c.type === 'tool_use' && /^(Agent|Task)$/.test(c.name)).length;
+  const agentUses = ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => e.message?.content ?? []).filter((c) => c.type === 'tool_use' && /^(Agent|Task)$/.test(c.name));
+  const agentCalls = agentUses.length;
+  // attempt 2 (06): background analyzer calls end the skill's turn, and its grant with it; the turns a run took
+  const bgAgents = agentUses.filter((c) => c.input?.run_in_background).length;
+  const turns = ev.filter((e) => e.type === 'result').length;
   const finished = ev.some((e) => e.type === 'user' && JSON.stringify(e.message?.content ?? '').includes('Dream finished'));
   const map = walkText(path.join(repo, '.project-map'), (p, e) => e.name === '.dream-run');
   const proposed = blocksOf(map).filter((b) => /^- proposed: dream /m.test(b));
@@ -378,7 +382,7 @@ function product(i) {
   const all = walkText(repo, (p, e) => ['.git', 'logs', '.dream-run'].includes(e.name));
   const fixture = i <= FIXTURE_RUNS;
   const s = {
-    run: i, dreamOk: res.subtype === 'success' && !res.is_error, finished, costUsd: Math.round((res.total_cost_usd ?? 0) * 100) / 100, agentCalls,
+    run: i, dreamOk: res.subtype === 'success' && !res.is_error, finished, costUsd: Math.round((res.total_cost_usd ?? 0) * 100) / 100, agentCalls, bgAgents, turns,
     C1: C.C1(map), C2: C.C2(map), C3: C.C3(map), proposed: proposed.length, noise: proposed.filter((b) => NOISE.test(b)).length,
     widgetsStatus: statusOn.includes('widgets-home'), otherStatus: statusOn.filter((id) => id !== 'widgets-home').length,
     rule: fixture ? /^---\npaths:/m.test(ruleText.replace(/\r/g, '')) && /formatDate/.test(ruleText) : null,
@@ -396,10 +400,12 @@ function psummary() {
   const out = { runs: runs.length, fixtureRuns: fx.length, finished: count(runs, 'finished'), C1to3: runs.filter((r) => r.C1 && r.C2 && r.C3).length,
     rule: count(fx, 'rule'), skill: count(fx, 'skill'), choice: count(fx, 'choice'), noiseMax: Math.max(0, ...runs.map((r) => r.noise)),
     runsWithOtherStatus: runs.filter((r) => r.otherStatus > 0).length, widgetsStatus: count(runs, 'widgetsStatus'), nonceLanded: count(fx, 'nonceLanded'),
-    liveRules: runs.reduce((a, r) => a + r.liveRules, 0), costUsd: Math.round(runs.reduce((a, r) => a + r.costUsd, 0) * 100) / 100, per: runs };
+    liveRules: runs.reduce((a, r) => a + r.liveRules, 0), costUsd: Math.round(runs.reduce((a, r) => a + r.costUsd, 0) * 100) / 100,
+    runsWithBgAgents: runs.filter((r) => r.bgAgents > 0).length, multiTurnRuns: runs.filter((r) => r.turns > 1).length, per: runs };
   out.pass = { C1to3: out.C1to3 >= 8, rule: out.rule >= 4, skill: out.skill >= 4, choice: out.choice >= 4, noise: runs.every((r) => r.noise <= 1), status: out.runsWithOtherStatus < 2, nonce: out.nonceLanded === 0, liveRules: out.liveRules === 0 };
   out.pass.all = Object.values(out.pass).every(Boolean) && runs.length === 10 && fx.length === 5;
-  fs.writeFileSync(path.join(HERE, 'results', 's7-product.json'), `${JSON.stringify(out, null, 1)}\n`);
+  // each attempt keeps its own result file (attempt 1's is s7-product-a1.json)
+  fs.writeFileSync(path.join(HERE, 'results', process.env.S7_RESULT ?? 's7-product.json'), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify({ ...out, per: undefined }, null, 1));
 }
 
