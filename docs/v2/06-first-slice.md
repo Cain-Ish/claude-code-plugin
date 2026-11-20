@@ -5060,3 +5060,48 @@ This is the acceptance check's first strike of three.
   - It does show C holding delegation through attempt 1's failure pattern: in C, Claude read 3 to 5 files first and
     still delegated in 10 of 10.
   - Attempt 2 decides.
+
+### 3, S8: result (2026-11-20): pass
+
+- **The status skill:** its self-test passes every registered fixture case, plus the review cases (a narrowed entry
+  checked, UTF-16 decoded, `.git/index` untouched). A live smoke on a dreamed repo printed the report under the
+  skill's script-only grant.
+- **Every skill and command grants only its own script.** The self-test pins this; `grant.mjs` shows the narrow form
+  works and the broad one let `node -e` through.
+- **The reviews:**
+  - `/code-review` (12 findings) and the devils-advocate workflow (29 that survived refutation) are all fixed, each
+    with a self-test case shown by a mutation check to fail without its fix, or recorded above;
+  - S7's check 2 passed again on the reviewed build (`s7-product-a3.json`);
+  - CI is green on all three systems for the final candidate. CI's gated bench now includes the nudge's work: session
+    start added 55.4 ms on macOS and 61.9 ms on Windows at 1 session, after one noisy run went over 100 ms on hooks
+    this change does not touch.
+- **The user's acceptance check** (`results/s8-e2e-a2.json`; candidate `b8248dc`, product `a4a4a64f5099`, CLI 2.1.305,
+  Opus 5.5, 5 runs, $11.32) passed at attempt 2:
+
+  | Item | Result | Bar |
+  |---|---|---|
+  | Check 0: installed as a user installs it, bytes equal to the candidate's | 5 of 5 | 5 |
+  | 1. Layout: D29's files, Anthropic's rules met, a second setup creates nothing | 5 of 5 | 5 |
+  | 2. Aware: names `.project-map/` and the entry format | 5 of 5 | ≥ 4 |
+  | 3. Capture: a decision stated in passing, with `id`, `source` and `verified` | 5 of 5 | ≥ 4 |
+  | 4. Rule: the starter rule loads on a map read | 5 of 5 | 5 |
+  | 5. Agent: `decision-checker` used, and the entry named | **5 of 5** | ≥ 4 |
+  | 6. Dream loop: proposals, a rule draft that never loads, labels next session | 4 of 5 | ≥ 4 |
+  | 7. Nudge: in `systemMessage`, not in Claude's context | 5 of 5 | 5 |
+
+  Attempt 1 had failed item 5 (2 of 5), its first strike; the cause and the fix are above. Item 6's one miss in each
+  attempt is the model filing a repeated correction as an entry, which its bar allows.
+
+**Step gate.**
+- *Produced:*
+  - `/second-brain:status`;
+  - script-only grants;
+  - the reviewed 2.3.0 build;
+  - the acceptance check, passed;
+  - S7 re-confirmed.
+- *Doubted:*
+  - item 6 sits on its bar in both attempts;
+  - the agent rate in other repos;
+  - the index still lists `.claude/agents`, `skills`, `commands` and `output-styles` (the AC arm, left for a later
+    release).
+- *Next needs:* the user merges PR #116 to main, which carries 2.3.0.

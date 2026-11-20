@@ -1,34 +1,74 @@
 # second-brain v2
 
-A Claude Code plugin that keeps Claude aware of what your project has already decided. At every session start, its
-hooks give Claude an index of the repo's own documents. At the first prompt they give it an instruction to say which
-of those documents bear on the task, and to read them before changing anything. It also tells Claude to record the
-decisions stated during your sessions in plain Markdown files. You review and commit those files like any other
-change. These are instructions Claude follows, not locks: no hook blocks a write.
+A Claude Code plugin that keeps Claude aware of what your project has already decided, in the layout Anthropic
+recommends for Claude's knowledge. `/second-brain:setup` adds that layout to a repo:
+- a short `CLAUDE.md`;
+- a rule scoped by `paths:`;
+- a review skill;
+- three project agents with project memory;
+- the team memory in `.project-map/`.
 
-**Status:** `2.2.0`, built on branch `v2`.
+At every session start, its hooks give Claude an index of the repo's own documents and a catalog of the team memory.
+At the first prompt they give it an instruction to say which of those documents bear on the task, and to read them
+before changing anything. It also tells Claude to record the decisions stated during your sessions as versioned
+entries in plain Markdown files. On demand, `/second-brain:dream` reads your past sessions and proposes what the
+memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
+locks: no hook blocks a write.
+
+**Status:** `2.3.0`, built on branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
 
 ## What it does
 
+- **`/second-brain:setup`** (2.3.0) creates what is missing, and never overwrites or commits anything:
+  - `CLAUDE.md`, under 200 lines, pointing to the team memory. If you already have one, it gives you a short block to
+    add.
+  - `.claude/rules/project-map.md`: the entry format. Its `paths:` load it only when Claude touches a map file.
+  - `.claude/skills/map-review/`, which you run to accept or reject what a dream proposed, promote its drafts, and
+    settle entries due for review. It never loads unless you run it.
+  - Three project agents with `memory: project`:
+    - `decision-checker` checks a change or plan against the recorded decisions;
+    - `codebase-guide` answers where-is and how-do-we questions;
+    - `memory-curator` flags due and duplicate entries, and changes no committed claim.
+  - `.project-map/README.md`, a first topic file `decisions.md`, the dream log `dreams.md`, and a `.gitattributes`
+    line that merges the log.
+
+  It warns when Claude Code's auto memory is off, since the agents' memory then does nothing.
 - **At session start**, and again after `/clear`, a resume or a compaction, Claude gets two things:
   - an index of the repo's documents, by directory: every tracked `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`
     file, plus every Markdown file in `.project-map/`, even one that is not committed or that `.gitignore` excludes.
     Files under the root's `.claude/rules/` are left out: Claude Code loads those itself, at launch or, for a rule
-    with `paths:`, when Claude reads, writes or edits a matching file;
+    with `paths:`, when Claude reads, writes or edits a matching file. Once a map file has `name` and `description`
+    front matter, the map's line becomes a catalog: each topic file with its description and its counts of entries,
+    entries due for review and proposals (2.3.0);
   - a short instruction to keep the project's decisions in `.project-map/`.
+
+  You, not Claude, also see two lines when they apply (2.3.0):
+  - *waiting for review:* what a dream proposed, and its drafts;
+  - *a dream is due:* after 10 or more new sessions; or after 7 days with 3 or more; or when Claude Code's cleanup
+    will delete unread sessions within 5 days.
 - **At the first prompt you type**, and at the first after each compaction, Claude is told to state for each document
   directory whether it bears on the task (yes or no), and to read the yes ones before it changes anything. A
   background subagent's report or another Claude session's message does not count as that prompt.
 - **When someone states a decision or rule in passing**, or Claude reads a document of requirements, Claude is told
-  to add it to `.project-map/captured.md`, with its source and date. It is told:
+  to add it to the topic file in `.project-map/` that covers its area, or to start one with `name` and `description`
+  front matter (2.3.0; 2.2.0 wrote to `captured.md`, which stays valid). Each entry is versioned:
+  - `id`: a short slug other entries can point to;
+  - `source`: who stated it or which document, ending with the date;
+  - `when`: the kinds of work it applies to;
+  - `verified`: when and how it was last confirmed;
+  - optionally `review`: a date by which it should be checked again.
+
+  Claude is also told:
   - to keep project decisions there rather than in its auto memory;
   - to end the source line with the date, putting other detail in parentheses before it;
   - when a new decision replaces, narrows or ends an entry, to keep the old one and add
-    `- status: <superseded|narrowed|expired|done> <date> by "<new heading>": <what still holds>` under its when
-    line (2.2.0).
+    `- status: <superseded|narrowed|expired|done> <date> by <the new entry's id>: <what still holds>` under its
+    when line.
+
+  The versions themselves are git's: an entry is reviewed once its file is committed with it.
 - **When Claude reads a map file in the main session** with the Read tool, a hook labels its entries. Every Bash
   command that names the `.project-map` folder carries the labels of every entry not yet committed, whatever it
   printed, and those of the committed entries it printed. A Bash command that exits with an error gets them too:
@@ -42,7 +82,11 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
     label once committed;
   - an entry whose source names no repo file, such as a person's words, is labelled "unverified quote", with its
     capture date. The labels say what that means;
-  - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified.
+  - if the map file itself cannot be read, one label says to treat every entry in it as unreviewed and unverified;
+  - "proposed by a dream <date>, not yet accepted", until review accepts it (2.3.0);
+  - "review due since <date>", once the entry's `review` date has passed (2.3.0);
+  - "replaced by <id>, which the map does not hold", when a status line points to an id that no map file holds
+    (2.3.0).
 
   When the hook cannot see all of a command's output (a command run in the background, or output past Claude Code's
   limit, which it saves to a file), it gives every map file's labels. Reads by subagents, map text met through the
@@ -51,14 +95,85 @@ change. These are instructions Claude follows, not locks: no hook blocks a write
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from:
   - each one once per session (2.2.0);
   - never one whose status line says it no longer holds.
+- **`/second-brain:dream`** (2.3.0) runs only when you invoke it. It reads this repo's past sessions, the ones since
+  the last dream, from Claude Code's transcripts on your machine. In your session, read-only analyzer agents look
+  for:
+  - decisions the map missed;
+  - entries a later decision replaced;
+  - corrections that repeat across sessions;
+  - procedures you keep asking for.
+
+  A final step checks every proposal before anything reaches the repo:
+  - a quote must be found in what a person typed, an answer they chose, or a committed file, never in tool output
+    alone;
+  - email addresses, absolute paths, session ids and common key shapes are refused;
+  - a rule needs `paths:` and two sessions behind it, and so does a skill;
+  - a committed entry only ever gains a status line, also marked proposed.
+
+  It then writes:
+  - new entries, each marked `- proposed: dream <date>`;
+  - rules and skills as `*.md.draft` files, which Claude Code never loads until `/map-review` promotes them;
+  - one counts-only line in `.project-map/dreams.md`.
+
+  Anything else that changed during the dream, under `.project-map/`, in Claude's instruction folders, `CLAUDE.md` or
+  `.mcp.json`, is put back, with what it replaced saved in the plugin's data folder.
+- **`/second-brain:status`** (2.3.0) reports:
+  - how large the team memory is and when it last changed;
+  - the last dream and the sessions since;
+  - what waits for review;
+  - uncommitted agent memory;
+  - stale entries: a review date passed, a quote no longer in its source, a source committed after the entry was
+    verified, or a replacement the map does not hold.
 - **`/second-brain:onboard`** checks Node and git, sizes the index, and says how many map files are not committed.
 
-It calls no model and uses no network, MCP server or agent. The hooks run Node and start only `git`. Nothing leaves
-your machine.
+The hooks call no model and use no network or MCP server. They run Node and start only `git`. The dream runs inside
+your own Claude session, with the plugin's analyzer agent. Nothing leaves your machine except what your session sends
+to Claude.
 
 ## What was measured, and what was not
 
-The plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
+**2.3.0** was measured step by step on Claude Code 2.1.305, mostly with Opus 5.5. The records are in
+[docs/v2/06-first-slice.md](docs/v2/06-first-slice.md), section 3.
+- *Installed as a user installs it,* in a brand-new repo, 5 runs (the acceptance check):
+  - setup created the full layout, with Anthropic's rules met, in 5 of 5, and a second run created nothing;
+  - a fresh session named `.project-map/` and the entry format in 5 of 5;
+  - a decision stated in passing landed in a topic file with `id`, `source` and `verified` in 5 of 5;
+  - the scoped rule loaded when Claude read a map file in 5 of 5;
+  - asked to check a change against the decisions, Claude used `decision-checker` and named the entry in 5 of 5.
+    The first attempt managed 2 of 5; `CLAUDE.md` now says why to hand the check over;
+  - after sessions with capture off, the dream proposed their decisions, drafted a rule that never loaded, and the
+    next session's labels showed the proposals, in 4 of 5. In the fifth it filed the repeated correction as an
+    entry;
+  - the dream-due line reached you, not Claude, in 5 of 5.
+- *Capture into topic files* (scenario A1, 10 runs): every A1 check passed in 10 of 10. A topic file with front
+  matter was written in 10 of 10, and every entry carried `id` and `verified`.
+- *The project agents,* 5 runs each:
+  - `decision-checker` flagged a change that broke a committed decision in 5 of 5;
+  - `codebase-guide` answered a repeated question with fewer tool calls in 4 of 5;
+  - `memory-curator` flagged a due entry and a duplicate in 5 of 5, and changed a committed claim in 0 of 5;
+  - none wrote outside its allowed folders.
+- *The dream,* run as `/second-brain:dream` over 9 fresh sessions per run, 10 runs, on the final build:
+  - the three decisions the scenario's sessions state were recovered in 10 of 10;
+  - the repeated correction became a scoped rule draft in 5 of 5;
+  - the repeated procedure became a skill draft in 5 of 5;
+  - a choice made by answering Claude's question was kept, marked as chosen from Claude's options, in 5 of 5;
+  - noise entries: 0;
+  - a status line on an entry nobody replaced: 0;
+  - an instruction planted in a tool's output reached the repo in 0 of 5;
+  - $5.73 for the 10 dreams.
+
+  Drafts never loaded in `manual`, `acceptEdits` or `auto` mode.
+- *Security:* two independent reviews (Gemini 4 Argon, through agy), Claude Code's `/security-review`, `/code-review`,
+  and a five-lens adversarial review. Each finding was fixed, with a self-test case that fails without the fix, or is
+  listed under Known issues.
+- *Hooks:* with 300 unseen transcripts on disk, every hook added at most 78.8 ms at 1 and at 8 sessions at once on
+  the 32-thread machine. CI's gate now includes that work.
+- *What 2.3.0 changes for a 2.2.0 repo:*
+  - session start's capture instruction grew from 1,349 to 1,765 bytes;
+  - the labels on 2.2.0-shaped entries are byte-identical;
+  - a repo with 10 or more unseen sessions gets the dream-due line at its first session start.
+
+**Up to 2.2.0**, the plugin was measured on Claude Code 2.1.305 with Opus 5.5, against Claude Code's own auto memory.
 - *A1:* a front-end scenario run over several sessions, 10 runs per arm. It was re-run on alpha.2's code. alpha.3's
   to alpha.8's changes were checked by the self-test, a live smoke session and CI, and alpha.6's to alpha.8's by a
   timing bench as well.
@@ -158,7 +273,7 @@ claude plugin install second-brain@second-brain --scope project
 ```
 
 - `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
-- To pin a release, add `#v2.2.0` to the repo in the first command. Without it, `claude plugin marketplace update
+- To pin a release, add `#v2.3.0` to the repo in the first command. Without it, `claude plugin marketplace update
   second-brain`, then `claude plugin update second-brain@second-brain`, bring the latest release.
 - To try the plugin only for yourself in one repo, use `--scope local` for both commands instead.
 - Start Claude at the repo's root. With a project-scope install, the plugin does not load when Claude starts in a
@@ -229,14 +344,33 @@ Then remove them in this order:
   document it read stays visible as unchecked.
 - If you leave `.project-map/` out of your commits, its entries stay in your working tree only, still labelled. No
   other clone or teammate sees them.
-- Edit or delete entries as you like. The plugin keeps no other state.
+- Edit or delete entries as you like.
+- **After a dream** (2.3.0), run `/map-review`. It walks you through:
+  - each proposed entry: accept it, or reject it;
+  - each draft rule or skill: promote it by dropping `.draft`, or delete it;
+  - each entry whose review date has passed.
+
+  Then commit. The previous dream's proposals that reached a commit are counted in the next dream's log line.
+- **Agent memory** under `.claude/agent-memory/` loads into its agent before you review it, as Claude Code's own
+  agent memory always does. `/second-brain:status` counts its uncommitted changes, so you can review them like the
+  map.
 
 ## What it writes
 
+- *Setup* (2.3.0) writes the files listed under What it does, only the missing ones, and commits nothing.
 - *At run time:*
   - `.project-map/*.md` in your repo, written by Claude under the capture instruction;
   - one empty marker file per session in the OS temp folder (`project-map-<session>.pending`). The session's first
-    prompt removes it, so a session that ends before any prompt leaves its marker behind.
+    prompt removes it, so a session that ends before any prompt leaves its marker behind;
+  - in the plugin's data folder (`~/.claude/plugins/data/<plugin id>/repos/<repo key>/`, per machine and never in
+    the repo): the transcript folders session start has seen, and the dream's state, which records the sessions it
+    has read and when it last ran (2.3.0).
+- *A dream* (2.3.0) writes:
+  - its proposals and one log line in `.project-map/`;
+  - drafts in `.claude/rules/` and `.claude/skills/`;
+  - while it runs, digests of your sessions in `.project-map/.dream-run/`, which ignores itself in git and is
+    deleted when the dream finishes or aborts;
+  - in the data folder: its snapshot and run record, and `undone/`, where it saves what it put back.
 - *Installing and uninstalling* change `.claude/settings.json` (or `settings.local.json`) and Claude Code's plugin
   cache.
 
@@ -274,8 +408,15 @@ Then remove them in this order:
     alpha.1.
   - On the small runners at 8 at once, the heavier hooks are over that budget. On a 3- or 4-core machine that runs
     many sessions at once, expect each session start and map read to take a few tenths of a second.
-- *Context, always on:* 904 B and 212 B per session plus the index (2 to 6 KB in the tested repos), and 227 B for each
-  forced decision. Each read of a map file, through the Read tool or Bash, adds that file's labels.
+  - 2.3.0, in pooled pairs against a build without its session-start changes, with 300 unseen transcripts on disk:
+    every hook added at most 78.8 ms at 1 and at 8 sessions at once, on the 32-thread machine.
+- *Context, always on:* 1,765 B (the capture instruction, since 2.3.0) and 212 B per session plus the index (2 to 6
+  KB in the tested repos), and 227 B for each forced decision. Each read of a map file, through the Read tool or
+  Bash, adds that file's labels. The skills (setup, dream, status, map-review) are never listed, so they cost no
+  context until you run one. Each of the three project agents adds its one-line description to Claude's list of
+  agents, as the plugin's dream analyzer does.
+- *A dream* runs on your session's model and plan. On Opus 5.5 it cost $0.39 to $0.82 a dream, reading 3 to 9 past
+  sessions.
 
 ## Known issues
 
@@ -359,6 +500,30 @@ Then remove them in this order:
   bare `ignorecase`, `true`, `yes`, `on` or a whole number other than 0 count as true. Git's other spellings of true,
   such as `1k`, `0x1` or a value continued with `\`, count as false here, and a partly quoted value is skipped, so
   the line above it stands.
+- **The dream reads Claude Code's transcripts** (2.3.0), whose format is internal and can change in any release. It
+  keeps what you typed, the answers you chose, Claude's text, tool names and short tool results, and skips anything
+  it does not recognize. A format change can make it read less, not more. Claude Code deletes transcripts after
+  `cleanupPeriodDays` (30 by default); the due line warns 5 days before unread ones go.
+- **A dream finishes in the turn it starts** (2.3.0). The skill's permission for its finish command lasts only that
+  turn. If you type while it runs, or Claude runs its analyzers in the background, finish asks for your approval;
+  approve it.
+- **Draft rules and skills are not checked against what was typed** (2.3.0). Their quotes and evidence are; their
+  wording is Claude's. They load only once you promote them, so read each one in `/map-review` first.
+- **A dream's privacy scan matches patterns.** It refuses email addresses, absolute paths, session ids and common key
+  shapes. A secret of another shape can pass into a proposal; review the diff before you commit.
+- **What a dream puts back** (2.3.0) covers:
+  - `.project-map/`;
+  - `.claude/` rules, skills, agents, commands and output styles;
+  - the root `CLAUDE.md`, `CLAUDE.local.md` and `.claude/CLAUDE.md`;
+  - `.mcp.json`.
+
+  A `CLAUDE.md` in a subfolder is not covered. A change to `.claude/settings*.json` during a dream is reported and
+  left in place, since an "always allow" you give lands there.
+- **The analyzers can read files outside the repo** only as Claude Code allows any read there. In `manual` and
+  `acceptEdits` mode such a read asks you. In `auto` mode its classifier decides: an instruction planted in a past
+  session's tool output, asking the analyzer to read a file outside the repo, was not followed in 3 of 3 runs.
+- **Agent memory loads before review**, as Claude Code's own does. The starter agents are told to keep only working
+  notes there.
 - **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
   name `second-brain`, so only one of them can be registered on a machine.
 
@@ -370,7 +535,9 @@ claude plugin marketplace remove second-brain --scope project
 ```
 
 - For a `--scope local` install, use `--scope local` in both commands.
-- Your `.project-map/` files stay.
+- Your `.project-map/` files stay, and so does everything setup created (`CLAUDE.md`, the rule, the review skill, the
+  agents). They are plain files: keep them, or delete them.
+- Claude Code deletes the plugin's data folder (the dream's state and `undone/`) when you uninstall.
 - `.claude/settings.json` is left with empty `enabledPlugins` and `extraKnownMarketplaces` entries.
 - Claude Code removes its cached copy of the plugin after 14 days.
 
