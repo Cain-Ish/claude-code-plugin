@@ -44,7 +44,9 @@ const blocks = (t) => t.replace(/\r/g, '').split(/^(?=#{1,3} )/m).filter((b) => 
 const STATUS = /^- status:[ \t]*(superseded|narrowed|expired|done)[ \t]+\d{4}-\d{2}-\d{2}/m;
 
 function score(id, dir, replies) {
-  const now = blocks(fs.readFileSync(path.join(dir, '.project-map', 'captured.md'), 'utf8'));
+  // 06, section 3, S4: every map file, since capture v3 writes topic files beside captured.md (2s read only captured.md)
+  const mapDir = path.join(dir, '.project-map');
+  const now = blocks(fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')).sort((a, b) => (a === 'captured.md' ? -1 : b === 'captured.md' ? 1 : a.localeCompare(b))).map((f) => fs.readFileSync(path.join(mapDir, f), 'utf8')).join('\n'));
   const original = (area) => now.find((b) => b.startsWith(`### ${area}\n`));
   const added = now.filter((b) => !['components', 'avatars', 'release notes'].some((a) => b.startsWith(`### ${a}\n`)));
   const dateLast = (b) => /^- source:.*\d{4}-\d{2}-\d{2}\s*$/m.test(b);
@@ -89,6 +91,6 @@ for (const id of which.split(',')) {
     const rs = out.runs.filter((r) => r.arm === arm && r.valid);
     out[arm] = { valid: rs.length, pass: rs.filter((r) => r.pass).length };
   }
-  fs.writeFileSync(path.join(HERE, 'results', `${id}.json`), `${JSON.stringify(out, null, 1)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', `${id}${process.env.D28_TAG ?? ''}.json`), `${JSON.stringify(out, null, 1)}\n`);
   console.log(`${id}: candidate ${out.candidate.pass} of ${out.candidate.valid}, control ${out.control.pass} of ${out.control.valid}`);
 }

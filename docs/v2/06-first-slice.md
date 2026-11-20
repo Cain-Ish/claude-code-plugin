@@ -4306,3 +4306,66 @@ Every registered item met its bar. Record: `probes/V2-D31-dream/README.md` and `
   - $5.32 for 10 dreams.
 
 **The dream is built (S7).**
+
+### 3, S4: the capture instruction v3, entries in topic files (registered 2026-11-20, before its runs)
+
+- *Why:* D29 and D30. Setup (S5) creates topic files, and capture must write into them, with `id` and `verified`
+  lines, or the layout goes unused.
+- **The text,** sha256 `392c26c2a5e9`, 1,765 bytes (it was `bd491ace7f2f`, 1,349). It keeps 2.2.0's lines in order, except
+  where it routes entries to topic files and adds the `id`, `verified` and `review` lines and the status line's id:
+
+```
+This project keeps a map of its knowledge in the folder .project-map/. When, during your work, someone states a
+decision or rule for this project, or you receive or read a document that states requirements, specifications or
+rules the project's work must follow, add each one as its own entry, in the words used, with its source, to the
+topic file in .project-map/ that covers its area. If none fits, create one named for the area, such as avatars.md,
+that starts with this front matter:
+
+---
+name: <the area>
+description: <what it covers, and when to read it>
+---
+
+Keep what will still matter in later sessions; leave out one-off details of the current task.
+Decisions and rules for this project belong in this map, not in your auto memory, which is for your own way of working.
+Entry format:
+
+### <the part of the project it governs>
+> <the decision, rule or requirement, in the words used>
+
+- id: <a short unique slug, such as avatars-local-only>
+- source: <who stated it, or the document's title or path>, <date>
+- when: ["<kind of work it applies to>", "..."]
+- verified: <YYYY-MM-DD> <how you know it holds, such as "stated by the PM">
+
+End the source line with the date, as YYYY-MM-DD; put any other detail in parentheses before it.
+If a decision holds only until a known date, add the line: - review: <YYYY-MM-DD>
+When a new entry replaces, narrows or ends an existing one, keep the old entry and add this line under its when line:
+- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by <the new entry's id>: <what still holds>
+
+Never write session ids, email addresses or absolute file paths into an entry. The map is plain files in this
+repository: your changes to it stay in the working tree and are reviewed with the commit, like any other change.
+```
+
+- **Built in a copy:** `INSTRUCTION` is swapped, and the self-test's pins move. The self-test passes on the copy.
+- **Harness changes, made before the runs:**
+  - `probes/V2-D28-lifecycle/scenarios.mjs` scores every map file, not only `captured.md`, and writes tagged results
+    (`D28_TAG`), so 2s's records stay;
+  - `probes/V2-D30-entries/s4topic.mjs` reads the topic-file bar from A1's run folders.
+- **Checks,** on Opus 5.5 with the pinned CLI 2.1.305, against a 2.2.0 control:
+  1. *A same-day 2.2.0 A1 run* (1 run), to show the harness still works.
+  2. *A1, the V2 arm, 10 runs* on the candidate. **Pass:**
+     - each item at A1's Opus bar: C1 10, C2 at least 2, C3 10, C4 10, T1 10, T2 10, T3 at least 8, T4 10, T5f at
+       least 8, N1 to N3 10;
+     - over-attribution in at most 1 of 10;
+     - no status line on any entry other than the widgets rule H1 retracts;
+     - **new:** a topic file (a `.md` file other than `captured.md`, with front matter `name` and `description`) in at
+       least 9 of 10 runs, and every entry carrying `id` and `verified` in at least 9 of 10.
+  3. *2s's scenarios S1-S3,* 5 runs per arm against 2.2.0, at 2s's bars:
+     - S1: the replaced avatar entry gets a status line in at least 4 of 5, and no other entry does;
+     - S2: the date ends the source line in at least 4 of 5, and in at least 2 more runs than the control;
+     - S3: turn 2 repeats none of turn 1's roles in at least 4 of 5.
+  4. *The self-test, and CI on three systems.*
+- **Attribution, fixed now:**
+  - a miss on C1 to C4, on the topic-file bar or on S1 and S2 implicates the new text;
+  - a miss on T or N items implicates neither text alone, and is judged against the control.
