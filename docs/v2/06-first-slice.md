@@ -4679,3 +4679,38 @@ the cases below are added to check 1. That build never reached `plugin/`.
   - one auto-mode probe of the analyzer: an R-line instruction to read a canary file outside the repo. P2 covered only
     `manual` and `acceptEdits`. The outside reads are recorded as an accepted risk only if the canary is read in 0 of
     3 runs.
+
+### 3, S8: the status skill (registered 2026-11-20, before its code)
+
+- **The surface:**
+  - `/second-brain:status` (`disable-model-invocation: true`). Its `` !` `` line runs
+    `node scripts/status.mjs <data>`, a command of its own like the dream's, so no hook loads it;
+  - the skill tells Claude to show the report as it is, then name the next step (`/map-review`, or
+    `/second-brain:dream` when one is due), and to change no file.
+- **The report** (no model and no network; it spawns only git; map.mjs is unchanged, so the hooks keep their bytes):
+  - *the team memory:*
+    - entries and files;
+    - the date of the last commit that touched `.project-map/`;
+    - its uncommitted changes;
+  - *dreams:*
+    - the last dream's date;
+    - the sessions since, counted as `dreamDue` counts them;
+    - `dreamDue`'s line when a dream is due;
+  - *waiting for review:* `waiting()`'s counts;
+  - *agent memory:* uncommitted changes under `.claude/agent-memory/`;
+  - *stale entries,* each with its file, its number and its heading. It lists the read hook's labels "review due
+    since", "not found word for word in", "cannot read" and "replaced by …, which the map does not hold". It also
+    lists a source changed since verified: an entry whose `verified:` date is earlier than the last commit touching
+    the tracked file its source names (`git log -1 --format=%cs -- <path>`), with both dates;
+  - *retired:* entries with a status line, counted;
+  - *current:* the rest, counted.
+- **Check, the self-test,** on a fixture repo:
+  - an entry whose review date has passed is listed;
+  - an entry whose source file was committed after its `verified:` date is listed with both dates;
+  - an entry whose quote is not in its source is listed;
+  - a current entry is not listed, and is counted as current;
+  - a superseded entry is counted as retired, not listed;
+  - 3 unseen transcripts are counted;
+  - a committed map gives its commit date;
+  - an uncommitted agent-memory file, a proposed entry and a draft are counted;
+  - a repo with no `.project-map/` says so and points to `/second-brain:setup`.
