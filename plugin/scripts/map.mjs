@@ -98,8 +98,9 @@ export function gitDir(root) {
   return dir;
 }
 // One key per repo for the plugin's per-machine state (D32), the same from the repo and its linked worktrees: a hash
-// of the shared git folder's real path, so two paths never share a key. Throws when that folder does not exist
-export const repoKey = (root) => crypto.createHash('sha256').update(fs.realpathSync(gitDir(root))).digest('hex').slice(0, 16);
+// of the shared git folder's real path as the OS gives it (a Windows 8.3 short name and its long form are one key; CI
+// found the JS realpath keeps the short one), so two paths never share a key. Throws when that folder does not exist
+export const repoKey = (root) => crypto.createHash('sha256').update(fs.realpathSync.native(gitDir(root))).digest('hex').slice(0, 16);
 
 // git's core.ignorecase, read from the repo's config file, so session start keeps one git call (D18). Unset, false or
 // unreadable means no fold, as in git: a name listed twice loses nothing (06, 2h).

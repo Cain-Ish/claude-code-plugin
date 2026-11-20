@@ -63,7 +63,7 @@ const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey; every hook's output
 // byte-identical to 2.2.0 (ee8625f06842), checked by probes/V2-D30-entries/diff.mjs
-assert.equal(product.digest('hex').slice(0, 12), '844fe48349d8', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '33789c5bf1ad', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -738,7 +738,7 @@ ${NAME}` } });
   g(r, 'init', '-q');
   g(r, 'commit', '-q', '--allow-empty', '-m', 'k');
   g(r, 'worktree', 'add', '-q', w);
-  assert.equal(fs.realpathSync(gitDir(w)), fs.realpathSync(gitDir(r)));
+  assert.equal(fs.realpathSync.native(gitDir(w)), fs.realpathSync.native(gitDir(r)));
   assert.equal(repoKey(w), repoKey(r));
   assert.match(repoKey(r), /^[0-9a-f]{16}$/);
   // two paths that differ only in punctuation keep their own keys (agy's S2 round)
