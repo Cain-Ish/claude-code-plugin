@@ -4419,3 +4419,41 @@ repository: your changes to it stay in the working tree and are reviewed with th
        uncommitted edits;
      - each agent writes outside its memory folder (memory-curator: outside the map) in 0 of 5.
   4. *CI* on three systems.
+
+### 3, S6: the catalog, the waiting-review count, and the dream-due nudge (registered 2026-11-20, before the code)
+
+- **The catalog (Claude's context).**
+  - When a map file has front matter (`name`, `description`), the index's `.project-map/` line becomes one catalog
+    line: `.project-map/: <file> (<description, cut at 80 characters>; <n> entries, <k> due, <p> proposed), …`. Files
+    without front matter, such as `captured.md` and `dreams.md`, keep their bare name.
+  - The line keeps its place first when session start is cut (2g).
+  - **A repo with no front matter in any map file gets 2.2.0's bytes.**
+  - `.project-map/.dream-run/` is never listed.
+- **The user's line** (`systemMessage` only, on `startup` and `clear`). It is one line, and only when something is
+  waiting or due:
+  - *waiting review:* `*.md.draft` files under `.claude/rules/` and `.claude/skills/*/`, and entries carrying
+    `proposed:`. The drafts are inert (D31), so this is a reminder, never a label on a live rule;
+  - *dream due* (D32, the user's thresholds): 10 or more new sessions since the last dream; or 7 or more days since
+    it with at least 3 new sessions; or a session Claude Code's cleanup deletes within 5 days.
+- **Where the dream data comes from.**
+  - A new session is a top-level `*.jsonl`, other than the current one, in a known transcript folder and not in the
+    dream's `seen` set.
+  - The known folders are the current `dirname(transcript_path)` plus `${CLAUDE_PLUGIN_DATA}/repos/<repoKey>/dirs.log`.
+    Session start appends to `dirs.log`, one line, when the folder is new.
+  - The dream's state is `state.json` beside it, written only by the dream under its lock.
+  - The cleanup age is `cleanupPeriodDays` from the user's settings file (default 30), judged by mtime (P4's
+    conservative reading). At most 50 unseen files are `stat`ed.
+- **Checks:**
+  1. *Self-test:*
+     - a 2.2.0-shaped repo gives byte-identical session-start text;
+     - with front matter, the catalog line and its counts;
+     - `.dream-run` never listed;
+     - each due condition, met and not met, on synthetic folders;
+     - the line only in `systemMessage`, never in `additionalContext`;
+     - no line when nothing waits and nothing is due;
+     - no state written anywhere except one `dirs.log` line.
+  2. *Byte identity:* `diff.mjs` (2.2.0 against S6, 3 seeds × 40 repos), 0 differences.
+  3. *The bench:* session start with 300 synthetic transcripts in two known folders. **Pass:** at most 100 ms of
+     added p95, at 1 and at 8 concurrent on the reference machine in its reference state, against the 2.2.0
+     control (D18's pairing).
+  4. *CI* on three systems, and an agy refute-first round on the diff.
