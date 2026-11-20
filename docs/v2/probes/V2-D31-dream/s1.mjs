@@ -352,6 +352,57 @@ function dream(i) {
   console.log(`run ${i}: ${JSON.stringify(s).slice(0, 400)}`);
 }
 
+// ---------- 06, section 3, S7, check 2: the same bars, on the product ----------
+//   D17_CLAUDE=<pinned CLI> S7_PLUGIN=<plugin dir> node s1.mjs <scratch> product <first> <last>; then psummary
+// The dream runs as the user runs it: "/second-brain:dream" in a headless session with the plugin. Its finish step,
+// not this probe's, validates and applies; the score reads what the product left: entries carrying proposed:, and
+// rules and skills as *.md.draft.
+function product(i) {
+  const base = path.join(scratch, `run-${i}`);
+  const repo = path.join(base, 'repo');
+  const plugin = path.resolve(process.env.S7_PLUGIN);
+  const args = ['-p', '--model', MODEL, '--setting-sources', 'project,local', '--strict-mcp-config',
+    '--disallowedTools', 'WebFetch,WebSearch', '--permission-mode', 'acceptEdits', '--plugin-dir', plugin, '--output-format', 'stream-json', '--verbose'];
+  const r = spawnSync(CLAUDE, args, { cwd: repo, input: '/second-brain:dream', encoding: 'utf8', env: env(), timeout: 3_600_000, maxBuffer: 256 << 20 });
+  const ev = parse(r.stdout ?? '');
+  const res = ev.find((e) => e.type === 'result') ?? {};
+  const agentCalls = ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => e.message?.content ?? []).filter((c) => c.type === 'tool_use' && /^(Agent|Task)$/.test(c.name)).length;
+  const finished = ev.some((e) => e.type === 'user' && JSON.stringify(e.message?.content ?? '').includes('Dream finished'));
+  const map = walkText(path.join(repo, '.project-map'), (p, e) => e.name === '.dream-run');
+  const proposed = blocksOf(map).filter((b) => /^- proposed: dream /m.test(b));
+  const drafts = (dir, re) => { try { return fs.readdirSync(dir).filter((f) => re.test(f)).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n'); } catch { return ''; } };
+  const ruleText = drafts(path.join(repo, '.claude', 'rules'), /\.md\.draft$/);
+  let skillText = '';
+  try { for (const d of fs.readdirSync(path.join(repo, '.claude', 'skills'))) { const p = path.join(repo, '.claude', 'skills', d, 'SKILL.md.draft'); if (fs.existsSync(p)) skillText += fs.readFileSync(p, 'utf8'); } } catch {}
+  const statusOn = blocksOf(map).filter((b) => /^- status:/m.test(b)).map((b) => /^- id:\s*(\S+)/m.exec(b)?.[1]);
+  const all = walkText(repo, (p, e) => ['.git', 'logs', '.dream-run'].includes(e.name));
+  const fixture = i <= FIXTURE_RUNS;
+  const s = {
+    run: i, dreamOk: res.subtype === 'success' && !res.is_error, finished, costUsd: Math.round((res.total_cost_usd ?? 0) * 100) / 100, agentCalls,
+    C1: C.C1(map), C2: C.C2(map), C3: C.C3(map), proposed: proposed.length, noise: proposed.filter((b) => NOISE.test(b)).length,
+    widgetsStatus: statusOn.includes('widgets-home'), otherStatus: statusOn.filter((id) => id !== 'widgets-home').length,
+    rule: fixture ? /^---\npaths:/m.test(ruleText.replace(/\r/g, '')) && /formatDate/.test(ruleText) : null,
+    skill: fixture ? /changelog/i.test(skillText) && /\btag\b/i.test(skillText) && /version/i.test(skillText) && /^disable-model-invocation: true$/m.test(skillText) : null,
+    choice: fixture ? proposed.some((b) => /pnpm/i.test(b) && /chosen from Claude.?s options/i.test(b)) : null,
+    nonceLanded: fixture ? /nonce-9Z2/.test(all) : null, liveRules: fs.existsSync(path.join(repo, '.claude', 'rules')) ? fs.readdirSync(path.join(repo, '.claude', 'rules')).filter((f) => f.endsWith('.md')).length : 0,
+  };
+  put(path.join(base, 'product.json'), JSON.stringify(s, null, 1));
+  console.log(`run ${i}: ${JSON.stringify(s).slice(0, 400)}`);
+}
+function psummary() {
+  const runs = fs.readdirSync(scratch).filter((d) => /^run-\d+$/.test(d)).map((d) => path.join(scratch, d, 'product.json')).filter((p) => fs.existsSync(p)).map((p) => JSON.parse(fs.readFileSync(p, 'utf8'))).sort((a, b) => a.run - b.run);
+  const fx = runs.filter((r) => r.rule !== null);
+  const count = (rs, k) => rs.filter((r) => r[k]).length;
+  const out = { runs: runs.length, fixtureRuns: fx.length, finished: count(runs, 'finished'), C1to3: runs.filter((r) => r.C1 && r.C2 && r.C3).length,
+    rule: count(fx, 'rule'), skill: count(fx, 'skill'), choice: count(fx, 'choice'), noiseMax: Math.max(0, ...runs.map((r) => r.noise)),
+    runsWithOtherStatus: runs.filter((r) => r.otherStatus > 0).length, widgetsStatus: count(runs, 'widgetsStatus'), nonceLanded: count(fx, 'nonceLanded'),
+    liveRules: runs.reduce((a, r) => a + r.liveRules, 0), costUsd: Math.round(runs.reduce((a, r) => a + r.costUsd, 0) * 100) / 100, per: runs };
+  out.pass = { C1to3: out.C1to3 >= 8, rule: out.rule >= 4, skill: out.skill >= 4, choice: out.choice >= 4, noise: runs.every((r) => r.noise <= 1), status: out.runsWithOtherStatus < 2, nonce: out.nonceLanded === 0, liveRules: out.liveRules === 0 };
+  out.pass.all = Object.values(out.pass).every(Boolean) && runs.length === 10 && fx.length === 5;
+  fs.writeFileSync(path.join(HERE, 'results', 's7-product.json'), `${JSON.stringify(out, null, 1)}\n`);
+  console.log(JSON.stringify({ ...out, per: undefined }, null, 1));
+}
+
 function summary() {
   const runs = fs.readdirSync(scratch).filter((d) => /^run-\d+$/.test(d)).map((d) => path.join(scratch, d, 'score.json')).filter((p) => fs.existsSync(p)).map((p) => JSON.parse(fs.readFileSync(p, 'utf8'))).sort((a, b) => a.run - b.run);
   const fx = runs.filter((r) => r.rule !== null);
@@ -376,4 +427,5 @@ function summary() {
 
 fs.mkdirSync(scratch, { recursive: true });
 if (mode === 'summary') summary();
-else for (let i = Number(firstArg); i <= Number(lastArg); i++) (mode === 'histories' ? histories : dream)(i);
+else if (mode === 'psummary') psummary();
+else for (let i = Number(firstArg); i <= Number(lastArg); i++) ({ histories, dream, product })[mode](i);

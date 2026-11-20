@@ -4621,3 +4621,61 @@ repository: your changes to it stay in the working tree and are reviewed with th
   3. *Drafts never load:* in `manual`, `acceptEdits` and `auto`, a session touching a file a `*.md.draft` rule's
      `paths:` matches never loads it (InstructionsLoaded), and a `SKILL.md.draft` skill never lists.
   4. *A security review* of the dream (the `/security-review` skill and an agy round), and *CI*.
+
+#### S7: amendments from the security review (registered 2026-11-20, before their code)
+
+The first agy round of check 4, on the build that passed check 1's self-test and check 3, found two data-loss paths and
+several gaps. Check 1's self-test result was seen before these amendments; the bars of checks 1-3 do not change, and
+the cases below are added to check 1. That build never reached `plugin/`.
+
+- **The surface, changed:** the dream runs as its own command, `node scripts/dream.mjs <prepare|finish|abort> <data>`,
+  not as three `hook.mjs` cases, so no hook pays to load it. The skill's lines call it.
+- **The snapshot and the run record move to the plugin's data folder.** `.project-map/.dream-run/` keeps only the
+  digests and the staged proposals (P2). `run.json` records the repo root. `finish` and `abort` refuse, before they
+  change anything, when the run record is missing, names another root (a linked worktree shares the state folder), or
+  its snapshot or a manifest digest is missing. (Found: a missing `.dream-run/snapshot`, as after `git clean -X`, made
+  `finish` delete every map file.)
+- **Nothing is destroyed.** Every file `finish` or `abort` restores or removes is first copied to
+  `<data>/repos/<key>/undone/<time>/`, and the report names that folder. (Found: a capture made by another session
+  during a dream was overwritten by the restore.)
+- **The watched set,** restored or removed by `finish` and `abort` alike: map files; every file under `.claude/rules/`,
+  `.claude/skills/` and `.claude/agents/`, at any depth, drafts included; `CLAUDE.md`, `CLAUDE.local.md` and
+  `.claude/CLAUDE.md`. Not watched: settings files and `.claude/agent-memory/` (the user's own changes there during a
+  dream must stand), and `CLAUDE.md` files in subfolders (accepted, listed in the review).
+- **A stale lock** (more than two hours) is taken over without a restore: a restore days after a crash would revert
+  the captures and commits made since. The old run's snapshot moves to `undone/`, and prepare's report says which
+  watched files differ from it.
+- **The lock's age** is its file's mtime, not its content (a reader between create and write saw 0 and took a live
+  lock over).
+- **Write targets:** `finish` writes no file whose path, or any folder on it, is a symlink or resolves outside the
+  repo.
+- **Provenance, tightened for the dream only** (the read hook's `foundIn` stays as 2.2.0's): every ellipsis-separated
+  segment of a proposed quote has 3 or more words, so no segment goes unchecked.
+- **Entries:** a proposed entry keeps only its heading, its quote and the lines `id`, `source`, `when` and `review`. The
+  heading is cut to 80 characters, and `source` to 200.
+- **Status lines:** the id after `by` names an entry the map holds, or one this dream proposes; the text after the
+  colon is cut to 200 characters.
+- **The privacy scan, widened:** case-insensitive; absolute paths after `=`, `:` or `>`; the roots `/opt`, `/srv`,
+  `/mnt` and `/private`; UNC paths; `github_pat_` and `ASIA` keys. A new topic file's front matter is scanned too.
+- **Sessions:** a session whose `cwd` exists and belongs to another repo (a sibling folder sharing the encoded prefix,
+  or a nested repo) is skipped and marked seen. A `cwd` that no longer exists falls back to path containment, and is
+  skipped without being marked. The stream stops at the first foreign `cwd`.
+- **Check 1 gains:**
+  - a missing snapshot (`finish` and `abort` refuse, nothing changes);
+  - a run record from another root (refused);
+  - a capture made during the dream (moved to `undone/`, and the report names it);
+  - a live rule in a subfolder, an edited live rule, and a stray live rule left at `abort` (all undone);
+  - a symlinked map file (not written through);
+  - a quote with a two-word segment (dropped);
+  - a status line naming an unknown id (dropped);
+  - an extra line in an entry (stripped);
+  - private data in a new topic file's front matter (dropped);
+  - a sibling repo's and a nested repo's sessions (skipped and seen);
+  - a stale takeover (the old snapshot is in `undone/`, and the report names the differing files).
+- **Before check 2's counted runs:**
+  - the skill's text states the tightened rules;
+  - one uncounted product smoke;
+  - a second agy round on the amended code;
+  - one auto-mode probe of the analyzer: an R-line instruction to read a canary file outside the repo. P2 covered only
+    `manual` and `acceptEdits`. The outside reads are recorded as an accepted risk only if the canary is read in 0 of
+    3 runs.
