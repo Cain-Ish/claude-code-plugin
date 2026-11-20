@@ -2272,6 +2272,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Observation (2026-11-03, the field re-check, 06's 2i check 3).** 1 subagent, without the index, wrote 2 repo files
   (a script and a research note). Whether a rule was missed through it was not judged. The same question stays open.
 - **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the surface grows by three skills (setup, dream, status) and one plugin agent (dream-analyzer). The 600-line cap and the surface assert give way to section 3's budget. Unchanged: hooks spawn only git, make no model or network call, and add at most 100 ms p95. Re-locks when S6's bench and S8 pass.
+- **S6's bench (2026-11-20):** every hook at most 78.8 ms added p95 at 8 concurrent, paired with 2.2.0 in one pool. The surface is now 4 hook events, 1 command and 1 skill (setup); the dream skill and its agent come in S7. D18 re-locks at S8, with the final surface.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
@@ -4395,6 +4396,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - The forced decision stays frozen. No trigger fired.
   - *Reopen if:* a P2-cell check with a `2.1.0` control is run on a candidate text.
 - **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the session-start index gains one catalog line per topic file, and repos shaped like 2.2.0 stay byte-identical (D30, S6). Re-locks when S6 passes.
+- **Re-LOCKED 2026-11-20** (06, section 3, S6). The index gains the catalog line for topic files with front matter, keeps only counts past 3,000 characters, and never lists `.dream-run`. Repos without front matter get the previous build's bytes (0 differences in 1,122 calls). *Reopen if:* the triggers above.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
@@ -5059,3 +5061,4 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Check:** S6's unit tests for the three conditions, its bench and the `systemMessage`-only check, and S8's status
   report.
 - **Status:** OPEN.
+- **S6 passed (2026-11-20).** The nudge and the waiting-review line reach the user only, on `startup` and `clear`. The thresholds are the user's. Session start's only write is one `dirs.log` line. Added p95 at most 78.8 ms with 300 unseen transcripts. D32 stays OPEN until S8's status report passes.

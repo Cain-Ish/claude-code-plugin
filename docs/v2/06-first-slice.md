@@ -4533,3 +4533,43 @@ repository: your changes to it stay in the working tree and are reviewed with th
   at fresh seeds 41, 53 and 67, × 40 repos. **Pass:** 0 differences.
 - **Checks 1, 3 and 4 as registered.** The bench pairs the candidate, with the nudge's 300-transcript worst case,
   against the 2.2.0 control, in D18's reference state.
+
+### 3, S6, attempt 2: result (2026-11-20): pass
+
+- **The change.**
+  - The catalog: the map folder's line lists each topic file with its description and counts, and keeps only the
+    counts past 3,000 characters.
+  - `.dream-run` is never listed.
+  - For the user only, on `startup` and `clear`: the waiting-review line (proposed entries and drafts) and the
+    dream-due nudge, with the user's thresholds.
+  - Session start's only write: one `dirs.log` line naming its transcript folder.
+- **Check 1, the self-test:** passes, every registered case plus agy's. Product hash `690320c43cc1`.
+- **Check 2,** against the S4-S5 build (`f1d1204`), seeds 41, 53 and 67, × 40 repos: **0 differences in 1,122 hook
+  calls**, re-run after agy's fixes.
+- **Check 3, the bench.** A first run was sequential (candidate, then control), not the pairing registered. It drifted,
+  with empty Node's p95 moving between 56 and 85 ms, and showed `bash-map@8` at 113 ms; it is reported, not counted.
+  The registered pairing then ran: `probes/V2-D30-entries/pairbench.mjs`, empty Node, 2.2.0 and S6 interleaved call by
+  call in one pool. CPU was 7.8% over 10 s. The candidate carried the nudge's worst case: 300 unseen transcripts in
+  two known folders. Added p95 in ms, 2.2.0 against S6:
+
+  | | session start | prompt | read-other | read-map | bash-map | bash-other |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | @1 | 31.4 / 40.9 | 7.2 / 9.6 | 5.2 / 9.4 | 38.2 / 43.9 | 40.2 / 46.5 | 37.8 / 43.1 |
+  | @8 | 52.3 / **67.1** | 20.7 / 22.6 | 19.4 / 23.7 | 61.8 / 66.9 | 65.9 / **78.8** | 64.7 / 73.6 |
+
+  Every hook is within 100 ms. The series S2-S6 costs 2 to 15 ms per hook over 2.2.0. Record:
+  `results-s6-paired.json`.
+- **Check 4, the agy round** (Gemini 4 Argon, refute-first). It found no leak into Claude's context and no extra
+  write. **Fixed,** each with a self-test case:
+  - a malformed `state.json` (`seen: null`, or a non-string `lastDream`) silenced the nudge, and now reads as fresh;
+  - one transcript that could not be stat'ed silenced the nudge, and now costs only itself;
+  - CRLF in `dirs.log` re-appended folders, and is now read as one folder per line;
+  - a catalog of very many topic files could crowd out the other directories, and now keeps only counts past 3,000
+    characters.
+
+  **Accepted,** with the reasons:
+  - a cleanup period under 5 days really does put every transcript within 5 days of deletion;
+  - Claude Code always supplies `transcript_path` (P1);
+  - a front-matter-less map file that opens with YAML-shaped front matter is front matter;
+  - the double read of map files is inside the measured budget.
+- **CI:** runs on push.

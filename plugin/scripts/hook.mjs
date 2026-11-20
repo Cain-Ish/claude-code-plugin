@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT } from './map.mjs';
+import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue } from './map.mjs';
 import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
@@ -22,7 +22,14 @@ if (which === 'session-start') {
   // v1's statusline and timer shims outlive an update to v2 (V2-D26)
   const brain = process.env.BRAIN_DIR || path.join(os.homedir(), '.second-brain');
   const v1 = ['buddy-statusline.sh', 'sb-extract-drain.sh'].some((f) => fs.existsSync(path.join(brain, 'bin', f)));
-  emit('SessionStart', startText(idx).text, v1 ? V1_LEFT : undefined);
+  // 06, section 3, S6 (D32): what waits for review, and whether a dream is due, for the user only, at a session's
+  // start or after /clear; any failure here costs the rest nothing
+  const notes = v1 ? [V1_LEFT] : [];
+  if (idx !== null && ['startup', 'clear'].includes(input.source)) {
+    try { const w = waiting(root); if (w) notes.push(w); } catch {}
+    if (process.env.CLAUDE_PLUGIN_DATA) try { const d = dreamDue(root, process.env.CLAUDE_PLUGIN_DATA, input.transcript_path); if (d) notes.push(d); } catch {}
+  }
+  emit('SessionStart', startText(idx).text, notes.length ? notes.join('\n') : undefined);
 } else if (which === 'prompt') {
   // the hook also fires on a background subagent's report and another session's message: the force waits for a typed
   // prompt (06, 2i). shortcut: matched on the wrappers transcripts record; another form spends the force as before

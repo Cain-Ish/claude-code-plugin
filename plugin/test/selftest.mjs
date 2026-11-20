@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
@@ -66,7 +66,7 @@ const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey; every hook's output
 // byte-identical to 2.2.0 (ee8625f06842), checked by probes/V2-D30-entries/diff.mjs
-assert.equal(product.digest('hex').slice(0, 12), '95fa7c3f71f7', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '690320c43cc1', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -890,6 +890,101 @@ ${NAME}` } });
     assert.ok(out.includes('Refused, because a folder resolves outside the repo: .claude/rules/project-map.md'), out);
     assert.deepEqual(fs.readdirSync(elsewhere), []);
   }
+}
+
+// 06, section 3, S6 (D30, D32): the catalog, the waiting-review line and the dream-due nudge
+{
+  const r = path.join(tmp, 's6');
+  const data = path.join(tmp, 's6-data');
+  const tdir = path.join(tmp, 's6-transcripts');
+  fs.mkdirSync(path.join(r, '.project-map', '.dream-run', 'digests'), { recursive: true });
+  fs.mkdirSync(tdir);
+  const g = (...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: r, encoding: 'utf8' }); assert.equal(x.status, 0, x.stderr); };
+  g('init', '-q');
+  const e = (h, extra = '') => `### ${h}\n> Spacing uses the grid.\n\n- source: the lead developer, 2026-11-01\n- when: ["ui"]\n${extra}`;
+  fs.writeFileSync(path.join(r, '.project-map', 'captured.md'), e('old'));
+  fs.writeFileSync(path.join(r, '.project-map', '.dream-run', 'proposals.md'), e('staged'));
+  g('add', '.project-map/captured.md');
+  g('commit', '-q', '-m', 'm');
+  // a 2.2.0-shaped map keeps its bare names; the run folder is never listed
+  assert.equal(index(r), `${HEADER}\n.project-map/: captured.md\n`);
+  // front matter turns the map line into a catalog, with counts; commas in a description cannot split the line
+  fs.writeFileSync(path.join(r, '.project-map', 'ui.md'), `---\nname: ui\ndescription: Spacing, grids and type. Read before changing a layout.\n---\n${[e('a', '- id: a-1\n- review: 2000-01-01\n'), e('b', '- id: b-1\n- proposed: dream 2026-11-19\n'), e('c', '- id: c-1\n')].join('\n')}`);
+  assert.equal(index(r), `${HEADER}\n.project-map/: captured.md, ui.md (Spacing; grids and type. Read before changing a layout.; 3 entries, 1 due, 1 proposed)\n`);
+  // the session-start output: the catalog in Claude's context; the waiting line for the user only
+  const run = (input, env = {}) => {
+    const x = spawnSync('node', [HOOK, 'session-start'], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_PLUGIN_DATA: data, BRAIN_DIR: path.join(tmp, 'no-v1'), ...env } });
+    assert.equal(x.status, 0, x.stderr);
+    return JSON.parse(x.stdout);
+  };
+  const tp = path.join(tdir, 'now.jsonl');
+  let o = run({ session_id: 's6a', cwd: r, source: 'startup', transcript_path: tp });
+  assert.ok(o.hookSpecificOutput.additionalContext.includes('ui.md (Spacing'));
+  assert.equal(o.systemMessage, 'second-brain: waiting for review: 1 proposed entry. Run /map-review.');
+  assert.ok(!o.hookSpecificOutput.additionalContext.includes('second-brain:'));
+  // the only state written: one dirs.log line naming this session's folder
+  const sd = path.join(data, 'repos', repoKey(r));
+  assert.deepEqual(fs.readdirSync(sd), ['dirs.log']);
+  assert.equal(fs.readFileSync(path.join(sd, 'dirs.log'), 'utf8'), `${tdir}\n`);
+  run({ session_id: 's6b', cwd: r, source: 'startup', transcript_path: tp });
+  assert.equal(fs.readFileSync(path.join(sd, 'dirs.log'), 'utf8'), `${tdir}\n`);
+  // a draft rule counts too; resume and compact say nothing
+  fs.mkdirSync(path.join(r, '.claude', 'rules'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.claude', 'rules', 'x.md.draft'), '---\npaths: ["src/**"]\n---\nx\n');
+  assert.equal(run({ session_id: 's6c', cwd: r, source: 'startup', transcript_path: tp }).systemMessage, 'second-brain: waiting for review: 1 proposed entry and 1 draft. Run /map-review.');
+  assert.equal(run({ session_id: 's6d', cwd: r, source: 'resume', transcript_path: tp }).systemMessage, undefined);
+  fs.rmSync(path.join(r, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.project-map', 'ui.md'), `---\nname: ui\ndescription: Layout.\n---\n${e('c', '- id: c-1\n')}`);
+  // nothing waiting and nothing due: no line at all
+  assert.equal(run({ session_id: 's6e', cwd: r, source: 'startup', transcript_path: tp }).systemMessage, undefined);
+  // the three due conditions, on synthetic transcripts (the current one never counts)
+  const now = Date.parse('2026-11-20T12:00:00Z');
+  const make = (n, ageDays) => { for (const f of fs.readdirSync(tdir)) fs.rmSync(path.join(tdir, f)); for (let k = 0; k < n; k++) { const p = path.join(tdir, `s${k}.jsonl`); fs.writeFileSync(p, '{}\n'); const t = (now - ageDays * 864e5) / 1000; fs.utimesSync(p, t, t); } fs.writeFileSync(tp, '{}\n'); };
+  const state = (s) => fs.writeFileSync(path.join(sd, 'state.json'), JSON.stringify(s));
+  state({ seen: {}, lastDream: '2026-11-19T12:00:00Z' });
+  make(9, 1);
+  assert.equal(dreamDue(r, data, tp, now), '');
+  make(10, 1);
+  assert.equal(dreamDue(r, data, tp, now), 'second-brain: a dream is due: 10 new sessions since the dream of 2026-11-19. Run /second-brain:dream.');
+  state({ seen: {}, lastDream: '2026-11-12T12:00:00Z' });
+  make(3, 1);
+  assert.match(dreamDue(r, data, tp, now), /^second-brain: a dream is due: 3 new sessions since the dream of 2026-11-12\./);
+  make(2, 1);
+  assert.equal(dreamDue(r, data, tp, now), '');
+  // a session the cleanup (30 days by default) deletes within 5 days: due even when it is the only one
+  state({ seen: {}, lastDream: '2026-11-19T12:00:00Z' });
+  make(1, 26);
+  assert.equal(dreamDue(r, data, tp, now), "second-brain: a dream is due: 1 new session since the dream of 2026-11-19; 1 will be deleted by Claude Code's cleanup within 5 days. Run /second-brain:dream.");
+  // sessions the dream has read do not count
+  make(12, 1);
+  state({ seen: Object.fromEntries(Array.from({ length: 12 }, (_, k) => [`s${k}.jsonl`, 3])), lastDream: '2026-11-19T12:00:00Z' });
+  assert.equal(dreamDue(r, data, tp, now), '');
+  // never dreamed: the age counts from the oldest unseen session
+  state({ seen: {} });
+  make(3, 8);
+  assert.match(dreamDue(r, data, tp, now), /since tracking began\./);
+  // agy's S6 round: a malformed state file reads as fresh (the nudge still fires); CRLF in dirs.log is one folder
+  for (const bad of ['{"seen": null, "lastDream": 1730000000000}', '[1,2]', 'not json', '{"lastDream": "bad-date"}']) {
+    fs.writeFileSync(path.join(sd, 'state.json'), bad);
+    make(10, 1);
+    assert.match(dreamDue(r, data, tp, now), /a dream is due: 10 new sessions since tracking began/, bad);
+  }
+  fs.writeFileSync(path.join(sd, 'dirs.log'), `${tdir}\r\n`);
+  state({ seen: {}, lastDream: '2026-11-19T12:00:00Z' });
+  make(10, 1);
+  assert.match(dreamDue(r, data, tp, now), /10 new sessions/);
+  assert.equal(fs.readFileSync(path.join(sd, 'dirs.log'), 'utf8'), `${tdir}\r\n`);
+  // past 3,000 characters the catalog keeps counts and drops descriptions
+  for (let k = 0; k < 40; k++) fs.writeFileSync(path.join(r, '.project-map', `topic${String(k).padStart(2, '0')}.md`), `---\nname: t${k}\ndescription: ${'A long description of what this topic covers and when to read it. '.repeat(2)}\n---\n${e(`h${k}`)}`);
+  const big = index(r).split('\n').find((l) => l.startsWith('.project-map/: '));
+  assert.ok(big.length < 3000 && big.includes('topic00.md (1 entry)') && !big.includes('A long description'), big.slice(0, 300));
+  for (let k = 0; k < 40; k++) fs.rmSync(path.join(r, '.project-map', `topic${String(k).padStart(2, '0')}.md`));
+  // the line reaches the user through systemMessage, and never Claude's context
+  make(10, 1);
+  state({ seen: {}, lastDream: '2026-11-19T12:00:00Z' });
+  o = run({ session_id: 's6f', cwd: r, source: 'clear', transcript_path: tp });
+  assert.match(o.systemMessage, /a dream is due: 10 new sessions/);
+  assert.ok(!o.hookSpecificOutput.additionalContext.includes('dream is due'));
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

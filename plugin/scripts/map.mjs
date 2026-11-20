@@ -152,6 +152,8 @@ export function index(root) {
     // case and all (the pinned CLI's walker, 06 2m), so other documents there stay listed. shortcut: the root's folder
     // only; whether Claude Code loads a nested .claude/rules/ was not checked, so one stays listed
     if (!DOC.test(p) || (p.startsWith('.claude/rules/') && p.endsWith('.md'))) continue;
+    // 06, section 3, S6: the dream's run folder is working state, never a document
+    if (p.startsWith(`${MAP}/.dream-run/`)) continue;
     const i = p.lastIndexOf('/');
     const d = i < 0 ? '.' : p.slice(0, i);
     if (!byDir.has(d)) byDir.set(d, []);
@@ -159,7 +161,107 @@ export function index(root) {
   }
   // a control character in a committed name is printed as ?, so a path cannot add a line or break one (06, 2i)
   const safe = (s) => s.replace(/[\x00-\x1f\x7f]/g, '?');
+  if (byDir.has(MAP)) byDir.set(MAP, catalog(root, byDir.get(MAP)));
   return byDir.size ? `${HEADER}\n${[...byDir].map(([d, f]) => `${safe(d)}/: ${f.map(safe).join(', ')}`).join('\n')}\n` : '';
+}
+
+// the user's local date, as YYYY-MM-DD (a review date passes when their day ends)
+export const localDate = (now = new Date()) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+const FRONT = /^﻿?---\r?\n([\s\S]*?)\r?\n---\r?\n/;
+const isDue = (b, today) => { const r = /^- review:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/m.exec(b)?.[1]; return Boolean(r && r < today); };
+const isProposed = (b) => /^- proposed:[ \t]*dream[ \t]+\d{4}-\d{2}-\d{2}[ \t]*$/m.test(b);
+// 06, section 3, S6 (D30): the map folder's line as a catalog once any of its files has front matter (name and
+// description): such a file shows its description and counts; any other file, and a whole 2.2.0 map, its bare name
+function catalog(root, files) {
+  const today = localDate();
+  let any = false;
+  const parts = files.map((f) => {
+    let t;
+    try { t = decode(fs.readFileSync(path.join(root, MAP, f))); } catch { return f; }
+    const fm = FRONT.exec(t);
+    const desc = fm && /^name:[ \t]*\S/m.test(fm[1]) ? /^description:[ \t]*(\S.*?)[ \t]*\r?$/m.exec(fm[1])?.[1] : null;
+    if (!desc) return f;
+    any = true;
+    const es = entries(t);
+    const due = es.filter((b) => isDue(b, today)).length;
+    const prop = es.filter(isProposed).length;
+    const d = desc.replace(/\s+/g, ' ').replace(/,\s*/g, '; ');
+    const counts = `${es.length} ${es.length === 1 ? 'entry' : 'entries'}${due ? `, ${due} due` : ''}${prop ? `, ${prop} proposed` : ''}`;
+    return { full: `${f} (${d.length > 80 ? `${d.slice(0, 79)}…` : d}; ${counts})`, short: `${f} (${counts})` };
+  });
+  if (!any) return files;
+  // past 3,000 characters the descriptions go and the counts stay, so the map's line cannot crowd out the other
+  // directories or pass the hook cap by itself (agy's S6 round)
+  const full = parts.map((p) => (typeof p === 'string' ? p : p.full));
+  return full.join(', ').length <= 3000 ? full : parts.map((p) => (typeof p === 'string' ? p : p.short));
+}
+
+// 06, section 3, S6 (D32): the plugin's per-machine state for one repo, in its data folder. The dream writes
+// state.json under its lock; session start only reads it, and appends a transcript folder to dirs.log
+export const stateDir = (root, data) => path.join(data, 'repos', repoKey(root));
+// a state file of any other shape reads as a fresh one, so a hand edit or a partial write cannot silence the nudge
+export const loadState = (dir) => {
+  let s = {};
+  try { s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')); } catch {}
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
+  s = obj(s) ?? {};
+  return { ...s, seen: obj(s.seen) ?? {}, lastDream: typeof s.lastDream === 'string' && !Number.isNaN(Date.parse(s.lastDream)) ? s.lastDream : null, pending: obj(s.pending) };
+};
+export const knownDirs = (dir) => { try { return [...new Set(fs.readFileSync(path.join(dir, 'dirs.log'), 'utf8').split(/\r?\n/).filter(Boolean))]; } catch { return []; } };
+// the inert drafts a dream wrote: .claude/rules/*.md.draft and .claude/skills/*/SKILL.md.draft (D31)
+export function drafts(root) {
+  const out = [];
+  try { for (const f of fs.readdirSync(path.join(root, '.claude', 'rules'))) if (f.endsWith('.md.draft')) out.push(`.claude/rules/${f}`); } catch {}
+  try { for (const d of fs.readdirSync(path.join(root, '.claude', 'skills'))) if (fs.existsSync(path.join(root, '.claude', 'skills', d, 'SKILL.md.draft'))) out.push(`.claude/skills/${d}/SKILL.md.draft`); } catch {}
+  return out.sort();
+}
+// the user's line on what waits for review: proposed entries and drafts (a reminder; the drafts are never loaded)
+export function waiting(root) {
+  let proposed = 0;
+  try { for (const f of under(root, MAP).filter((p) => p.endsWith('.md') && !p.startsWith(`${MAP}/.dream-run/`))) proposed += entries(decode(fs.readFileSync(path.join(root, f)))).filter(isProposed).length; } catch {}
+  const d = drafts(root).length;
+  if (!proposed && !d) return '';
+  const parts = [proposed ? `${proposed} proposed ${proposed === 1 ? 'entry' : 'entries'}` : '', d ? `${d} draft${d === 1 ? '' : 's'}` : ''].filter(Boolean);
+  return `second-brain: waiting for review: ${parts.join(' and ')}. Run /map-review.`;
+}
+// Claude Code's transcript cleanup, in days (its user settings, default 30). shortcut: project, local and managed
+// settings are not read; read them if a team sets cleanupPeriodDays there
+function cleanupDays() {
+  try {
+    const v = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'settings.json'), 'utf8')).cleanupPeriodDays;
+    return Number.isFinite(v) && v >= 1 ? v : 30;
+  } catch { return 30; }
+}
+// D32, the user's thresholds: a dream is due at 10 or more new sessions; or 7 or more days since the last dream with
+// at least 3 new; or a session Claude Code's cleanup deletes within 5 days. A new session is a transcript in a known
+// folder that the dream has not read and that is not this one. Session start learns its folder here (one line).
+// shortcut: at most 50 unseen transcripts are stat'ed, in folder order, for age and expiry; stat them all, oldest
+// first, if a repo collects more between dreams
+export function dreamDue(root, data, transcriptPath, now = Date.now()) {
+  const dir = stateDir(root, data);
+  const st = loadState(dir);
+  const dirs = knownDirs(dir);
+  const here = transcriptPath ? path.dirname(transcriptPath) : null;
+  if (here && !dirs.includes(here)) { fs.mkdirSync(dir, { recursive: true }); fs.appendFileSync(path.join(dir, 'dirs.log'), `${here}\n`); dirs.push(here); }
+  const current = transcriptPath ? path.basename(transcriptPath) : null;
+  const unseen = [];
+  for (const d of dirs) { let fs_ = []; try { fs_ = fs.readdirSync(d); } catch {} for (const f of fs_) if (f.endsWith('.jsonl') && f !== current && !Object.hasOwn(st.seen, f)) unseen.push(path.join(d, f)); }
+  const day = 864e5;
+  const keep = cleanupDays();
+  let expiring = 0, oldest = now;
+  for (const p of unseen.slice(0, 50)) {
+    // one transcript that cannot be stat'ed (a link loop, a permission) costs only itself
+    let m;
+    try { m = fs.statSync(p, { throwIfNoEntry: false })?.mtimeMs; } catch {}
+    if (m === undefined) continue;
+    oldest = Math.min(oldest, m);
+    if (m < now - (keep - 5) * day) expiring++;
+  }
+  const n = unseen.length;
+  const days = (now - (st.lastDream ? Date.parse(st.lastDream) : oldest)) / day;
+  if (!(n >= 10 || (days >= 7 && n >= 3) || expiring > 0)) return '';
+  return `second-brain: a dream is due: ${n} new session${n === 1 ? '' : 's'} since ${st.lastDream ? `the dream of ${st.lastDream.slice(0, 10)}` : 'tracking began'}`
+    + `${expiring ? `; ${expiring} will be deleted by Claude Code's cleanup within 5 days` : ''}. Run /second-brain:dream.`;
 }
 
 // Session start's text. Claude Code caps a hook's added context at 10,000 characters: past it, the text goes to a
@@ -271,8 +373,7 @@ export function labels(root, file, output) {
     return ids;
   };
   // the user's local date, so a review date passes when their day ends (agy's S3 round)
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const today = localDate();
   // 06, 2p: a committed entry whose only label is "unverified quote" joins one line of ranges (D16's content kept)
   const plain = [];
   const per = all.flatMap((b, i) => {
