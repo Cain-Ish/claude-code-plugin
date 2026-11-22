@@ -7,8 +7,9 @@ on:
   push:
     branches: [v2]
     paths: ['plugin/**', '.claude-plugin/**', '.github/workflows/v2.yml']
+  # on PRs to main too: main's ruleset requires this workflow's selftest jobs (2026-11-22, the user's choice)
   pull_request:
-    branches: [v2]
+    branches: [v2, main]
   workflow_dispatch:
 jobs:
   selftest:
