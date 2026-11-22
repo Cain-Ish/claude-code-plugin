@@ -5270,3 +5270,32 @@ A review, not a check with a bar: nothing was registered for it, and it changes 
   Running sessions keep the old hooks until `/reload-plugins` or a restart. The new layout reaches a field repo only
   when its user runs `/second-brain:setup` there.
 - **Next:** the live tests (map issue step 22), then the next release with N1 to N5 and what they find (step 23).
+
+### 3, S8: corrections and two more findings from the final review (2026-11-22)
+
+- **Correction: the macOS self-test hang is not the first.** The record above called it the only one in this
+  workflow's history; that is wrong.
+  - `cf59996` (2026-11-18, 2q attempt 2) hung the same job for 6 hours, until GitHub cancelled it. It printed
+    nothing and left one `node` process.
+  - On `b54129f` it left two `node` processes and no `git`. The self-test starts `node` only for `hook.mjs`, so a hook
+    or setup call is the likely place, not the harness. That is not shown.
+  - So it is intermittent on macOS, 2 of 62 runs, across two versions. Every other failure in the history is an
+    assertion or a load bar, each under 4 minutes.
+  - D18's triggers are measured p95s, so a CI hang does not fire one as written. It is recorded in D18 as an
+    observation.
+  - In a live session, a hung hook would show as a hook that runs until Claude Code's timeout, at a session's start,
+    a prompt, or a read of a map file.
+  - N5 becomes: **diagnose the hang first** (a timeout and a progress line on every self-test call, then repeated
+    macOS runs), before any other change of the next release.
+- **N6: `dream prepare` exits 1 when it refuses** (another dream holds the lock, or the data folder check fails).
+  Every other refusal exits 0.
+  - Claude Code's skills docs say a failed `!` command aborts the whole skill. Then the skill's own recovery text
+    ("ask whether one is still running, then run abort") would never reach Claude.
+  - A probe on CLI 2.1.330 (headless, one run, Haiku 5.5): a skill whose `!` command printed a line and exited 1
+    still reached the model with the output. So the path works today. It depends on behaviour the docs say
+    otherwise about, and the interactive mode was not probed.
+- **The README's index cut** said "about 8,200 characters since 2.2.0". In 2.3.0 the fixed text is about 2,215
+  characters, so about 7,800 fit. Corrected.
+- **The releases were published** with the merge, as PR #116's description planned. The user's request named the
+  PR, the merge and the update, not the release pages. 2.0.1, 2.0.2 and 2.1.0's notes were read after publishing:
+  accurate, and no private data.

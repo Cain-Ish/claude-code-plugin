@@ -2278,6 +2278,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **S6's bench (2026-11-20):** every hook at most 78.8 ms added p95 at 8 concurrent, paired with 2.2.0 in one pool. The surface is now 4 hook events, 1 command and 1 skill (setup); the dream skill and its agent come in S7. D18 re-locks at S8, with the final surface.
 - **Re-LOCKED 2026-11-20** (06, section 3, S8). The final surface is 4 hook events, 3 skills (setup, dream, status), 1 plugin agent (dream-analyzer) and 1 command, each skill and command granted only its own script. Hooks stay within 100 ms: S6's paired bench, and CI's one-session gate, which now times the nudge. *Reopen if:* the triggers above.
 - **2.3.0's release bench (2026-11-22; 06, "3, S8: the reference bench"):** every hook at most 62.7 ms added p95 at 8 concurrent, paired with 2.2.0 at a CPU sample of 4.6%, 0 errors.
+- **Observation (2026-11-22; not one of the listed triggers, which are measured p95s):** the self-test hung on CI's macOS runner in 2 of 62 runs (`cf59996`, `b54129f`), each time with a `node` process left. A hook or setup call is the likely place; not shown. The next release diagnoses it first (06, N5).
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a

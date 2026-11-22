@@ -426,7 +426,7 @@ Then remove them in this order:
 - **Without Node,** session start says so once. After that, every prompt and every file read shows a hook error.
   Install Node 20 or later, or disable the plugin.
 - **A large index is cut.** Claude Code documents a 10,000-character limit for one hook's output. Once the
-  session-start text would pass it (since 2.2.0, an index of about 8,200 characters, roughly 230 one-document directories), the
+  session-start text would pass it (since 2.3.0, an index of about 7,800 characters, roughly 220 one-document directories), the
   index lists as many directories as fit, and says how many more there are. Onboarding warns. The forced decision
   then covers only the listed directories. On 2.1.311 the real limit sat higher, between about 12,400 and 16,300
   characters. Past it, Claude saw only a 2,000-character preview.
