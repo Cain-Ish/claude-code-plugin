@@ -5190,3 +5190,19 @@ The release check D18 requires before each release (S8's release checks, above),
   - errors are 0.
   
   A miss is a failed attempt under rule 4.
+
+### 3, S8: the reference bench, result (2026-11-22): pass
+
+- **Builds hashed before the run:** candidate `3650f785f984` (`plugin/` at `655d384`), control `ee8625f06842` (`v2.2.0`).
+  Both match.
+- **Reference state:** the CPU sample was 4.6% over 10 seconds, just before the run. Empty Node's p95 at 8 concurrent
+  was at most 49.0 ms.
+- **Added p95 in ms, 2.2.0 against 2.3.0,** 200 calls per hook kind, with the nudge's 300 unseen transcripts:
+
+  | | session start | prompt | read-other | read-map | bash-map | bash-other |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | @1 | 28.2 / 37.1 | 7.1 / 10.2 | 6.1 / 9.9 | 33.7 / 37.4 | 34.1 / 38.2 | 34.2 / 38.7 |
+  | @8 | 41.2 / 55.0 | 16.4 / 21.7 | 15.4 / 18.8 | 46.9 / 54.1 | 51.8 / 58.1 | 55.3 / **62.7** |
+
+- Every hook is within 100 ms, with 0 errors. 2.3.0 costs 3 to 14 ms per hook over 2.2.0, as S6 measured.
+- Record: `probes/V2-D30-entries/results-s8-reference.json`.
