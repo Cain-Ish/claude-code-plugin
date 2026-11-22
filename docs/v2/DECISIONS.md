@@ -13,24 +13,29 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D04 | Where do v2 planning decisions and research live? | LOCKED 2026-10-19 | evidence | D03 |
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
-| V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day) | user | — |
+| V2-D10 | Scope: which knowledge does v2 hold, and what is out of scope? | LOCKED 2026-10-20 (reopened and re-locked the same day); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the redesign's scope held through S8: three project agents and one plugin agent, all task agents; the decision-checker checks only the project's own decisions) | user | — |
 | V2-D11 | Where does a repo's knowledge live? | LOCKED 2026-10-20 | user + evidence | D10, D12 |
 | V2-D12 | Which delivery channels actually arrive, and where? | LOCKED 2026-10-20; REOPENED and re-LOCKED 2026-10-22 (interactive cell: D20 stage 3); `clear` and `resume` cells probed at build step 0: both arrive | evidence | — |
-| V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes) | evidence | D10, D11, D12, D20 |
-| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes); REOPENED 2026-11-07 (2.0.0's release review: a Bash map read that exits non-zero, and a sibling repo's map file, arrive without their labels; the delivery is fixed in 06, 2m); re-LOCKED 2026-11-07 (2m attempt 3 passes; the command parse's gaps are accepted risks until labelling by output); REOPENED 2026-11-08 (the field: one of those gaps, a `|` inside quotes, seen); the output step BLOCKED 2026-11-08 after three attempts (06, 2n); the user chose (S), the label by repo state (06, 2o); re-LOCKED 2026-11-08 on (S) (2o attempt 5 passes) | user + evidence | D11, D13 |
-| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count) | evidence | D13 |
-| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2) | evidence | D13 |
+| V2-D13 | What does an entry of the project map hold, and within what delivery budget? (Selection: D22) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (entries hold captured knowledge; the delivery budget became always-on bytes); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (topic files with versioned entries (S3, S4)) | evidence | D10, D11, D12, D20 |
+| V2-D14 | How does knowledge enter the map, and who may write it? | LOCKED 2026-10-21; REOPENED 2026-10-27 (the release review: an uncommitted entry delivered unlabelled three ways; the policy stands, and the delivery is fixed under D18); re-LOCKED unchanged 2026-10-27 (D18's fixes pass); REOPENED 2026-10-27 (the second review: a UTF-16 map file is delivered unlabelled); re-LOCKED unchanged 2026-10-27 (D18's attempt 5 passes); REOPENED 2026-10-29 (the field check: map entries read through Bash arrive unlabelled; the delivery is fixed in 06, 2j); re-LOCKED unchanged 2026-10-29 (2j passes); REOPENED 2026-11-07 (2.0.0's release review: a Bash map read that exits non-zero, and a sibling repo's map file, arrive without their labels; the delivery is fixed in 06, 2m); re-LOCKED 2026-11-07 (2m attempt 3 passes; the command parse's gaps are accepted risks until labelling by output); REOPENED 2026-11-08 (the field: one of those gaps, a `\|` inside quotes, seen); the output step BLOCKED 2026-11-08 after three attempts (06, 2n); the user chose (S), the label by repo state (06, 2o); re-LOCKED 2026-11-08 on (S) (2o attempt 5 passes); REOPENED and re-LOCKED 2026-11-18 (the capture instruction gains three sentences and the status line, by the user's delegation; 06 2s); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (capture writes versioned topic-file entries (S4); a dream's entries arrive proposed and rest on typed lines, chosen answers or HEAD's files (S7, S8)) | user + evidence | D11, D13 |
+| V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (onboarding is setup: Anthropic's layout, created and never overwritten (S5; S8 item 1, 5 of 5)) | evidence | D13 |
+| V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2); its trigger "the capture instruction changes" fired 2026-11-18, re-LOCKED unchanged on 06 2s's checks; REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the re-find unchanged; `verified`, `review` and `proposed` add states (S3, S4)) | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled); re-LOCKED 2026-10-27 (labels cut fail-closed at the cap, UTF-16 decoded; 2g attempt 5 passed at da81530cb1c3); REOPENED 2026-10-27 (2h: session start added 113.7 ms at 1 session on the Windows runner); re-LOCKED unchanged 2026-10-27 (old and new paired within one job: at most 0.8 ms of cost on any runner; the 113.7 was one run's tail); REOPENED 2026-10-27 (2h attempt 3: the map read at 101.6 ms at 8 concurrent on a loaded reference machine; the reference state is the user's question); re-LOCKED 2026-10-27 (the user's answer: the reference state is a CPU sample of at most 10% and empty Node's p95 at most 100 ms at 8 concurrent); REOPENED 2026-11-07 (2m's bench: the published alpha.6's map read at 106.8 ms in one valid pair; a second window decides); re-LOCKED unchanged 2026-11-07 (the second window: both builds at most 66.8 ms) | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled); re-LOCKED 2026-10-27 (labels cut fail-closed at the cap, UTF-16 decoded; 2g attempt 5 passed at da81530cb1c3); REOPENED 2026-10-27 (2h: session start added 113.7 ms at 1 session on the Windows runner); re-LOCKED unchanged 2026-10-27 (old and new paired within one job: at most 0.8 ms of cost on any runner; the 113.7 was one run's tail); REOPENED 2026-10-27 (2h attempt 3: the map read at 101.6 ms at 8 concurrent on a loaded reference machine; the reference state is the user's question); re-LOCKED 2026-10-27 (the user's answer: the reference state is a CPU sample of at most 10% and empty Node's p95 at most 100 ms at 8 concurrent); REOPENED 2026-11-07 (2m's bench: the published alpha.6's map read at 106.8 ms in one valid pair; a second window decides); re-LOCKED unchanged 2026-11-07 (the second window: both builds at most 66.8 ms); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the surface is 4 hook events, 3 skills, 1 plugin agent and 1 command, each with its own script grant; hooks within 100 ms (S6 bench; CI gate now with the nudge)) | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
-| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right) | evidence | D12, D17 |
-| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch) | evidence | D12, D13, D15, D20 |
-| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
+| V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the net is decision-checker, used for a decision check in 5 of 5 (S8 item 5, attempt 2)) | evidence | D12, D17 |
+| V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the inventory aid is codebase-guide's navigation notes (S5: fewer tool calls in 4 of 5)) | evidence + user | D10, D13 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the catalog line for topic files; repos without front matter byte-identical (S6)) | evidence | D12, D13, D15, D20 |
+| V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0); REOPENED 2026-11-18 on its own field trigger (28% restated in 41 lists), re-LOCKED on (d), session-scoped naming (06 2s) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06; LOCKED 2026-11-07 ((b): the user's "continue as we plan", with a deadline of their return; the field bar set before the count); REOPENED and re-LOCKED 2026-11-12 (the user's C1 for a resume Claude Code skips; the bar met at count 4) | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux); REOPENED 2026-11-07 (2.0.0's release review: a running v1 session re-installs the timer; v1's custom config folders); re-LOCKED unchanged 2026-11-07 (the README fixed; D26's workflow passes on it) | evidence | D25 |
 | V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
+| V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18; LOCKED 2026-11-18 on (LIN), by the user's delegation: the labels read a status line (06 2r), the instruction asks for it and the naming line skips an ended entry (2s); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (status lines name ids; a dream's status line is proposed until review (S3, S7, S8)) | user | D13, D14, D16, D23 |
+| V2-D29 | Setup: what does the plugin create in a new or existing repo, and with which guardrails? | OPEN 2026-11-20 (the user's choices recorded; S5 checks them); LOCKED 2026-11-20 (setup passed S5 and the acceptance check (layout 5 of 5, aware 5 of 5)) | user + evidence | D10, D11, D15 |
+| V2-D30 | Versioned entries: how does the map record versions, and tell stale memory from current? | OPEN 2026-11-20 (S3, S4 and S6 check it); LOCKED 2026-11-20 (versioned entries passed S3, S4 and S6, and the status report shows staleness (S8)) | user + evidence | D13, D16, D28 |
+| V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4) | user + evidence | D14, D18, PM1, PM5 |
+| V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -62,7 +67,8 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   - *Re-locked:* D14, 2026-11-08, on the user's (S): every Bash command that names the map folder carries the
     "unreviewed" label of every uncommitted entry (06, 2o). It had been reopened the same day by a field sighting:
     a Bash map read with `|` inside quotes arrived unlabelled.
-  - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries.
+  - *Open:* the standing weaknesses in 04, and the kill triggers of D16's and D18's PM7 entries. V2-D28, an entry's
+    end (2026-11-18), waits on the user.
   - *Deferred:* D20's net.
 
 ---
@@ -201,6 +207,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Evidence:** roles work as views over knowledge (tagged by role, owner or path authority), not as persona
   agents (Ultimate Guide gap 5 and finding 30; prior-and-SOTA rule 11, low confidence); v1 scope creep drew 3 of 5
   re-audit MUSTs (post-mortem cause 6).
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: project agents with Claude Code's `memory: project` (decision-checker, codebase-guide, memory-curator) join v2 as task agents. The rejection of persona agents per role stands. So do the non-goals "code reviewer" and "transcript archive": the decision-checker checks only the project's own recorded decisions (D20), and the dream keeps no copy of a transcript. Re-locks when S5's outcome checks pass.
+- **Re-LOCKED 2026-11-20** (06, section 3, S5 and S8). The redesign's scope held through S8: three project agents (decision-checker, codebase-guide, memory-curator) and one plugin agent (dream-analyzer), all task agents, none a persona per role. The decision-checker checks only the project's own recorded decisions (S5: 5 of 5; S8 item 5: 5 of 5). *Reopen if:* the triggers above.
 
 ### V2-D11 — Home of a repo's knowledge
 - **Options:** (a) in the repo, committed and shared by the team through review; (b) in the repo but git-excluded
@@ -549,6 +557,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - D20 decides its checks come from entries;
     - the first slice's eval shows a captured entry read and not followed, which would be a question of form;
     - Claude Code adds a native format for a project's shared memory.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the map becomes topic files with `name` and `description` front matter, holding versioned entries (`id`, `verified`, `review`, `origin`). `captured.md` stays valid (D30). Re-locks when S3 and S4 pass.
+- **Re-LOCKED 2026-11-20 on topic files with versioned entries** (06, section 3). S3 passed: the new states, and 2.2.0 entries byte-identical in 1,062 hook calls. S4 passed: A1 at every bar, a topic file in 10 of 10 runs, and `id` and `verified` on every entry. *Reopen if:* a topic-file map loses a capture item that `captured.md` kept, in the eval or the field.
 
 ### V2-D14 — Capture and trust
 - **Question:** how knowledge enters (explicit command or skill; Claude proposes a map edit as part of the diff;
@@ -812,6 +822,20 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - two folder names that decode alike.
   - *Committed entries' labels* ("unverified quote", "not found") come by sight. When the output is reshaped they can
     be missing. They are informational, and not this record's trigger.
+- **REOPENED and re-LOCKED 2026-11-18,** by the user's delegation, through the field checkup's rethink
+  (`research/2026-11-18-field-checkup-rethink.md`). The capture instruction gains three sentences and one format
+  line. Every old line is kept, in order:
+  - project decisions belong in the map, not in auto memory (G4);
+  - the date ends the source line, with other detail in parentheses before it (B2);
+  - a replaced, narrowed or ended entry keeps its place and gets a `- status:` line (D28's I).
+  - *The frozen text is now* sha256 `bd491ace7f2f…`, 1,349 bytes (was `8aa72396af72`, 904). The self-test pins both
+    the hash and the size. The in-order check of the old lines ran as a scratch script before the build.
+  - *Check* (06, 2s), over 20 A1 runs: C1 to C4 in 20 of 20, over-attribution 0, and a status line only on the rule
+    H1 retracts. S1 and S2 passed 5 of 5 against a `2.1.0` control.
+  - *Reopen if:* the triggers above; and a status line written on an entry nobody replaced, in 2 or more of 10
+    counted cases (shared with D28).
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the user now asks for (f), an explicit command, and a form of (g), reading transcripts: an on-demand dream that reads this repo's local session transcripts and writes only uncommitted proposals that a deterministic step validates (D31). The trust policy stands: nothing counts as reviewed until it is committed. The capture instruction changes in S4. Re-locks when S1, S4 and S7 pass.
+- **Re-LOCKED 2026-11-20** (06, section 3, S4, S7 and S8). Capture writes versioned entries in topic files (S4: A1 at every bar, `id` and `verified` on every entry). A dream's entries arrive with a `- proposed:` line and rest on typed lines, chosen answers or HEAD's files (S7's check 2, passed again on the release-round build; S8's release round). The trust policy stands: nothing counts as reviewed until it is committed. *Reopen if:* the triggers above.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -1235,6 +1259,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       A compressed form (a narrower conversion) is then the candidate;
     - a project keeps its rules in documents outside `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`;
     - D20 decides its checks must be written at onboarding.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: onboarding no longer only builds the index. A setup command creates Anthropic's layout in the repo (D29). Re-locks when S5 passes.
+- **Re-LOCKED 2026-11-20** (06, section 3, S5 and S8). Onboarding is setup: it creates Anthropic's layout from `plugin/templates/` and never overwrites a file (S5: five repo shapes, every existing file's hash unchanged; S8 item 1: 5 of 5, a second setup creating nothing). *Reopen if:* the triggers above.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
@@ -1574,6 +1600,27 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
       common setup. Either removes the walk (git's second call, with D18's budget back to the user) or the fold.
 
   Attempts at this reopen: 0 failed.
+- *Note, 2026-11-18, not a reopen (06, 2q):* the field found the source's path taken from inside parentheses. A
+  person's words that mention a repo file there were re-found in that file: one false not-found label, and three
+  silent passes where the words happened to be repeated in it. It also found the capture date read only at the line's
+  end. No trigger fired: the not-found quote is not in the file the parser named. The choice stands. As shipped in
+  `2.0.2`, after three attempts: the path is `2.0.1`'s, withheld when it lies inside parentheses that pair across the
+  source, and the date is unchanged. B2, the date, is answered by `2.2.0`'s capture instruction, which puts the date
+  last (06 2s: S2 5 of 5 against 1 of 5). A document cited only inside parentheses loses its re-find and its drift
+  alarm, which is a stated limit.
+  - *Measured on A1's captured maps (2026-11-19), against 2q's claim that no legitimate re-find was lost* (which held
+    on its corpora):
+    - under the old capture text, the control run cited the style guide as `Title (docs/style-guide.md)`, so 6 of 6
+      file-citing entries lost their re-find;
+    - under `2.2.0`'s text, 114 of 120 file-citing entries over 20 runs put the path first and are re-found. 6, all
+      in one run, lost it;
+    - every withheld entry is labelled "unverified quote", never a silent pass.
+  - *Reopen if:* in the field, re-finds lost this way pass 10% of file-citing entries.
+- *Note, 2026-11-18 (06 2s): its trigger "the capture instruction changes (D14)" fired.* Re-locked unchanged. The
+  instruction's new sentences change where the date and the status go, not how a quote is re-found. 2s's A1 runs pass
+  C1 to C4 in 20 of 20.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: freshness gains a dated `verified` line, a `review` date, and a status report of sources changed since their verified date (D30). Its trigger "the capture instruction changes" fires again in S4. Re-locks when S3 and S4 pass.
+- **Re-LOCKED 2026-11-20** (06, section 3). Its trigger "the capture instruction changes" fired again with S4. The re-find is unchanged, and the new `verified`, `review` and `proposed` lines (S3) add states without changing a re-find. The A1 scenarios pass at 2s's bars. *Reopen if:* the triggers above.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
@@ -2227,6 +2274,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   through one. What `SubagentStart` would carry, and its check, are open.
 - **Observation (2026-11-03, the field re-check, 06's 2i check 3).** 1 subagent, without the index, wrote 2 repo files
   (a script and a research note). Whether a rule was missed through it was not judged. The same question stays open.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the surface grows by three skills (setup, dream, status) and one plugin agent (dream-analyzer). The 600-line cap and the surface assert give way to section 3's budget. Unchanged: hooks spawn only git, make no model or network call, and add at most 100 ms p95. Re-locks when S6's bench and S8 pass.
+- **S6's bench (2026-11-20):** every hook at most 78.8 ms added p95 at 8 concurrent, paired with 2.2.0 in one pool. The surface is now 4 hook events, 1 command and 1 skill (setup); the dream skill and its agent come in S7. D18 re-locks at S8, with the final surface.
+- **Re-LOCKED 2026-11-20** (06, section 3, S8). The final surface is 4 hook events, 3 skills (setup, dream, status), 1 plugin agent (dream-analyzer) and 1 command, each skill and command granted only its own script. Hooks stay within 100 ms: S6's paired bench, and CI's one-session gate, which now times the nudge. *Reopen if:* the triggers above.
+- **2.3.0's release bench (2026-11-22; 06, "3, S8: the reference bench"):** every hook at most 62.7 ms added p95 at 8 concurrent, paired with 2.2.0 at a CPU sample of 4.6%, 0 errors.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
@@ -2809,6 +2860,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - *Until then:* the first slice ships no net (rule 1). In the eval, A2's P1 R2 cell is an expected miss. P2 R4 is
     recorded with it: a judgment rule that push and pull both missed in the compaction shape (`oc` and `pfr` 3 of 5).
   - *The rest of this record stands:* following, under D22's route.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the deferred net returns as the decision-checker project agent, which checks a change against the project's recorded decisions. Its outcome check is S5's.
+- **Re-LOCKED 2026-11-20** (06, section 3, S5 and S8). The write-time net is the decision-checker project agent: Claude used it for a decision check, and named the entry, in 5 of 5 acceptance runs (S8 item 5, attempt 2; attempt 1 had 2 of 5). This settles the net DEFERRED on 2026-10-22. *Reopen if:* the triggers above.
 
 ### V2-D21 — Inventory of what exists
 - **Question (split from D13, 2026-10-21):** how does v2 know what already exists in a repo (components, scripts,
@@ -2968,6 +3021,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - A parser index and a model-written overview: by citation (options).
 - **Reopen if:** a duplicate at file level is counted in D19's runs or in the first slice's eval; or a Claude Code
   release adds a native index of what exists.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the codebase-guide agent keeps its own navigation notes in its native memory. These are Claude's notes, not an inventory the plugin builds. Re-locks if S5's outcome check for it passes.
+- **Re-LOCKED 2026-11-20** (06, section 3, S5). The inventory aid is the codebase-guide agent's navigation notes in its project memory: fewer tool calls on a repeated question in 4 of 5 runs (bar 3). There is still no per-language parser. *Reopen if:* the triggers above.
 
 ### V2-D22 — Selection
 - **Question (split from D13, 2026-10-21):** how do the entries that bind a task reach Claude, without a hand-made
@@ -4340,6 +4395,15 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   (84.6%), R 1.
   - Of the 5 new X pairs, Claude Code delivered every rule with or after the write.
   - Whether a rule bore on its change is not judged. No trigger fired.
+- **Observation (2026-11-18, the field checkup's G3; `research/2026-11-18-field-checkup-rethink.md`):** "read the
+  documents in every directory you marked yes" cannot be done in a directory of about 60 documents, several over
+  100 KB. Claude reads selectively there.
+  - The suggested fix, reading "the ones that bear on the task", is the route 17f5's scope probe refuted: names do
+    not show which documents bind.
+  - The forced decision stays frozen. No trigger fired.
+  - *Reopen if:* a P2-cell check with a `2.1.0` control is run on a candidate text.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: the session-start index gains one catalog line per topic file, and repos shaped like 2.2.0 stay byte-identical (D30, S6). Re-locks when S6 passes.
+- **Re-LOCKED 2026-11-20** (06, section 3, S6). The index gains the catalog line for topic files with front matter, keeps only counts past 3,000 characters, and never lists `.dream-run`. Repos without front matter get the previous build's bytes (0 differences in 1,122 calls). *Reopen if:* the triggers above.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
@@ -4487,6 +4551,22 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - under-naming reaches 2 or more of 20 task-completion reports;
     - restated decisions pass 20% of those named, in a count of at least 20 lists;
     - the user finds the repeated standing decisions cost them reading (then (d) is the next attempt).
+- **REOPENED 2026-11-18 on its own field trigger:** restated decisions passed 20% of those named in at least 20 lists.
+  - *The count:* a delegated count, spot-checked by hand, over four field sessions from 2026-11-11 to 11-18. 35 of
+    123 named decisions were restated (28%), in 41 lists (`research/2026-11-18-field-checkup-rethink.md`).
+  - **Re-LOCKED on (d), session-scoped naming**, the next attempt this record named. The line adds "unless you named
+    it earlier in this session", and D28's clause "one whose status line says it no longer holds" (06, 2s).
+  - *D23's check:* A1's V2 arm, 10 runs. T5f was 8 of 10 in attempt 1 and 9 in attempt 2, against a bar of 8.
+    Over-attribution was 0. Every other item was 10 of 10.
+  - *S3, two turns, 5 runs:* turn 2 repeated no role turn 1 named, in 5 of 5 runs, against 0 of 5 for the control.
+  - *What (d) costs,* as rejected 2026-11-03 says: a later report no longer stands alone as an audit. After a
+    compaction, "named earlier" rests on what the summary kept.
+  - *Observation:* T5f's misses name the designer's document by its title alone. The capture instruction's new
+    "other detail in parentheses" moved the role into the parentheses, and the naming dropped it.
+  - *Reopen if:*
+    - T5f falls below 8 of 10 in a re-run;
+    - under-naming after a compaction reaches 2 or more of 10 counted reports;
+    - the triggers above.
 
 ### V2-D24 — The bar for `2.0.0` and for `main`
 - **Question:** what must hold before v2 leaves alpha and replaces v1 on `main`?
@@ -4818,3 +4898,180 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - the release bench shows the two checks add time against D18's budget;
   - a Claude Code release stops showing a SessionStart `systemMessage`, or starts passing it to Claude;
   - the line shows for a user with no v1 leftovers.
+
+### V2-D28 — How a captured entry stops binding
+- **Question:** when a later decision replaces, narrows or ends a captured entry, how does the map show that the old
+  one no longer binds the work?
+- **Why now:** the map issue's Fog has held it since 2026-11-03: "a replaced rule stays in the map beside the rule
+  that replaced it, and D16's re-find cannot flag it while its source is unchanged."
+  - On 2026-11-18 the first field repo's session reported that old decisions were steering current work.
+  - A manual review there, with three questions to the owner, found 10 of 64 entries outdated:
+    - superseded by a later entry;
+    - expired, for example a rule for one evening;
+    - answered, or done;
+    - in direct conflict with a newer statement by the owner.
+  - That session marked each of the 10 with a line after `- when:`: `- status: <superseded|expired|answered|done|
+    narrowed> <date> [by "<heading>"]: <note>`. The plugin ignores the line. A Read shows it, but a Bash command that
+    shows the entry without that line does not.
+  - No locked decision answers this. D16's drift kinds are changes to a cited file, not one entry replacing another.
+- **Options:**
+  - (N) *No plugin change,* which is what plain files under review already allow. A replaced entry is edited or
+    deleted, and git keeps its history. Nothing asks for it: in the field, nothing marked the 10 until the review.
+  - (L) *The labels read a status line,* in the field's form. An entry with one leaves the grouped line, and its status
+    and date become its label, for example `superseded 2026-11-18`. So any Read, or any Bash command that shows the
+    entry, says it no longer binds.
+    - Session start and the prompt hook stay byte-identical, and no frozen text changes.
+    - It works only where someone writes the line.
+  - (LI) *(L), plus one sentence in D14's capture instruction:* when a new decision replaces, narrows or ends an
+    existing entry, add a status line to the old one.
+    - This changes the frozen instruction (`8aa72396af72`), so D14 reopens on the user's word, and D16's trigger "the
+      capture instruction changes" fires.
+    - The same sentence could say which store takes project rules (the map) and which takes working habits (auto
+      memory): the Fog's drift item of 2026-11-03, seen again in the field.
+  - (LIN) *(LI), plus D23's line:* do not name an entry with a status line as followed. This changes D23's frozen
+    line.
+  - *Rejected up front:* a session-start count of live and ended entries. It adds a map read to every session start
+    (D18), and tells Claude nothing that the label at the read does not.
+- **Check (registered 2026-11-18, before any build):**
+  - *For (L):*
+    - the self-test, with a status line on committed and uncommitted entries, and inside and outside the grouped line;
+    - a replay on a clone of the field repo's map, in which the 10 marked entries carry their status and every other
+      label is byte-identical to `2.0.2`;
+    - session start and the prompt hook byte-identical.
+  - *For (LI) and (LIN), added:*
+    - D14's capture arm re-run on A1 at M1's counts, an eval re-run that is the user's call since 2026-10-29;
+    - one new scenario, in which a later session states a decision that replaces an earlier entry. *Pass:* the old
+      entry gets a status line in 4 of 5 runs, and no other entry gets one.
+- **Rule:** the user chooses the scope. The matching check then runs, from a plugin copy, as a build step in 06.
+- **Note for the field:** until this locks, the field's status lines are the candidate form. Changing them would risk a
+  second migration.
+- **LOCKED 2026-11-18 on (LIN),** by the user's delegation of 2026-11-18. The rethink's rule decided it
+  (`research/2026-11-18-field-checkup-rethink.md`), and each part passed its registered check:
+  - (L), 06's 2r, `2.1.0`:
+    - a status line's head becomes a label, so a Bash command that shows the entry without the line still carries
+      it;
+    - the field map's 10 status entries are labelled, and every other label is identical to `2.0.2`'s;
+    - session start and the prompt hook are byte-identical.
+  - (I), 06's 2s, `2.2.0`: the capture instruction asks for `- status: <superseded|narrowed|expired|done> <date> by
+    "<heading>": <what still holds>`.
+    - S1: 5 of 5, against 0 of 5 for the control.
+    - In A1, 9 runs over two attempts marked the rule H1 retracts, and no run marked any other entry.
+  - (N), 06's 2s: the naming line skips an entry whose status line says it no longer holds. It is direction, not
+    measured.
+  - *Rejected:*
+    - (N), no plugin change: nothing asked for a status line, and the control marked 0 of 5 in S1.
+    - (L) alone: it labels only the lines someone writes.
+    - A session-start count: rejected up front (D18).
+  - *Reopen if:*
+    - a status line is written on an entry that was not replaced, in 2 or more of 10 counted cases;
+    - a superseded entry is named as followed in the field;
+    - the field's kinds outside the four (answered, refined, used) recur. Then the kinds are revisited.
+- **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: a status line may name the replacing entry by its `id`; the heading form stays valid. Re-locks when S3 passes.
+- **Re-LOCKED 2026-11-20** (06, section 3, S3, S7 and S8). A status line may name the replacing entry by its `id` (S3), and a dream's status line stays proposed until review (S7: wrong status lines 0; S8). *Reopen if:* the triggers above.
+
+### V2-D29 — Setup: what the plugin creates in a repo
+- **Question:** in a new or existing repo, which folders and files does the plugin create so that Claude, its memory,
+  the team's memory and the project's agents follow Anthropic's layout, and with which guardrails?
+- **Why now:** the user's decision of 2026-11-20 ([research](research/2026-11-20-anthropic-memory-and-dreaming.md),
+  section 2's layout table). D15 built only an index, and a plugin cannot ship `CLAUDE.md` or rules (the platform
+  channels note, §6), so the repo has to hold them.
+- **The user's answers (2026-11-20, recorded as the check for the choice):**
+  - the full layout: `CLAUDE.md`, `.claude/rules`, `.claude/skills`, `.claude/agents` with starter files, and
+    the team memory;
+  - project agents with `memory: project`: decision-checker, codebase-guide, memory-curator;
+  - the setup never overwrites a file and commits nothing.
+- **Design (06, section 3, S5):** deterministic Node; every file is created with `wx`; a second run creates nothing.
+  `CLAUDE.md` gets a marked block only when it exists and is clean. The starter rule is scoped with `paths:`, and no
+  file named `README` goes into `.claude/rules/`. The skill carries `disable-model-invocation: true`. A warning
+  appears when auto memory is off, since `memory: project` then does nothing.
+- **Check:** S5's, registered in 06 before its code: five repo shapes with every existing file's hash unchanged,
+  idempotence, the smoke, and one outcome check per project agent (PM6).
+- **Status:** OPEN.
+- **LOCKED 2026-11-20** (06, section 3, S5 and S8). Setup passed every S5 check and the acceptance check (layout 5 of 5, aware 5 of 5). *Reopen if:* setup changes or overwrites a file that exists, or commits anything (the user's guardrails above).
+
+### V2-D30 — Versioned entries and staleness
+- **Question:** how does the map record an entry's versions, so that the plugin can say which memory is stale and
+  which is current?
+- **Why now:** the user's decision of 2026-11-20. The talk names versioning with provenance as its first production
+  principle. Managed Agents keeps an immutable version per write. The dreaming cookbook keeps dated facts that say how
+  they were verified.
+- **Design (06, section 3, S3, S4, S6):**
+  - The fields `id`, `verified: <date> <how>`, `review: <date>` and `origin: dream <date>`. A status line may
+    name the replacing id.
+  - Versions are git's: HEAD holding an entry word for word is its reviewed version (D14).
+  - `at <sha7>` is rejected, because it dangles after a squash.
+  - The read hook adds these states: review due; proposed by a dream; replaced by an id the map does not hold.
+  - The status skill adds: source changed since the verified date; source deleted or renamed.
+  - An entry with no new fields gets labels byte-identical to 2.2.0's.
+- **Check:** S3's differential fuzz against 2.2.0, and S4's A1 runs against a 2.2.0 control.
+- **Status:** OPEN.
+- **The user's answer (2026-11-20, after S0's probes P6 and P6c):** a dream entry carries a visible
+  `- proposed: dream <date>` line until it is accepted in the review skill. Accepting it turns the line into
+  `- origin: dream <date>` plus `- verified: <date> accepted in review`.
+  - *Why:* project agents cannot see git. P6c showed that `tools: Bash(git diff:*)` does not limit Bash, so the agents
+    get no Bash. Grep and Bash reads get no labels either. So the file itself must say what is still a proposal.
+  - The read hook's "proposed by a dream" state keys on that line.
+- **S3 and S4 passed (2026-11-20).** The states are in the read hook, and capture v3 writes topic files whose entries carry `id` and `verified`. D30 stays OPEN until S6 (the catalog) and S8 (the status report) pass.
+- **LOCKED 2026-11-20** (06, section 3, S3, S4, S6 and S8). Versioned entries passed S3, S4 and S6, and the status skill reports staleness: a source changed since its verified date, deleted or renamed (S8). *Reopen if:* an entry with no new fields gets labels that differ from 2.2.0's (the design above).
+
+### V2-D31 — The dream
+- **Question:** how does an on-demand run over this repo's past sessions improve the map (missed decisions, repeated
+  corrections, replaced entries, rule and skill candidates) without becoming v1's persistent injection?
+- **Why now:** the user's decision of 2026-11-20, and the talk's case for dreaming outside a session. v1 built a dream
+  and never measured it (RC1), so PM1 decides before any product code exists.
+- **The user's answers (2026-11-20):** on demand only. It writes into `.project-map/`, and writes rules and skills
+  directly, each through Claude Code's protected-folder gate.
+- **Design (06, section 3, S7):**
+  - **prepare** takes a lock, snapshots the targets, and turns transcripts into tagged digests (U, Q, A, T, R) in a
+    run folder;
+  - **analyzers** are read-only plugin agents;
+  - **the main session** stages every proposal;
+  - **finish** runs the format lint, the privacy and secret scan, and provenance: a proposal must rest on U or Q lines
+    or a tracked file, never on R or A lines alone. Committed entries cannot be changed;
+  - **Claude** writes each native file through the gate;
+  - **close** checks the result against the snapshot, writes the log line with the previous dream's survival rate, and
+    updates the watermark.
+- **Check:** S1, the outcome probe, decides whether it is built. If it fails, rule 4 applies and the case goes to the
+  user. S7 then checks the product.
+- **Status:** OPEN.
+- **The user's answer (2026-11-20, the fallback registered in S0, fired by P5):** **drafts plus promote.**
+  - The dream writes rules and skills as `*.md.draft`, never as `.md`: `.claude/rules/<name>.md.draft` and
+    `.claude/skills/<name>/SKILL.md.draft`. Claude Code loads only names ending in `.md` (06, 2m), in every mode and
+    inside subagents.
+  - The review skill promotes the drafts the user approves, by renaming them.
+  - *Why:* in `auto` mode a Write under `.claude/` lands unprompted (P5). P3's label stopped Opus in 5 of 5, but it
+    never reaches subagents, which load path rules on a matching file.
+  - The drafts are inert, so finish writes them itself; the protected-folder gate applies when the user promotes one.
+- **S1, the outcome probe, passed (2026-11-20; 06, section 3; probes/V2-D31-dream).** Every registered item at its bar:
+  - C1-C3 recovered in 10 of 10;
+  - the rule, the skill draft and the choice in 5 of 5 each;
+  - noise 0;
+  - wrong status lines 0 of 10;
+  - the injected nonce 0 of 5, never even staged;
+  - $5.32 for 10 dreams.
+
+  PM1 is met for the dream, so it is built in S7. D31 stays OPEN until S7 passes.
+- **S7 passed (2026-11-20; 06, section 3, S7: result).** The dream product met S1's bars at its second attempt: C1-C3 10 of 10; the rule, the skill draft and the choice 5 of 5 each; noise 0; wrong status lines 0; the nonce 0 of 5; $5.73 for 10 dreams. Attempt 1 failed (the rule 3 of 5): one run's analyzers ran in the background, the turn ended, and the finish command lost the skill's grant, which lasts one turn. The skill now keeps every step in one turn. Drafts never loaded in three modes. The security review (two agy rounds, /security-review, the canary and grant probes) ended in the fixes listed in 06; its accepted risks go to the README.
+- **Status:** LOCKED 2026-11-20. Reopens if Claude Code changes its transcript format, the skill grant's lifetime or what it loads from .claude/, or if a dream ever lands text from an R line or an untracked file.
+
+### V2-D32 — Dream tracking and the due nudge
+- **Question:** how does the plugin know when the last dream ran, when memory last changed, and when a dream is due,
+  and how does it tell the user without spending Claude's context?
+- **The user's answers (2026-11-20):** a dream is due when any of these holds:
+  - 10 or more new sessions since the last dream;
+  - 7 days or more with at least 3 new sessions;
+  - sessions that Claude Code's cleanup deletes within 5 days.
+
+  It is told to the user only, as a `systemMessage`.
+- **Design (06, section 3, S6, S8):**
+  - per-machine state in `${CLAUDE_PLUGIN_DATA}`: transcript folders learned from `transcript_path`, the sessions
+    already seen, and the last dream;
+  - the team-visible log in `.project-map/dreams.md`;
+  - memory last changed comes from `git log`, in the status skill.
+
+  Session start adds no git call and stays within D18's 100 ms.
+- **Check:** S6's unit tests for the three conditions, its bench and the `systemMessage`-only check, and S8's status
+  report.
+- **Status:** OPEN.
+- **S6 passed (2026-11-20).** The nudge and the waiting-review line reach the user only, on `startup` and `clear`. The thresholds are the user's. Session start's only write is one `dirs.log` line. Added p95 at most 78.8 ms with 300 unseen transcripts. D32 stays OPEN until S8's status report passes.
+- **LOCKED 2026-11-20** (06, section 3, S6 and S8). The nudge reached the user only, in 5 of 5 acceptance runs (S8 item 7), and the status report shows the last dream and the sessions since (S8). *Reopen if:* the nudge reaches Claude's context, or session start leaves D18's 100 ms (the design above).

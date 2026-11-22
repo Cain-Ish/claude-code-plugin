@@ -1,6 +1,7 @@
 # second-brain v2 — charter
 
-**Status:** concept phase, started 2026-10-19. This file is the working brief for v2. It replaces the original request
+**Status:** the concept phase ran from 2026-10-19 to 2026-10-22. v2 replaced v1 on `main` at 2.0.0 (2026-11-12) and is
+at 2.3.0 on branch `v2`. This file is the working brief for v2. It replaces the original request
 (quoted at the end) and says what changed and why. Process: [01-process.md](01-process.md). Decisions:
 [DECISIONS.md](DECISIONS.md).
 
@@ -37,7 +38,9 @@ one language or stack.
   repo indexes them, so Claude sees where the project's knowledge lives and reads what binds its task (V2-D22,
   D15). A project with none starts with an empty map: Claude's own search finds what the code has, and the map
   grows from work (user, 2026-10-22; V2-D21). New knowledge enters as entries in one standard format, in plain files
-  the index also lists (V2-D13, D14).
+  the index also lists (V2-D13, D14). Since 2.3.0 (user, 2026-11-20), the first act is setup: it creates Anthropic's
+  layout (`CLAUDE.md`, a scoped rule, a review skill, three project agents, the team memory) and overwrites nothing
+  (V2-D29). Entries are versioned in topic files (V2-D30), and a dream run on demand proposes what was missed (V2-D31).
 - **Followed, not only shown** (user, 2026-10-20). Claude is held to the rules that bind its task, not merely given
   them; V2-D20 decides how. Only the project's own rules in the map are enforced: general code review stays a
   non-goal.
@@ -78,7 +81,8 @@ it has run.
 | Orientation | Tool calls and files read before the first correct file |
 | Cost | Tokens per task; always-on bytes per session |
 | Arrival | Every delivery channel proven by a nonce probe to reach the main session and subagents before it carries content |
-| Freshness | Zero stale captured entries delivered as current when Claude reads a map file in the main session (V2-D16: the re-find on that read; other read paths are probed first). A project document that is stale, or contradicts another, is the project's; the plugin does not detect it (2026-10-22) |
+| Freshness | Zero stale captured entries delivered as current when Claude reads a map file in the main session (V2-D16: the re-find on that read. A Bash read of the map is labelled too, D14; a subagent's read is not, an accepted
+risk). A project document that is stale, or contradicts another, is the project's; the plugin does not detect it (2026-10-22) |
 
 **Test bed** (user, 2026-10-20). v1's own repo, P1 and P2 (two private repos, published here as numbers only) are
 tested as one combined example, each from a scratch clone. They hold three shapes of existing knowledge: no
@@ -164,3 +168,18 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   - The user chose to name these cases as weaknesses rather than grow the plugin.
 - **"Verify each decision during the process, 3-4 runs then rethink"** became the decision record, the
   pre-registered check and the three-strike rule in 01-process.md.
+- **The redesign onto Anthropic's layout (2026-11-20, the user's decision).** After the research of that day
+  ([research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md)):
+  - a setup command creates Anthropic's layout in a repo, with project agents that use Claude Code's
+    `memory: project`;
+  - map entries become versioned, so stale memory is told from current;
+  - an on-demand dream over this repo's past sessions proposes improvements as uncommitted edits;
+  - the plugin tracks when a dream is due.
+
+  The non-goals stand:
+  - the dream runs only on demand and leaves a reviewable diff;
+  - it keeps no transcript copy;
+  - the agents are task agents;
+  - the decision-checker checks only the project's own recorded decisions.
+
+  Plan and checks: 06, section 3. Decisions: D29-D32, and the reopens of 2026-11-20.

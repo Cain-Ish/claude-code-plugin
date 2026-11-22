@@ -1,0 +1,29 @@
+{
+ "probe": "P2",
+ "cli": "2.1.305 (Claude Code)",
+ "model": "claude-haiku-5-5",
+ "rows": [
+  {
+   "mode": "manual",
+   "sessionOk": true,
+   "readUsed": true,
+   "readSeen": false,
+   "writeLanded": false,
+   "denials": [
+    "Read",
+    "Write"
+   ]
+  },
+  {
+   "mode": "acceptEdits",
+   "sessionOk": true,
+   "readUsed": true,
+   "readSeen": false,
+   "writeLanded": false,
+   "denials": [
+    "Read",
+    "Write"
+   ]
+  }
+ ]
+}

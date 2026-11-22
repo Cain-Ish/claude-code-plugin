@@ -201,6 +201,21 @@ does not depend on the choice.
   - *Each miss is read by hand:* a plugin defect (the result holds the entry's line as the file has it), an entry seen
     only in part (an accepted risk), or a scanner false hit. For alpha.8 epochs, a defect is C5's defect, as D24's
     amendment of 2026-11-08 says.
+  - *Amended 2026-11-12, count 5 (registered before the code):* a fourth reading, an entry D16 verified. An entry that
+    is committed and whose quote is found in the repo file its source names gets no label, rightly. The scanner prints
+    a miss whose entry's source names a file path apart, as "to check (cites a file)", and the others as misses. Both
+    are still read by hand. *Pass:* on counts 4 and 5's frozen corpora, every other printed count is unchanged; count
+    4's one miss stays a miss; count 5's two flags print as "to check".
+  - *Amended 2026-11-18, after 2q (registered before the code;
+    `research/2026-11-18-field-checkup-rethink.md`):* the scanner's `CITES` read a path anywhere in the source,
+    parentheses included. That is B1's class: count 5's two flags were B1's silent passes (06, "2q: corrections").
+    - *The change:* `CITES` reads the source with every parenthesized part removed, when the parentheses pair across
+      the source. That is `2.0.2`'s rule.
+    - *Pass:* on counts 4 and 5's frozen corpora, the only change in the scanner's output is a "to check" that becomes
+      a miss, for an entry whose source names a file only inside such parentheses. Count 4's one miss stays a miss.
+    - *Due before the next count, not in this change:* C5b's `named` reads only the per-entry label lines. So an
+      entry shown inside `2.0.1`'s grouped line, or labelled first with `2.1.0`'s `status:`, would print as a false
+      miss. The next count registers that reading first.
 - *Pass for the change,* on count 3's frozen corpus:
   - every count the scanner printed at count 3 is unchanged;
   - C5b finds what was found by hand: 5 calls that name the folder show entries, 4 of them labelled. The miss is the

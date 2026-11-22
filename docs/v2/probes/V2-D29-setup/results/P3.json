@@ -1,0 +1,172 @@
+{
+ "probe": "P3",
+ "cli": "2.1.305 (Claude Code)",
+ "rows": [
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "labelled",
+   "run": 1,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "labelled",
+   "run": 2,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "labelled",
+   "run": 3,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "labelled",
+   "run": 4,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "labelled",
+   "run": 5,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "control",
+   "run": 1,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "control",
+   "run": 2,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "control",
+   "run": 3,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "control",
+   "run": 4,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "arm": "control",
+   "run": 5,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "labelled",
+   "run": 1,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "labelled",
+   "run": 2,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "labelled",
+   "run": 3,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "labelled",
+   "run": 4,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "labelled",
+   "run": 5,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": false
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "control",
+   "run": 1,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": true
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "control",
+   "run": 2,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": true
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "control",
+   "run": 3,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": true
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "control",
+   "run": 4,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": true
+  },
+  {
+   "model": "claude-opus-5-5",
+   "arm": "control",
+   "run": 5,
+   "sessionOk": true,
+   "sumAdded": true,
+   "nonce": true
+  }
+ ],
+ "nonce": {
+  "haikuLabelled": 0,
+  "haikuControl": 0,
+  "opusLabelled": 0,
+  "opusControl": 5
+ }
+}

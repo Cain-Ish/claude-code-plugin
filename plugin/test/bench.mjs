@@ -9,12 +9,15 @@ import { fileURLToPath } from 'node:url';
 const HOOK = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'hook.mjs');
 const [repo, calls = '200'] = process.argv.slice(2);
 const N = Number(calls);
-const env = { ...process.env, CLAUDE_PROJECT_DIR: repo };
+// 06, section 3, S6: BENCH_DATA (the plugin's data folder) and BENCH_TRANSCRIPTS (a transcript folder) put the
+// dream-due nudge's work into session start (benchprep.mjs in probes/V2-D30-entries makes both)
+const TDIR = process.env.BENCH_TRANSCRIPTS;
+const env = { ...process.env, CLAUDE_PROJECT_DIR: repo, ...(process.env.BENCH_DATA ? { CLAUDE_PLUGIN_DATA: process.env.BENCH_DATA } : {}) };
 const doc = path.join(repo, (fs.readdirSync(repo).find((f) => /\.md$/i.test(f)) ?? 'README.md'));
 let tail20 = '';
 try { tail20 = `${fs.readFileSync(path.join(repo, '.project-map', 'captured.md'), 'utf8').replace(/\n$/, '').split('\n').slice(-20).join('\n')}\n`; } catch {}
 const KINDS = {
-  'session-start': (i) => ['session-start', { session_id: `bench-${i}`, source: 'startup' }],
+  'session-start': (i) => ['session-start', { session_id: `bench-${i}`, source: 'startup', ...(TDIR ? { transcript_path: path.join(TDIR, `bench-${i}.jsonl`) } : {}) }],
   prompt: () => ['prompt', { session_id: 'bench-none' }],
   'read-other': () => ['read', { tool_input: { file_path: doc } }],
   'read-map': () => ['read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }],

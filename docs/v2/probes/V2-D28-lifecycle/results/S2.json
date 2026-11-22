@@ -1,0 +1,105 @@
+{
+ "scenario": "S2",
+ "model": "claude-opus-5-5",
+ "cli": "2.1.305 (Claude Code)",
+ "runs": [
+  {
+   "arm": "candidate",
+   "run": 1,
+   "valid": true,
+   "pass": true,
+   "added": 1,
+   "addedDateLast": 1,
+   "anyStatus": 0
+  },
+  {
+   "arm": "control",
+   "run": 1,
+   "valid": true,
+   "pass": true,
+   "added": 1,
+   "addedDateLast": 1,
+   "anyStatus": 0
+  },
+  {
+   "arm": "candidate",
+   "run": 2,
+   "valid": true,
+   "pass": true,
+   "added": 1,
+   "addedDateLast": 1,
+   "anyStatus": 0
+  },
+  {
+   "arm": "control",
+   "run": 2,
+   "valid": true,
+   "pass": false,
+   "added": 1,
+   "addedDateLast": 0,
+   "anyStatus": 0
+  },
+  {
+   "arm": "candidate",
+   "run": 3,
+   "valid": true,
+   "pass": true,
+   "added": 1,
+   "addedDateLast": 1,
+   "anyStatus": 0
+  },
+  {
+   "arm": "control",
+   "run": 3,
+   "valid": true,
+   "pass": false,
+   "added": 1,
+   "addedDateLast": 0,
+   "anyStatus": 0
+  },
+  {
+   "arm": "candidate",
+   "run": 4,
+   "valid": true,
+   "pass": true,
+   "added": 1,
+   "addedDateLast": 1,
+   "anyStatus": 0
+  },
+  {
+   "arm": "control",
+   "run": 4,
+   "valid": true,
+   "pass": false,
+   "added": 1,
+   "addedDateLast": 0,
+   "anyStatus": 0
+  },
+  {
+   "arm": "candidate",
+   "run": 5,
+   "valid": true,
+   "pass": true,
+   "added": 1,
+   "addedDateLast": 1,
+   "anyStatus": 0
+  },
+  {
+   "arm": "control",
+   "run": 5,
+   "valid": true,
+   "pass": false,
+   "added": 1,
+   "addedDateLast": 0,
+   "anyStatus": 0
+  }
+ ],
+ "candidate": {
+  "valid": 5,
+  "pass": 5
+ },
+ "control": {
+  "valid": 5,
+  "pass": 1
+ }
+}

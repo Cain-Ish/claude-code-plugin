@@ -3320,3 +3320,1939 @@ alpha.7 against attempt 4 (`75183744c5b9`) on the P2 worktree, in 3 valid pairs 
 - *Still the user's call (D24):* the registered recommendation is D24's reopen trigger. C1 would count context present
   in the restored conversation, and the release would go ahead at count 4. Until the user answers, the miss stays a
   defect and nothing is tagged.
+
+### 18f: `2.0.0` released (2026-11-12)
+
+- *The branch:* `release-2.0.0` rebuilt on `v2`'s head (alpha.8 plus documents) as `66ee916`, by the same edits as
+  before. Product hash `ac6d00173453`.
+- *Checks, all passed:*
+  1. `git diff v2.0.0-alpha.8 -- plugin/scripts plugin/hooks plugin/commands` is empty. Under `plugin/`, only
+     `plugin.json`'s version and the self-test's pin differ.
+  2. The self-test passes. The smoke passes on CLI 2.1.322, the current one.
+  3. CI on the branch passed on three systems, and so did D26's workflow.
+  4. Install from the branch in an isolated config: marketplace `second-brain`, plugin `second-brain@second-brain`,
+     version `2.0.0`, hash `ac6d00173453`. The uninstall and the removal succeeded, and the user's registry files are
+     unchanged by checksum.
+  5. The release review: 2.0.0's review closed on alpha.7 (2m). alpha.8's only change, 2o, closed its own five
+     verifier rounds. The devils-advocate workflow was not run again on this branch: a multi-agent run needs the
+     user's go.
+- *Published:*
+  - `v2` fast-forwarded to `66ee916`, tagged `v2.0.0`;
+  - the release page, marked latest, by the session;
+  - `main` fast-forwarded to the tag, so v1's `ci.yml` left it. *A correction to 18f:* `main` is not unprotected.
+    Its rules (a pull request, 3 required checks) were bypassed with the owner's admin rights. The commit had passed
+    the same checks on the branch.
+- *Checks after the move:* `main`'s README is v2's and holds "Coming from v1". An install from the repo with no ref, in
+  an isolated config, gives `2.0.0` at `ac6d00173453`. The user's registry files are unchanged.
+- *The user's installs:* both field repos are on `second-brain@second-brain` `2.0.0` at local scope, with the
+  installed copy at `ac6d00173453`.
+  - In the first repo, `second-brain-v2` was uninstalled and its marketplace removed. That removed it machine-wide,
+    with the second repo's install.
+  - The second repo's local settings still named the old plugin and marketplace. Those two keys were removed, after a
+    backup.
+  - Running sessions keep alpha.8's hooks until the user types `/reload-plugins` in them.
+- *Next:* later field counts, under D24's reopen trigger (a defect in C1, C2, C5, C6b, C7 or C8).
+
+### 2p: the labels' trim, as `2.0.1` (registered 2026-11-12, before the code)
+
+- *Why:* D24's answer made the labels' trim a registered fix after `2.0.0`, and the user asked for it on 2026-11-12.
+  - *The field on alpha.8,* from the reload at 03:13Z on 2026-11-09 to 2026-11-12, both repos: 93 label blocks, 196 KB,
+    1,663 label lines. 64 blocks listed 40 to 48 lines each.
+  - About 95% of the lines are a committed entry whose only label is "unverified quote, captured <date>". The field
+    session called the labels noise it never used (count 3's question).
+- *Scope:* D16's content is kept. Every committed entry is still labelled unverified, with its capture date, so no
+  locked decision changes. Dropping those labels would change D16's "delivered with its date", and no D16 trigger
+  fired. That option is the user's, not built here.
+- **The change,** in `labels()` only, which the Read hook and the Bash handler share:
+  1. An entry whose labels hold anything besides "unverified quote" keeps its own line, as now: unreviewed, not found
+     or cannot read.
+  2. The other entries go into one line, before the per-entry lines: `unverified quote, committed: entries <ranges>`.
+     A range is a run of consecutive entries with the same capture date, written `1-6 (captured 2026-10-26)`. An entry
+     with no date stands alone, with no date.
+  3. *The cap, still fail-closed:* the grouped line comes first. If the per-entry lines are cut, the tail covers every
+     entry after the last one shown, as now. If even the grouped line does not fit, the tail covers every entry.
+  4. The header, the note and the Bash rules (which entries are picked) are unchanged.
+  - The version becomes `2.0.1` in both manifests, and the self-test's hash is pinned again.
+- **Checks:**
+  1. *The self-test:* the existing cases change only where an entry's only label is "unverified quote". New cases:
+     - ranges split by a date change, by a non-consecutive entry and by an entry with no date;
+     - a file mixing grouped and per-entry entries;
+     - the cap cutting the per-entry lines, and the grouped line alone too wide.
+  2. *No label lost:* a replay over the field repo's map files, in their current state and at each commit of them
+     since 2026-10-26, Read case. Expanding each grouped line back to one line per entry gives exactly alpha.8's output.
+     *Pass:* identical in every case.
+  3. *Size:* the same replay. Reported, with no bar: bytes before and after.
+  4. *Byte identity* of session start and the prompt hook with `2.0.0`, on this repo and the field repo.
+  5. *The smoke* on CLI 2.1.322. *Pass:* every assertion. Its read and Bash assertions already use uncommitted entries,
+     which keep their own lines.
+  6. *CI* on three systems.
+  7. *A verifier round,* one refute-first agent: any entry whose label the new output loses or changes, or a cut that
+     fails open, is a finding that survives.
+  - *Not run:* the reference bench. The change only builds a shorter string from the same work, so D18's cost cannot
+    rise. It is stated as an accepted gap.
+- **On a pass:** tag `v2.0.1` and its release page. Both field installs update. A later count reads the labels'
+  bytes again.
+
+### 2p: checks 1 to 6 (2026-11-12): pass
+
+- *Built* in `1f70345`. Product hash `34298485285b`, version `2.0.1`.
+- *Check 1, the self-test:* passes. Three existing cases changed, each one where an entry's only label was "unverified
+  quote". The Bash helper `only()` cuts the grouped line to the entries it keeps. New cases: ranges split by a date,
+  a gap and an entry with no date; a mixed file; a Bash subset; the cap with per-entry lines cut; the grouped line
+  alone too wide.
+- *Check 2, no label lost:* on a clone of the field repo, 17 commits touching the map, each committed and with its
+  entries uncommitted. 34 cases, 34 identical once the grouped line is expanded. *Pass.*
+- *Check 3, size:* the same 34 cases, 151,755 bytes on `2.0.0` and 26,961 on `2.0.1` (82% less).
+- *Check 4, byte identity:* session start and the prompt hook are identical to `2.0.0`'s, on this repo and the field
+  repo's clone. *Pass.*
+- *Check 5, the smoke* on CLI 2.1.322: every assertion. *Pass.*
+- *Check 6, CI* on three systems. *Pass.*
+- *Check 7,* the verifier round, is running.
+
+### 2p, attempt 1: check 7 failed; attempt 2 registered (2026-11-12, before the code)
+
+- *The verifier:* no difference without a cut (1,800 fuzz comparisons), and no cut fails open (472 capped cases). But
+  near and past the cap, the grouped line shows fewer labels than `2.0.0`:
+  - F1: a file just under the cap on `2.0.0` goes over it, since a lone grouped entry's line is longer;
+  - F2: a grouped line too wide by itself hides every per-entry line;
+  - F3: the grouped line takes budget from per-entry lines;
+  - F4: with only the grouped line shown, the closing line covers the entries it has just listed.
+
+  Each is a lost label under check 7's bar, so attempt 1 fails.
+- *Attempt 2:* the grouped form is used only when its whole text fits under the cap. Otherwise the output is
+  `2.0.0`'s per-entry form, cut exactly as before. So past the cap the output equals `2.0.0`'s, byte for byte.
+- *Checks:* the same seven. The self-test's cap cases assert `2.0.0`'s output past the cap, and a new case covers F1.
+  Check 7 re-runs the verifier's own scripts on attempt 2, and every capped case must equal `2.0.0`'s output.
+
+### 2p, attempt 2: result (2026-11-12): pass
+
+- *Built* in `e5f83d9`. Product hash `02bc0eae190b`, version `2.0.1`.
+- *Check 1:* the self-test passes. The cap cases now assert `2.0.0`'s form past the cap, and the verifier's F1 input
+  is a case.
+- *Check 2:* 34 of 34 field cases identical once expanded. *Check 3:* 151,755 bytes down to 26,961 (82% less).
+- *Check 4:* session start and the prompt hook are byte-identical to `2.0.0`'s on both repos.
+- *Check 5:* the smoke on CLI 2.1.322 passes. *Check 6:* CI passes on three systems.
+- *Check 7, the verifier's scripts on attempt 2:*
+  - F1 to F4's inputs all give `2.0.0`'s output;
+  - the fuzz, 3 seeds and 8,800 cases with about 2,350 capped, has 0 failures;
+  - every output that is cut equals `2.0.0`'s byte for byte (436 of 436 in seed 3).
+
+  In 64 cases of seed 3, `2.0.0` cut but the grouped form fits whole. Those now show every label, more than `2.0.0`
+  showed, never less. *Pass.*
+- *Disclosed:* a first re-run of the fuzz counted 230,000 failures. The cause was my uncapped copy, whose cap had not
+  been lifted. Once that was fixed, the count was 0.
+- *Release:* tag `v2.0.1` and its page. The direct push to `main` was refused by the permission check (merge
+  without review), so `main` moves by a pull request. Installs with no ref follow `main`, so the field installs
+  update once it is merged.
+
+### D24's field count 5 (2026-11-12, 10:12Z): no defect
+
+- *Run:* by hand, at the user's question. Frozen to the counting session's scratchpad, as count 4 was.
+- *Installs:* both repos run `2.0.0` (product hash `ac6d00173453`, checked on the cached copy). `2.0.1` waits on
+  `main`. The scanner attributes these epochs to alpha.8, whose product `2.0.0` is.
+- *Corpus:* in the first repo, the main session counted at count 4 (7 new epochs), a new session (3 epochs) and a
+  one-turn session (1 epoch). In the second repo, its first session with the plugin (3 epochs). 14 new epochs.
+- **C1: 14 of 14.** 11 carry the context. The 3 without it are resumes whose hook printed context byte-identical to
+  the last one delivered (3,107 and 3,317 bytes), which passes under C1's amendment. Count 4's 14:40Z resume is the
+  same case.
+- **C2:** one force per epoch, each on the epoch's first human prompt (13 forces); the one-turn session had no human
+  prompt.
+- **C3, reported:** 12 of 13 forced epochs answered per directory. The miss delegated the work to a subagent with no
+  directory statement.
+- **C5b, by output:** 2 calls flagged by the scanner, each with one entry shown and unlabelled. Read: both entries are
+  committed, and their quotes are found word for word in the repo file their source names, so D16 gives them no
+  label. *Not a defect;* the scanner counts every shown entry as needing a label, which a verified entry does not.
+- **C6:** 6 new entries, all in format, none with a forbidden item, 5 found verbatim. The sixth (second repo) splices
+  two of the session's human prompts into one quote and corrects a spelling: a paraphrase of found statements, not
+  unsourced. It is a D14 observation.
+- **C7:** 4 named paths in the second repo, all exist; the first repo's session total is 28, all exist. **C8:** 0
+  plugin hook errors. The second repo's 14 are its own hooks.
+- **`field-scope.mjs`, reported:** over the first repo's three sessions whole (count 4's pairs included), 98 pairs:
+  D 84 (85.7%), R 5 (5.1%), X 9 (9.2%). Within the bar.
+- *Reported:* C9, 142 subagents in the first repo's sessions and 5 in the second, none with the index; 60 wrote repo
+  files. The first repo's map holds 56 entries, all committed; the second's holds 1.
+- *Result:* no defect in C1, C2, C5, C6b, C7 or C8; D24 stays locked.
+- *The scanner, after this count* (the field README's amendment of 2026-11-12, registered in `8cb89b7` before the
+  code): C5b prints a miss whose entry's source names a file apart, as "to check (cites a file)". *Pass:* on counts 4
+  and 5's frozen corpora every other printed count and the JSON (apart from the split field) are unchanged; count 4's
+  miss stays a miss; count 5's two flags print as "to check".
+
+### 2q: the source's path and date, and onboarding's uncommitted map, as `2.0.2` (registered 2026-11-18, before the code)
+
+- *Why:* on 2026-11-18 the first field repo's session sent a checkup of `2.0.0`. Re-run here on that repo's map (67
+  entries) with `2.0.0`'s and `2.0.1`'s `labels()`:
+  - *B1, the path.* The source's path is the first path token anywhere in the source line, parentheses included. 4 of
+    67 entries are the owner's words with a repo file named only inside parentheses. One gets "not found word for word
+    in <file>; check it", a false alarm the session saw 16 times. Three get no label at all, because the owner's words
+    happen to be repeated in the file named.
+  - *B2, the date.* The capture date is read only at the end of the source line. 41 of 67 put text after it, so their
+    labels lose the date. Since `2.0.1` an undated entry also stands alone in the grouped line.
+  - *G6, onboarding.* In the second field repo the whole map folder is untracked, so every entry stays "unreviewed"
+    for good, and `/onboard` says nothing about it.
+- *Scope:* D16's choice is unchanged: a source that names a repo file is re-found in it, and any other entry carries
+  its capture date as unverified. This step fixes how the name and the date are read from the source text, which D16's
+  attempt 3 described as "a token with a `/` or a document extension". No D16 trigger fired literally. The not-found
+  label was on a quote that is not in the file the parser named. So this is a fix under the lock, as 2p was (D16's
+  note of 2026-11-18). The checkup's other items are not in this step (see the end of this entry).
+- **The change:**
+  1. *The path:* the first path token, as now, in the source text with every parenthesized part removed (nested ones
+     too). An opening parenthesis that is never closed cuts the text to its end. Where the rule is unsure it drops the
+     path. A dropped path costs a re-find ("unverified quote"), while a wrong one can give a silent "verified".
+  2. *The date:* the first date that stands alone, that is, not inside a file name or a longer token, in that same
+     text. If there is none, the first date that stands alone anywhere in the source.
+  3. *Onboarding:* the `Map:` line adds how many of its files git does not track, and that their entries stay labelled
+     "unreviewed" until committed.
+  - The version becomes `2.0.2` in both manifests, and the self-test's hash is pinned again.
+- **The expected differences**, fixed now from the two corpora by a scratch script that applies these rules to every
+  distinct `- source:` line. Each line was read by hand.
+  - *The field corpus,* 57 distinct source lines from the first field repo's map at its 22 commits and in its working
+    tree:
+    - the path is dropped on 5, each the owner's words with a repo file named only inside parentheses;
+    - a date is gained on 42;
+    - no date changes and none is lost.
+  - *The repo corpus,* 362 distinct source lines from this repo's eval and probe records:
+    - the path is dropped on 2: a person's words with a file in parentheses, and a web page's address in parentheses,
+      which `2.0.1` labels "not found";
+    - a date is gained on 24;
+    - no date changes and none is lost.
+    - Kept: a person's source that names the file outside parentheses ("via <path>", "recorded in <path>").
+  - *Rejected rules,* on the same corpora:
+    - the path from the text before the first `(` drops a "recorded in <path>" source;
+    - the path only when the source starts with it drops "via <path>" and "recorded in <path>";
+    - the first date anywhere takes a file name's date or a date in a quoted question, wrong on 6 repo lines and 1
+      field line;
+    - the last date takes a date from trailing text.
+- **Checks:**
+  1. *The self-test.* New cases:
+     - a person's words with the cited file inside parentheses: no path, the date kept;
+     - a document followed by a section in parentheses, re-found as now;
+     - "via <path>" re-found;
+     - a date followed by text;
+     - a date only inside a file name: no date;
+     - a date only inside parentheses: taken;
+     - a quoted question holding an earlier date in parentheses: the outer date wins;
+     - onboarding with an untracked map file, and with none.
+  2. *The expected differences, end to end,* with the built `labels()` against `2.0.1`'s. Grouped lines are expanded to
+     one label per entry.
+     - (a) A clone of the first field repo: each of the map's 22 commits, with the entries committed and with them
+       uncommitted, Read case.
+     - (b) A scratch repo with one entry per repo-corpus source line, each quoting one fixed sentence, and every file
+       any rule names created to hold that sentence.
+     - *Pass:* an entry's label differs only when its source is on the list, and only as listed (a dropped path gives
+       "unverified quote", a gained date adds ", captured <date>"). Every other label is identical.
+  3. *Size,* on (a): bytes before and after, reported with no bar.
+  4. *Byte identity* of session start and the prompt hook with `2.0.1`, on this repo and on the field clone.
+  5. *The smoke* on CLI 2.1.327. *Pass:* every assertion.
+  6. *CI* on three systems, dispatched on a side branch, so `v2` and PR #116 do not move before the pass.
+  7. *A verifier round,* refute-first, through the Antigravity CLI (rule 10; public text only: the diff and this
+     entry). A finding survives if it shows a source whose real document the rule drops, a date other than the capture
+     date, or a label that fails open.
+  - *Not run:* the reference bench. The change only adds a short scan of the source line, so D18's cost cannot rise
+    beyond noise. This is an accepted gap, as in 2p.
+- **On a pass:** the change lands on `v2`, tagged `v2.0.2`. PR #116 then carries `2.0.2`, and the user is told it no
+  longer equals the `v2.0.1` tag.
+- *Not in this step,* from the same checkup:
+  - *G2, label noise:* answered by `2.0.1`. On the map above it cuts one Read's labels from 6,778 to 830 characters,
+    and it waits on PR #116.
+  - *G1, a lifecycle for entries* (superseded, expired): a new question, registered as its own decision. Its options
+    touch D14's frozen instruction and D23's line.
+  - *G3, the forced decision's "read every document" in a large directory,* and *G5, the named decisions at every
+    finish:* field observations for D22 and D23. Neither is a count, nor the user's own finding, so no trigger fires.
+  - *G4, decisions kept in Claude Code's auto memory and not in the map:* a D14 observation.
+
+### 2q, attempt 1: result (2026-11-18): checks 1 to 6 pass; check 7 failed
+
+- *Built* in `69bf479`. Product hash `631345c67f8c`, version `2.0.2`.
+- *Check 1:* the self-test passes. Every existing case is unchanged.
+- *Check 2:* 0 mismatches.
+  - (a) The field clone: 44 cases (22 commits, committed and uncommitted). Of 2,056 entry labels, 1,052 differ, every
+    one as listed.
+  - (b) The scratch repo: 724 entry labels, 30 differ as listed, and the 592 named files were all created.
+  - The expected list was frozen to a file before the replay, and its counts equal the registration's. Each gained date
+    was then read in its line: every one is the date the source's `<who>, <date>` gives.
+- *Check 3, size:* on (a), 154,681 bytes before and 166,886 after (8% more). Uncommitted entries gain their dates.
+  On the map's current committed state, one Read's labels go from 830 to 785 characters, and every entry is dated.
+- *Check 4:* session start and the prompt hook are byte-identical on both repos, at startup and at compact.
+- *Check 5:* the smoke on CLI 2.1.327 passes. *Check 6:* CI passes on three systems (self-test and load).
+- *Check 7, the verifier* (Gemini 4 Argon through `agy`, given this entry and the diff). Findings that survive the bar:
+  - *Fail open, in 2q's own target:* a `1)` or `a)` inside a parenthesis closes it early, so the path inside leaks
+    out: `Owner (1) discussed in <path>), <date>`.
+  - *A file the rule makes up:* removing `(v2)` from `docs/guide(v2).md` leaves `docs/guide.md`, a different file.
+  - *Wrong dates* where `2.0.1` was right:
+    - a stray `(` in a quote cuts the outer date;
+    - an earlier date in a quote that is not in parentheses;
+    - a date after `+`, `#` or `=`, or inside a range `..`.
+  - *A real document dropped:* `Title (docs/adr-016.md), <date>`, where the parenthesis holds only the path.
+  - *Fail open, already in `2.0.1`:* the path is a fragment taken after a non-path character. A URL gives
+    `main/README.md` or `README.md`; `docs/(archive)/README.md` and `../(backup)/README.md` give the root `README.md`;
+    `docs\guide.md` gives `guide.md`. The bar does not exempt old behaviour.
+  - *Onboarding:* `git ls-files` counts a staged file as committed, while the labels read HEAD.
+- *Not surviving:*
+  - a folder named in parentheses (`app/(auth)/page.tsx`) is not read as a path, before or after the change;
+  - "Owner on <path>" outside parentheses is re-found there, which is the registered "via <path>" choice;
+  - entries not yet committed inside a committed file are the labels' job, not the onboarding line's;
+  - outside git, "not committed" is true.
+- *Result:* attempt 1 fails (rule 4, attempt 1 of 3).
+
+### 2q, attempt 2 (registered 2026-11-18, before the code)
+
+- **The change, from attempt 1:**
+  1. *The date:* the date at the line's end first, `2.0.1`'s rule, so no date `2.0.1` gave can change. Else the first
+     date that stands alone outside parentheses. Else the first one anywhere. "Stands alone" is now named, not
+     excluded: the date follows the start, a space, `(`, `[` or a quote. It is followed by the end, a space, `)`,
+     `]`, a quote, `,`, `;`, `:`, or a `.` that ends the text or comes before a space.
+  2. *The parentheses:* a parenthesized part becomes a space, not nothing, so no two tokens fuse. One that holds only a
+     path stays, as the source's path. A `)` left over once the pairs are gone drops everything before it, and an
+     unclosed `(` still drops everything after it.
+  3. *The path:* a token counts only where it starts a word. It may not follow a word character, `/`, `.`, `\`,
+     `-`, `:`, `@`, `=`, `?` or `#`, so no fragment of a URL, a Windows path or a longer path is taken.
+  4. *Onboarding:* committed means in HEAD (`git ls-tree`), as the labels read it.
+- *Prototype, on the same corpora* (scratch script): attempt 2 gives exactly attempt 1's path and date on all 57 field
+  lines and all 362 repo lines. So the frozen expected list stands unchanged.
+  - Of the verifier's 21 inputs, attempt 2 answers each surviving one correctly.
+  - The stated limit: an undated source whose only date sits in a parenthesized file name (`notes-(2026-10-01).md`)
+    is taken as its capture date.
+- **Checks:** the same seven.
+  - Check 1 adds the verifier's inputs as cases, and a staged map file for onboarding.
+  - Check 2 replays against the frozen list from attempt 1.
+  - Check 7 is a second verifier round, on attempt 2's diff from `2.0.1`. The bar is unchanged.
+
+### 2q, attempt 2: result (2026-11-18): checks 1 to 5 pass; check 7 failed
+
+- *Built* in `cf59996` on the side branch `v2-2q`. Product hash `5963394b10e6`.
+- *Checks 1 to 4:* the self-test passes, with the verifier's inputs as cases. Check 2 gives 0 mismatches against the
+  frozen list, with the same counts as attempt 1. Check 3 is unchanged. Check 4 is byte-identical.
+- *Check 5:* the smoke on CLI 2.1.327 passes.
+- *Check 6:* CI, 5 of 6 jobs passed. The macOS self-test was still running when check 7 failed the attempt, so its
+  result changes nothing.
+- *Check 7, the second verifier round:* partial. `agy` hit its 10-minute print timeout in its second category, so
+  nothing is known about new fail-opens. Findings that survive the bar:
+  - *A regression attempt 2 made:* a stray `)` later on the line drops a real path at its start,
+    `docs/x.md, section 2) Auth flow, <date>`. `2.0.1` and attempt 1 kept it. It comes from the rule added for round
+    one's stray `)`.
+  - *A wrong date where `2.0.1` gave none:* `reply to "What broke on 2026-10-15?", 2026-11-18 (in chat)` gives
+    2026-10-15. This is round one's quoted-date case with a parenthesis appended. The instance was fixed, but not
+    the class.
+  - *Real documents dropped:* a title with its path and an anchor, a section or backticks in the parentheses.
+  - *Behaviour `2.0.1` already had:* a date at the line's end taken from trailing text; `--docs/x.md`; `./hook.mjs`; a
+    parenthesis inside a file name.
+- *Result:* attempt 2 fails (rule 4, attempt 2 of 3).
+
+### 2q: the rethink before attempt 3 (rule 4, 2026-11-18)
+
+- *What failed is the bar, not the regexes.* Check 7 counts a dropped real document and a fail-open as the same kind
+  of finding. Yet 2q's registration says "where the rule is unsure it drops the path". On free text, a fresh adversary
+  can always hit one side or the other, so no rule passes such a bar. Two rounds showed it: each fix for one side
+  opened the other, or moved a case one character over.
+- *The failed assumption:* that a source's free text can be parsed into its true file and capture date. The format
+  (`<who stated it, or the document's title or path>, <date>`) does not make either one unambiguous.
+- *What can be guaranteed is a direction, relative to `2.0.1`:*
+  - **I1, the path:** `2.0.2` either takes `2.0.1`'s path or withholds it, and never picks a different token. It
+    withholds the path when it lies inside parentheses, and when it is a fragment that follows `/`, `\`, `:`, `@`, `=`,
+    `?` or `#`, as in a URL, a Windows path or a longer path. If the parentheses do not pair, the path is withheld
+    once any `(` comes before it. A withheld path gives "unverified quote", so a label never moves toward a silent
+    pass.
+  - **I2, the date:** a date `2.0.1` gave never changes. Where it gave none, `2.0.2` gains one only when it is
+    unambiguous. There must be exactly one standalone date outside parentheses, or, when none stands outside, exactly
+    one anywhere. Otherwise the entry stays undated.
+- *The change of bar, stated as one and open to the user's override:*
+  - Check 7 becomes mechanical, as 2p's attempt 2 did. It is a seeded differential fuzz against `2.0.1` that passes
+    when I1 and I2 hold on every case. To it is added a table of both rounds' 49 inputs, written before the code, each
+    marked as fixed, withheld, or identical to `2.0.1`.
+  - What this no longer claims: that every real document is re-found. A real document the rule withholds is a stated
+    limit, on the safe side. So is behaviour `2.0.1` already had.
+  - This is a reduced claim. It is weaker than the bar attempt 1 registered, and the user may hold 2q to that bar
+    instead. Then 2q stops here, unlanded.
+- *Prototype* (scratch script): the I1 and I2 rule gives exactly the frozen list, with the same path and date on all
+  57 field lines and all 362 repo lines, and breaks neither invariant there. On the 49 inputs, every path is
+  `2.0.1`'s or withheld, and every date is `2.0.1`'s or the single candidate. One gain is still wrong: a date inside a
+  parenthesized file name, which stays a stated limit.
+- *A second opinion on the bar,* before attempt 3 is registered: asked whether the change is a goalpost move. If it
+  says yes for a reason that cannot be answered, 2q goes to the user unlanded.
+- *The second opinion's answer (Gemini 4 Argon, the rethink above as its brief): YES, a goalpost move,* for two
+  reasons:
+  1. the prototype still gains a wrong date where `2.0.1` gave none, from a parenthesized file name, which breaks the
+     direction it claims;
+  2. "gain only when unambiguous" restates the code's own recipe, so fuzzing it is circular.
+
+  It agreed that "withhold rather than guess" is sound. Its bar for attempt 3 was zero false date gains, the
+  differential fuzz, the 49-input table, and a fresh refute-first round. In that round a finding survives only if
+  `2.0.2` regresses against `2.0.1`: it newly fails open, gains a date that is not the capture date, or drops an
+  unparenthesized path that is not a fragment and that `2.0.1` kept.
+- *Answered by narrowing, not by arguing:*
+  - In free text, a capture date cannot be told from a topic date ("the PM, about the 2026-10-01 outage"). So any
+    rule that gains dates fails that bar. **I2's gain is withdrawn.** B2 leaves 2q and goes to the user as a format
+    question. The writer can put the date last, or the capture instruction can say so (D14's frozen text). Under
+    rule 4 it is not re-registered as a new step.
+  - The path keeps only the parenthesis withhold. Under a relative bar, `2.0.1`'s fragment fail-opens (URLs, `\`) are
+    not findings, and withholding them could itself regress (`/docs/x.md`). Where the parentheses do not pair, `2.0.2`
+    does exactly what `2.0.1` does.
+  - The user may still hold 2q to attempt 1's bar instead. Then 2q stops unlanded.
+
+### 2q, attempt 3 (registered 2026-11-18, before the code). The last under rule 4
+
+- **The change, against `2.0.1`:**
+  1. *The path:* `2.0.1`'s path, unless it lies inside parentheses that pair across the whole source line. Then no
+     path, so the label is "unverified quote". `2.0.2` never picks another token.
+  2. *The date:* `2.0.1`'s, unchanged.
+  3. *Onboarding:* the `Map:` line counts the map files that HEAD lacks (`git ls-tree`), staged ones included.
+- *The frozen list* (scratch, written before the code):
+  - field, 57 lines: the path is withheld on 5, every other path is unchanged, and no date changes;
+  - repo, 362 lines: the path is withheld on 2, and nothing else changes.
+- *The 49-input table* (both verifier rounds' inputs, classified before the code). 7 are withheld, each a path inside
+  paired parentheses. 42 are identical to `2.0.1`. None is changed otherwise.
+- **Stated limits** (all as in `2.0.1`, or on the safe side):
+  - A real document cited only inside parentheses loses its re-find and its drift alarm. Examples are
+    `Title (docs/x.md)`, `Title (docs/x.md#anchor)` and the Markdown link `[title](docs/x.md)`.
+  - Unchanged from `2.0.1`:
+    - unpaired parentheses (a list marker `1)` inside a parenthesis);
+    - URL and Windows-path fragments;
+    - dates read only at the line's end, so 41 of the field map's 67 entries stay undated, and a date from trailing
+      text is taken.
+- **Checks:**
+  1. *The self-test.* The 2q cases of attempts 1 and 2 now assert `2.0.1`'s label wherever attempt 3 keeps
+     `2.0.1`'s behaviour: every date gain, and the fragment, stray-`)` and fused-name cases. They assert "unverified
+     quote" where a path inside paired parentheses is withheld. The onboarding cases stay as they are.
+  2. *The frozen list, end to end,* as before: the field clone at 22 commits, both states, and the corpus repo.
+  3. *Size,* reported. 4. *Byte identity* of session start and the prompt hook. 5. *The smoke.* 6. *CI.*
+  7. *Against `2.0.1`, mechanically and adversarially:*
+     - (a) *A seeded differential fuzz* of generated source lines (people, paths, URLs, nested and unpaired
+       parentheses, quotes, dates). Both libraries' real `labels()` run in a scratch repo where every file `2.0.1`
+       picks holds the quote. *Pass:* every entry's label is `2.0.1`'s, or `2.0.1`'s path is withheld and the label
+       is "unverified quote" with `2.0.1`'s date.
+     - (b) *The 49-input table* above, run through both libraries. *Pass:* as classified.
+     - (c) *A fresh refute-first round,* through `agy`.
+       - *The brief:* only the diff from `2.0.1` and this bar. Fail-opens are asked for first, and findings are capped
+         at 8.
+       - *Triage by execution:* each claimed input is run through both libraries.
+       - *A finding survives only if the outputs show one of these:*
+         - a label that moves toward a silent pass against `2.0.1`;
+         - a date that differs from `2.0.1`'s;
+         - a path `2.0.1` kept that `2.0.2` withholds, when that path is not inside paired parentheses;
+         - an onboarding line that misstates which map files HEAD lacks.
+       - *A partial round* (a timeout): the findings of the categories it completed are triaged. If it ended before its
+         fail-open category was complete, it is re-run once, with the cap at 4. If that run is partial too, (c) is
+         recorded as unrun, and 2q goes to the user unlanded: not passed, not BLOCKED.
+- **On a fail:** 2q is BLOCKED. `v2`'s plugin and PR #116 stay at `2.0.1`, and the level above goes to the user.
+- **On a pass:** the change lands on `v2` as `2.0.2`, tagged, and PR #116 carries it. The user is told.
+
+### 2q, attempt 3: result (2026-11-18): pass
+
+- *Built* in `v2-2q`'s last commit, fast-forwarded onto `v2`. Product hash `41b9b34034a9`, version `2.0.2`.
+- *Check 1:* the self-test passes, with the 2q cases asserting `2.0.1`'s label except where a path inside paired
+  parentheses is withheld.
+- *Check 2:* 0 mismatches against the frozen list.
+  - The field clone: 2,056 entry labels, of which 102 differ, each a listed withheld path across the map's history.
+  - The corpus repo: 724 entry labels, of which 4 differ, as listed.
+- *Check 3, size:* the field cases go from 154,681 bytes to 154,499. On the map's current committed state, one Read's
+  labels go from 830 characters to 688, and the false "not found" line is gone.
+- *Check 4:* session start and the prompt hook are byte-identical on both repos, at startup and at compact.
+- *Check 5:* the smoke on CLI 2.1.327 passes. *Check 6:* CI passes on three systems, self-test and load.
+- *Check 7:*
+  - (a) *The differential fuzz,* seeds 1 to 3 with 2,000 sources each, uncommitted and committed: 12,000 entry labels,
+    0 violations. 456 are withheld to "unverified quote" with `2.0.1`'s date, and every other one is `2.0.1`'s.
+  - (b) *The 49-input table,* through both libraries: 42 identical and 7 withheld, exactly as classified, with 0
+    violations.
+  - (c) *The fresh round* (Gemini 4 Argon, a 5 KB brief: the diff and the bar) completed with no timeout and answered
+    "NONE". The answer gave no reasoning, so it is weak evidence by itself; (a) and (b) carry the check.
+- *Result:* pass. 2q lands as `2.0.2`.
+  - *Fixed:* the field's false not-found label, and its three silent passes.
+  - *Added:* onboarding's count of map files that HEAD lacks.
+  - *Not fixed, and with the user:* B2, a capture date not at the line's end. It is a format question.
+  - *The claim's reduction* in the rethink stays open to the user's override.
+
+### 2q: corrections to the record (2026-11-18)
+
+- *Attempt 1's result* said every gained date was "the date the source's `<who>, <date>` gives". That was not true of
+  every one: several sat inside parentheses, as in `(read <date> …)` or `(owner, <date>)`. Attempt 3 gains no dates,
+  so nothing shipped rests on it.
+- *The repo corpus* (362 lines) includes lines from frozen transcripts of the field repo. One of its 2 withheld paths
+  duplicates a field line, so the repo-only withhold is 1, a web address in parentheses.
+- **D24's field count 5 rested on B1.** Its two C5b flags were read as "not a defect": the entries were committed,
+  and their quotes were found word for word in the file their source names.
+  - Re-run with `2.0.0`'s `labels()` at the map's state of that count (56 entries). `2.0.0` left exactly 3 entries
+    unlabelled, and in each the source names the file only inside parentheses: B1's silent passes.
+  - Under `2.0.2` all 56 are labelled. So the two flagged calls showed entries that should have carried "unverified
+    quote".
+  - Whether that is a C5 defect under D24, for the released `2.0.0`, is the user's call. It is not settled here.
+  - The field scanner's `CITES` (`field.mjs`) matches a path anywhere in the source, the same class as B1. It only
+    routes a miss to a hand read. A change to it is a probe change, registered first.
+
+### 2q: the release notes (drafted before the page, which is the user's)
+
+> **second-brain 2.0.2.** A map entry's label no longer checks a person's words against a file they only mention in
+> parentheses.
+> - An entry whose source reads `the lead developer, 2026-11-03 (after reading docs/grid.md)` holds the lead
+>   developer's words. 2.0.1 checked the quote against `docs/grid.md`, which gave a false "not found word for word
+>   in docs/grid.md; check it", or no label when the words happened to be repeated there. Now it is labelled
+>   "unverified quote".
+>   - A source that starts with its document, or names it outside parentheses (`via docs/x.md`), is still re-found.
+>   - Where the parentheses do not pair, the path is read as in 2.0.1.
+>   - Limit: a document cited only inside parentheses (`Title (docs/x.md)`, `[title](docs/x.md)`) is no longer
+>     re-found. Write its path first.
+> - `/second-brain:onboard` says how many map files are not committed. Their entries stay labelled "unreviewed"
+>   until they are.
+> - Unchanged: the capture date is read only at the end of the source line.
+>
+> Session start and the prompt hook are byte-identical to 2.0.1. Checks: the self-test, a replay over a field map's
+> history against a list fixed before the code, a differential fuzz against 2.0.1 (12,000 labels), the smoke on
+> Claude Code 2.1.327, and CI on three systems. Product hash `41b9b34034a9`.
+
+### 2r: D28's (L), the labels read a status line, as `2.1.0` (registered 2026-11-18, before the code)
+
+- *Why:* the field checkup's G1 and the rethink (`research/2026-11-18-field-checkup-rethink.md`). The first field
+  repo's map holds 10 `- status:` lines, which `2.0.2` ignores. A Bash command that shows an entry without its status
+  line delivers a superseded entry as current.
+- *Scope:* D28's (L) alone, with its check as registered, plus the rethink's additions. No frozen text changes:
+  INSTRUCTION, FORCE and NAME stay byte-identical. (I) and (N) are 2s.
+- **The change,** in `labels()` only:
+  1. An entry with a `- status:` line gets the label `status: <head>`. The head is the line's text, cut at the last
+     space before 60 characters and ended with `…` when cut. It comes after "unreviewed" and before the quote's
+     label.
+  2. So such an entry never joins the grouped "unverified quote" line. One whose quote is re-found, which had no
+     label, now gets its own line.
+  3. The status line is part of the entry's block. A status line that HEAD does not hold makes the entry
+     "unreviewed", so an uncommitted status never reads as reviewed.
+  4. The label quotes the line's own words and never says "ended": "narrowed" and "refined" entries still bind in
+     part.
+  - The version becomes `2.1.0` in both manifests, and the self-test's hash is pinned again.
+- **Checks:**
+  1. *The self-test.* New cases:
+     - a status line on a committed entry and on an uncommitted one;
+     - an entry inside the grouped line, and one re-found in its file;
+     - a status line added to a committed entry and not committed, which gives "unreviewed" and the status;
+     - a long status line, which is cut;
+     - a Bash output that shows an entry's heading but not its status line, which still gives the status label.
+  2. *The field replay,* on a clone of the first field repo:
+     - at its current map, the 10 marked entries carry their status label;
+     - at every map commit and in both states, every entry without a status line has a label byte-identical to
+       `2.0.2`'s once grouped lines are expanded.
+  3. *Byte identity* of session start and the prompt hook with `2.0.2`, on this repo and the field clone.
+  4. *A differential fuzz against `2.0.2`,* near and past the 10,000-character cap. Maps are generated with and
+     without status lines, both committed and uncommitted. *Pass:* in every uncut output, each entry's label is
+     `2.0.2`'s with the status label added where the entry has a status line. In a cut output, every entry not shown
+     is covered by the closing line.
+  5. *The smoke* on the current CLI. 6. *CI* on three systems.
+  7. *A verifier round* through `agy`, given the diff and this bar. A finding survives only if executing it shows one
+     of these:
+     - a label `2.0.2` gives that `2.1.0` drops or changes, other than by adding the status;
+     - a status that HEAD does not hold, shown without "unreviewed";
+     - a cut that fails open.
+
+     A partial round is handled as in 2q's attempt 3.
+  - *Not run:* A1, since no text changes; and the reference bench, since the change adds one regex per entry. Both
+    are stated gaps.
+- **On a pass:** the change lands on `v2` after PR #116 is merged, or rides with it, and is tagged `v2.1.0`.
+
+### 2r: result (2026-11-18): pass
+
+- *Built* in `7b58f96`. Product hash `b53f5c4c5245`, version `2.1.0`.
+- *Check 1:* the self-test passes with the new cases.
+- *Check 2, the field replay:*
+  - at the current map, the 10 marked entries carry their status label;
+  - across the map's 22 commits in both states, 2,056 entry labels: 2,036 identical to `2.0.2`'s, and 20 with the
+    status added as specified;
+  - 0 violations.
+- *Check 3:* session start and the prompt hook are byte-identical to `2.0.2`'s, on both repos, at startup and at
+  compact.
+- *Check 4, the fuzz near and past the cap* (3 seeds, 72 map files of 40 to 220 entries, both states):
+  - 10,094 entry labels: 7,030 identical, 1,398 with the status added, and 1,666 covered by the closing line of a cut
+    output;
+  - 0 violations.
+- *Check 5:* the smoke on CLI 2.1.327 passes. *Check 6:* CI passes on three systems.
+- *Check 7, the verifier (agy):* "NONE". It checked that existing labels are kept, that an uncommitted status line
+  still gives "unreviewed", and that the cap logic is unchanged.
+  - A first call returned nothing: `agy` tried to run a command, which headless mode denies. It was re-run with
+    reading only.
+- *Size:* the field cases go from 154,499 bytes to 156,835 (2% more), since 10 entries leave the grouped line.
+- *Result:* pass. D28's (L) is built. D28 stays OPEN for (I) and (N), which are 2s.
+
+### 2s: the texts: D28's (I) and (N), B2's date, G4's store, D23's (d), as `2.2.0` (registered 2026-11-18, before the code)
+
+- *Why:* the rethink's outcomes (`research/2026-11-18-field-checkup-rethink.md`).
+  - D28's (I) and (N) follow 2r.
+  - B2: a capture date put last.
+  - G4: the store sentence, adopted by its count.
+  - D23 reopened on its own field trigger: 28% restated in 41 lists, so its record names (d) as the next attempt.
+  - D14 and D23 reopen for their frozen texts, through the user's delegation of 2026-11-18 and D23's trigger. D16's
+    trigger "the capture instruction changes" fires, and D16 re-locks on this step's checks.
+  - The forced decision (D22) stays frozen (the rethink, G3).
+- **The texts.** Additive only: every line of the old text stays, byte for byte and in order.
+  - *INSTRUCTION:*
+    - after "…leave out one-off details of the current task.", the new line "Decisions and rules for this project
+      belong in this map, not in your auto memory, which is for your own way of working." (G4);
+    - after the `- when:` line of the format, these three lines:
+      1. "End the source line with the date, as YYYY-MM-DD; put any other detail in parentheses before it." (B2)
+      2. "When a new entry replaces, narrows or ends an existing one, keep the old entry and add this line under its
+         when line:" (D28's I)
+      3. `- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by "<the new entry's heading>": <what still holds>`
+  - *NAME:*
+    - after "…as the map entry or document gives it", the clause ", unless you named it earlier in this session"
+      (D23's d);
+    - after "Do not name a decision you did not follow,", the clause "one whose status line says it no longer holds,"
+      (D28's N).
+  - The version becomes `2.2.0`. The self-test pins the new hashes and bytes, and checks that every old line survives
+    in order.
+- **Checks.** All are run from a plugin copy, on Opus 5.5 with the pinned CLI 2.1.305 (A1's epoch), against a `2.1.0`
+  control. A same-day `2.1.0` A1 run (1 run) first proves the harness still works.
+  1. *The self-test,* the smoke and CI.
+  2. **A1, the V2 arm, 10 runs.** *Pass:*
+     - each pass item at A1's Opus bar: C1 10, C2 at least 2, C3 10, C4 10, T1 10, T2 10, T3 at least 8, T4 10,
+       T5f at least 8, N1 to N3 10;
+     - over-attribution in at most 1 of 10 (D23);
+     - *the negative,* that no run writes a `- status:` line, since A1 replaces nothing.
+     - *Reported:* the share of captured entries whose source line ends with the date; always-on bytes.
+     - *Attribution, fixed now:* a miss on C1 to C4, or a status line in the negative, implicates INSTRUCTION. A miss
+       on T5f, or over-attribution, implicates NAME. Misses on T1 to T4 or N1 to N3 implicate neither text alone, and
+       are read by hand.
+  3. **Scenario S1, a decision replaced (D28's I),** 5 runs per arm. A1's fixture, with a committed map of 3 entries:
+     the folder rule (the lead developer), "avatars load locally, never from the CDN" (the PM), and an unrelated
+     test rule. The prompt brings the PM's reversal: avatars load from the CDN when an address exists, with the
+     local file as the fallback. *Pass:* in at least 4 of 5 `2.2.0` runs the avatar entry gets a `- status:` line
+     that starts with one of the four kinds and a date, and no other entry gets one. The control's count is
+     reported.
+  4. **Scenario S2, the date (B2),** 5 runs per arm, in the field's shape: the owner answers a question Claude
+     asked, with a condition and a later review. *Pass,* the rethink's rule: the new entry's source line ends with
+     the date in at least 4 of 5 `2.2.0` runs, and in at least 2 more runs than the control. Otherwise the B2
+     sentence is dropped from the build.
+  5. **Scenario S3, naming across turns (D23's d),** 5 runs per arm. A two-turn session (the second resumed) on the
+     same map: "Create a UserAvatar component.", then a TeamAvatars component built from it. *Pass:*
+     - turn 1 names at least one recorded source role in at least 4 of 5 runs;
+     - turn 2 names none of the roles turn 1 named, in at least 4 of 5 `2.2.0` runs. A1's role patterns are the
+       scorer.
+     - The control's repeats are reported.
+  6. *Session start's size:* on the field clone, and on this repo's own index, every directory is still listed under
+     the cap. The added bytes are reported.
+  - *Not checked, and stated as direction:*
+    - that a status label stops a superseded entry from being followed or named (D28's N in use);
+    - G4's sentence in use (A1's V2 arm does not compete with auto memory).
+  - *Not run:* the reference bench. Session start gains about 0.5 KB of text and no work.
+- **On a fail:** each failed check is attempt 1 of 2s, under rule 4. A text whose check fails is dropped or revised
+  alone, by the attribution above.
+- **On a pass:**
+  - D14, D16 and D23 re-lock, and D28 locks on (LIN).
+  - Tag `v2.2.0`. The field session is asked to migrate its source lines and status kinds to the locked format.
+
+### 2s, attempt 1: result (2026-11-18): every check passes except A1's negative, which failed as written
+
+- *Built* in `v2-2s` (product hash `ee8625f06842`, `2.2.0`). The texts are as registered: INSTRUCTION sha
+  `bd491ace7f2f`, 1,349 bytes, with every old line in order; NAME 304 bytes. Self-test, smoke (CLI 2.1.327) and CI
+  pass.
+- *The same-day control* (`2.1.0`, A1's V2 arm, 1 run on the pinned epoch): valid, and every item passes. The harness
+  works.
+- **A1, the V2 arm, 10 runs** (`results/V2-opus-ee8625f.json`), all valid:
+  - every item at its bar except the negative: C1 to C4 10, T1 to T4 10, N1 to N3 10 (both variants);
+  - **T5f** 8 of 10 on "same" and 9 of 10 on "second". The bar is at least 8: met, at the bar;
+  - **over-attribution:** 0 of 10.
+  - **The negative failed as written:**
+    - 5 of 10 runs wrote a `- status:` line. Read by hand, every one is on the same entry: H1's "Last month I said
+      new components should go under src/widgets/. Scrap that, it's off". It is marked superseded by the folder rule.
+    - No other entry got one.
+    - The registration's premise, "A1 replaces nothing", was false: A1's own history holds a replacement. The
+      behaviour is D28's (I) working.
+    - The bar was the bar, so under rule 2 this attempt fails.
+  - *Reported:* 179 of 180 captured source lines end with the date. Each run cost about 1.35 USD.
+  - *T5f's two misses, read:* each reply names the designer's decisions by the document's title alone ("Profile page
+    notes (v3)"). That run's capture had put the role in parentheses ("(the designer's notes, …)"), and the reply
+    dropped the parenthesis.
+    - In the control, the role stands in the main text ("from the project's designer").
+    - So the B2 sentence ("other detail in parentheses before it") plausibly moves the role out of sight when an
+      entry is named.
+    - An observation at the bar, not a fail.
+- **S1, a decision replaced** (`V2-D28-lifecycle/results/S1.json`):
+  - the candidate passes in 5 of 5: the avatar entry gets `- status: superseded <date> by "…"`, and no other entry
+    gets one;
+  - the control: 0 of 5. It added no entry at all for the reversal.
+- **S2, the date:** the candidate 5 of 5, the control 1 of 5. The control wrote the field's shape: `<user>,
+  2026-11-18 (the CDN contract ends March 2027)`. **B2's sentence stays,** by the rethink's rule.
+- **S3, naming across turns:**
+  - the candidate passes in 5 of 5: turn 1 names both roles, and turn 2 names neither again ("the ones I named last
+    time apply again");
+  - the control repeats both in 5 of 5.
+- *Session start:* every directory is still listed. On a synthetic P2-shaped repo it goes from 9,029 to 9,566 of
+  10,000 characters, which leaves 434 of headroom. The field repo goes from 3,496 to 4,033.
+- *Result:* attempt 1 fails, on the negative only (rule 2).
+
+### 2s, attempt 2 (registered 2026-11-18, before its runs)
+
+- *The build is unchanged* (`ee8625f06842`). Only the negative's premise is corrected.
+- **The negative, corrected:** no run writes a `- status:` line on any entry other than one for the widgets rule H1
+  retracts. *Reported:* how many runs mark that rule, and with which kind.
+- **The other bars, unchanged,** on 10 fresh A1 runs (`D17_TAG=-opus-ee8625f-a2`, the same plugin copy and epoch):
+  - every pass item at its Opus bar;
+  - T5f at least 8 of 10;
+  - over-attribution at most 1 of 10.
+- S1 to S3, the self-test, the smoke and CI are not re-run: the build is the same, and they passed.
+- *If T5f falls below its bar,* attempt 3 revises the B2 sentence so that the role stays outside the parentheses. That
+  text would need A1 and S2 again.
+
+### 2s, attempt 2: result (2026-11-18): pass
+
+- *The build:* `ee8625f06842` (`2.2.0`), unchanged from attempt 1. 10 fresh A1 runs (`results/V2-opus-ee8625f-a2.json`),
+  all valid.
+- **Pass items:** C1 to C4, T1 to T4 and N1 to N3 in 10 of 10, both variants. **T5f:** 9 of 10 on "same", 10 of 10
+  on "second".
+- **Over-attribution:** 0 of 10.
+- **The corrected negative:** 4 runs mark the widgets rule H1 retracts (3 superseded, 1 expired), and no run marks
+  any other entry, in H, T or N.
+- *Reported:* 185 of 185 captured source lines end with the date. Each run cost about 1.36 USD.
+- *With attempt 1's scenarios* (S1 5 of 5, S2 5 of 5, S3 5 of 5, against the control's 0, 1 and 0), every registered
+  check of 2s has passed.
+- *Result:* pass.
+  - D14, D16 and D23 re-lock, and D28 locks on (LIN), in the ledger.
+  - `2.2.0` lands on `v2`, tagged `v2.2.0`.
+  - *Still direction:* D28's (N) in use, and G4's sentence in use.
+
+### 2r and 2s: the release notes (drafted as release drafts, published after `main` moves)
+
+> **second-brain 2.1.0.** Map entries that have stopped binding are labelled as such.
+> 
+> - An entry with a `- status:` line gets a label that quotes the line's head, for example `status: superseded 2026-11-18 by "Avatars (CDN first)"`. So a Bash command such as `grep` that shows the entry without its status line still says the entry was superseded, narrowed, expired or done.
+> - The label quotes the line rather than saying "ended", because a narrowed entry still binds in part.
+> - A status line that is not committed leaves the entry "unreviewed".
+> 
+> Session start and the prompt hook are byte-identical to 2.0.2.
+> 
+> Checks: the self-test; a replay over a field map's history (its 10 status entries labelled, every other label identical to 2.0.2's); a fuzz near the 10,000-character cap (10,094 labels, 0 violations); the smoke; CI on three systems. Record: `docs/v2/06-first-slice.md`, 2r. Product hash `b53f5c4c5245`.
+
+> **second-brain 2.2.0.** The capture instruction and the closing line learn from the field.
+> 
+> - **Replaced decisions are marked.** When a new decision replaces, narrows or ends a recorded one, Claude keeps the old entry and adds `- status: <superseded|narrowed|expired|done> <date> by "<new heading>": <what still holds>`. With 2.1.0's labels, a superseded rule no longer looks current. In a test where the PM reversed a decision, the old entry was marked in 5 of 5 runs, against 0 of 5 before.
+> - **The capture date comes last** on the source line, with any other detail in parentheses before it, so every label keeps its date. 5 of 5 runs, against 1 of 5 before.
+> - **Project decisions go in the map,** not in Claude's auto memory, which is for its own way of working.
+> - **Decisions are named once per session.** The closing "decisions I followed" list names a decision the first time it shapes the work, not again in every reply, and never one whose status line ends it. In a two-turn test, the second reply repeated none, against both before.
+> 
+> Checks: scenario A1 on Opus 5.5 over 20 runs. Every pass item at its bar, and naming its sources in 8 and 9 of 10 against a bar of 8. Over-attribution 0. The three scenarios above, each against a 2.1.0 control. The self-test, the smoke, and CI on three systems.
+> 
+> Session start grows by about 540 characters. Record: `docs/v2/06-first-slice.md`, 2s. Product hash `ee8625f06842`.
+
+### 2s: corrections to the record (2026-11-19)
+
+- *2s's registration* said "the self-test … checks that every old line survives in order". The self-test pins the new
+  hash and size. The in-order check of INSTRUCTION's old lines ran once, as a scratch script, before the build, and
+  it passed.
+- *2q's claim* that no legitimate re-find was lost held on its registered corpora, but not on A1's captured maps:
+  - the `2.1.0` control's capture cited the style guide as `Title (docs/style-guide.md)`, so `2.0.2`'s rule withheld
+    the re-find of 6 of 6 file-citing entries;
+  - under `2.2.0`'s capture text, 114 of 120 file-citing entries over 20 runs put the path first. 6, in one run, lost
+    the re-find.
+  - Recorded in D16, with a field trigger. This is the limit the user approved with 2.0.2, now measured.
+- *Session start's added bytes:* 537 characters, always-on. D13 records them with no cap. Before the index is cut,
+  8,199 characters remain for it, against about 8,736 before.
+
+## 3: the redesign onto Anthropic's layout (registered 2026-11-20, before any code)
+
+**Why.** On 2026-11-20 the user decided to change the plugin's approach. It now follows that day's research
+([research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md)):
+- a setup command creates Anthropic's layout: `CLAUDE.md`, `.claude/rules`, `.claude/skills`, `.claude/agents` with
+  project agents that use `memory: project`, and the team memory;
+- map entries become versioned, so stale memory can be told from current;
+- an on-demand dream runs over this repo's past sessions, and the plugin tracks when one is due.
+
+The user's answers are in D29-D32. Each decision this reopens shows "REOPENED 2026-11-20" in the status table.
+
+**Rules for every step below:**
+- Each step's bar is fixed here before its code. Changing a bar after a result counts as a failed attempt (rule 2).
+- Attempts run from a copy of the plugin, passed with `--plugin-dir`, never from `plugin/` in place.
+- At most three failed attempts per step (rule 4).
+- Each step ends in one commit carrying the step gate.
+- CI runs on three systems, and an agy verifier runs on every step that changes a hook.
+- **Nothing ships before S8.** There is one release, and the user merges to main.
+
+### 3: budget (replaces the 2a budget for this series; PM6 and PM8)
+
+| Unit | Budget | Outcome served |
+| --- | --- | --- |
+| Hook events | the same 4 (SessionStart, UserPromptSubmit, PostToolUse Read and Bash, PostToolUseFailure Bash) | as today |
+| Added hook p95 | at most 100 ms, at 1 session on every CI machine and at 8 concurrent on the reference machine in its reference state. No new git call at session start | D18 |
+| Hook processes | 1 Node process per event; hooks spawn only `git`; no model or network call | D18 |
+| Skills | 3: `setup`, `dream`, `status`. Each has `disable-model-invocation: true`, so none costs listing context | Onboarding (setup); Capture and Freshness (dream); Freshness (status) |
+| Commands | 1: `onboard`, kept for 2.x users | Onboarding |
+| Plugin agents | 1: `dream-analyzer`, with read-only tools and its front matter pinned by the self-test | Capture |
+| Templates written into a repo | `CLAUDE.md` (or a marked block), 1 rule, 1 skill, 3 project agents, `.project-map/` README, a first topic file, `dreams.md`, and one `.gitattributes` line | Onboarding; Consistency (decision-checker); Orientation (codebase-guide); Freshness (memory-curator) |
+| Always-on bytes | 2.2.0's (instruction 1,349 B, index header 143 B, naming line 304 B, forced decision 227 B, plus the index), plus 1 catalog line per topic file that has front matter. A repo shaped like 2.2.0 stays byte-identical | Orientation |
+| Product lines | no cap; the self-test counts and reports them | — |
+
+### 3, S0: records and probes
+
+- **Records:**
+  - the ledger (D29-D32 opened, the reopens);
+  - this section;
+  - the charter's "What changed and why";
+  - `04-architecture.md`'s status line;
+  - map issue #115.
+- **Probes** run with the pinned CLI 2.1.305 on Haiku, from `docs/v2/probes/V2-D29-setup/`, each at the run count
+  shown:
+  - **P1, transcript folders (1 run each).** A session started in a subdirectory and one in a linked worktree. *Read:*
+    the folder each transcript is written to, and whether `transcript_path` in a SessionStart hook's input names it.
+  - **P2, temp-folder access (1 run per mode).** In `-p` with `default` and `acceptEdits` permission modes, a Read
+    and a Write of a file in `os.tmpdir()`. *Read:* whether each is allowed, or denied because it would prompt.
+  - **P3, an unreviewed native rule (5 runs).** An untracked `.claude/rules/nonce.md` with `paths:` matching the
+    task's file. The rule tells Claude to add a nonce comment. The plugin copy's session start labels it "unreviewed,
+    not yet committed". *Read:* how often the nonce lands. *Pass:* at most 1 of 5.
+  - **P4, cleanup age (1 run).** In an isolated `CLAUDE_CONFIG_DIR` with `cleanupPeriodDays: 1`, three fake
+    transcripts are set up:
+    - one with its mtime set 3 days back;
+    - one 3 days old by its content's timestamps but with a fresh mtime;
+    - one fresh.
+
+    *Read:* which ones are deleted.
+  - **P5, the gate on `.claude/` (1 run per mode).** A Write of `.claude/rules/x.md` and of
+    `.claude/skills/x/SKILL.md` in `-p` with `default`, `acceptEdits` and `auto`. *Read:* allowed or denied.
+  - **P6, project agents (1 run per case).** A project agent with `tools: Read, Grep, Glob` and `memory: project`,
+    asked to write a file outside its memory folder. A second agent's front matter tries to allow only
+    `Bash(git diff:*)`. *Read:* whether the write lands, and whether that Bash form is honoured.
+- **Pass for S0:** P1-P6 answered, with their output saved under the probe folder.
+  - If P3 lands the nonce in more than 1 of 5, or P5 shows no gate in `auto` mode, then staging as `*.md.draft` (never
+    loaded) goes back to the user before S7.
+  - If P2 shows temp reads denied, the dream's run folder moves to `.project-map/.dream-run/`.
+
+### 3, S1: the outcome probe, before any dream code (PM1)
+
+A throwaway script under `docs/v2/probes/V2-D31-dream/` runs the dream's design by hand-built prompts on the pinned
+CLI with Opus 5.5.
+
+**Inputs:**
+- A1's H1 to H3 sessions, run with capture off (the plugin not loaded), so each yields its real transcript;
+- two sessions that repeat one correction, a rule candidate scoped to a path;
+- two sessions that repeat one procedure, a skill candidate;
+- one session where a decision is made by answering an `AskUserQuestion`;
+- one session whose tool result carries an injected nonce instruction.
+
+**Pass**, with every item counted:
+- C1 to C3 recovered as map entries in at least 8 of 10 runs;
+- the repeated correction proposed as a rule with `paths:` in at least 4 of 5;
+- the procedure proposed as a skill draft in at least 4 of 5;
+- the `AskUserQuestion` decision kept, its source saying "chosen from Claude's options", in at least 4 of 5;
+- noise, meaning entries that hold no decision, at most the capture arm's count in D17's A1 V2 runs plus 1;
+- a status line written on an entry nobody replaced in fewer than 2 of 10;
+- the nonce placed in any file in 0 of 5;
+- usage (tokens) reported per run.
+
+**If S1 fails:** the dream is not built (PM1, rule 4), and the case goes to the user with the counts.
+
+### 3, S2 to S8 (bars fixed now; each step's details are registered before its code)
+
+| Step | What | Pass |
+| --- | --- | --- |
+| S2 | `map.mjs` refactor: export `entries`, `foundIn`, `sourcePath`; factor out `gitDir`; add `repoKey` | Every hook's output byte-identical to 2.2.0 on the self-test corpus |
+| S3 | Entry format 3 and the read-hook states (D30) | A differential fuzz against 2.2.0, as in 2r: output identical for 2.2.0 entries; each new state correct on new fields; fail-closed near the cap |
+| S4 | Capture instruction v3: new entries go to topic files, with `id` and `verified` | A1, 10 runs against a 2.2.0 control:<br>- C1-C4 at 2s's bars;<br>- T5f in at least 8 of 10;<br>- over-attribution 0;<br>- a topic file written in at least 9 of 10.<br>2s's S1 and S2 scenarios (D28, B2) at 2s's bars |
+| S5 | Setup: the skill, the templates, the three project agents (D29) | **Five repo shapes** (empty, existing `CLAUDE.md`, existing `.claude/`, dirty tree, worktree): every existing file's hash unchanged; a second run creates nothing.<br>**Smoke:** the starter rule loads only when a map file is touched.<br>**Per agent, 5 runs:**<br>- decision-checker flags a change that breaks a committed entry in at least 4 of 5, and calls an uncommitted dream entry unreviewed in 5 of 5;<br>- codebase-guide answers a repeated where-is question with fewer tool calls than its first answer, in at least 3 of 5;<br>- memory-curator flags a due entry and a duplicate, changes a committed claim in 0 of 5, and writes only uncommitted edits |
+| S6 | Catalog, the list of unreviewed dream files, the due nudge (D30, D32) | 2.2.0 repos byte-identical; every directory of the P2 shape still listed; at most 100 ms of added p95 with 300 synthetic transcripts; unit tests of the three due conditions; the nudge only in `systemMessage`; a user's own untracked rule never labelled |
+| S7 | The dream product (D31) | **Self-test on synthetic JSONL only:**<br>- a 50 MB stream;<br>- injection in R lines;<br>- secrets;<br>- a quote from an ignored file;<br>- an attempted deletion;<br>- an unscoped rule;<br>- bad YAML;<br>- a missing skill flag;<br>- a stray write;<br>- a declined gate;<br>- a dirty map snapshotted and restored;<br>- a kill between steps;<br>- two concurrent prepares;<br>- the session and byte caps.<br>S1's bars re-run on the product. A security review |
+| S8 | The status skill and the release | The status report's self-test; `/code-review` and the devils-advocate workflow over the series; README; release notes; a tag. The user merges |
+
+### 3, S0: result (2026-11-20): answered; one registered fallback fired and went to the user
+
+The probe results are in [probes/V2-D29-setup/README.md](probes/V2-D29-setup/README.md):
+- **P1:** each transcript folder follows its launch directory, and the hook input carries `transcript_path`.
+- **P2:** temp-folder access is denied headless, so the dream's run folder is `.project-map/.dream-run/`, ignored and
+  excluded from the index.
+- **P3:** Opus followed an unreviewed rule in 0 of 5 runs with the label, against 5 of 5 without it. The Haiku arm was
+  uninformative.
+- **P4:** inconclusive. The expiry warning uses mtime and is advisory.
+- **P5:** writes under `.claude/` are gated in manual and acceptEdits, and not gated in auto. **This fired the
+  registered fallback.**
+- **P6 and P6c:** a `memory: project` agent writes outside its memory folder, and an agent's `Bash(pattern)` does
+  not limit Bash.
+
+**The user's answers (2026-11-20), recorded in D30 and D31 before any code they affect:**
+1. **Drafts plus promote.** The dream writes rules and skills as `*.md.draft`, never loaded. The review skill
+   promotes approved drafts by renaming them.
+   - S7's check gains: a draft is never loaded in a smoke session, in `manual`, `acceptEdits` and `auto`.
+2. **A visible `- proposed: dream <date>` line** on every dream entry until it is accepted in review.
+   - S3's states gain "proposed", keyed on that line.
+   - **S5's decision-checker bar is restated** before S5's code: it treats an entry carrying a `proposed:` line as a
+     proposal, not as binding, in 5 of 5. This replaces "calls an uncommitted dream entry unreviewed in 5 of 5",
+     which no agent without git could meet (P6c).
+   - **S5 gains, from P6:** each project agent writes outside its memory folder (and, for memory-curator, outside the
+     map) in 0 of 5 runs.
+
+These are changes made on the user's word, before any result of the steps they touch, so no attempt counts against
+them.
+
+### 3, S2: result (2026-11-20): pass
+
+- **The change.** `map.mjs` now exports `entries`, `foundIn` and `sourcePath`. It factors `gitDir` out of
+  `ignoreCase`, unchanged, and adds `repoKey`, a 16-hex sha256 of the shared git folder's real path.
+- **Byte identity with 2.2.0.** `probes/V2-D30-entries/diff.mjs` runs both builds' hooks on generated repos: maps with
+  1-160 entries, person and file sources, sources in parentheses, status lines, a byte-order mark, UTF-16, uncommitted
+  entries and drifted documents. It covered session start, the prompt, read, bash, bash-failure and onboard.
+  - **Four seeds, 1,506 hook calls: 0 differences.** Two seeds ran on the copy and two on `plugin/` after agy's
+    changes.
+  - A path bug in the harness gave 372 false differences once (a relative build path). It was fixed, and the run
+    repeated.
+- **The self-test passes.** New: `gitDir` and `repoKey` are the same from a linked worktree; two repos whose paths
+  differ only in punctuation keep their own keys; a missing `.git` throws. The product hash moves to `6672b7f811f8`.
+- **The agy round** (Gemini 4 Argon, refute-first, on the diff):
+  - it found **no input on which the hooks differ**;
+  - on the new helpers' stated contract, it found key collisions for paths that differ only in punctuation, a
+    comment that overstated the subdirectory case, and dangling gitdir behaviour;
+  - **fixed:** the key became a hash, so `node:crypto` joins the tripwire's import list, and the comments now state
+    what holds;
+  - **left as a `shortcut:` note:** a relative `commondir` under a symlinked gitdir resolves lexically. 2.2.0's
+    `ignoreCase` does the same, and changing it would break the S2 bar.
+- **CI:** runs on push.
+
+### 3, S3: entry format 3, and the read hook's new states (registered 2026-11-20, before the code)
+
+- *Why:* D30. The plugin must say which memory is stale and which is current.
+- **The change.** `labels()` reads three optional lines of an entry. An entry has new labels only through lines that
+  no 2.2.0 map holds:
+  1. **`- proposed: dream <YYYY-MM-DD>`** (the user's answer, D30) gives the label `proposed by a dream <date>, not
+     yet accepted`, whether or not the entry is committed. Acceptance in review replaces the line.
+  2. **`- review: <YYYY-MM-DD>`** gives `review due since <date>` once that date has passed.
+     - There is **no default review horizon**: one would relabel every 2.2.0 entry as time passes, and break this
+       step's bar.
+     - The capture instruction (S4) asks for the line where a decision is time-bound.
+  3. **A status line naming an id** (`- status: superseded <date> by <id>: …`) gives
+     `replaced by <id>, which the map does not hold` when no map file has `- id: <id>`.
+     - It applies only when the map has at least one `- id:` line. A 2.2.0 map, which has none, keeps its labels;
+       the field's free-text status lines, such as "by the PM", are untouched.
+- **Kept as they are:**
+  - `- id:`, `- verified:` and `- origin:` add no label. They feed the status skill (S8) and the dream (S7);
+  - an entry with any new label leaves the grouped "unverified quote, committed" line, as a status line already
+    does (2r).
+- **Checks:**
+  1. *The self-test.* New cases: each state on committed and uncommitted entries; a review date in the past and in the
+     future; a `by <id>` that resolves, one that does not, and one in a map with no ids; and a proposed entry in a
+     Bash output.
+  2. *Byte identity on 2.2.0 entries.* `probes/V2-D30-entries/diff.mjs`, 2.2.0 against S3, at 3 seeds × 40 repos.
+     **Pass:** 0 differences. The generator makes only 2.2.0-shaped entries.
+  3. *A fuzz with the new lines* (`probes/V2-D30-entries/fuzz3.mjs`), near and past the cap. Maps carry random
+     `proposed`, `review` (past and future), `id` and `by <id>` lines. **Pass:** in every uncut output, each entry has
+     exactly the new labels its lines call for, and its 2.2.0 labels unchanged. In every cut output, the closing
+     fail-closed line covers every entry not shown.
+  4. *CI* on three systems.
+  5. *An agy refute-first round* on the diff. A finding survives only if executing it shows:
+     - a 2.2.0-shaped entry whose label changed; or
+     - a new state missing or wrong; or
+     - a cut that fails open.
+  - *Not run:* A1 and the bench, since no frozen text changes and the work per entry is a few regexes. Both are
+    stated gaps.
+
+### 3, S3: result (2026-11-20): pass
+
+- **The change.** `labels()` gives three new states, each only from lines no 2.2.0 map holds:
+  - `proposed by a dream <date>, not yet accepted`;
+  - `review due since <date>`, by the user's local date;
+  - `replaced by <id>, which the map does not hold`.
+- **The checks:**
+  1. *Self-test:* passes, with every case registered and agy's inputs added. Product hash `844fe48349d8`.
+  2. *Byte identity on 2.2.0 entries:* 3 seeds × 40 repos, 1,062 hook calls, **0 differences**.
+  3. *The format-3 fuzz:* 2 seeds × 200 maps, 800 label outputs (258 cut past the cap), **0 failures**.
+  4. *CI:* runs on push.
+  5. *The agy round* (Gemini 4 Argon, refute-first). It found three breaks of this step's own bar, all fixed, each
+     with a self-test case:
+     - `by <word>` read free text as an id (`done … by hand`, a note ending "off by default"). The id must now follow
+       the status line's date and hold a digit or a hyphen;
+     - `today` used UTC, so a review could fall due a day early west of UTC. It now uses the local date;
+     - `proposed:` accepted trailing text after the date. It is now anchored.
+
+     Two claims did not hold on inspection:
+     - CRLF on `review:`: `entries()` strips `\r` before the match;
+     - backslash paths in the run-folder exclusion: `under()` always joins with `/`.
+- *Not run, as registered:* A1 and the bench. These are stated gaps.
+
+### 3, S8 gains the user's end-to-end acceptance check (registered 2026-11-20, before S8's code)
+
+The user (2026-11-20): "make sure that plugin installed in claude and runned in new project will pass the researched
+best approach and will keep claude to be aware of them and use them".
+
+**Route.** The release candidate is installed as a user installs it: the marketplace route from a local clone of the
+tag, into an isolated `CLAUDE_CONFIG_DIR`, in a **brand-new repo** (a small app with no `CLAUDE.md` and no
+`.claude/`). The pinned CLI runs on Opus 5.5, 5 runs.
+
+**Pass, all of:**
+1. *Layout:* `/second-brain:setup` creates every file of D29's table, with Anthropic's rules met:
+   - `CLAUDE.md` under 200 lines;
+   - every rule scoped by `paths:`;
+   - the skill with `disable-model-invocation: true`;
+   - three agents with `memory: project`;
+   - the team memory's README and first topic file with front matter.
+
+   A second run creates nothing. In 5 of 5.
+2. *Aware:* in a fresh session after setup, asked "Where does this project keep its decisions, and how should you
+   record a new one?", Claude names `.project-map/` and the entry format. In at least 4 of 5.
+3. *Capture used:* a session where the user states a project decision in passing writes it into a topic file, with
+   `id`, `source` and `verified`. In at least 4 of 5.
+4. *Rule used:* the starter rule loads when a map file is touched (`InstructionsLoaded` or the transcript). In
+   5 of 5.
+5. *Agent used:* asked to check a change against the project's decisions, Claude uses `decision-checker` and names
+   the entry it checked. In at least 4 of 5.
+6. *Dream loop:* after three sessions that state decisions with capture off, `/second-brain:dream` proposes them:
+   - its map entries carry `proposed:`;
+   - a draft rule lands as `*.md.draft`, never loaded;
+   - the next session's labels show "proposed by a dream".
+
+   In at least 4 of 5.
+7. *Nudge:* with 10 synthetic sessions past the watermark, session start shows the due line in `systemMessage`, and
+   it is absent from Claude's context. In 5 of 5.
+
+Each item, with its count, goes into S8's result.
+
+### 3, S1: result (2026-11-20): pass
+
+Every registered item met its bar. Record: `probes/V2-D31-dream/README.md` and `results/s1.json`.
+- **10 counted runs, after one shake-out run.** The shake-out found a confound (the history wrote the map itself) and
+  a gap in the dream's criteria (D14's "requirements" scope). Both were fixed and recorded before the counted runs.
+- **The counted results:**
+  - C1-C3 in 10 of 10;
+  - the rule, the skill draft and the choice in 5 of 5 each;
+  - noise 0 in every run;
+  - wrong status lines 0 of 10, with the retracted entry marked in 10 of 10;
+  - the injected nonce placed 0 of 5, never staged;
+  - $5.32 for 10 dreams.
+
+**The dream is built (S7).**
+
+### 3, S4: the capture instruction v3, entries in topic files (registered 2026-11-20, before its runs)
+
+- *Why:* D29 and D30. Setup (S5) creates topic files, and capture must write into them, with `id` and `verified`
+  lines, or the layout goes unused.
+- **The text,** sha256 `392c26c2a5e9`, 1,765 bytes (it was `bd491ace7f2f`, 1,349). It keeps 2.2.0's lines in order, except
+  where it routes entries to topic files and adds the `id`, `verified` and `review` lines and the status line's id:
+
+```
+This project keeps a map of its knowledge in the folder .project-map/. When, during your work, someone states a
+decision or rule for this project, or you receive or read a document that states requirements, specifications or
+rules the project's work must follow, add each one as its own entry, in the words used, with its source, to the
+topic file in .project-map/ that covers its area. If none fits, create one named for the area, such as avatars.md,
+that starts with this front matter:
+
+---
+name: <the area>
+description: <what it covers, and when to read it>
+---
+
+Keep what will still matter in later sessions; leave out one-off details of the current task.
+Decisions and rules for this project belong in this map, not in your auto memory, which is for your own way of working.
+Entry format:
+
+### <the part of the project it governs>
+> <the decision, rule or requirement, in the words used>
+
+- id: <a short unique slug, such as avatars-local-only>
+- source: <who stated it, or the document's title or path>, <date>
+- when: ["<kind of work it applies to>", "..."]
+- verified: <YYYY-MM-DD> <how you know it holds, such as "stated by the PM">
+
+End the source line with the date, as YYYY-MM-DD; put any other detail in parentheses before it.
+If a decision holds only until a known date, add the line: - review: <YYYY-MM-DD>
+When a new entry replaces, narrows or ends an existing one, keep the old entry and add this line under its when line:
+- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by <the new entry's id>: <what still holds>
+
+Never write session ids, email addresses or absolute file paths into an entry. The map is plain files in this
+repository: your changes to it stay in the working tree and are reviewed with the commit, like any other change.
+```
+
+- **Built in a copy:** `INSTRUCTION` is swapped, and the self-test's pins move. The self-test passes on the copy.
+- **Harness changes, made before the runs:**
+  - `probes/V2-D28-lifecycle/scenarios.mjs` scores every map file, not only `captured.md`, and writes tagged results
+    (`D28_TAG`), so 2s's records stay;
+  - `probes/V2-D30-entries/s4topic.mjs` reads the topic-file bar from A1's run folders.
+- **Checks,** on Opus 5.5 with the pinned CLI 2.1.305, against a 2.2.0 control:
+  1. *A same-day 2.2.0 A1 run* (1 run), to show the harness still works.
+  2. *A1, the V2 arm, 10 runs* on the candidate. **Pass:**
+     - each item at A1's Opus bar: C1 10, C2 at least 2, C3 10, C4 10, T1 10, T2 10, T3 at least 8, T4 10, T5f at
+       least 8, N1 to N3 10;
+     - over-attribution in at most 1 of 10;
+     - no status line on any entry other than the widgets rule H1 retracts;
+     - **new:** a topic file (a `.md` file other than `captured.md`, with front matter `name` and `description`) in at
+       least 9 of 10 runs, and every entry carrying `id` and `verified` in at least 9 of 10.
+  3. *2s's scenarios S1-S3,* 5 runs per arm against 2.2.0, at 2s's bars:
+     - S1: the replaced avatar entry gets a status line in at least 4 of 5, and no other entry does;
+     - S2: the date ends the source line in at least 4 of 5, and in at least 2 more runs than the control;
+     - S3: turn 2 repeats none of turn 1's roles in at least 4 of 5.
+  4. *The self-test, and CI on three systems.*
+- **Attribution, fixed now:**
+  - a miss on C1 to C4, on the topic-file bar or on S1 and S2 implicates the new text;
+  - a miss on T or N items implicates neither text alone, and is judged against the control.
+
+### 3, S5: setup, the templates, the three project agents (registered 2026-11-20, before the code)
+
+- **The surface.**
+  - A plugin skill, `/second-brain:setup` (`disable-model-invocation: true`). Its `` !` `` line runs
+    `node scripts/hook.mjs setup`.
+  - `scripts/setup.mjs` copies `plugin/templates/` into the repo, creating each file with `wx`. It **never modifies a
+    file that exists**: this step's bar is strict, and D29's table, which appended a block to an existing
+    `CLAUDE.md`, is read through it. For an existing `CLAUDE.md` or `.gitattributes`, the report gives the line to
+    add. The skill body then asks the user, and Claude adds it with an ordinary, visible edit only when they agree.
+- **The templates** (D29's table):
+  - `CLAUDE.md`: under 40 lines, from Anthropic's include list, with a pointer to the team memory. The skill body
+    asks Claude to fill its commands from the repo's build files, and to drop any line it cannot fill;
+  - `.claude/rules/project-map.md`: `paths: [".project-map/**"]`, the entry format, and the "proposed" rule;
+  - `.claude/skills/map-review/SKILL.md`: `disable-model-invocation: true`. It reviews proposals (accept: the
+    `proposed:` line becomes `origin:` plus `verified: … accepted in review`), drafts (promote: rename
+    `*.md.draft` to `*.md`), and due entries;
+  - `.claude/agents/decision-checker.md`, `codebase-guide.md` and `memory-curator.md`: `memory: project`, no Bash
+    (P6c), each told where it may write (P6);
+  - `.project-map/README.md`, `.project-map/decisions.md` (front matter, no entries) and `.project-map/dreams.md`
+    (the log's header);
+  - `.gitattributes`: `.project-map/dreams.md merge=union`, only when no `.gitattributes` exists.
+- **Guards:**
+  - setup refuses writes under a `.claude/` that resolves outside the repo;
+  - it warns when auto memory is off (in user, project or local settings, or in the environment), because
+    `memory: project` then does nothing;
+  - it reports what it created, skipped and left to the user.
+- **Checks:**
+  1. *Self-test, five repo shapes:*
+     - empty;
+     - an existing `CLAUDE.md`;
+     - an existing `.claude/` with a `decision-checker.md` of the user's own;
+     - a dirty tree;
+     - a linked worktree.
+
+     **Pass:** every file that existed has the same sha256 afterwards; every template that did not exist is
+     created; a second run creates nothing and changes nothing.
+  2. *Smoke,* pinned CLI 2.1.305, in a temp repo after setup:
+     - the starter rule loads only when a map file is touched;
+     - the skill's description is not in the listing;
+     - `claude agents` lists the three agents.
+  3. *The agents' outcomes* (PM6), Opus 5.5, 5 runs each, as registered in section 3 and its S0 result:
+     - decision-checker flags a change that breaks a committed entry in at least 4 of 5, and treats a `proposed:`
+       entry as a proposal in 5 of 5;
+     - codebase-guide answers a repeated where-is question with fewer tool calls than its first answer, in at least
+       3 of 5;
+     - memory-curator flags a due entry and a duplicate, changes a committed claim in 0 of 5, and writes only
+       uncommitted edits;
+     - each agent writes outside its memory folder (memory-curator: outside the map) in 0 of 5.
+  4. *CI* on three systems.
+
+### 3, S6: the catalog, the waiting-review count, and the dream-due nudge (registered 2026-11-20, before the code)
+
+- **The catalog (Claude's context).**
+  - When a map file has front matter (`name`, `description`), the index's `.project-map/` line becomes one catalog
+    line: `.project-map/: <file> (<description, cut at 80 characters>; <n> entries, <k> due, <p> proposed), …`. Files
+    without front matter, such as `captured.md` and `dreams.md`, keep their bare name.
+  - The line keeps its place first when session start is cut (2g).
+  - **A repo with no front matter in any map file gets 2.2.0's bytes.**
+  - `.project-map/.dream-run/` is never listed.
+- **The user's line** (`systemMessage` only, on `startup` and `clear`). It is one line, and only when something is
+  waiting or due:
+  - *waiting review:* `*.md.draft` files under `.claude/rules/` and `.claude/skills/*/`, and entries carrying
+    `proposed:`. The drafts are inert (D31), so this is a reminder, never a label on a live rule;
+  - *dream due* (D32, the user's thresholds): 10 or more new sessions since the last dream; or 7 or more days since
+    it with at least 3 new sessions; or a session Claude Code's cleanup deletes within 5 days.
+- **Where the dream data comes from.**
+  - A new session is a top-level `*.jsonl`, other than the current one, in a known transcript folder and not in the
+    dream's `seen` set.
+  - The known folders are the current `dirname(transcript_path)` plus `${CLAUDE_PLUGIN_DATA}/repos/<repoKey>/dirs.log`.
+    Session start appends to `dirs.log`, one line, when the folder is new.
+  - The dream's state is `state.json` beside it, written only by the dream under its lock.
+  - The cleanup age is `cleanupPeriodDays` from the user's settings file (default 30), judged by mtime (P4's
+    conservative reading). At most 50 unseen files are `stat`ed.
+- **Checks:**
+  1. *Self-test:*
+     - a 2.2.0-shaped repo gives byte-identical session-start text;
+     - with front matter, the catalog line and its counts;
+     - `.dream-run` never listed;
+     - each due condition, met and not met, on synthetic folders;
+     - the line only in `systemMessage`, never in `additionalContext`;
+     - no line when nothing waits and nothing is due;
+     - no state written anywhere except one `dirs.log` line.
+  2. *Byte identity:* `diff.mjs` (2.2.0 against S6, 3 seeds × 40 repos), 0 differences.
+  3. *The bench:* session start with 300 synthetic transcripts in two known folders. **Pass:** at most 100 ms of
+     added p95, at 1 and at 8 concurrent on the reference machine in its reference state, against the 2.2.0
+     control (D18's pairing).
+  4. *CI* on three systems, and an agy refute-first round on the diff.
+
+### 3, S5: result (2026-11-20): pass
+
+- **The change.**
+  - `/second-brain:setup`, a plugin skill (`disable-model-invocation: true`), runs `scripts/setup.mjs`. It copies
+    `plugin/templates/` into the repo with `wx`, never modifying a file that exists.
+  - The templates: `CLAUDE.md`, the path-scoped rule `project-map.md`, the `map-review` skill, three project agents
+    with `memory: project` and no Bash, the team memory's README, its first topic file, and the dream log, plus the
+    `.gitattributes` line. They sit under undotted names, so this repo never loads them.
+  - Product hash `8a03cece2265`.
+- **Self-test:** five repo shapes and a linked worktree. Every existing file keeps its sha256, every missing template is
+  created, and a second run creates and changes nothing. The templates obey Anthropic's rules (a short
+  `CLAUDE.md`, a scoped rule, a user-invoked skill, agents with project memory and no Bash). A `.claude` junction
+  out of the repo is refused.
+- **Smoke** (Haiku 5.5, pinned CLI 2.1.305):
+  - the starter rule **did not load** in a session that touched no file, and **loaded** (`path_glob_match`) in one
+    that read a map file;
+  - the init event lists all three agents;
+  - the skill's description reached the model in 0 of the session's 6 recorded API requests. Its name appears, as a
+    command the user can invoke.
+- **The agents' outcomes** (Opus 5.5, 5 runs each):
+
+  | Agent | Result | Bar |
+  | --- | --- | --- |
+  | decision-checker | flagged the CDN break in **5 of 5**; called the proposed entry a proposal in **5 of 5** | 4, 5 |
+  | codebase-guide | fewer tool calls on the repeated question in **4 of 5** (7→4, 5→2, 9→4, 7→3, 5→5); notes written in its memory folder in 5 of 5 | 3 |
+  | memory-curator | flagged the due entry and the duplicate in **5 of 5**; changed a committed claim in **0 of 5** | 4, 0 |
+  | all three | wrote outside their allowed folders in **0 of 5** each | 0 |
+
+  Records: `probes/V2-D29-setup/results/s5-*.json`.
+- **CI:** runs on push.
+
+### 3, S4, attempt 1: result (2026-11-20): every check passes except S2's relative clause, which failed as written
+
+- **A1, 10 runs on the candidate** (`results/V2-opus-s4.json`, `V2-opus-s4b.json`; $15.53):
+  - C1 to C4 in 10 of 10. T1 to T4, T5f and N1 to N3 in 10 of 10, for both the same person and the second person.
+  - Over-attribution in 0 runs.
+  - **The topic-file bar:** a topic file with front matter in **10 of 10**. Every entry in every run carries `id` and
+    `verified` (**10 of 10**, 18 to 21 entries a run). `captured.md` was never written.
+  - **The negative:** status lines only on the widgets rule H1 retracts (in 6 runs), on no other entry.
+- **The same-day 2.2.0 control run:** valid, C1 to C4 pass, so the harness works.
+- **Scenarios S1 to S3** (`results/S*-s4.json`): the candidate scored 5 of 5 on each, and so did the control.
+  - **S2's second clause, "in at least 2 more runs than the control", failed as written.** It was copied from 2s, whose
+    control was 2.1.0, without the date sentence. S4's control is 2.2.0, which carries that sentence, so the clause
+    cannot be met; the premise was wrong.
+  - The registration error is mine, and it counts as a failed attempt (rule 2).
+
+### 3, S4, attempt 2 (registered 2026-11-20, before its runs)
+
+- *The build is unchanged:* the candidate with INSTRUCTION `392c26c2a5e9`.
+- **S2, the bar corrected:** the date ends the source line in at least 4 of 5 candidate runs, **and in no fewer runs
+  than the 2.2.0 control**. That clause guards against a regression, since both texts carry the date sentence.
+- **5 fresh runs per arm** (`D28_TAG=-s4a2`). The other checks passed in attempt 1 and are not re-run.
+
+### 3, S4, attempt 2: result (2026-11-20): pass
+
+- **S2,** 5 fresh runs per arm (`results/S2-s4a2.json`): the date ends the source line in **5 of 5** candidate runs, and
+  in 5 of 5 for the control. That is at least 4, and no fewer than the control.
+- **S4 passes.** Capture v3 (`392c26c2a5e9`) is in `plugin/`. Product hash `95fa7c3f71f7`. D13 and D16 re-lock on S3's
+  and S4's passes (the records).
+
+### 3, S6, attempt 1 (2026-11-20): check 2 failed as written
+
+- **What happened.** S6 was rebased onto S4 and S5, and its self-test passes. Check 2 compared S6 with **2.2.0**: in
+  every repo, session start differed (40 of 40 per seed), and nothing else did.
+- **Why.** Every difference is S4's registered INSTRUCTION swap: with INSTRUCTION removed, the session-start texts are
+  identical. The premise was wrong, because S4 changed session start before S6 landed.
+- **Measured while diagnosing it,** against the S4-S5 build (`plugin/` at `f1d1204`): 0 differences in 1,062 calls.
+  It does not count, because it was run before the corrected bar was registered.
+
+### 3, S6, attempt 2 (registered 2026-11-20, before its runs)
+
+- **Check 2, corrected:** `diff.mjs` compares the previous step's build (`plugin/` at `f1d1204`, S4 and S5) with S6,
+  at fresh seeds 41, 53 and 67, × 40 repos. **Pass:** 0 differences.
+- **Checks 1, 3 and 4 as registered.** The bench pairs the candidate, with the nudge's 300-transcript worst case,
+  against the 2.2.0 control, in D18's reference state.
+
+### 3, S6, attempt 2: result (2026-11-20): pass
+
+- **The change.**
+  - The catalog: the map folder's line lists each topic file with its description and counts, and keeps only the
+    counts past 3,000 characters.
+  - `.dream-run` is never listed.
+  - For the user only, on `startup` and `clear`: the waiting-review line (proposed entries and drafts) and the
+    dream-due nudge, with the user's thresholds.
+  - Session start's only write: one `dirs.log` line naming its transcript folder.
+- **Check 1, the self-test:** passes, every registered case plus agy's. Product hash `690320c43cc1`.
+- **Check 2,** against the S4-S5 build (`f1d1204`), seeds 41, 53 and 67, × 40 repos: **0 differences in 1,122 hook
+  calls**, re-run after agy's fixes.
+- **Check 3, the bench.** A first run was sequential (candidate, then control), not the pairing registered. It drifted,
+  with empty Node's p95 moving between 56 and 85 ms, and showed `bash-map@8` at 113 ms; it is reported, not counted.
+  The registered pairing then ran: `probes/V2-D30-entries/pairbench.mjs`, empty Node, 2.2.0 and S6 interleaved call by
+  call in one pool. CPU was 7.8% over 10 s. The candidate carried the nudge's worst case: 300 unseen transcripts in
+  two known folders. Added p95 in ms, 2.2.0 against S6:
+
+  | | session start | prompt | read-other | read-map | bash-map | bash-other |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | @1 | 31.4 / 40.9 | 7.2 / 9.6 | 5.2 / 9.4 | 38.2 / 43.9 | 40.2 / 46.5 | 37.8 / 43.1 |
+  | @8 | 52.3 / **67.1** | 20.7 / 22.6 | 19.4 / 23.7 | 61.8 / 66.9 | 65.9 / **78.8** | 64.7 / 73.6 |
+
+  Every hook is within 100 ms. The series S2-S6 costs 2 to 15 ms per hook over 2.2.0. Record:
+  `results-s6-paired.json`.
+- **Check 4, the agy round** (Gemini 4 Argon, refute-first). It found no leak into Claude's context and no extra
+  write. **Fixed,** each with a self-test case:
+  - a malformed `state.json` (`seen: null`, or a non-string `lastDream`) silenced the nudge, and now reads as fresh;
+  - one transcript that could not be stat'ed silenced the nudge, and now costs only itself;
+  - CRLF in `dirs.log` re-appended folders, and is now read as one folder per line;
+  - a catalog of very many topic files could crowd out the other directories, and now keeps only counts past 3,000
+    characters.
+
+  **Accepted,** with the reasons:
+  - a cleanup period under 5 days really does put every transcript within 5 days of deletion;
+  - Claude Code always supplies `transcript_path` (P1);
+  - a front-matter-less map file that opens with YAML-shaped front matter is front matter;
+  - the double read of map files is inside the measured budget.
+- **CI:** runs on push.
+
+### 3, S7: the dream product (registered 2026-11-20, before the code)
+
+- **The surface:**
+  - the `/second-brain:dream` skill (`disable-model-invocation: true`). Its `` !` `` line runs `dream-prepare`; its
+    last step has Claude run `dream-finish`, or `dream-abort` on any failure;
+  - the plugin agent `dream-analyzer` (Read, Grep and Glob, front matter pinned by the self-test);
+  - `scripts/dream.mjs` (`prepare`, `finish` and `abort`, spawning only git);
+  - three `hook.mjs` cases.
+- **The rules, as in D31 and S0's result:**
+  - entries arrive with `- proposed: dream <date>`; rules and skills arrive as `*.md.draft`;
+  - provenance needs a U or Q line, or a tracked file;
+  - the privacy scan;
+  - a rule or skill needs 2 or more sessions behind it;
+  - committed entries only gain status lines;
+  - the run folder lives in the repo and ignores itself; the manifest, which names session ids, lives in the data
+    folder;
+  - a discarded dream's sessions return to the next one.
+  - **Added here: stray writes.** `finish` restores every map file Claude changed directly (not through the staged
+    proposals) to its snapshot, removes map files and live rules or skills that appeared during the dream, and says so.
+- **Checks:**
+  1. *The self-test, on synthetic JSONL only:*
+     - a stream of 50 MB or more;
+     - an injected quote that rests only on R lines (dropped);
+     - secrets (dropped);
+     - a quote found only in an ignored file (dropped);
+     - a committed entry deleted directly (restored);
+     - a live rule and a topic file written directly (removed);
+     - an unscoped rule and bad front matter (dropped);
+     - a skill missing its flag (the flag added);
+     - a dirty map snapshotted, and restored by abort byte for byte;
+     - a second prepare while one runs (refused);
+     - a stale lock (taken over);
+     - the session and byte caps;
+     - the watermark: it advances on finish, and returns after the log line is discarded;
+     - nothing from a transcript left in the repo after finish.
+  2. *S1's bars, re-run on the product:* fresh histories as in S1, then `claude -p "/second-brain:dream"` with the
+     plugin, on Opus 5.5. The bars are S1's, read on the product's output:
+     - entries carrying `proposed:`;
+     - the rule and the skill as drafts;
+     - C1-C3 in at least 8 of 10;
+     - the rule, the skill and the choice in at least 4 of 5;
+     - noise at most 1 per run;
+     - wrong status lines in fewer than 2 of 10;
+     - the nonce in 0 of 5.
+  3. *Drafts never load:* in `manual`, `acceptEdits` and `auto`, a session touching a file a `*.md.draft` rule's
+     `paths:` matches never loads it (InstructionsLoaded), and a `SKILL.md.draft` skill never lists.
+  4. *A security review* of the dream (the `/security-review` skill and an agy round), and *CI*.
+
+#### S7: amendments from the security review (registered 2026-11-20, before their code)
+
+The first agy round of check 4, on the build that passed check 1's self-test and check 3, found two data-loss paths and
+several gaps. Check 1's self-test result was seen before these amendments; the bars of checks 1-3 do not change, and
+the cases below are added to check 1. That build never reached `plugin/`.
+
+- **The surface, changed:** the dream runs as its own command, `node scripts/dream.mjs <prepare|finish|abort> <data>`,
+  not as three `hook.mjs` cases, so no hook pays to load it. The skill's lines call it.
+- **The snapshot and the run record move to the plugin's data folder.** `.project-map/.dream-run/` keeps only the
+  digests and the staged proposals (P2). `run.json` records the repo root. `finish` and `abort` refuse, before they
+  change anything, when the run record is missing, names another root (a linked worktree shares the state folder), or
+  its snapshot or a manifest digest is missing. (Found: a missing `.dream-run/snapshot`, as after `git clean -X`, made
+  `finish` delete every map file.)
+- **Nothing is destroyed.** Every file `finish` or `abort` restores or removes is first copied to
+  `<data>/repos/<key>/undone/<time>/`, and the report names that folder. (Found: a capture made by another session
+  during a dream was overwritten by the restore.)
+- **The watched set,** restored or removed by `finish` and `abort` alike: map files; every file under `.claude/rules/`,
+  `.claude/skills/` and `.claude/agents/`, at any depth, drafts included; `CLAUDE.md`, `CLAUDE.local.md` and
+  `.claude/CLAUDE.md`. Not watched: settings files and `.claude/agent-memory/` (the user's own changes there during a
+  dream must stand), and `CLAUDE.md` files in subfolders (accepted, listed in the review).
+- **A stale lock** (more than two hours) is taken over without a restore: a restore days after a crash would revert
+  the captures and commits made since. The old run's snapshot moves to `undone/`, and prepare's report says which
+  watched files differ from it.
+- **The lock's age** is its file's mtime, not its content (a reader between create and write saw 0 and took a live
+  lock over).
+- **Write targets:** `finish` writes no file whose path, or any folder on it, is a symlink or resolves outside the
+  repo.
+- **Provenance, tightened for the dream only** (the read hook's `foundIn` stays as 2.2.0's): every ellipsis-separated
+  segment of a proposed quote has 3 or more words, so no segment goes unchecked.
+- **Entries:** a proposed entry keeps only its heading, its quote and the lines `id`, `source`, `when` and `review`. The
+  heading is cut to 80 characters, and `source` to 200.
+- **Status lines:** the id after `by` names an entry the map holds, or one this dream proposes; the text after the
+  colon is cut to 200 characters.
+- **The privacy scan, widened:** case-insensitive; absolute paths after `=`, `:` or `>`; the roots `/opt`, `/srv`,
+  `/mnt` and `/private`; UNC paths; `github_pat_` and `ASIA` keys. A new topic file's front matter is scanned too.
+- **Sessions:** a session whose `cwd` exists and belongs to another repo (a sibling folder sharing the encoded prefix,
+  or a nested repo) is skipped and marked seen. A `cwd` that no longer exists falls back to path containment, and is
+  skipped without being marked. The stream stops at the first foreign `cwd`.
+- **Check 1 gains:**
+  - a missing snapshot (`finish` and `abort` refuse, nothing changes);
+  - a run record from another root (refused);
+  - a capture made during the dream (moved to `undone/`, and the report names it);
+  - a live rule in a subfolder, an edited live rule, and a stray live rule left at `abort` (all undone);
+  - a symlinked map file (not written through);
+  - a quote with a two-word segment (dropped);
+  - a status line naming an unknown id (dropped);
+  - an extra line in an entry (stripped);
+  - private data in a new topic file's front matter (dropped);
+  - a sibling repo's and a nested repo's sessions (skipped and seen);
+  - a stale takeover (the old snapshot is in `undone/`, and the report names the differing files).
+- **Before check 2's counted runs:**
+  - the skill's text states the tightened rules;
+  - one uncounted product smoke;
+  - a second agy round on the amended code;
+  - one auto-mode probe of the analyzer: an R-line instruction to read a canary file outside the repo. P2 covered only
+    `manual` and `acceptEdits`. The outside reads are recorded as an accepted risk only if the canary is read in 0 of
+    3 runs.
+
+### 3, S8: the status skill (registered 2026-11-20, before its code)
+
+- **The surface:**
+  - `/second-brain:status` (`disable-model-invocation: true`). Its `` !` `` line runs
+    `node scripts/status.mjs <data>`, a command of its own like the dream's, so no hook loads it;
+  - the skill tells Claude to show the report as it is, then name the next step (`/map-review`, or
+    `/second-brain:dream` when one is due), and to change no file.
+- **The report** (no model and no network; it spawns only git; map.mjs is unchanged, so the hooks keep their bytes):
+  - *the team memory:*
+    - entries and files;
+    - the date of the last commit that touched `.project-map/`;
+    - its uncommitted changes;
+  - *dreams:*
+    - the last dream's date;
+    - the sessions since, counted as `dreamDue` counts them;
+    - `dreamDue`'s line when a dream is due;
+  - *waiting for review:* `waiting()`'s counts;
+  - *agent memory:* uncommitted changes under `.claude/agent-memory/`;
+  - *stale entries,* each with its file, its number and its heading. It lists the read hook's labels "review due
+    since", "not found word for word in", "cannot read" and "replaced by …, which the map does not hold". It also
+    lists a source changed since verified: an entry whose `verified:` date is earlier than the last commit touching
+    the tracked file its source names (`git log -1 --format=%cs -- <path>`), with both dates;
+  - *retired:* entries with a status line, counted;
+  - *current:* the rest, counted.
+- **Check, the self-test,** on a fixture repo:
+  - an entry whose review date has passed is listed;
+  - an entry whose source file was committed after its `verified:` date is listed with both dates;
+  - an entry whose quote is not in its source is listed;
+  - a current entry is not listed, and is counted as current;
+  - a superseded entry is counted as retired, not listed;
+  - 3 unseen transcripts are counted;
+  - a committed map gives its commit date;
+  - an uncommitted agent-memory file, a proposed entry and a draft are counted;
+  - a repo with no `.project-map/` says so and points to `/second-brain:setup`.
+
+### 3, S8: the acceptance check's route, amended (registered 2026-11-20, before any run)
+
+The registered route cannot run as written. A session in an isolated `CLAUDE_CONFIG_DIR` cannot log in (P4), and
+copying the user's credentials was declined. The marketplace install itself needs no login (checked 2026-11-20, CLI
+2.1.305: `marketplace add` and `plugin install`, at project scope, both succeed in an empty config folder). The route,
+changed before any run:
+
+- **Check 0, the install.** The candidate is installed as a user installs it, in each run's brand-new repo, into an
+  isolated `CLAUDE_CONFIG_DIR`:
+  - `claude plugin marketplace add <a clone of the candidate> --scope project`;
+  - `claude plugin install second-brain@second-brain --scope project`.
+
+  Both must succeed, and the installed copy's files must equal the candidate's `plugin/` byte for byte, in 5 of 5.
+- **The sessions** run under the user's own login:
+  - `--plugin-dir` set to that installed copy;
+  - `--setting-sources project,local`;
+  - the install's `.claude/settings.json` set aside first. It names the marketplace, and the user's own config holds
+    one of the same name, so a second copy would load.
+- **Items 1-7 and their bars are unchanged.** How each is read is fixed in `probes/V2-D29-setup/e2e.mjs`, committed
+  with this amendment:
+  - *aware:* the reply names `.project-map` and at least 3 of `source`, `id`, `verified`, `when` and the quote;
+  - *capture:* an entry holding the stated decision has `id`, `source` and `verified` lines in a topic file;
+  - *rule:* `InstructionsLoaded` reports `.claude/rules/project-map.md`;
+  - *agent:* an Agent call with subagent type `decision-checker`, and a reply that names `widgets-home` or
+    `src/widgets`;
+  - *dream loop:* three sessions without the plugin state the decisions. Then:
+    - the dream's map entries carry `proposed:`;
+    - a `*.md.draft` rule exists and `InstructionsLoaded` never reports it;
+    - a `PostToolUse` hook output in the next session holds "proposed by a dream";
+  - *nudge:* the `SessionStart` hook output's `systemMessage` holds "a dream is due", and its `additionalContext`
+    does not.
+- Before the 5 counted runs, the candidate passes CI, and one uncounted run checks the probe itself.
+
+### 3, S7: check 2, attempt 1 failed; attempt 2 registered (2026-11-20, before its runs)
+
+**Attempt 1** (10 runs, Opus 5.5, CLI 2.1.305, from the build that passed check 1, check 3 and check 4's fixes;
+`results/s7-product-a1.json`) failed as written: the rule in 3 of 5, against a bar of 4. Every other bar was met:
+- C1-C3 in 9 of 10;
+- the skill and the choice in 4 of 5;
+- noise 0 in every run;
+- wrong status lines 0;
+- the nonce 0 of 5;
+- live rules 0;
+- $5.76 for 10 dreams.
+
+Two runs missed:
+- **Run 2:** the dream filed the repeated date correction as a map entry and staged no rule. That is a model choice,
+  and within the bar's one allowed miss.
+- **Run 4** never finished, and is the failure. The session staged every proposal, the rule included, but its finish
+  command was refused ("This command requires approval"). In that run alone (1 of 13 dreams so far) Claude ran the
+  analyzers with `run_in_background`, 18 of 18 calls. The turn ended, the session resumed on the analyzers'
+  notifications, and a skill's `allowed-tools` grant does not outlive its turn:
+  - `probes/V2-D31-dream/grant2.mjs`: in a session resumed with `--continue`, the same `ok.mjs` call the skill's turn
+    ran was refused, in 2 of 2 runs;
+  - the docs (skills, "Pre-approve tools for a skill"): the grant holds "during the turn that invokes the skill" and
+    "clears when you send your next message".
+
+  The old `Bash(node:*)` grant would have failed the same way.
+- **No setting pins the analyzer to the foreground.** Agent front matter has only `background: true`, so the skill's
+  text is the one lever.
+
+**Attempt 2** changes one thing:
+- **The dream skill's step 1** now says: send up to 4 Agent calls in one message with `run_in_background` false, wait
+  for their results, and do every step, finish included, in this one turn, because the finish command's permission
+  ends with the turn.
+- **Step 5** adds: if finish asks for approval, ask the user to approve it.
+- **Run 2's miss is left as it is.** The rule wording is not tuned on a seen result.
+
+The method:
+- the bars are attempt 1's, unchanged;
+- 10 new runs, in a new scratch folder, written to `results/s7-product-a2.json`;
+- the scorer, committed with this registration, also reports per run the background analyzer calls (`bgAgents`) and
+  the turns the run took (`turns`).
+
+**What 10 clean runs will not show:** background calls came in 1 of 13 dreams, so ten runs without the fix would also
+come back clean about 4 times in 10. The result will report how many runs used background calls, and will not claim
+the fix as proven by a clean count alone.
+
+### 3, S7: result (2026-11-20): pass
+
+The dream product (D31): `/second-brain:dream`, the `dream-analyzer` agent, and `scripts/dream.mjs` (prepare, finish
+and abort), run as its own command. Product hash `81768634263b`.
+
+1. **Check 1, the self-test on synthetic JSONL:** passes. It covers:
+   - every registered case;
+   - every case from the amendments;
+   - the cases added for check 4's findings, below.
+
+   A mutation check removed each check-4 fix in turn: every fix's case then fails. On Windows the file-link case is
+   skipped, since making the link needs a privilege. CI's Linux and macOS runs exercise it, and a folder junction
+   covers folder links on every system.
+2. **Check 2, S1's bars on the product:** attempt 1 failed, and attempt 2 passed every bar.
+   - **Attempt 1** failed with the rule in 3 of 5 (cause and fix in the attempt-2 registration above).
+   - **Attempt 2** (`results/s7-product-a2.json`): 10 runs on Opus 5.5, CLI 2.1.305, all finished.
+
+   | Bar | Result |
+   |---|---|
+   | C1-C3, at least 8 of 10 | 10 of 10 |
+   | The rule, the skill and the choice, at least 4 of 5 each | 5, 5 and 5 of 5 |
+   | Noise, at most 1 per run | 0 in every run |
+   | Wrong status lines, fewer than 2 of 10 | 0 of 10 |
+   | The nonce | 0 of 5 |
+   | Live rules | 0 |
+   | Usage | $5.73 for 10 dreams |
+
+   No run used background analyzer calls, and every run took one turn. As registered, this is consistent with the fix
+   but does not prove it: without the fix, ten runs would also come back clean about 4 times in 10.
+3. **Check 3, drafts never load:** pass (`results/s7-drafts.json`, Haiku 5.5). In `manual`, `acceptEdits` and `auto`:
+   - the `*.md.draft` rule was never reported by `InstructionsLoaded`;
+   - the `SKILL.md.draft` skill was never listed;
+   - its nonce never landed;
+   - the control rule loaded each time.
+4. **Check 4, the security review:** two agy rounds, `/security-review`, and the probes below. What they found, and
+   the fixes, each with its self-test case:
+   - *agy, round 1* found two data-loss paths and several gaps. The amendments above fixed them, registered before
+     their code.
+   - *agy, round 2*, fixed:
+     - the privacy scan now sees paths after `[`, `,`, `{` and `;`, ids or keys behind `_`, and JWT, Google, GitLab
+       and npm tokens; it also checks proposal file and folder names;
+     - a link that appears under the watched folders is removed, and a folder of the watched set that resolves outside
+       the repo is never walked;
+     - a map folder that is a link out of the repo is refused at prepare;
+     - "$" patterns in a status line stay as text;
+     - a pending dream is judged in the worktree that made it;
+     - abort with no run record refuses a lock another worktree holds;
+     - a session whose cwd folder is gone is judged by the nearest existing folder's repo.
+
+     Dismissed: a session that changes `cwd` midway belongs to the repo it started in.
+   - *`/security-review`*, three findings, all fixed:
+     1. *Provenance read files the session can write* (confidence 9).
+        - Each digest's hash is kept in the run record, in the data folder, and finish refuses a changed digest.
+        - Repo sources are read from HEAD's blobs, without links, not from the working tree.
+        - The skill's grant is narrowed from `Bash(node:*)` to its own script. `grant.mjs`: the narrow grant runs the
+          script, and refuses `node -e`, which the broad grant let through.
+     2. *A new topic file's front matter, and status lines, skipped provenance* (confidence 7).
+        - A new topic file gets fixed front matter.
+        - A dream's status line carries `- proposed: dream`.
+        - `/map-review` rejects one by removing just that line.
+     3. *The restore covered less than the skill said* (confidence 7).
+        - The watched set adds `.claude/commands/`, `.claude/output-styles/` and `.mcp.json`.
+        - Settings files are reported, not restored, since an "always allow" the user gives during the dream lands
+          there.
+
+     Two shapes the review left unverified are closed:
+     - a Q line now needs its call to be AskUserQuestion;
+     - sidechain user records are dropped.
+   - *Probes:*
+     - `canary.mjs`: in `auto` mode, an R line asking the analyzer to read a file outside the repo was followed in 0
+       of 3 runs, and not attempted;
+     - `grant2.mjs`: a skill's grant ends with its turn, the cause of attempt 1's run 4.
+   - *Accepted, recorded for the README's known issues:*
+     - the digests sit in the repo's ignored run folder (P2);
+     - rule and skill draft bodies are not checked against what was typed, since they stay inert until a person
+       promotes them;
+     - `CLAUDE.md` files in subfolders are not watched;
+     - the privacy scan matches patterns, so a secret of another shape can pass;
+     - a user who types during a dream ends its turn, and finish then asks for approval.
+
+   CI runs on the commit that lands this build.
+
+**Step gate.**
+- *Produced:*
+  - the dream product;
+  - its self-test cases;
+  - check 2's passing attempt;
+  - check 3's result;
+  - the security fixes and probes.
+- *Doubted:*
+  - whether the foreground instruction holds outside these 10 runs, since background calls came in 1 of 13 dreams
+    before it;
+  - CI on macOS and Linux, where the link cases run.
+- *Next needs:* S8.
+
+### 3, S8: what the uncounted run and the reviews changed (registered 2026-11-20, before the counted runs)
+
+**The uncounted acceptance run** (candidate `f454bbd`, CLI 2.1.305, Opus 5.5) met check 0 and items 1, 2, 3, 4 and 7.
+It missed two:
+- **Item 5, the agent** (product). Claude named `widgets-home`, but checked the change itself and never called
+  `decision-checker`. S5 had always named the agent in its prompts, and nothing a session always loads tells Claude
+  the agents exist. The fix:
+  - the `CLAUDE.md` template's Team memory section names `decision-checker` for checking a change or plan against
+    the decisions, and `codebase-guide` for where-is questions. That section is also the block setup proposes for an
+    existing `CLAUDE.md`;
+  - `decision-checker`'s description now says to use it whenever someone asks for that check.
+- **Item 6, the dream loop** (the probe). The three sessions without the plugin ran after setup. Setup's `CLAUDE.md`
+  told Claude to record decisions even without the plugin, so the decisions were captured and the dream rightly
+  proposed nothing. `e2e.mjs` now runs those three sessions before setup, where nothing tells Claude to capture: a
+  repo's history from before the plugin came in. The item's bar and its reading are unchanged.
+
+**/code-review** (high, everything in `plugin/` since 2.2.0) found 12 issues. All are fixed, each with a self-test
+case, and a mutation check confirms each case fails without its fix:
+- a pruned-away worktree's missing folder made prepare throw;
+- the dream appended UTF-8 text to a UTF-16 map file; it now skips such a file, and status decodes UTF-16 as the read
+  hook does;
+- the log line's survival counts compared the dream's UTC date with local dates; the dream's local date is now kept;
+- the dream's own session was never recognized (Claude Code records the command as a command record), so its later
+  turns fed the next dream; it is now marked seen for good;
+- sessions with no working folder recorded, or a vanished folder outside the repo, were never marked seen, so the
+  nudge could never clear. They are now marked seen. A vanished folder inside a transcript folder that session start
+  learned, such as a removed worktree's, counts as this repo's and is read;
+- a discarded dream gave back its sessions but not its date;
+- a skill draft flagged `false` kept both flags;
+- a quote from Claude's question text alone passed as typed; a quote resting on a Q line must now hold the answer
+  chosen;
+- the map README's example parsed as an entry;
+- a rule draft could take a live rule's name, so promoting it would replace that rule;
+- a status line on an entry that ends its file without a newline was counted but not written;
+- setup's link guard checked only the top folder.
+
+**The dream changed after S7 passed,** so S7's check 2 runs again in full on the final build, at its bars, into
+`results/s7-product-a3.json`. The 5 counted acceptance runs follow, then the tag.
+
+**The devils-advocate workflow** (five lenses, refute-first, 48 agents) ran on the S8 candidate: 43 findings raised, 29
+survived refutation. Eleven repeat `/code-review`'s findings above. The rest are fixed, each with a self-test case
+that fails without its fix:
+- **The dream's command now refuses a data folder inside the repo or outside Claude Code's `plugins/data`.** The
+  skill's grant allows the command with any arguments, so a session could point finish at a run record it forged and
+  have it "restore" `.claude/settings.json` or a git hook. A run record naming any path the dream never watches is
+  refused as well.
+- **A link at a watched folder's own path** (`.claude/rules` itself, `.claude`, the map folder) is removed when it
+  appears during a dream, and the folder's files come back from the snapshot.
+- **The privacy scan** catches Git Bash and Cygwin paths (`/c/Users/…`, `/cygdrive/c/…`).
+- **A commit made during the dream is no source:** the tracked sources are HEAD as prepare found it.
+- **`/second-brain:status` checks every entry, as the read hook labels every entry.** A narrowed entry still binds in
+  part. The report also leaves `.git/index` alone (`--no-optional-locks`).
+- **A repo that never ran setup has no `/map-review`.** The waiting line, the dream's next step and its refusal now
+  point to `/second-brain:setup` first.
+- **Session start tells the user,** in one `systemMessage` line, when a dream holds the repo's lock: one running in
+  another session, or one stopped before it finished. The dream skill offers to abort the old one.
+- **Setup creates nothing outside the top of a git repo.** In a home folder it would have written Claude's
+  user-level `.claude/`.
+- **finish writes the state last,** so a retried finish cannot overwrite the first run's `prevSeen`.
+- **Only the dream's own invocation** marks a session as the dream itself. Before, any typed line starting with
+  "dream" did.
+- **The self-test's PM6 and PM8 checks** cover the skills, the agent and the templates: each names its outcome, and
+  their lines are counted.
+- **CI's gated bench** runs session start with the plugin's data folder and 300 unseen transcripts, so the nudge's
+  work is timed on every system.
+- **The record is corrected:**
+  - the D31 ledger line lost "$5" to a shell;
+  - section 3's budget row says "a repo shaped like 2.2.0 stays byte-identical", but since S4 session start carries
+    instruction v3 (1,765 B, not 1,349 B). What stays byte-identical for such a repo is its labels;
+  - the release notes say that 2.2.0 repos get the new instruction, and that a repo with 10 or more unseen
+    transcripts gets the nudge at its first session start.
+- **Recorded, not fixed:**
+  - status repeats the read hook's stale conditions rather than sharing `labels()`, whose output must stay
+    byte-stable. Both now check every entry;
+  - PR #116 (to main, titled 2.2.0) has the `v2` branch as its head, so merging it now would ship this unfinished
+    work. It is retitled for 2.3.0 at the tag, and the user merges.
+
+**S7's check 2, run again on the reviewed build** (`3c9e2d01cea8`, `results/s7-product-a3.json`, 10 runs, Opus 5.5)
+passed every bar:
+- C1-C3 10 of 10;
+- the rule, the skill and the choice 5 of 5 each;
+- noise 0; wrong status lines 0; the nonce 0 of 5; live rules 0;
+- no background analyzer call, one turn per run;
+- $5.73.
+
+The answer-holding rule for Q quotes and the dream-session fix cost no bar.
+
+**The acceptance probe, two more changes from the uncounted runs** (item 6's reading and every bar unchanged):
+- **The history sessions cannot write `CLAUDE.md` or `.claude/`.** In the second uncounted run, Claude wrote a
+  "from now on" rule into a new `CLAUDE.md`. Setup then met an existing file, not item 1's brand-new repo, and offered
+  its Team memory block only as a "For you" item, which a headless run cannot accept. With the history kept out, the
+  third uncounted run's `CLAUDE.md` came from setup, and Claude used `decision-checker` (item 5 passed). Each run
+  records `claudeMdBeforeSetup`.
+- **Item 6's history follows S1's R1 and R2:** two sessions where the user corrects Claude's date code in a second
+  turn, plus the ApiError decision. A rule stated up front is a decision, and the dream rightly filed it as an entry,
+  so the third uncounted run had entries but no rule draft. The skill drafts a rule only from a correction that
+  repeats.
+- **Item 6's first turns ask for `toLocaleDateString`,** so each second turn is a real correction. In the fourth
+  uncounted run, with the helper in the repo, Claude used `formatDate()` at once. The "No…" then corrected nothing;
+  the analyzers filed it as a decision, and the dream rightly drafted no rule.
+
+### 3, S8: the acceptance check, attempt 1 failed; its focused probe registered (2026-11-20, before it runs)
+
+**Attempt 1** (candidate `087e2ac`, CI green, 5 runs, Opus 5.5, CLI 2.1.305; `results/s8-e2e-a1.json`; $10.54) met
+every item but one:
+
+| Item | Result | Bar |
+|---|---|---|
+| Check 0, the install (bytes equal to the candidate's) | 5 of 5 | 5 |
+| Layout | 5 of 5 | 5 |
+| Aware | 5 of 5 | ≥ 4 |
+| Capture | 5 of 5 | ≥ 4 |
+| Rule | 5 of 5 | 5 |
+| **Agent** | **2 of 5** | ≥ 4 |
+| Dream loop | 4 of 5 | ≥ 4 |
+| Nudge | 5 of 5 | 5 |
+
+This is the acceptance check's first strike of three.
+
+- **Agent: the cause.** The reply named the entry in 5 of 5, but `decision-checker` was used in only 2.
+  - Every run that delegated (counted runs 1 and 2, uncounted runs 3 to 5) read at most two files before the Agent
+    call, or none.
+  - Every miss read 4 to 6 files first, then answered itself. The plugin's own forced decision drives that reading
+    ("read the yes directories"). Once the map has been read, the `CLAUDE.md` pointer gives no reason to delegate.
+  - In one miss the index listed `.claude/agents/` as a document directory. Claude read `decision-checker.md` itself
+    and followed it.
+- **Dream loop: run 5's miss is the model's, and is left alone.** Its history matched run 1's: the first turn wrote
+  `toLocaleDateString`, and the correction followed. Its analyzers returned both date corrections. The main session
+  filed them as an entry rather than drafting a rule. The rule wording is not changed.
+
+**The focused probe** (`probes/V2-D29-setup/agent-probe.mjs`, committed with this registration):
+- **Item 5 alone, three arms,** each a plugin build:
+  - *control:* the attempt-1 candidate;
+  - *C:* the `CLAUDE.md` pointer says to hand the check to `decision-checker` even after reading the map, and why
+    (it also checks `.claude/rules/`, and keeps notes on what earlier checks missed);
+  - *AC:* C, plus an index that leaves out the `.md` files under the root's `.claude/agents/`, `skills/`, `commands/`
+    and `output-styles/`. Claude Code loads those itself, as it loads `.claude/rules/`, which the index already
+    leaves out.
+- **The method:**
+  - each arm's repo is built as attempt 1's was at item 5: the app, setup run by its hook command, the widgets
+    decision and a captured prices entry, all committed;
+  - each run starts from a fresh copy;
+  - two prompts: the counted one, and one worded differently; 5 runs each, 10 per arm;
+  - Opus 5.5, acceptEdits.
+- **The decision rule:**
+  - an arm qualifies when Claude delegates and names the entry in at least 9 of its 10 runs. That is the rate that
+    clears 4 of 5 reliably;
+  - the smaller change wins, C before AC;
+  - AC changes hook output, so it would also need the hook-step checks before any counted run: the diff harness at 0
+    differences for repos without those folders, the bench, and an agy round;
+  - **if no arm qualifies,** no strike is spent on wording. The question goes to the user: should item 5 require
+    delegation, or should the checker be one the user invokes?
+- **Then attempt 2:** 5 new counted runs, in a new scratch folder, on a CI-green candidate. S7's check 2 is not
+  re-run: neither arm changes `dream.mjs`, the dream skill or the analyzer.
+
+**The focused probe's result** (`results/s8-agent-probe-{control,C,AC}.json`; $7.3):
+
+| Arm | Delegated | Named | Tool calls before the Agent call |
+|---|---|---|---|
+| control | 9 of 10 | 10 of 10 | 0 in 8 runs; the run that read 5 files first answered itself |
+| C | **10 of 10** | 10 of 10 | 3 to 5 in every run, and it still delegated |
+| AC | 10 of 10 | 10 of 10 | 2 to 4 |
+
+- **By the registered rule, C qualifies and is the smaller change, so C goes in:** the `CLAUDE.md` template's pointer
+  now says to hand a check to `decision-checker` even after reading the map, and why. Product hash `a4a4a64f5099`.
+  AC is not adopted. Its index change stays a candidate for a later release, with the hook-step checks it needs.
+- **What the probe shows, and what it does not:**
+  - The control arm also reached 9 of 10 here, mostly by delegating before reading anything. So this setting does
+    not reproduce attempt 1's rate, and the probe cannot say how often attempt 2 will delegate.
+  - It does show C holding delegation through attempt 1's failure pattern: in C, Claude read 3 to 5 files first and
+    still delegated in 10 of 10.
+  - Attempt 2 decides.
+
+### 3, S8: result (2026-11-20): pass
+
+- **The status skill:** its self-test passes every registered fixture case, plus the review cases (a narrowed entry
+  checked, UTF-16 decoded, `.git/index` untouched). A live smoke on a dreamed repo printed the report under the
+  skill's script-only grant.
+- **Every skill and command grants only its own script.** The self-test pins this; `grant.mjs` shows the narrow form
+  works and the broad one let `node -e` through.
+- **The reviews:**
+  - `/code-review` (12 findings) and the devils-advocate workflow (29 that survived refutation) are all fixed, each
+    with a self-test case shown by a mutation check to fail without its fix, or recorded above;
+  - S7's check 2 passed again on the reviewed build (`s7-product-a3.json`);
+  - CI is green on all three systems for the final candidate. CI's gated bench now includes the nudge's work: session
+    start added 55.4 ms on macOS and 61.9 ms on Windows at 1 session, after one noisy run went over 100 ms on hooks
+    this change does not touch.
+- **The user's acceptance check** (`results/s8-e2e-a2.json`; candidate `b8248dc`, product `a4a4a64f5099`, CLI 2.1.305,
+  Opus 5.5, 5 runs, $11.32) passed at attempt 2:
+
+  | Item | Result | Bar |
+  |---|---|---|
+  | Check 0: installed as a user installs it, bytes equal to the candidate's | 5 of 5 | 5 |
+  | 1. Layout: D29's files, Anthropic's rules met, a second setup creates nothing | 5 of 5 | 5 |
+  | 2. Aware: names `.project-map/` and the entry format | 5 of 5 | ≥ 4 |
+  | 3. Capture: a decision stated in passing, with `id`, `source` and `verified` | 5 of 5 | ≥ 4 |
+  | 4. Rule: the starter rule loads on a map read | 5 of 5 | 5 |
+  | 5. Agent: `decision-checker` used, and the entry named | **5 of 5** | ≥ 4 |
+  | 6. Dream loop: proposals, a rule draft that never loads, labels next session | 4 of 5 | ≥ 4 |
+  | 7. Nudge: in `systemMessage`, not in Claude's context | 5 of 5 | 5 |
+
+  Attempt 1 had failed item 5 (2 of 5), its first strike; the cause and the fix are above. Item 6's one miss in each
+  attempt is the model filing a repeated correction as an entry, which its bar allows.
+
+**Step gate.**
+- *Produced:*
+  - `/second-brain:status`;
+  - script-only grants;
+  - the reviewed 2.3.0 build;
+  - the acceptance check, passed;
+  - S7 re-confirmed.
+- *Doubted:*
+  - item 6 sits on its bar in both attempts;
+  - the agent rate in other repos;
+  - the index still lists `.claude/agents`, `skills`, `commands` and `output-styles` (the AC arm, left for a later
+    release).
+- *Next needs:* the user merges PR #116 to main, which carries 2.3.0.
+
+### 3, S8: the release's own checks on the final hook code (registered 2026-11-20, before the tag)
+
+The advisor's release review asked for three checks on the code as it stands. `hook.mjs` and `map.mjs` changed after
+S6's bench, and the post-review security code had not been read by an outside reviewer.
+- **The diff harness** (S6's build `faf872a` against the final build, 60 generated 2.2.0-shaped repos): 582 hook
+  calls, 0 differences.
+- **agy, two rounds** (split after a single round timed out):
+  - **write safety:**
+    - a link named `plugins/data`, or any outside folder so named, passed the data-folder test, which matched on the
+      name;
+    - a watched folder that was a link before the dream, then retargeted, let the restore delete or write through
+      it, as far as `.git/hooks`;
+    - forged paths with a backslash, `.` or empty segments, or a nested run-folder path, passed `watchable`;
+  - **provenance, setup, status:**
+    - in an unborn repo, the pin fell back to `HEAD` at finish;
+    - a quote of Claude's question alone passed when the answer's word also occurred in it;
+    - paths after `_` or `*` passed the privacy scan, which also ran after `tidy` cut lines;
+    - a dangling link defeated setup's guard;
+    - a home folder kept in git was taken for a project;
+    - status: holds.
+
+  All are fixed, each with a self-test case, and a mutation check confirms each case fails without its fix:
+  - no link on the way from the repo root is ever traversed, though a link that was there is kept;
+  - the data folder is tested on real paths under Claude Code's own `plugins/data`;
+  - `watchable` rejects every irregular segment, and snapshot entries must be regular files;
+  - the pin uses `rev-parse --verify` (in an unborn repo, plain `rev-parse` prints "HEAD" itself, which the test
+    caught);
+  - a Q-based quote must hold `<question> = <answer>`, with the answer chosen word for word;
+  - the privacy scan sees paths after `_`, `*`, `~` and `|`, reads the whole entry before `tidy`, and reads it
+    again after the id is made;
+  - setup walks by `lstat` and fails closed, and refuses a home folder.
+- **Which checks run again on the new candidate:**
+  - the self-test and CI;
+  - S7's check 2 in full, because `chosen()` and the privacy scan act on every dream;
+  - one uncounted acceptance run, as a smoke of the normal flow. Its counted runs are not repeated: these fixes
+    change behaviour only for links, home folders, unborn repos and Q quotes, none of which the acceptance check's
+    repo has.
+- **The 8-session bench on the reference machine** (D18) runs when the machine is in its reference state. At the
+  time of this registration, the user's own applications held the CPU at about 19%, above the 10% that state
+  requires. The tag waits for it, or for the user's word.
+
+**S7's check 2 on the release-round build** (`3650f785f984`, candidate `655d384`, `results/s7-product-a4.json`, 10
+runs, Opus 5.5) passed every bar:
+- C1-C3 10 of 10;
+- the rule 4 of 5, the skill and the choice 5 of 5 each;
+- noise 0; wrong status lines 0; the nonce 0 of 5; live rules 0;
+- no background analyzer call, one turn per run;
+- $5.93.
+
+In the one run without a rule draft (run 5), finish dropped nothing: the dream filed the repeated date correction as
+a map entry, a choice the release round's fixes do not reach. CI passed on `655d384`.
+
+**The uncounted acceptance smoke on `655d384`** (one run, the pinned CLI, Opus 5.5) passed all seven items:
+- install from the marketplace, 2.3.0, the installed copy byte-identical;
+- the layout, with a second setup that created nothing;
+- awareness, capture, the scoped rule, `decision-checker` used and the entry named;
+- the dream: 2 proposed entries and a draft, labelled and never loaded;
+- the nudge in the user's line only;
+- $2.27.
+
+### 3, S8: the reference bench, registered (2026-11-22, before it runs)
+
+The release check D18 requires before each release (S8's release checks, above), on the final candidate.
+- **Builds.**
+  - *Candidate:* `plugin/` at `655d384`, product `3650f785f984`.
+  - *Control:* `plugin/` exported from tag `v2.2.0`.
+  - Each is hashed before the run as the eval does (every file but `test/`). A hash that differs voids the run.
+- **Fixture:** S6's setup, rebuilt fresh:
+  - `plugin/test/fixture.mjs`, the synthetic repo of P2's shape;
+  - `plugin/test/benchmap.mjs`, its 30-entry map;
+  - `probes/V2-D30-entries/benchprep.mjs`, the nudge's worst case: 300 unseen transcripts in two known folders.
+- **Run:** `pairbench.mjs`, 200 calls per hook kind, at 1 and 8 concurrent. Empty Node, the control and the candidate
+  are interleaved call by call in one pool.
+- **Reference state (D18):**
+  - a 10-second CPU sample of at most 10%, taken just before the run;
+  - empty Node's p95 at 8 concurrent at most 100 ms, read from the run's own `emptyP95` at `@8`.
+  
+  A run outside that state is void, not failed. It is reported, and the bench runs again in a later window. No agent,
+  agy call or other bench runs at the same time.
+- **Pass:**
+  - every hook kind's added p95 (`candidateAdded`) is at most 100 ms, at 1 and at 8;
+  - errors are 0.
+  
+  A miss is a failed attempt under rule 4.
+
+### 3, S8: the reference bench, result (2026-11-22): pass
+
+- **Builds hashed before the run:** candidate `3650f785f984` (`plugin/` at `655d384`), control `ee8625f06842` (`v2.2.0`).
+  Both match.
+- **Reference state:** the CPU sample was 4.6% over 10 seconds, just before the run. Empty Node's p95 at 8 concurrent
+  was at most 49.0 ms.
+- **Added p95 in ms, 2.2.0 against 2.3.0,** 200 calls per hook kind, with the nudge's 300 unseen transcripts:
+
+  | | session start | prompt | read-other | read-map | bash-map | bash-other |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | @1 | 28.2 / 37.1 | 7.1 / 10.2 | 6.1 / 9.9 | 33.7 / 37.4 | 34.1 / 38.2 | 34.2 / 38.7 |
+  | @8 | 41.2 / 55.0 | 16.4 / 21.7 | 15.4 / 18.8 | 46.9 / 54.1 | 51.8 / 58.1 | 55.3 / **62.7** |
+
+- Every hook is within 100 ms, with 0 errors. 2.3.0 costs 3 to 14 ms per hook over 2.2.0, as S6 measured.
+- Record: `probes/V2-D30-entries/results-s8-reference.json`.
+
+### 3, S8: the documentation review before the merge (2026-11-22)
+
+A review, not a check with a bar: nothing was registered for it, and it changes no product file. `plugin/` stays at
+`3650f785f984`, the build every S8 check ran on.
+- **What looked:**
+  - two agy sweeps (Gemini 4 Argon, read-only): the README and the shipped files against each other, then the
+    project's own docs against the ledger;
+  - a docs check of the plugin's manifests, hooks, skills, agents and rule against Claude Code's current
+    documentation;
+  - `claude plugin validate` (CLI 2.1.330) on the plugin and the marketplace: passed with one warning, no `author`.
+- **Fixed, outside `plugin/`:**
+  - `04-architecture.md` rewritten for 2.3.0, as its status line promised. Its byte counts were measured on a fresh
+    repo after setup (instruction 1,767 B, index 302 B, naming 304 B; the forced decision 227 B);
+  - the README: the user's three lines come at start and after `/clear` only, not after a resume or a compaction, as
+    `hook.mjs` gates them; accepting a proposal writes `origin`; a known issue for the mismatches below;
+  - the charter's status line and its account of the first act (setup, versioned entries, the dream);
+  - `.claude/CLAUDE.md` and the `v2-step` skill no longer say v1 is on `main`, or call this the concept phase. The
+    skill names `agy` for the second opinion, as rule 10 does;
+  - `05-eval-plan.md`: the investigation tasks joined A2.
+- **Confirmed against Claude Code's docs:** `if` on `PostToolUse` and `PostToolUseFailure`; `shell` and `args`;
+  `PostToolUseFailure`'s input; `systemMessage` shown to the user while `additionalContext` reaches Claude; skill
+  grants lasting only for the invoking turn; `disable-model-invocation`; `memory: project` under
+  `.claude/agent-memory/<name>/`, which needs auto memory on; `paths:` rules loading on a matching read.
+- **Not changed, with the reason:**
+  - the grants' `:*` form is not in the skills docs, which show ` *`. `grant.mjs` (S8) showed the narrow form allows
+    the script and refuses `node -e`, and the acceptance runs used it;
+  - `if` is best-effort in the docs. When it lets another Bash command through, the handler labels every
+    uncommitted entry: more text, never fewer labels.
+- **On record for the next release** (product text, so each needs its own registered step):
+  - N1: the analyzer's `failure` kind has no proposal type in the dream skill;
+  - N2: the starter rule names only `superseded`, while the other texts use four kinds; neither it nor the map's
+    README defines `origin`;
+  - N3: the status report sends stale entries to `/map-review`, which walks only entries whose review date passed;
+  - N4: `plugin.json` has no `author`, the validator's one warning.
+
+### 3, S8: 2.3.0 tagged (2026-11-22)
+
+- **Tag `v2.3.0`** on `b54129f`. Its `plugin/` and `.claude-plugin/` are byte-identical to `655d384`, and hash
+  `3650f785f984`. A draft release holds the notes.
+- **CI on `b54129f`:** every job passed in the pull-request run. In the push run, the macOS self-test hung after its
+  first line for 12 minutes (it takes about 40 seconds), with two `node` processes left. It was cancelled, and its
+  re-run passed in 44 seconds. The self-test prints only at its start and end, so the case that hung is unknown. It is
+  the only hang in this workflow's history, and the same code passed on the other macOS run.
+  - N5, for the next release: give every self-test `spawnSync` a timeout, so a hang fails with its case's name.
+- **`main`'s ruleset** (the user's choice): the required checks `linux` and `macos` belonged to v1's `ci.yml`, which
+  no longer exists, so no merge could pass without a bypass. They are now `selftest` on Ubuntu, macOS and Windows,
+  plus GitGuardian. `v2.yml` runs on pull requests to `main`.
+- **Next:** merge PR #116 with a merge commit, so the tagged commits stay in `main`'s history. Publish the release
+  drafts, then update both field installs and check their hash.

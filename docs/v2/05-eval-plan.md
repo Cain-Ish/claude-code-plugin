@@ -216,7 +216,7 @@ and two private repos (P1 and P2, published as counts only). The check and its p
 [probes/V2-D19-scale/results/a2.json](probes/V2-D19-scale/results/a2.json).
 
 - **Tasks:** D20's four, at pinned commits: a build task in each repo, and a plan task in P2. Their 27 rules have
-  deterministic checks. D22's six investigation tasks join when D22 locks.
+  deterministic checks. D22's six investigation tasks joined later, in A2 (below).
 - **Arms:**
   - **M1, the repo as it is run today:** its instruction files, rules, hooks and skills, plus the user's own auto
     memory where the user has one. Only P1 has one (14 notes), copied fresh into each run (arm `m`). In P2 and R0,
