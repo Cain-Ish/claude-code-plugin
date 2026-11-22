@@ -5256,3 +5256,17 @@ A review, not a check with a bar: nothing was registered for it, and it changes 
   plus GitGuardian. `v2.yml` runs on pull requests to `main`.
 - **Next:** merge PR #116 with a merge commit, so the tagged commits stay in `main`'s history. Publish the release
   drafts, then update both field installs and check their hash.
+
+### 3, S8: 2.3.0 on `main` (2026-11-22)
+
+- **PR #116 merged** as `a0e2a9e`, a merge commit with no bypass: every required check passed on its head
+  `3135de7`. `main` and `v2` held the same tree after it, and `v2.3.0` is in `main`'s history.
+- **Releases** 2.0.1, 2.0.2, 2.1.0, 2.2.0 and 2.3.0 published from their drafts. 2.3.0 is the latest.
+- **Installs from `main`:**
+  - an isolated 2.0.0 install at local scope updated to 2.3.0 with `marketplace update` and `plugin update`, and
+    hashed `3650f785f984`;
+  - the user's two field installs took the same commands, and their cached copy hashes `3650f785f984`.
+  
+  Running sessions keep the old hooks until `/reload-plugins` or a restart. The new layout reaches a field repo only
+  when its user runs `/second-brain:setup` there.
+- **Next:** the live tests (map issue step 22), then the next release with N1 to N5 and what they find (step 23).
