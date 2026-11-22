@@ -5241,3 +5241,18 @@ A review, not a check with a bar: nothing was registered for it, and it changes 
     README defines `origin`;
   - N3: the status report sends stale entries to `/map-review`, which walks only entries whose review date passed;
   - N4: `plugin.json` has no `author`, the validator's one warning.
+
+### 3, S8: 2.3.0 tagged (2026-11-22)
+
+- **Tag `v2.3.0`** on `b54129f`. Its `plugin/` and `.claude-plugin/` are byte-identical to `655d384`, and hash
+  `3650f785f984`. A draft release holds the notes.
+- **CI on `b54129f`:** every job passed in the pull-request run. In the push run, the macOS self-test hung after its
+  first line for 12 minutes (it takes about 40 seconds), with two `node` processes left. It was cancelled, and its
+  re-run passed in 44 seconds. The self-test prints only at its start and end, so the case that hung is unknown. It is
+  the only hang in this workflow's history, and the same code passed on the other macOS run.
+  - N5, for the next release: give every self-test `spawnSync` a timeout, so a hang fails with its case's name.
+- **`main`'s ruleset** (the user's choice): the required checks `linux` and `macos` belonged to v1's `ci.yml`, which
+  no longer exists, so no merge could pass without a bypass. They are now `selftest` on Ubuntu, macOS and Windows,
+  plus GitGuardian. `v2.yml` runs on pull requests to `main`.
+- **Next:** merge PR #116 with a merge commit, so the tagged commits stay in `main`'s history. Publish the release
+  drafts, then update both field installs and check their hash.
