@@ -45,7 +45,8 @@ locks: no hook blocks a write.
     entries due for review and proposals (2.3.0);
   - a short instruction to keep the project's decisions in `.project-map/`.
 
-  You, not Claude, also see three lines when they apply (2.3.0):
+  At session start and after `/clear`, not after a resume or a compaction, you (not Claude) also see three lines
+  when they apply (2.3.0):
   - *waiting for review:* what a dream proposed, and its drafts;
   - *a dream is due:* after 10 or more new sessions; or after 7 days with 3 or more; or when Claude Code's cleanup
     will delete unread sessions within 5 days;
@@ -347,7 +348,8 @@ Then remove them in this order:
   other clone or teammate sees them.
 - Edit or delete entries as you like.
 - **After a dream** (2.3.0), run `/map-review`. It walks you through:
-  - each proposed entry: accept it, or reject it;
+  - each proposed entry: accept it (its `- proposed:` line becomes `- origin: dream <date>`, with a `- verified:`
+    line), or reject it;
   - each draft rule or skill: promote it by dropping `.draft`, or delete it;
   - each entry whose review date has passed.
 
@@ -525,6 +527,10 @@ Then remove them in this order:
   session's tool output, asking the analyzer to read a file outside the repo, was not followed in 3 of 3 runs.
 - **Agent memory loads before review**, as Claude Code's own does. The starter agents are told to keep only working
   notes there.
+- **Small mismatches in 2.3.0's own texts,** fixed in the next release:
+  - `/second-brain:status` sends stale entries to `/map-review`, which walks only entries whose review date passed.
+    Ask Claude to check the others against their sources;
+  - the starter rule names only `superseded` for a status line; `narrowed`, `expired` and `done` work too.
 - **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
   name `second-brain`, so only one of them can be registered on a machine.
 

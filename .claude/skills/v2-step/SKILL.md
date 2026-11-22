@@ -1,11 +1,11 @@
 ---
 name: v2-step
-description: Run exactly one step of the second-brain v2 concept phase under docs/v2/01-process.md, then stop.
+description: Run exactly one step of second-brain v2 under docs/v2/01-process.md, then stop.
 disable-model-invocation: true
 argument-hint: "[optional: the step to run instead of the next one in the map issue]"
 ---
 
-# One step of the v2 concept phase
+# One step of second-brain v2
 
 Run **one** step, then stop and report. Small steps are the point: each one is doubted before it starts and leaves
 everything the next step needs. Step override from the user, if any: $ARGUMENTS
@@ -21,7 +21,7 @@ the work stands, which step you will run, and what it needs.
 ## 2. Readiness
 
 Check that every input of the step exists: files, research notes, the decisions it depends on (LOCKED), tools (`gh`
-auth, the browser, Gemini). If something is missing, stop and say what. Do not improvise around a missing input.
+auth, `agy` for a second opinion). If something is missing, stop and say what. Do not improvise around a missing input.
 
 ## 3. Doubt before doing
 
@@ -42,9 +42,9 @@ If the doubt changes the step, say so and change it before starting.
 - Save research to `docs/v2/research/YYYY-MM-DD-<topic>.md` as it is found: sources cited, and nothing private (no
   secrets, session ids, absolute local paths, email addresses, transcript quotes). The repo is public.
 - Use subagents for broad reading so findings come back as conclusions. Use a second model for contested points:
-  Gemini Pro in the browser at `gemini.google.com/u/1/app` (check that the account menu shows the Pro account). Put
-  long text on the clipboard with PowerShell `Get-Content -Raw -Encoding UTF8 <file> | Set-Clipboard` and paste with
-  Ctrl+V. Gemini cannot open GitHub URLs, so paste the text itself. Its answer is evidence to weigh, not a vote.
+  Gemini 4 Argon through the Antigravity CLI, as rule 10 of `docs/v2/01-process.md` says (`agy -p` in plan mode,
+  from an empty folder that holds only the brief file). Give it only text that is public in this repo. Its answer is
+  evidence to weigh, not a vote.
 - A check that fails: change the option or the approach and retry. After the third failed attempt, stop and go up a
   level (rule 4).
 

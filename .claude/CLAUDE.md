@@ -1,7 +1,8 @@
 # second-brain v2: working rules
 
-This branch holds v2 of the second-brain plugin, in its concept phase. v1 is frozen on `main` and `v1` (tag
-`v1-final`). Read v1 with `git show v1-final:<path>` when evidence is needed; never copy v1 code or rules in.
+This branch holds v2 of the second-brain plugin. The product is `plugin/` (2.3.0). v2 replaced v1 on `main` at
+2.0.0; v1 is frozen on branch `v1` (tag `v1-final`). Read v1 with `git show v1-final:<path>` when evidence is
+needed; never copy v1 code or rules in.
 
 Before any work, read `docs/v2/00-charter.md`, the status table in `docs/v2/DECISIONS.md`, and the map issue
 (`gh issue list --label wayfinder:map`). Then follow `docs/v2/01-process.md`: one decision at a time, the check
@@ -12,7 +13,8 @@ written before it runs, and the step gate at the end of every step.
 - A LOCKED decision is not re-argued. Cite its id. It reopens only when one of its triggers fired.
 - Research goes in `docs/v2/research/<date>-<topic>.md`, with sources. The repo is public: no secrets, session ids,
   absolute local paths, email addresses or transcript quotes.
-- Probes go in `docs/v2/probes/<decision-id>-<name>/`. Nothing else is implemented in the concept phase.
+- Probes go in `docs/v2/probes/<decision-id>-<name>/`. A change to `plugin/` is a build step in
+  `docs/v2/06-first-slice.md`: its checks are registered before it is built, and it runs from a copy until they pass.
 
 ## Agent skills
 

@@ -5206,3 +5206,38 @@ The release check D18 requires before each release (S8's release checks, above),
 
 - Every hook is within 100 ms, with 0 errors. 2.3.0 costs 3 to 14 ms per hook over 2.2.0, as S6 measured.
 - Record: `probes/V2-D30-entries/results-s8-reference.json`.
+
+### 3, S8: the documentation review before the merge (2026-11-22)
+
+A review, not a check with a bar: nothing was registered for it, and it changes no product file. `plugin/` stays at
+`3650f785f984`, the build every S8 check ran on.
+- **What looked:**
+  - two agy sweeps (Gemini 4 Argon, read-only): the README and the shipped files against each other, then the
+    project's own docs against the ledger;
+  - a docs check of the plugin's manifests, hooks, skills, agents and rule against Claude Code's current
+    documentation;
+  - `claude plugin validate` (CLI 2.1.330) on the plugin and the marketplace: passed with one warning, no `author`.
+- **Fixed, outside `plugin/`:**
+  - `04-architecture.md` rewritten for 2.3.0, as its status line promised. Its byte counts were measured on a fresh
+    repo after setup (instruction 1,767 B, index 302 B, naming 304 B; the forced decision 227 B);
+  - the README: the user's three lines come at start and after `/clear` only, not after a resume or a compaction, as
+    `hook.mjs` gates them; accepting a proposal writes `origin`; a known issue for the mismatches below;
+  - the charter's status line and its account of the first act (setup, versioned entries, the dream);
+  - `.claude/CLAUDE.md` and the `v2-step` skill no longer say v1 is on `main`, or call this the concept phase. The
+    skill names `agy` for the second opinion, as rule 10 does;
+  - `05-eval-plan.md`: the investigation tasks joined A2.
+- **Confirmed against Claude Code's docs:** `if` on `PostToolUse` and `PostToolUseFailure`; `shell` and `args`;
+  `PostToolUseFailure`'s input; `systemMessage` shown to the user while `additionalContext` reaches Claude; skill
+  grants lasting only for the invoking turn; `disable-model-invocation`; `memory: project` under
+  `.claude/agent-memory/<name>/`, which needs auto memory on; `paths:` rules loading on a matching read.
+- **Not changed, with the reason:**
+  - the grants' `:*` form is not in the skills docs, which show ` *`. `grant.mjs` (S8) showed the narrow form allows
+    the script and refuses `node -e`, and the acceptance runs used it;
+  - `if` is best-effort in the docs. When it lets another Bash command through, the handler labels every
+    uncommitted entry: more text, never fewer labels.
+- **On record for the next release** (product text, so each needs its own registered step):
+  - N1: the analyzer's `failure` kind has no proposal type in the dream skill;
+  - N2: the starter rule names only `superseded`, while the other texts use four kinds; neither it nor the map's
+    README defines `origin`;
+  - N3: the status report sends stale entries to `/map-review`, which walks only entries whose review date passed;
+  - N4: `plugin.json` has no `author`, the validator's one warning.
