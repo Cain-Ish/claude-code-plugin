@@ -5165,3 +5165,28 @@ a map entry, a choice the release round's fixes do not reach. CI passed on `655d
 - the dream: 2 proposed entries and a draft, labelled and never loaded;
 - the nudge in the user's line only;
 - $2.27.
+
+### 3, S8: the reference bench, registered (2026-11-22, before it runs)
+
+The release check D18 requires before each release (S8's release checks, above), on the final candidate.
+- **Builds.**
+  - *Candidate:* `plugin/` at `655d384`, product `3650f785f984`.
+  - *Control:* `plugin/` exported from tag `v2.2.0`.
+  - Each is hashed before the run as the eval does (every file but `test/`). A hash that differs voids the run.
+- **Fixture:** S6's setup, rebuilt fresh:
+  - `plugin/test/fixture.mjs`, the synthetic repo of P2's shape;
+  - `plugin/test/benchmap.mjs`, its 30-entry map;
+  - `probes/V2-D30-entries/benchprep.mjs`, the nudge's worst case: 300 unseen transcripts in two known folders.
+- **Run:** `pairbench.mjs`, 200 calls per hook kind, at 1 and 8 concurrent. Empty Node, the control and the candidate
+  are interleaved call by call in one pool.
+- **Reference state (D18):**
+  - a 10-second CPU sample of at most 10%, taken just before the run;
+  - empty Node's p95 at 8 concurrent at most 100 ms, read from the run's own `emptyP95` at `@8`.
+  
+  A run outside that state is void, not failed. It is reported, and the bench runs again in a later window. No agent,
+  agy call or other bench runs at the same time.
+- **Pass:**
+  - every hook kind's added p95 (`candidateAdded`) is at most 100 ms, at 1 and at 8;
+  - errors are 0.
+  
+  A miss is a failed attempt under rule 4.
