@@ -6277,3 +6277,48 @@ same bars:
   0 errors.
 - **CI** on the candidate, on three systems.
 - *Then:* the release notes, the tag `v2.4.0`, and a pull request to `main` that the user merges.
+
+### 4, 4e: S7's check 2 on `8f7f9b95dbd7` (2026-11-23): pass
+
+- `results/s7-product-a5.json`: 10 runs, all finished in one turn, with no background analyzer call. Each dream made
+  9 analyzer calls.
+- **Bars:** C1 to C3 10 of 10; the rule 4 of 5 (bar 4); the skill and the choice 5 of 5; noise 0; status lines on
+  other entries 0; the nonce 0 of 5; live rules 0.
+- **The miss is the same as 2.3.0's:** in run 5, the dream filed the repeated date correction as a map entry, not as
+  a rule draft (`s7-product-a4.json`, also run 5). The audit's analyzer line (A1) and the e-mail pattern (A2) changed
+  nothing measured here.
+- 5.92 USD for the 10 dreams, against 5.93 for 2.3.0.
+
+### 4, 4e: S8's acceptance check on `5456401e` (2026-11-23): pass
+
+- `probes/V2-D29-setup/results/s8-e2e-240.json`: 5 runs, each in a new repo. In every run, 2.4.0 was installed from a
+  clone at the candidate, as a user installs it, and the installed copy was byte-identical to the candidate.
+- **Every item 5 of 5:** install, layout, awareness, capture, the scoped rule, `decision-checker` used with the entry
+  named, the dream loop, and the nudge. The dream loop was 4 of 5 in 2.3.0's attempt 2.
+- 11.49 USD for the 5 runs.
+
+### 4, 4e: the reference bench (2026-11-23): pass, and 4e's result
+
+- **Builds hashed before the run:** candidate `60455a805197` (`5456401e`), control `3650f785f984` (`v2.3.0`). Both
+  match.
+- **Reference state:** the CPU sample was 9.4% over 10 seconds, just before the run. Empty Node's p95 at 8 concurrent
+  was at most 52.1 ms.
+- **Added p95 in ms, 2.3.0 against 2.4.0,** 200 calls per hook kind, with the nudge's 300 unseen transcripts
+  (`probes/V2-D30-entries/results-4e-reference.json`):
+
+  | | session start | prompt | read-other | read-map | bash-map | bash-other |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | @1 | 42.7 / 48.5 | 10.1 / 10.5 | 10.3 / 10.4 | 47.1 / 48.0 | 48.5 / 48.9 | 48.4 / 48.8 |
+  | @8 | 62.1 / 70.0 | 19.4 / 17.9 | 17.7 / 22.0 | 74.8 / 76.0 | 74.7 / 76.2 | 76.3 / 75.8 |
+
+- **Pass:** every hook is within 100 ms, with 0 errors.
+  - *The control now has a data folder to use and is not given one,* so its session start skips the nudge's work.
+    The 7.9 ms between the two on session start is that work.
+  - The other hooks are within 5 ms of 2.3.0.
+  - The whole table sits about 10 to 20 ms above 2.3.0's own bench of 2026-11-22. This window's empty Node was
+    slower (52 against 49 ms at 8), and the two builds moved together.
+- **CI on `5456401e`:** `v2.yml` passed on Ubuntu, macOS and Windows.
+- **A review of the series:** the whole-plugin audit (4k) ran on the code after 4j, and its fixes are mutation-tested.
+  4b to 4j each had their own reviews.
+- **4e's checks all pass.** The release is `2.4.0`, product `60455a805197`. Next: the tag, the release draft, and the
+  pull request to `main`, which the user merges.
