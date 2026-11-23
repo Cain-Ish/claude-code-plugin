@@ -5560,3 +5560,26 @@ stopped partway. That decides the fix:
 
 **Next:** one more registered probe arm that logs, with a synchronous write, the bytes read after each chunk. Then
 the fix as its own step, with 70 clean runs of the full lane as its bar.
+
+### 4, 4a: the bytes probe (registered 2026-11-23, before it runs)
+
+**The question:** when the child hangs, has it read all of its input, so that only the end of input is missing, or
+did it stop partway?
+
+**The probe** (`probes/V2-D18-hang/chunks.mjs`, on macOS in `v2-n5.yml`, 2 jobs × 300 calls):
+- The child reads standard input with `fs.readSync` in 64 KiB chunks, the size `readFileSync` uses for an input of
+  unknown size. After each chunk it appends its running byte count to a file of its own, with a synchronous write.
+- The parent starts it with `spawnSync` and H25n's input, the shape that hung most: 25,000 characters in lines of 80
+  inside the hook's JSON. Each call has a 15-second limit.
+- After a timeout, the parent compares the last count with the bytes it sent.
+
+**How it is read, fixed now:**
+- **End missing:** in every hang, the count equals the bytes sent. The fix is then in the hook: it reads chunk by
+  chunk and stops as soon as it holds one complete JSON document, without waiting for the end of input. That holds
+  whatever starts the hook. The fix's bar: 70 clean runs of the full lane, and 0 hangs in 300 calls of H25n against
+  the fixed hook.
+- **Partway:** in any hang, the count is below the bytes sent. No reading strategy in the child can help. The
+  self-test then gives the hook its input through a file instead of a pipe. A real session's exposure goes to the
+  open question recorded above (A25, an async parent, hung 0 of 300).
+- **Both kinds seen:** each is recorded, and the fix covers the kind the child can.
+- **No hang in 600 calls:** the probe runs once more. A second empty round goes up a level (rule 4).
