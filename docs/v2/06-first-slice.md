@@ -6428,3 +6428,20 @@ On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implic
   - P1 ships whole.
   - P2 ships its skill part. Its rule-paths clause is dropped (attempt 1), so 5a's text for rules is 2.4.0's.
   - D29 and D31 re-lock in the ledger. PR #118 stays a draft until #117 (2.4.0) merges.
+
+### 4 and 5: the merges (2026-11-23), on the user's "do it by yourself"
+
+- **#117 (2.4.0) merged into `main`** (`cb89b73d`), plainly, with every required check green. The `v2.4.0` release
+  is published. Three local installs, the two field repos and this repo, moved from 2.3.0 to 2.4.0. The installed
+  copy hashes `60455a805197`, the release. Running sessions there need `/reload-plugins`.
+- **The merge deleted `v2` on GitHub:** the repo deletes a pull request's head branch on merge. GitHub then retargeted
+  PR #118 to `main`. `v2` was pushed back from the local copy at the same commit, `0b242f5a`, and #118 was pointed at
+  `v2` again. It is recorded as this repo's first map entry, `v2-branch-deleted-on-merge`. The setting itself is the
+  user's; it is not changed by a session.
+- **#118 (5a) was merged into `v2` (`cd645bfc`) before its re-run checks were read.** One job had failed:
+  `load (windows-latest)`, with empty Node's p95 at 190 to 247 ms on that runner (about 140 is usual). The job re-ran
+  on the same commit and passed, with every other job. The same commit had passed every job before the retarget.
+  The slip is a merge made before reading its checks; from now on, the checks are read before any merge.
+- **This repo runs its own plugin.** The user's setup output of 2026-11-23 is committed (`01e4bc3a`). The rule,
+  map-review and the map's README were updated to the current templates: setup's own N10 line listed exactly those
+  three. The root `CLAUDE.md` is merged into `.claude/CLAUDE.md`, which keeps v2's decisions in the ledger.
