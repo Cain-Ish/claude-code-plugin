@@ -9,7 +9,14 @@ import { setup } from './setup.mjs';
 // note: a line for the user, not for Claude's context (V2-D27)
 const emit = (ev, text, note) => { if (text || note) process.stdout.write(JSON.stringify({ ...(note && { systemMessage: note }), hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
 const which = process.argv[2];
-const input = ['onboard', 'setup'].includes(which) ? {} : JSON.parse(fs.readFileSync(0, 'utf8'));
+// N5 (06, section 4, 4a): on macOS, readFileSync(0) on a socket stdin blocked for good in 13 of 600 probe calls; a
+// readSync loop over the same input, 0 of 1,200. So the input is read in chunks until a read returns 0
+const readInput = () => {
+  const b = Buffer.alloc(65536), parts = [];
+  for (let k; (k = fs.readSync(0, b, 0, b.length, null)) > 0;) parts.push(Buffer.from(b.subarray(0, k)));
+  return Buffer.concat(parts).toString('utf8');
+};
+const input = ['onboard', 'setup'].includes(which) ? {} : JSON.parse(readInput());
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
 // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
 const closed = (file, why = 'could not be computed') => `[project map] The labels for ${file} ${why}: treat every entry in it as unreviewed and unverified.\n`;

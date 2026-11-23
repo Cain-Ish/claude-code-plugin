@@ -1,6 +1,7 @@
-# second-brain v2 (06, section 4, 4a): N5, the macOS self-test hang. This round runs only the bytes probe (chunks.mjs):
-# round 2: arms F (readFileSync), C (readSync, logged) and C2 (readSync). The full lane and the seven-arm probe ran
-# on bdac932; the full lane returns for the fix's bar.
+# second-brain v2 (06, section 4, 4a): N5, the macOS self-test hang, located in fs.readFileSync(0) on a socket stdin. This
+# round checks the fix (hook.mjs reads with a readSync loop): the full lane must run 70 of 70 clean, and the hook's
+# probe arms must not hang, with T25 (a bare readFileSync reader) as the positive control. watch.mjs runs beside both
+# and captures ps, lsof and sample of any hook still alive after 5 seconds.
 name: v2-n5
 on:
   push:
@@ -8,7 +9,40 @@ on:
     paths: ['.github/workflows/v2-n5.yml']
   workflow_dispatch:
 jobs:
-  chunks:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: the watcher
+        run: nohup node docs/v2/probes/V2-D18-hang/watch.mjs "$RUNNER_TEMP/diag" > /dev/null 2>&1 &
+      - name: seven runs in a row
+        timeout-minutes: 20
+        run: |
+          for i in 1 2 3 4 5 6 7; do
+            : > "$RUNNER_TEMP/trace.txt"
+            start=$(date +%s)
+            # output stays on the step's pipe, as in v2.yml, so the conditions match the runs that hung
+            SELFTEST_TRACE="$RUNNER_TEMP/trace.txt" node plugin/test/selftest.mjs || { echo "run $i failed"; exit 1; }
+            echo "run $i ok in $(( $(date +%s) - start )) s, $(wc -l < "$RUNNER_TEMP/trace.txt") calls"
+          done
+      - name: on a failure, the last calls, the processes left and what the watcher caught
+        if: failure() || cancelled()
+        run: |
+          tail -20 "$RUNNER_TEMP/trace.txt" || true
+          ps -axo pid,ppid,stat,etime,command | grep -E '[n]ode|[g]it' || true
+          for f in $(ls "$RUNNER_TEMP"/diag/* 2>/dev/null | head -9); do echo "=== $f"; head -150 "$f"; done
+  probe:
     strategy:
       fail-fast: false
       matrix:
@@ -23,9 +57,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 20
-      - name: 300 calls per arm
+      - name: the watcher
+        run: nohup node docs/v2/probes/V2-D18-hang/watch.mjs "$RUNNER_TEMP/diag" > /dev/null 2>&1 &
+      - name: 150 calls per arm
         timeout-minutes: 35
-        run: node docs/v2/probes/V2-D18-hang/chunks.mjs 300 "$RUNNER_TEMP/chunks"
-      - name: the record
+        run: node docs/v2/probes/V2-D18-hang/probe.mjs 150 "$RUNNER_TEMP/probe"
+      - name: the results and what the watcher caught
         if: always()
-        run: cat "$RUNNER_TEMP/chunks/chunks.json" || true
+        run: |
+          cat "$RUNNER_TEMP/probe/results.json" || true
+          cat "$RUNNER_TEMP/probe/timeouts.txt" 2>/dev/null || echo "no timeouts"
+          for f in $(ls "$RUNNER_TEMP"/diag/* 2>/dev/null | head -9); do echo "=== $f"; head -150 "$f"; done

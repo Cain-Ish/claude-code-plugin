@@ -5609,3 +5609,32 @@ As registered, the probe runs once more. This time it carries control arms in th
 - **C2 hangs but C does not:** the logging changed the timing, and the case goes up a level (rule 4).
 - **No arm hangs:** the case goes up a level (rule 4). The hang is then too rare to study this way, and the
   mitigation stands: the timeouts already registered, plus a reading method chosen on round 1's evidence.
+
+### 4, 4a: the bytes probe, round 2 (2026-11-23, on `19dfdbd`): readFileSync is what hangs
+
+- **F, `fs.readFileSync(0)`:** 13 hangs in 600 calls (4 and 9 in the two jobs).
+- **C, the logged `readSync` loop:** 0 in 600.
+- **C2, the same loop without the log:** 0 in 600.
+
+This is the registered outcome "F hangs, while C and C2 stay at 0". On macOS, when standard input is a socket fed by
+`spawnSync`, `fs.readFileSync(0)` can block for good, while a `readSync` loop over the same input ends every time.
+Round 1's question (all read, or partway) is moot: the hang belongs to `readFileSync`'s way of reading, and the hook
+can avoid it. In the plugin, only `hook.mjs:12` reads its input this way.
+
+### 4, 4a: the fix (registered 2026-11-23, before the code)
+
+**The change:** `hook.mjs:12` reads its input with a `readSync` loop in 64 KiB chunks until a read returns 0, in place
+of `fs.readFileSync(0)`. Nothing else changes. `plugin/` is edited in place: every install comes from `main` on
+GitHub, so no session loads this branch.
+
+**Checks.** All must pass:
+1. **The self-test passes on Windows, locally.** This covers a pipe's end of input on Windows.
+2. **A refute-first agy review of the diff** (Gemini 4 Argon, plan mode, the diff only), as section 4's rules ask for
+   every hook change. Each finding is fixed or recorded as an accepted risk.
+3. **CI:** `v2.yml` passes on all three systems.
+4. **The registered bar, in `v2-n5.yml` on macOS:**
+   - the full lane runs 70 of 70 clean;
+   - in the seven-arm probe (2 jobs × 150 calls per arm), the hook's arms (S, H21, H25, H25n, H100, A25) hang 0 times;
+   - T25, the bare `readFileSync` reader, is the positive control: it should still hang. If it never does, the bar
+     has not shown that the conditions held, and the probe runs once more.
+5. **The new hash of `plugin/`** is recorded.

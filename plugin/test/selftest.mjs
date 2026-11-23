@@ -103,7 +103,8 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey, with every hook's
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
-assert.equal(product.digest('hex').slice(0, 12), '3650f785f984', 'the product changed: record its hash with a new epoch (06)');
+// 06, section 4, 4a: the hook reads its input with a readSync loop (N5); 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), '4a869e6030aa', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
