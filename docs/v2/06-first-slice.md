@@ -5724,3 +5724,9 @@ The repo's own `decision-checker` agent, which setup installed, checked the chan
 - **Check 2 on the final code:** the smoke passed 3 of 3. There was no root `CLAUDE.md`, `.claude/CLAUDE.md` held
   `## Team memory` once, and nothing was committed. Each reply showed the user the added lines and did not add them
   again.
+- **Check 4, CI** (on `6d71bfc`): `v2.yml` passed, the self-test and load jobs on Ubuntu, macOS and Windows. The
+  link case ran on Linux and macOS.
+- **Check 5:** the product hash is `2aeaa35744a0`.
+
+**Step 4b is done; D29 is re-locked** on the narrowed guardrail, recorded in the ledger. **Next:** 4c (N1 to N4,
+N6), and the conference research the user asked for (4f).
