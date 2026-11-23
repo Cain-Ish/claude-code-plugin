@@ -6375,3 +6375,39 @@ Claude to use its structure, not to extend it. That word reopens D29 (the templa
 4. **CI** on three systems, through a pull request from `v2-next` into `v2`.
 
 On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implicates is revised or dropped alone.
+
+### 5, 5a: check 2, P1 in a session (2026-11-23): pass
+
+- `probes/V2-D29-setup/results/p1place.json`: candidate `61fb668a3ea6` against the 2.4.0 control `60455a805197`, 5
+  runs each, all valid. Each run cost about 0.12 USD.
+- **Capture holds:** both statements are map entries in 5 of 5 runs of each arm.
+- **The check offered for the lodash rule:** 5 of 5 against the control's 0 of 5 (bar: at least 3, and at least the
+  control + 2). One candidate reply, read by hand: it saved both entries, then listed "two optional additions I
+  haven't made": an ESLint `no-restricted-imports` rule ("the note only makes mistakes less likely"), and a release
+  skill. It asked before each.
+- **No live rule or skill** was made in either arm. No file outside the map changed.
+- *Reported:* a skill offered for the release procedure in 5 of 5 runs, against 0. The table asks for that offer only
+  for a procedure repeated across sessions; here it was stated once, and Claude still noted that it "repeats every
+  time".
+
+### 5, 5a: check 3, attempt 1 (2026-11-23): bars pass, the rule clause dropped
+
+- `probes/V2-D31-dream/results/s7-product-a6.json`, on `61fb668a3ea6`: every bar passes. C1 to C3 10 of 10; the
+  rule 4 of 5; the skill and the choice 5 of 5; noise 0; status lines on other entries 0; the nonce 0; live rules 0;
+  5.80 USD.
+- **Reported, against 2.4.0's run of S7 (`s7-product-a5`):**
+  - *Skill drafts:* every one, in both builds, has "Use when" in its description, so that part changed nothing.
+    Lines saying how to tell a step is done: 3 to 5 per draft, against 0 in 2.4.0.
+  - *Rule drafts:* 2.4.0's covered `src/**/*.js`, `src/**/*.ts` and `src/**/*.tsx`. With P2's "no wider than the
+    files the sessions worked on", 4 drafts list only the two files the sessions touched (`src/orders/format.js`,
+    `src/users/card.js`). The rule, that dates shown to users go through `formatDate()`, holds for every such file,
+    so a narrowed draft would never load for a new one. That is worse, and the bar did not see it: its scorer checks
+    only that `paths:` exists.
+- **The rule clause is dropped alone,** as the registration says. The rule's line is 2.4.0's again; the skill's lines
+  stay. Product `38602db7055f`.
+
+### 5, 5a: check 3, attempt 2 (registered 2026-11-23, before its runs)
+
+- S7's check 2 on `38602db7055f`, 10 fresh runs, at its bars (`results/s7-product-a7.json`).
+- *Also a pass item now:* no rule draft's `paths:` lists only single files. Each must hold a glob, as 2.4.0's did.
+- *Reported:* the skill drafts' lines on how to tell a step is done.

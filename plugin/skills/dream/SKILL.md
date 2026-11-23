@@ -45,8 +45,7 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
    - `status.md`: one line per status:
      `<entry id> | - status: <superseded|narrowed|expired|done> <date> by <new id>: <what still holds>`. The new id
      is an entry the map holds or one you propose in this dream.
-   - `rules/<name>.md`: front matter with a `paths:` list no wider than the files the sessions worked on; the rule
-     in one or two sentences, stated for every file those paths cover; and a last line
+   - `rules/<name>.md`: front matter with a `paths:` list; the rule in one or two sentences; and a last line
      `<!-- evidence: <digest>:<line>, <digest>:<line> -->` from at least two sessions.
    - `skills/<name>/SKILL.md`: front matter with `name` and a `description` that says what it does, then "Use
      when" and the words a user would type to ask for it. Then the steps, written for the kind of task rather than
