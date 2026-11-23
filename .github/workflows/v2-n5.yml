@@ -1,0 +1,40 @@
+# second-brain v2 (06, section 4, 4a): N5, the macOS self-test hang (2 of 62 CI runs), looked for in 70 runs:
+# 10 jobs, each running the self-test 7 times in a row with its trace on. A failed run names its call by the
+# timeout's error or by the trace's last line; the processes left are listed.
+name: v2-n5
+on:
+  push:
+    branches: [v2]
+    paths: ['.github/workflows/v2-n5.yml']
+  workflow_dispatch:
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: seven runs in a row
+        timeout-minutes: 20
+        run: |
+          for i in 1 2 3 4 5 6 7; do
+            : > "$RUNNER_TEMP/trace.txt"
+            start=$(date +%s)
+            # output stays on the step's pipe, as in v2.yml, so the conditions match the runs that hung
+            SELFTEST_TRACE="$RUNNER_TEMP/trace.txt" node plugin/test/selftest.mjs || { echo "run $i failed"; exit 1; }
+            echo "run $i ok in $(( $(date +%s) - start )) s, $(wc -l < "$RUNNER_TEMP/trace.txt") calls"
+          done
+      - name: on a failure, the last calls and the processes left
+        if: failure() || cancelled()
+        run: |
+          tail -20 "$RUNNER_TEMP/trace.txt" || true
+          ps -axo pid,ppid,etime,command | grep -E '[n]ode|[g]it' || true

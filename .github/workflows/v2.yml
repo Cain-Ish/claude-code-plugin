@@ -18,6 +18,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # 06, section 4, 4a (N5): a hang ends here, not after GitHub's 6 hours
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -34,6 +36,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash

@@ -5371,3 +5371,16 @@ At the old rate of 2 in 62, 70 runs show at least one hang with about 90% odds.
   its call. The cause stays a known issue, and D18's observation stands.
 - A run that fails any other way, for example on an assertion, is a finding of its own. It is reported, not counted as
   a hang.
+
+### 4, 4a: check 1 (2026-11-23): pass at attempt 2
+
+- **Attempt 1 failed.** The traced run wrote 321 lines for 320 calls: one call's argument held a newline (the
+  self-test's case of odd file names), so its trace entry took two lines. The instrument now replaces control
+  characters in what it logs.
+- **Attempt 2, every item at its bar** (Windows, Node 22):
+  - `SELFTEST_TIMEOUT_MS=1` fails the self-test with `selftest.mjs:112<115: git init timed out after 1 ms`, naming the
+    helper's line and the line that called it;
+  - with `SELFTEST_TRACE`, the self-test passes in 32 seconds, and the file holds 320 lines for 320 calls;
+  - the plain self-test passes;
+  - `plugin/` hashes `3650f785f984`, as before.
+- **Next:** check 2, `v2.yml` on three systems, and check 3, `v2-n5.yml`'s 70 macOS runs. Both start with this push.

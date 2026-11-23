@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync as spawnRaw } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { prepare, finish, abort } from '../scripts/dream.mjs';
 import { status } from '../scripts/status.mjs';
@@ -13,6 +13,21 @@ import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
+
+// 06, section 4, 4a (N5, a macOS hang in 2 of 62 CI runs): every call gets a timeout, and its error names the self-test
+// lines that made it. With SELFTEST_TRACE=<file>, each call is logged there first with a synchronous write, so a call
+// that never returns is still named (on macOS, Node writes to a pipe asynchronously, and a blocked process loses it)
+const LIMIT = Number(process.env.SELFTEST_TIMEOUT_MS) || 120_000;
+let calls = 0;
+const spawnSync = (cmd, args = [], opts = {}) => {
+  const where = new Error().stack.split('\n').slice(2).map((l) => l.match(/selftest\.mjs:(\d+):\d+/)?.[1]).filter(Boolean).slice(0, 3).join('<');
+  const what = [cmd, ...args.filter((a) => !a.startsWith('-') && !a.includes('=')).slice(0, 2).map((a) => (path.isAbsolute(a) ? path.basename(a) : a.slice(0, 60)))].join(' ').replace(/[\x00-\x1f]/g, '?');
+  calls++;
+  if (process.env.SELFTEST_TRACE) fs.appendFileSync(process.env.SELFTEST_TRACE, `${where} ${what}\n`);
+  const r = spawnRaw(cmd, args, { timeout: LIMIT, killSignal: 'SIGKILL', ...opts });
+  if (r.error?.code === 'ETIMEDOUT') throw new Error(`selftest.mjs:${where}: ${what} timed out after ${opts.timeout ?? LIMIT} ms`);
+  return r;
+};
 
 // the texts, as the ledger fixed them (06, 2s: INSTRUCTION 8aa72396af72 at 904 bytes until 2.1.0, kept line for line)
 assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '392c26c2a5e9');
@@ -1586,4 +1601,5 @@ ${NAME}` } });
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });
+if (process.env.SELFTEST_TRACE) console.log(`calls: ${calls}`);
 console.log('selftest ok');
