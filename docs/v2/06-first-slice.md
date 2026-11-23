@@ -6579,3 +6579,14 @@ repo.
   So no second attempt. The code is reverted (`f30cd78d`); the product is `c3e75c22b0ea` again.
 - **D22 re-locks on the cut.** The per-session size in a large repo, about 10 KB, is accepted. Claude explores past
   the cut, and the measured alternative found less.
+
+### 5, 5c: result (2026-11-23): pass
+
+- **Check 1:** the self-test pins both lines, and a mutation check kills each.
+- **Check 2** (`probes/V2-D31-dream/results/s7-product-a8.json`, on `c3e75c22b0ea`, the copy hashed before the run).
+  Every bar passes: C1 to C3 10 of 10; the rule, the skill and the choice 5 of 5; noise 0; other status lines 0; the
+  nonce 0; live rules 0; 5.92 USD.
+- **No walk without the user's yes:** in all 10 headless dreams, no proposal was accepted. No map file has an
+  `- origin:` line, every map file the dream touched still has its `- proposed:` lines, and every draft keeps
+  `.draft` (2 per fixture run).
+- D33 locks, and D14 gets #7's note. S8's acceptance check runs at the release.

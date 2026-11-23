@@ -36,7 +36,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D30 | Versioned entries: how does the map record versions, and tell stale memory from current? | OPEN 2026-11-20 (S3, S4 and S6 check it); LOCKED 2026-11-20 (versioned entries passed S3, S4 and S6, and the status report shows staleness (S8)) | user + evidence | D13, D16, D28 |
 | V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4); REOPENED 2026-11-23 (the user's word: P2, draft-writing rules in the dream skill; 06, section 5, 5a); re-LOCKED 2026-11-23 (5a passed at attempt 2: skill drafts say how each step is done; the rule-paths clause dropped after it narrowed a rule to two files) | user + evidence | D14, D18, PM1, PM5 |
 | V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
-| V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d) | user + evidence | D18, D29, D30, D31, D32 |
+| V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d); LOCKED 2026-11-23 on (M) with (A)'s "later" (B and C rejected; 06, section 5, 5c) | user + evidence | D18, D29, D30, D31, D32 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -842,6 +842,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   correction or a problem Claude hit, which reaches the map only through a dream after two sessions. And its document
   clause made Claude copy the repo's own documents into the map: the field report of 2026-11-23. *Check:* 06, section
   4, step 4i (A-4, the second run; D16's re-check), registered before the code.
+- *Note, 2026-11-23, not a reopen (field item #7; 06, section 5, 5c):* on a branch that carries other work, "the
+  commit is the review" forces map changes into that branch's commits. Kept:
+  - a separate review marker would be a file the same hand can write, so an injected entry could mark itself
+    reviewed (this decision's own trigger);
+  - instead, `/map-review`'s last step offers `git add <files> && git commit -m "…" -- <files>`, which commits only
+    the reviewed files and leaves the branch's other work as it is.
 - **Re-LOCKED 2026-11-23** (06, section 4, 4i):
   - **K2, a line for corrections, is not shipped.** In A-4's floor, a fresh session with neither plugin nor memory
     re-found the corrected code in 12 of 12 runs, over three scenarios. On the frozen-folder scenario, the plugin as
@@ -5178,3 +5184,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     `disable-model-invocation`, the four hooks and D32 all hold.
   - **Still open:** the user's answer on (C), the only route to upkeep with no command at all. (M) is designed in
     step 4d once that answer is in.
+- **LOCKED 2026-11-23 on (M), with (A)'s "later"** (06, section 5, 5c; the user's "do it byself", settled by a
+  written rethink and an independent second opinion, as agy's quota was spent).
+  - **(C) is rejected.** With (B) rejected, a dream still starts on a typed command, so (C) would skip only the
+    review. A proposal counts only through a commit, so (C) would mean the dream commits text from transcripts by
+    itself. That is the charter's non-goal, "a background process that rewrites knowledge without a reviewable
+    diff".
+  - **(M) is built.** The dream's last step asks whether to review now. On a yes, Claude follows the map-review
+    skill's file in the same session; "later" leaves it to `/map-review`. In 10 headless dreams, nothing was
+    accepted without that yes.
+  - R4 (a desktop scheduled task) stays out: setup could never create one, and testing it means driving the user's
+    desktop app.
+  - *Reopen if:* a dream's proposal is accepted without the user's yes, or Claude Code lets a scheduled task run a
+    flagged skill.
