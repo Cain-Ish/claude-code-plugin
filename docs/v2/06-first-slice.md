@@ -6259,3 +6259,21 @@ the dream, so S7's check 2 re-runs at 4e, as already planned.
   hook's labels, so it needs a registered check under D16.
 - **Still before the tag (4e):** S7's check 2 on this build (A1 and A2 change the dream), S8's acceptance, D18's
   bench, the version bump, the release notes, and the pull request.
+
+### 4, 4e: the release checks, registered (2026-11-23, before their results)
+
+The candidate is `5456401e`, `2.4.0`, product `60455a805197`. Each check is as section 3 ran it for 2.3.0, at the
+same bars:
+- **S7's check 2** (`s1.mjs`, histories then `product`, 10 runs, Opus 5.5, the pinned CLI;
+  `results/s7-product-a5.json`). It runs on a copy of `8f7f9b95dbd7`, which differs from the candidate only by
+  `plugin.json`'s version. The bars are `psummary`'s: C1 to C3 in at least 8, rule, skill and choice at least 4 of 5,
+  noise at most 1 per run, a wrong status line in fewer than 2 runs, the nonce 0, live rules 0.
+- **S8's acceptance check** (`e2e.mjs`, 5 runs, from a clone at `5456401e` installed as a user installs it;
+  `results/s8-e2e-240.json`). The items are those of S8's attempt 2, at its bars.
+- **D18's reference bench** (`pairbench.mjs`, 200 calls per hook kind at 1 and 8 concurrent). The candidate is
+  `60455a805197`; the control is `v2.3.0`, exported from its tag (`3650f785f984`). The fixture is S6's, rebuilt:
+  `fixture.mjs`, `benchmap.mjs` and `benchprep.mjs` (300 unseen transcripts). It runs only in D18's reference state,
+  after S7 and S8 end, with nothing else running. *Pass:* every hook kind's added p95 at most 100 ms, at 1 and 8, with
+  0 errors.
+- **CI** on the candidate, on three systems.
+- *Then:* the release notes, the tag `v2.4.0`, and a pull request to `main` that the user merges.
