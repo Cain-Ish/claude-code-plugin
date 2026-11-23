@@ -6041,3 +6041,49 @@ and `hook.mjs` diff:
   The only change since the last clean 3 of 3 was the nested run-folder filter, which no smoke repo exercises. The
   first run's cause is unknown.
 - **CI** runs on the commit.
+
+### 4: the field report of 2026-11-23, triaged (map issue step 22)
+
+The user installed 2.3.0 in a large field repo, ran setup and onboarding, and passed on that session's report. It is
+paraphrased here with counts only:
+
+| # | The report | Triage |
+| --- | --- | --- |
+| 1 | Setup wrote its files onto an unrelated feature branch with uncommitted work, without a word | **N9:** setup's report names the branch and says when the tree holds other uncommitted changes. Small |
+| 2 | An empty scaffold: filling the map took two agents, about 500k tokens and 25 minutes | The cause is #9's: the capture instruction told Claude to add an entry for each requirement in a document it read, so the repo's own documents were copied in. **Fixed by 4i's document clause (D14).** No importer is built: D15 keeps the documents as the source |
+| 3 | No upgrade path: setup never overwrites, so template fixes never reach a repo | **N10:** setup's report lists each setup file that differs from the plugin's current template, for the user to diff. Small. This is 4c's release-notes caveat |
+| 4 | Agent notes are not seeded, and the report does not mention them | **N11:** setup's report says where the agents keep their notes (`.claude/agent-memory/`, made on first write). Text only |
+| 5 | The `when:` work kinds are generic | Recorded. `when:` is never surfaced (the field note of 2026-11-08), so a better list changes nothing yet |
+| 6 | Session start overflows: about 850 documents in 179 directories, 71 listed; it also costs that context every session | **D22's trigger fired:** "a repo's index exceeds P2's (45 directories, 6 KB) and its forced decision or reads are not measured there". **D22 REOPENED.** A size budget or a summary mode is the next release's first decision |
+| 7 | "Unreviewed until committed" ties review to git; on a branch carrying other work it forces commits | D14's choice, the commit being the review. **The user's call** |
+| 8 | `verified:` is free text; about 10 mirrored documents had drifted from the code | Partly there: status re-finds an entry's quote in its source and flags a source committed after its verified date. **N12:** status also checks that every repo path an entry names exists |
+| 9 | The map duplicates the repo's own rules with no way to keep them in step | As #2: **4i's document clause** |
+| 10 | memory-curator has no Bash, so it cannot check dates or merge-request references | P6c: an agent's `Bash(pattern)` does not limit Bash, so the agents get none. **Accepted**, as section 3 recorded |
+
+### 4, 4i: learning every run (registered 2026-11-23, before the code)
+
+From [research/2026-11-23-learning-every-run.md](research/2026-11-23-learning-every-run.md), on the user's request of
+2026-11-23. That request is read as the word that reopens D14 for K2.
+
+**The change:** two edits to D14's capture instruction (`INSTRUCTION`, `map.mjs`):
+- **K2:** when the user corrects Claude, or Claude hits a non-obvious problem that will trip up a future session,
+  record it as an entry, in the user's words or as the problem was found;
+- **the document clause:** "you receive or read a document that states requirements" becomes a document from outside
+  the repo. The index already points to the repo's own documents (D15, D22).
+
+**Checks.** All must pass before the change ships:
+1. **A-4, the second run** (`probes/V2-D14-every-run/`). A copy of A1's fixture with `formatPrice()` in
+   `src/utils/money.ts`.
+   - Session 1: "Add a price label to ProductCard." Claude's first attempt is corrected by a fixed follow-up: "No,
+     prices here go through formatPrice() from src/utils/money.ts; toFixed breaks the locales."
+   - Session 2, fresh, with no commit in between: "Add a price to StatTile."
+   - **Read:** session 2 uses `formatPrice` and not `toFixed`.
+   - **Arms,** 5 runs each, on the pinned CLI with Opus 5.5 and auto memory on, as users run it: **H**, the plugin as
+     it is; **K**, with both edits.
+   - **Pass:** K at least 4 of 5, and at least H + 2. If H already reaches 4 of 5, A-4 shows no need for K2, K2 is
+     not shipped (PM1), and the document clause is checked on its own by item 2.
+2. **D16's re-check, as 06's 2s ran it:** A1's V2 arm, 10 runs with the changed instruction, at 2s's bars. The
+   document clause must not lose A1's designer document, which is kept outside the repo.
+3. **The self-test** pins the new instruction's sha256 and bytes, and **CI** passes on three systems.
+
+If check 1 passes and check 2 fails, the document clause is dropped and check 2 runs again with K2 alone.
