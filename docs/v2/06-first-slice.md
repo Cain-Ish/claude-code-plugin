@@ -5638,3 +5638,40 @@ GitHub, so no session loads this branch.
    - T25, the bare `readFileSync` reader, is the positive control: it should still hang. If it never does, the bar
      has not shown that the conditions held, and the probe runs once more.
 5. **The new hash of `plugin/`** is recorded.
+
+### 4, 4a: the fix, check 2 (2026-11-23): agy's review, triaged; no code change
+
+agy (Gemini 4 Argon, plan mode) was given the diff only, and asked to break it:
+- **High: `EAGAIN` if standard input is non-blocking.** `fs.readFileSync(0)` reads the same descriptor and fails the
+  same way, so this is not a regression. No module the hook loads touches `process.stdin` (checked by search), so the
+  hook does not make the descriptor non-blocking itself. Accepted risk, unchanged from 2.3.0.
+- **Medium: "`readFileSync(0)` already is a `readSync` loop, so the fix may only shift a timing window."** Partly
+  contradicted by the probe's own sample: under Node 20, `readFileSync(0, 'utf8')` ran Node's native `ReadFileUtf8`
+  path, not a JavaScript `readSync` loop. The concern about inputs over 64 KiB is covered by the registered bar: the
+  probe's H100 arm sends 100,000 characters, so the fixed hook makes several `readSync` reads there, and it must not
+  hang. If the bar fails, the fallback is to read the input through `process.stdin`'s event loop, which agy also
+  proposes. That fallback is untested.
+- **Low: a 64 KiB zero-fill and two copies of the input.** Microseconds for a hook's input; Claude Code saves tool
+  output over 30,000 characters to a file instead. Accepted.
+- **Refuted by agy's own check:** a Windows pipe's end of input. Node 20 and later return 0 there and do not throw
+  `EOF`. `EINTR`, UTF-8 characters split across chunks, and an empty input are all handled.
+
+### 4, 4a: the fix, checks 1 to 5 (2026-11-23, on `11c1895`): pass; step 4a done
+
+1. **The self-test on Windows** (Node 24): pass.
+2. **agy's review:** triaged above; no code change.
+3. **CI:** `v2.yml` passes, the self-test and load jobs on Ubuntu, macOS and Windows.
+4. **The registered bar, on macOS:**
+   - the full lane ran 70 of 70 clean: 10 jobs × 7 runs;
+   - the hook's probe arms hung 0 times in 300 calls each (S, H21, H25, H25n, H100, A25), so 1,800 calls in all.
+     H100's 100,000 characters take several `readSync` reads;
+   - T25, the bare `readFileSync` reader and the positive control, still hung 8 times in 300 (2 and 6 in the two
+     jobs), so the conditions that hang `readFileSync` held during the run.
+5. **The product hash** is `4a869e6030aa`, pinned in the self-test (2.3.0 was `3650f785f984`).
+
+**N5 is closed.** The hang's cause was `fs.readFileSync(0)` on a socket standard input, on macOS, and the hook no
+longer reads that way. Real sessions benefit too: a command hook's default timeout is 600 seconds, so a stuck hook
+could have held a session for up to 10 minutes. Whether Claude Code's own hook runner ever fed a hook so that it hung
+was not checked; the fix holds either way. D18 records the observation as resolved.
+
+**Next:** step 4b, setup completes the files that exist (registered above).
