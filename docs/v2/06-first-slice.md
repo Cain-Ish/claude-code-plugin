@@ -6551,3 +6551,31 @@ repo.
     headings in the plugin's order;
   - labels that open with a status, a dream's proposal or a passed review date (2.1.0 and later).
 - A self-check on those shapes runs at every load, and a mutation trips it. Probe code only, so no product change.
+
+### 5, 5d: result (2026-11-23): attempt 1 fails check 3; D22 keeps the cut
+
+- **Check 2 passed** (`probes/V2-D22-large/results/size.json`). On the synthetic repo (179 document directories,
+  789 documents), 2.4.0 cuts to 65 of 181 directories at 9,886 characters. The candidate lists all 181 at 9,031 in
+  summary mode.
+- **Check 3 failed** (`results/pull.json`, 5 runs per arm, all valid):
+  - **D1** (a directory 2.4.0 lists by name): followed in 5 of 5 runs of both arms, read in 5 of 5. The file holds
+    1 and 0, from a scorer defect. It accepted only the literal `/static/avatars/` and counted "never the CDN" in a
+    JSDoc comment as a CDN use. Every run used the fixture's `Img` with `local`, which resolves to that path. The
+    probe's scorer is fixed, and the rescoring was done by hand on the saved files.
+  - **D2** (a directory 2.4.0 cuts): **followed in 3 of 5 candidate runs against 5 of 5 control runs.** The bar,
+    "at least as many", fails.
+- **Why, read in the transcripts:**
+  - a candidate run wrote "all 182 doc directories except `avatars/` are no". It judged
+    `docs/standards/components/` by its name, then searched for words D2 does not use;
+  - control runs read the cut's note ("116 more directories not listed"), searched the whole tree, and found D2.
+
+  Listing every directory makes the list look complete, without the file names that would show what it holds.
+- **The rethink:**
+  - the cut already leads Claude to the documents it drops. The summary saves only about 850 characters, and it
+    cost finding;
+  - a lower budget would hide more file names, which is the measured harm;
+  - a hybrid (names while they fit, counts for the rest) adds code for a gain nothing shows.
+
+  So no second attempt. The code is reverted (`f30cd78d`); the product is `c3e75c22b0ea` again.
+- **D22 re-locks on the cut.** The per-session size in a large repo, about 10 KB, is accepted. Claude explores past
+  the cut, and the measured alternative found less.

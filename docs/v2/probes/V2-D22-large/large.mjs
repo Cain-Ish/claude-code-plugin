@@ -21,6 +21,7 @@ const TOPICS = ['architecture', 'avatars', 'components', 'decisions', 'errors', 
 const WORDS = ['policy', 'overview', 'checklist', 'migration', 'retry', 'limits', 'naming', 'ownership', 'rollout', 'notes', 'faq', 'glossary'];
 
 const git = (cwd, ...a) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd, encoding: 'utf8' }); if (r.status) throw new Error(r.stderr); return r.stdout; };
+const bare = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 const put = (p, s) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s); };
 
 // 17 domains x up to 11 topics, cut to 179 directories; 4 or 5 documents each, about 850 in all; deterministic
@@ -83,7 +84,9 @@ if (mode === 'size') {
       const firstLine = comp ? fs.readFileSync(path.join(repo, comp), 'utf8').split('\n').find((l) => l.trim()) ?? '' : '';
       const rec = {
         arm, run: i, valid: res.subtype === 'success' && !res.is_error && Boolean(comp),
-        D1: /\/static\/avatars\//.test(code) && !/cdn/i.test(code.replace(/\/\/.*$/gm, '')),
+        // D1 as attempt 1's hand rescoring read it: the local file, by path or through the fixture's Img local, and no CDN
+        // in code (block and line comments stripped: a comment saying "never the CDN" follows the rule)
+        D1: /\/static\/avatars\/|\blocal\b/.test(bare(code)) && !/cdn/i.test(bare(code)),
         D2: firstLine.trim() === '// owner: web-platform',
         readD1: reads.some((f) => f.endsWith(D1[0])), readD2: reads.some((f) => f.endsWith(D2[0])), reads: reads.length,
         costUsd: Math.round((res.total_cost_usd ?? 0) * 100) / 100,
