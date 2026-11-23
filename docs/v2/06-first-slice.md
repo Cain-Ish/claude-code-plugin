@@ -6087,3 +6087,4 @@ From [research/2026-11-23-learning-every-run.md](research/2026-11-23-learning-ev
 3. **The self-test** pins the new instruction's sha256 and bytes, and **CI** passes on three systems.
 
 If check 1 passes and check 2 fails, the document clause is dropped and check 2 runs again with K2 alone.
+- **CI on `e07469dc`:** `v2.yml` passed on Ubuntu, macOS and Windows, the self-test and the load jobs. **Step 4h is done** (plugin `5bca1aa901d4`).
