@@ -59,8 +59,11 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
 5. **Finish.** Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/dream.mjs" finish "${CLAUDE_PLUGIN_DATA}"` and show
    the user its report. If it asks for approval, ask the user to approve it. If anything went wrong before this step,
    run the same command with `abort` in place of `finish`: it puts the map back as it was.
-6. **Tell the user** what was proposed, and why, in a few lines per kind. Then tell them `/map-review` accepts or
-   rejects each proposal and promotes drafts. Nothing counts as reviewed until it is committed.
+6. **Tell the user** what was proposed, and why, in a few lines per kind. Nothing counts as reviewed until it is
+   committed. Then ask whether to review the proposals now, and wait for the answer:
+   - Now: read `.claude/skills/map-review/SKILL.md` and follow it in this session, where this dream's reasons are at
+     hand.
+   - Later: `/map-review` accepts or rejects each proposal and promotes drafts at any time.
    - From prepare's report, name the topic files no session read: their names or descriptions do not lead Claude to
      them. When a correction came in a session that had read the entry's file, say that the entry did not hold
      Claude to it. This is evidence for the user, not a proposal.
