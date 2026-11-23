@@ -313,38 +313,23 @@ export function dreamDue(root, data, transcriptPath, now = Date.now()) {
 }
 
 // Session start's text. Claude Code caps a hook's added context at 10,000 characters: past it, the text goes to a
-// file and Claude sees a 2,000-character preview. So a larger index is summarised, grouped, or as a last resort cut at
-// a directory, and says so (D22's guard).
+// file and Claude sees a 2,000-character preview. So a larger index is cut at a directory, and says so (D22's guard).
 // When cut, the map folder's line goes first, so captured decisions stay listed (D18, the second review's J2).
 export const CAP = 10_000;
 const notListed = (n) => `(${n} more ${n === 1 ? 'directory' : 'directories'} not listed: session start is past the `
   + '10,000-character limit of one hook output.)';
-const SUMMARY = '(File names are left out: the index passes the 10,000-character limit of one hook output. List a '
-  + 'directory to see its documents.)';
 export function startText(idx) {
   const full = idx ? `${INSTRUCTION}\n\n${idx}\n${NAME}` : `${INSTRUCTION}\n\n${NAME}`;
   let [head, ...dirs] = (idx ?? '').trimEnd().split('\n');
-  const total = dirs.length;
-  if (full.length <= CAP) return { text: full, listed: total, total, mode: 'full' };
-  // D22 (06, section 5, 5d): past the cap, every directory stays listed without its file names; past it even so, the
-  // directories group under their top folder; only then is the list cut. The map folder's line stays whole and first
-  const mapLine = dirs.find((l) => l.startsWith(`${MAP}/: `));
-  const rest = dirs.filter((l) => l !== mapLine).map((l) => { const i = l.indexOf('/: '); return { d: l.slice(0, i), n: l.slice(i + 3).split(', ').length }; });
-  const docs = (n) => `${n} ${n === 1 ? 'document' : 'documents'}`;
-  const wrap = (lines) => `${INSTRUCTION}\n\n${[head, ...(mapLine ? [mapLine] : []), ...lines].join('\n')}\n${SUMMARY}\n\n${NAME}`;
-  const summary = rest.map((r) => `${r.d}/ (${docs(r.n)})`);
-  if (wrap(summary).length <= CAP) return { text: wrap(summary), listed: total, total, mode: 'summary' };
-  const groups = new Map();
-  for (const r of rest) { const t = r.d.split('/')[0]; const g = groups.get(t) ?? { k: 0, n: 0, d: r.d }; g.k++; g.n += r.n; groups.set(t, g); }
-  const grouped = [...groups].map(([t, g]) => (g.k === 1 ? `${g.d}/ (${docs(g.n)})` : `${t}/** (${g.k} directories, ${docs(g.n)})`));
-  if (wrap(grouped).length <= CAP) return { text: wrap(grouped), listed: total, total, mode: 'grouped' };
-  dirs = [...(mapLine ? [mapLine] : []), ...grouped];
+  if (full.length <= CAP) return { text: full, listed: dirs.length, total: dirs.length };
+  const m = dirs.findIndex((l) => l.startsWith(`${MAP}/: `));
+  if (m > 0) dirs = [dirs[m], ...dirs.slice(0, m), ...dirs.slice(m + 1)];
   const at = (k) => `${INSTRUCTION}\n\n${[head, ...dirs.slice(0, k)].join('\n')}\n${notListed(dirs.length - k)}\n\n${NAME}`;
   // one forward pass (J1): each directory listed adds its line and takes at most one digit off the count
   const fixed = INSTRUCTION.length + 2 + head.length + 1 + 2 + NAME.length;
   let k = 0;
   for (let used = fixed; k < dirs.length && used + dirs[k].length + 1 + notListed(dirs.length - k - 1).length <= CAP; k++) used += dirs[k].length + 1;
-  return { text: at(k), listed: k, total: dirs.length, mode: 'cut' };
+  return { text: at(k), listed: k, total: dirs.length };
 }
 
 // The forced decision's epoch: every session start opens one, the first prompt after it closes it. A marker file in
