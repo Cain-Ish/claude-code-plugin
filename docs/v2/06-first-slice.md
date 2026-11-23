@@ -6469,3 +6469,34 @@ On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implic
   2026-11-12", and every other row is unchanged. Removing the URL guard fails the self-test, so the mutation is
   killed.
 - `claude plugin validate` passes. CI runs on `066f96ad`. D16 gets a note, not a reopen.
+
+### 5, 5c: field item #7 and D33, settled; their two lines (registered 2026-11-23, before the code)
+
+The user, on 2026-11-23: "do it byself", on the open questions. As [[v2-continue-without-asking]] says, each one is
+settled by a written rethink plus a second opinion. agy's quota is spent, so a fresh Claude agent, given the facts and
+not this rethink, gave the second opinion. It agreed on both, and found the command below by running it in a scratch
+repo.
+- **#7 (D14): keep "the commit is the review".**
+  - A separate review marker would be a file in the working tree, which the hand that wrote the entry can also write.
+    So an injected entry could mark itself reviewed, which is D14's own reopen trigger.
+  - The field's friction is a missing step: nothing offers a commit of the reviewed files alone.
+  - So `/map-review`'s last step offers `git add <files> && git commit -m "…" -- <files>`. It commits only those
+    files, and staged or unstaged work elsewhere on the branch stays as it is.
+  - D14 is not reopened; none of its triggers fired.
+- **D33: (C) rejected, (M) built, (A)'s "later" kept.**
+  - With (B) rejected, (C) would skip only the review walk; a dream still starts on a typed command. A proposal can
+    count only through a commit, so (C) would mean the dream commits text from transcripts by itself. The charter's
+    non-goal ("a background process that rewrites knowledge without a reviewable diff") and v1's cause 5 rule that
+    out.
+  - (M): the dream's last step asks whether to review its proposals now. On a yes, Claude reads the map-review skill's
+    file and follows it in the same session, with the dream's reasons at hand. Neither skill can invoke the other.
+    "Later" leaves everything for `/map-review`.
+  - R4 (a desktop scheduled task) stays out of the product: testing it means driving the user's desktop app, and setup
+    could never create one. D33 locks.
+
+**Checks:**
+1. *The self-test* pins both lines. A mutation check kills each.
+2. **No walk without the user's yes:** S7's check 2 on the candidate, at its bars (`results/s7-product-a8.json`). Its
+   headless dreams have no one to say yes, so every proposal must still carry `- proposed:` and every draft keep
+   `.draft`. S7's bars already count both.
+3. S8's acceptance check at the release (its dream item counts proposals and unloaded drafts the same way), and CI.
