@@ -1,0 +1,33 @@
+{
+ "model": "claude-opus-5-5",
+ "cli": "2.1.305 (Claude Code)",
+ "runs": {
+  "F0-1": {
+   "valid": true,
+   "pass": true,
+   "toFixed": false,
+   "readMoney": true,
+   "readCard": true,
+   "bad": [],
+   "cost": 0.2236844
+  },
+  "F0-2": {
+   "valid": true,
+   "pass": true,
+   "toFixed": false,
+   "readMoney": true,
+   "readCard": true,
+   "bad": [],
+   "cost": 0.0932552
+  },
+  "F0-3": {
+   "valid": true,
+   "pass": true,
+   "toFixed": false,
+   "readMoney": true,
+   "readCard": true,
+   "bad": [],
+   "cost": 0.0913324
+  }
+ }
+}

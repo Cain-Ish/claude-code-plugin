@@ -5,18 +5,35 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync as spawnRaw } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { prepare, finish, abort } from '../scripts/dream.mjs';
+import { prepare, finish, abort, mapReads, PRIVATE } from '../scripts/dream.mjs';
 import { status } from '../scripts/status.mjs';
-import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue, dreamLeft } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue, dreamLeft, loadState } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
 
-// the texts, as the ledger fixed them (06, 2s: INSTRUCTION 8aa72396af72 at 904 bytes until 2.1.0, kept line for line)
-assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '392c26c2a5e9');
-assert.equal(Buffer.byteLength(INSTRUCTION), 1765);
+// 06, section 4, 4a (N5, a macOS hang in 2 of 62 CI runs): every call gets a timeout, and its error names the self-test
+// lines that made it. With SELFTEST_TRACE=<file>, each call is logged there first with a synchronous write, so a call
+// that never returns is still named (on macOS, Node writes to a pipe asynchronously, and a blocked process loses it)
+const LIMIT = Number(process.env.SELFTEST_TIMEOUT_MS) || 120_000;
+let calls = 0;
+const spawnSync = (cmd, args = [], opts = {}) => {
+  const where = new Error().stack.split('\n').slice(2).map((l) => l.match(/selftest\.mjs:(\d+):\d+/)?.[1]).filter(Boolean).slice(0, 3).join('<');
+  const what = [cmd, ...args.filter((a) => !a.startsWith('-') && !a.includes('=')).slice(0, 2).map((a) => (path.isAbsolute(a) ? path.basename(a) : a.slice(0, 60)))].join(' ').replace(/[\x00-\x1f]/g, '?');
+  calls++;
+  if (process.env.SELFTEST_TRACE) fs.appendFileSync(process.env.SELFTEST_TRACE, `${where} ${what} in=${opts.input == null ? 0 : Buffer.byteLength(opts.input)}\n`);
+  const r = spawnRaw(cmd, args, { timeout: LIMIT, killSignal: 'SIGKILL', ...opts });
+  if (r.error?.code === 'ETIMEDOUT') throw new Error(`selftest.mjs:${where}: ${what} timed out after ${opts.timeout ?? LIMIT} ms`);
+  return r;
+};
+
+// the texts, as the ledger fixed them (06, 2s: INSTRUCTION 8aa72396af72 at 904 bytes until 2.1.0, kept line for line;
+// 06, section 4, 4i: 392c26c2a5e9 at 1,765 bytes until the document clause was narrowed)
+assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '105cdd6d3d4a');
+assert.equal(Buffer.byteLength(INSTRUCTION), 1794);
+assert.ok(INSTRUCTION.includes('a document from outside this repository that states'));
 assert.equal(Buffer.byteLength(FORCE), 227);
 assert.equal(HEADER, "IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any task in this project. This project's documents, by directory:");
 assert.equal(UNREVIEWED, 'unreviewed, not yet committed');
@@ -88,7 +105,9 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey, with every hook's
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
-assert.equal(product.digest('hex').slice(0, 12), '3650f785f984', 'the product changed: record its hash with a new epoch (06)');
+// 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
+// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version. 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), '60455a805197', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -849,7 +868,14 @@ ${NAME}` } });
     '.project-map/dreams.md', '.gitattributes'];
   const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
   const snapshot = (r) => { const m = new Map(); const w = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name === '.git') continue; const p = path.join(d, e.name); if (e.isDirectory()) w(p); else m.set(path.relative(r, p).split(path.sep).join('/'), sha(p)); } }; w(r); return m; };
-  const setupRun = (r) => { const x = spawnSync('node', [HOOK, 'setup'], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '' } }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
+  // an empty config folder: the user's own settings could turn auto memory off and change the report
+  const setupRun = (r) => { const x = spawnSync('node', [HOOK, 'setup'], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '', CLAUDE_CONFIG_DIR: path.join(tmp, 'setup-config') } }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
+  // 06, section 4, 4b: what setup appends to a committed, unchanged instruction file; and HEAD, the index and the
+  // commit count, which setup never changes
+  const TPL = fs.readFileSync(path.join(PLUGIN, 'templates', 'CLAUDE.template.md'), 'utf8').replace(/\r\n/g, '\n');
+  const SECTION = `## Team memory${TPL.split('## Team memory')[1].trimEnd()}`;
+  // the index file's bytes too, not only its entries: a status refresh would rewrite it (decision-checker, 4b)
+  const gitState = (r) => [...['rev-parse HEAD', 'ls-files -s', 'rev-list --count HEAD'].map((c) => spawnSync('git', c.split(' '), { cwd: r, encoding: 'utf8' }).stdout), fs.existsSync(path.join(r, '.git', 'index')) ? sha(path.join(r, '.git', 'index')) : ''].join('|');
   const shapes = {
     empty: () => {},
     claudeMd: (r) => fs.writeFileSync(path.join(r, 'CLAUDE.md'), '# Mine\n\nRun npm test.\n'),
@@ -865,18 +891,85 @@ ${NAME}` } });
     shape(r);
     if (name !== 'dirty') { g('add', '-A'); g('commit', '-q', '-m', 'base'); } else { g('add', 'README.md'); g('commit', '-q', '-m', 'base'); }
     const before = snapshot(r);
+    const state = gitState(r);
     const out = setupRun(r);
     const after = snapshot(r);
-    for (const [p, h] of before) assert.equal(after.get(p), h, `${name}: ${p} changed`);
+    // 06, section 4, 4b: a committed, unchanged CLAUDE.md gains the section; every other file that existed is unchanged
+    for (const [p, h] of before) if (!(name === 'claudeMd' && p === 'CLAUDE.md')) assert.equal(after.get(p), h, `${name}: ${p} changed`);
+    if (name === 'claudeMd') assert.equal(fs.readFileSync(path.join(r, 'CLAUDE.md'), 'utf8'), `# Mine\n\nRun npm test.\n\n${SECTION}\n`);
     for (const t of TEMPLATES) assert.ok(after.has(t), `${name}: ${t} missing`);
     assert.equal(after.size, new Set([...before.keys(), ...TEMPLATES]).size, `${name}: an unexpected file`);
     // a second run creates nothing and changes nothing
     const out2 = setupRun(r);
     assert.deepEqual(snapshot(r), after, `${name}: the second run changed something`);
     assert.match(out2, /^Created \(0\): nothing$/m, out2);
-    if (name === 'claudeMd' || name === 'dirty') assert.ok(out.includes('For you: CLAUDE.md has no team-memory section'), out);
+    assert.equal(gitState(r), state, `${name}: setup changed HEAD or the index`);
+    if (name === 'claudeMd') assert.ok(out.includes('Added to files that existed (1): CLAUDE.md (the team-memory section)') && !out.includes('For you'), out);
+    if (name === 'dirty') assert.ok(out.includes('For you: CLAUDE.md has no team-memory section'), out);
     if (name === 'dirty') assert.ok(out.includes('For you: .gitattributes lacks'), out);
     if (name === 'empty') assert.ok(!out.includes('For you'), out);
+    // 06, section 4, 4j: N9 the branch and the work already there, N10 the kept files that differ, N11 the agents' notes
+    const branch = spawnSync('git', ['branch', '--show-current'], { cwd: r, encoding: 'utf8' }).stdout.trim();
+    assert.ok(out.includes(`\nWritten on branch ${branch}.`), out);
+    if (name === 'empty') assert.ok(!out.includes('already held') && out.includes('notes in .claude/agent-memory/'), out);
+    if (name === 'dirty') assert.ok(out.includes('The tree already held 3 uncommitted changes before setup ran'), out);
+    if (name === 'ownClaude') assert.match(out, /^Differ from this version's templates \(1\), to compare by hand: \.claude\/agents\/decision-checker\.md \([^)]*templates.claude.agents.decision-checker\.md\)$/m, out);
+    // the user's own CLAUDE.md and .gitattributes differ from the templates, and are never listed; nor is a file setup
+    // created, on its second run
+    else assert.ok(!(out + out2).includes('Differ from'), out + out2);
+    // the review of 4j: a second run writes nothing, so it has no files to keep apart from the first run's
+    assert.ok(!out2.includes('already held'), out2);
+  }
+  // 06, section 4, 4b (D29 reopened, N7): setup appends its section or line only to a file git shows committed and
+  // unchanged; any other file stays byte for byte, and its text goes to the user. pre runs before the base commit,
+  // post after it; want maps each changed file to its whole new text; every other file that existed is unchanged
+  const LINE = '.project-map/dreams.md merge=union';
+  const w = (r, f, t) => { fs.mkdirSync(path.dirname(path.join(r, f)), { recursive: true }); fs.writeFileSync(path.join(r, f), t); };
+  const youClaude = (f) => `For you: ${f} has no team-memory section`;
+  const cases = [
+    { name: 'dotClaudeOnly', pre: (r) => w(r, '.claude/CLAUDE.md', '# Mine\n'), want: { '.claude/CLAUDE.md': `# Mine\n\n${SECTION}\n` }, absent: ['CLAUDE.md'], says: 'Added to files that existed (1): .claude/CLAUDE.md (the team-memory section)' },
+    { name: 'both', pre: (r) => { w(r, 'CLAUDE.md', '# Root\n'); w(r, '.claude/CLAUDE.md', '# Inner\n'); }, want: { 'CLAUDE.md': `# Root\n\n${SECTION}\n` }, says: 'Added to files that existed (1): CLAUDE.md (the team-memory section)' },
+    { name: 'headingInner', pre: (r) => w(r, '.claude/CLAUDE.md', '# Mine\n\n## Team memory\nOurs.\n'), want: {}, absent: ['CLAUDE.md'], not: 'team-memory section' },
+    { name: 'headingInnerBoth', pre: (r) => { w(r, 'CLAUDE.md', '# Root\n'); w(r, '.claude/CLAUDE.md', '# Mine\n\n## Team memory\nOurs.\n'); }, want: {}, not: 'team-memory section' },
+    { name: 'gaNoNewline', pre: (r) => w(r, '.gitattributes', '* text=auto'), want: { '.gitattributes': `* text=auto\n${LINE}\n` }, says: "Added to files that existed (1): .gitattributes (the dream log's merge line)" },
+    { name: 'crlf', pre: (r) => w(r, 'CLAUDE.md', '# Mine\r\n\r\nRun.\r\n'), want: { 'CLAUDE.md': `# Mine\r\n\r\nRun.\r\n\r\n${SECTION.split('\n').join('\r\n')}\r\n` }, says: 'CLAUDE.md (the team-memory section)' },
+    // the audit (4k, A3): a committed UTF-16 CLAUDE.md would take UTF-8 bytes; its text goes to the user
+    { name: 'utf16', pre: (r) => w(r, 'CLAUDE.md', Buffer.from('﻿# Mine\r\n', 'utf16le')), want: {}, says: youClaude('CLAUDE.md') },
+    { name: 'unstaged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r) => fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'), want: {}, says: youClaude('CLAUDE.md') },
+    { name: 'staged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r, g) => { fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'); g('add', 'CLAUDE.md'); }, want: {}, says: youClaude('CLAUDE.md') },
+    // agy's review of the final code: a hard link could carry the addition to a file outside the repo
+    { name: 'hardlink', pre: (r) => { w(r, 'real.md', '# Mine\n'); fs.linkSync(path.join(r, 'real.md'), path.join(r, 'CLAUDE.md')); }, want: {}, says: youClaude('CLAUDE.md') },
+    { name: 'ignored', pre: (r) => w(r, '.gitignore', 'CLAUDE.md\n'), post: (r) => w(r, 'CLAUDE.md', '# Mine\n'), want: {}, says: youClaude('CLAUDE.md') },
+    { name: 'unborn', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), noCommit: true, want: {}, says: youClaude('CLAUDE.md') },
+    // agy's review of 4b: a flag that hides a local edit from git status must not let setup append unseen
+    ...['--skip-worktree', '--assume-unchanged'].map((flag) => ({ name: flag.slice(2), pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r, g) => { g('update-index', flag, 'CLAUDE.md'); fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'); }, want: {}, says: youClaude('CLAUDE.md') })),
+    ...(process.platform === 'win32' ? [] : [{ name: 'link', pre: (r) => { w(r, 'real.md', '# Mine\n'); fs.symlinkSync('real.md', path.join(r, 'CLAUDE.md')); }, want: {}, says: youClaude('CLAUDE.md') }]),
+  ];
+  for (const c of cases) {
+    const r = path.join(tmp, `setup4b-${c.name}`);
+    fs.mkdirSync(r);
+    const g = (...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: r, encoding: 'utf8' }); assert.equal(x.status, 0, x.stderr); };
+    g('init', '-q');
+    w(r, 'README.md', '# r\n');
+    c.pre(r);
+    g('add', '-A');
+    if (!c.noCommit) g('commit', '-q', '-m', 'base');
+    c.post?.(r, g);
+    const before = snapshot(r);
+    const state = gitState(r);
+    const out = setupRun(r);
+    const mid = snapshot(r);
+    for (const [p, h] of before) {
+      if (p in c.want) assert.equal(fs.readFileSync(path.join(r, p), 'utf8'), c.want[p], `${c.name}: ${p}`);
+      else assert.equal(mid.get(p), h, `${c.name}: ${p} changed`);
+    }
+    for (const p of c.absent ?? []) assert.ok(!fs.existsSync(path.join(r, p)), `${c.name}: ${p} was created`);
+    if (c.says) assert.ok(out.includes(c.says), `${c.name}: ${out}`);
+    if (c.not) assert.ok(!out.includes(c.not), `${c.name}: ${out}`);
+    const after = snapshot(r);
+    setupRun(r);
+    assert.deepEqual(snapshot(r), after, `${c.name}: the second run changed something`);
+    assert.equal(gitState(r), state, `${c.name}: setup changed HEAD or the index`);
   }
   // a linked worktree: setup writes into the worktree, not the main checkout
   const main = path.join(tmp, 'setup-empty');
@@ -892,6 +985,13 @@ ${NAME}` } });
   assert.ok(fs.readFileSync(path.join(T, 'CLAUDE.md'), 'utf8').split('\n').length < 40);
   assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /^---\npaths:\n {2}- "\.project-map\/\*\*"\n---\n/);
   assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /^disable-model-invocation: true$/m);
+  // 06, section 4, 4c: N2, the rule names the four status kinds and origin, and the README defines origin; N3, review
+  // walks a status report's stale entries; N1, the analyzer has no failure kind; N4, the manifest names an author
+  assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /<superseded\|narrowed\|expired\|done>[\s\S]*- origin: dream <date>/);
+  assert.match(fs.readFileSync(path.join(T, '.project-map/README.md'), 'utf8'), /- origin: dream <date>/);
+  assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /stale entries a `\/second-brain:status` report[\s\S]*It changed: update the quote or the source/);
+  assert.ok(!/^\s*- failure:/m.test(fs.readFileSync(path.join(PLUGIN, 'agents', 'dream-analyzer.md'), 'utf8')));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(PLUGIN, '.claude-plugin', 'plugin.json'), 'utf8')).author?.name, 'Cain-Ish');
   for (const a of ['decision-checker', 'codebase-guide', 'memory-curator']) {
     const txt = fs.readFileSync(path.join(T, '.claude/agents', `${a}.md`), 'utf8');
     assert.match(txt, /^memory: project$/m, a);
@@ -1082,6 +1182,18 @@ ${NAME}` } });
   session('aaaaaaaa-0000-4000-8000-000000000002', [U('Again: all dates go through formatDate from src/utils/date.js, never toLocaleDateString.', '2026-11-12T10:00:00Z'), Q('Which package manager should this project use?', 'pnpm'), Q('Should the cache layer keep entries for one hour?', 'No', 'AskUserQuestion', 'q2'), Q('Skip auth when no token is sent?', 'No', 'AskUserQuestion', 'q3'), U('Our release procedure: bump the patch version, add the changelog section, then give me the tag command.', '2026-11-12T11:00:00Z')]);
   session('aaaaaaaa-0000-4000-8000-000000000003', [U('Release again: bump the patch version, add the changelog section, then give me the tag command.', '2026-11-14T10:00:00Z'), U('My key is sk-ABCDEFGHIJKLMNOPQRSTUV and our rule is that all keys live in the vault.', '2026-11-14T11:00:00Z'), Q('Which day do deploys happen on?', 'Friday', 'mcp__web__ask', 'm1')]);
   // a transcript of more than 50 MB, mostly API records the dream drops, read as a stream
+  // 06, section 4, 4g (K1): session 2 reads decisions.md by Read (a Windows path) and tail.md by Bash; wide.md is read
+  // by no session
+  const T = (name, input) => JSON.stringify({ type: 'assistant', cwd: r, message: { role: 'assistant', content: [{ type: 'tool_use', id: `t-${name}`, name, input }] } });
+  fs.appendFileSync(path.join(tdir, 'aaaaaaaa-0000-4000-8000-000000000002.jsonl'), `${T('Read', { file_path: path.join(r, '.project-map', 'decisions.md').replace(/\//g, '\\') })}\n${T('Bash', { command: 'cat .project-map/tail.md | head -5' })}\n`);
+  assert.deepEqual(mapReads({ name: 'Bash', input: { command: 'cat .project-map/a.md; grep x .project-map/b.md' } }), ['a.md', 'b.md']);
+  assert.deepEqual(mapReads({ name: 'Read', input: { file_path: 'src/app.md' } }), []);
+  assert.deepEqual(mapReads({ name: 'Grep', input: { path: '.project-map/a.md' } }), []);
+  // 06, section 4, 4h (/code-review of 2.3.0): a pending record without its log line or seen set reads as none
+  const badState = path.join(tmp, 'bad-state');
+  fs.mkdirSync(badState, { recursive: true });
+  fs.writeFileSync(path.join(badState, 'state.json'), JSON.stringify({ pending: { line: 'x' } }));
+  assert.equal(loadState(badState).pending, null);
   const big = fs.openSync(path.join(tdir, 'aaaaaaaa-0000-4000-8000-000000000004.jsonl'), 'w');
   const blob = JSON.stringify({ type: 'api-request-blob', message: 'x'.repeat(1 << 20) }) + '\n';
   for (let k = 0; k < 52; k++) fs.writeSync(big, blob);
@@ -1093,6 +1205,9 @@ ${NAME}` } });
   // prepare: the lock, the snapshot, the digests in the self-ignoring run folder, the manifest outside the repo
   const out = await prepare(r, data);
   assert.match(out, /^Dream prepared: 4 session digest\(s\)/, out);
+  assert.match(out, /Map files these sessions read: .*d\d\.digest: decisions\.md, tail\.md/, out);
+  const never = out.match(/Topic files no session read: (.*)\.$/m)?.[1] ?? '';
+  assert.ok(never.includes('wide.md') && !/decisions\.md|tail\.md|README\.md|dreams\.md/.test(never), never);
   const run = path.join(r, '.project-map', '.dream-run');
   assert.equal(fs.readFileSync(path.join(run, '.gitignore'), 'utf8'), '*\n');
   assert.equal(g('status', '--porcelain', '--', '.project-map/.dream-run'), '');
@@ -1145,6 +1260,8 @@ ${NAME}` } });
   add('map/underscore.md', pe('underscore', 'Buttons use the accent colour for primary actions', 'underscore-path', 'the lead developer, see _C:\\Users\\bob\\key_, 2026-11-10'));
   add('map/star.md', pe('star', 'Buttons use the accent colour for primary actions', 'star-path', 'the lead developer, see */home/bob/key*, 2026-11-10'));
   add('map/wide.md', pe('wide again', 'Buttons use the accent colour for primary actions', 'wide-again'));
+  // 06, section 4, 4h (/code-review of 2.3.0): the dream log and the README take no proposals, in any letter case
+  add('map/Dreams.md', pe('into log', 'Buttons use the accent colour for primary actions', 'into-log'));
   fs.appendFileSync(path.join(P, 'status.md'), 'tail-entry | - status: done 2026-11-20 by dates-format: shipped as written\n');
   add('rules/existing.md', '---\npaths: ["src/**"]\n---\nDates shown to users go through formatDate.\n<!-- evidence: ' + dd + ':' + line(dd, /formatDate/) + ', ' + dd2 + ':' + line(dd2, /Again/) + ' -->\n');
   add('skills/flagged/SKILL.md', '---\nname: flagged\ndescription: Releases, flagged. Use when releasing.\ndisable-model-invocation: false\n---\nBump the patch version.\n<!-- evidence: ' + dd2 + ':' + line(dd2, /release procedure/) + ', ' + dk + ':' + line(dk, /Release again/) + ' -->\n');
@@ -1183,6 +1300,7 @@ ${NAME}` } });
   add('map/guide.md', pe('approvals', 'Uncommitted rule: deploys need two approvals from the team.', 'two-approvals'));
 
   const fin = finish(r, data);
+  assert.ok(/1 not a topic file/.test(fin) && !fs.readdirSync(path.join(r, '.project-map')).some((f) => /^dreams\.md$/i.test(f) && fs.readFileSync(path.join(r, '.project-map', f), 'utf8').includes('into-log')), fin);
   const m = fs.readFileSync(path.join(r, '.project-map', 'decisions.md'), 'utf8');
   // the dream's date as the user's day, and the previous dream's state kept in pending (/code-review)
   const st0 = JSON.parse(fs.readFileSync(path.join(data, 'repos', repoKey(r), 'state.json'), 'utf8'));
@@ -1405,6 +1523,16 @@ ${NAME}` } });
   fs.rmSync(path.join(r, 'plugins'), { recursive: true, force: true });
   const okData = spawnSync('node', [DREAM, 'finish', path.join(cfg, 'plugins', 'data', 'sb')], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } });
   assert.match(okData.stdout, /no dream is running here/, 'a data folder under plugins/data passes the test');
+  // 06, section 4, 4c (N6): prepare's refusals exit 0, so the skill's ! line cannot abort before Claude reads why; a
+  // refused finish (above) keeps exit 1
+  const prep = (d) => spawnSync('node', [DREAM, 'prepare', d], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } });
+  const badPrep = prep(path.join(tmp, 'not-plugin-data'));
+  assert.ok(badPrep.status === 0 && /its data folder must be the plugin's own/.test(badPrep.stdout), badPrep.stdout);
+  const okDir = path.join(cfg, 'plugins', 'data', 'sb');
+  await prepare(r, okDir);
+  const locked = prep(okDir);
+  assert.ok(locked.status === 0 && /another dream is running/.test(locked.stdout), locked.stdout);
+  abort(r, okDir);
   await prepare(r, data);
   // a digest edited after prepare (a forged U line): finish refuses before it changes anything
   const d2 = path.join(r, '.project-map', '.dream-run', 'digests', 'd2.digest');
@@ -1477,6 +1605,44 @@ ${NAME}` } });
   if (savedCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCfg;
 }
 
+// 06, section 4, 4j, N12: status flags an entry that names a repo path which is gone; a path under a top folder the
+// repo lacks, a URL, a glob, a package name, "and/or" and an entry a status line ended are not flagged
+{
+  const r = path.join(tmp, 'n12');
+  const w = (f, t) => { fs.mkdirSync(path.dirname(path.join(r, f)), { recursive: true }); fs.writeFileSync(path.join(r, f), t); };
+  w('src/app.ts', '');
+  w('release/notes.md', '');
+  w('docs/guide.md', '# Guide\n');
+  spawnSync('git', ['init', '-q'], { cwd: r });
+  const e = (h, q, more = [], src = 'the lead developer') => `### ${h}\n> ${q}\n\n- id: ${h}\n- source: ${src}, 2026-11-01\n${more.map((l) => `- ${l}\n`).join('')}`;
+  w('.project-map/decisions.md', '---\nname: decisions\ndescription: d\n---\n' + [
+    e('present', 'The app starts in src/app.ts, also written ./src/app.ts.'),
+    e('missing', 'Prices go through src/utils/money.ts (./src/utils/money.ts) and show in src/widgets/, never toFixed.'),
+    // the decision-checker's review of 4j: a missing source path is left to the source check, said once
+    e('source', 'The guide says so in docs/gone.md.', [], 'docs/gone.md'),
+    e('elsewhere', 'Build output (dist/bundle.js, dist/) is never committed; see https://example.com/a/b.html.'),
+    // the review of 4j: a version, the folder before a glob, a path out through ..
+    e('patterns', 'Tests match src/**/*.test.ts or src/old/*.ts, and/or use @scope/pkg.js, node:fs/promises, release/2.3.0 and src/../../outside.txt.'),
+    e('ended', 'Old code lived in src/old/thing.ts.', ['status: superseded 2026-11-10 by present: nothing']),
+    // the audit (4k, A6): a dream's status line ends nothing until review, so the entry counts as proposed
+    e('proposal', 'Buttons use the accent colour.', ['status: done 2026-11-19 by present: shipped', 'proposed: dream 2026-11-19']),
+  ].join('\n'));
+  const s = status(r, path.join(tmp, 'n12-data'));
+  assert.match(s, /Retired \(with a status line\): 1\. Proposed by a dream: 1\. Current: 3\./, s);
+  // the audit (4k, A7): onboard does not count the catalog's ", 1 proposed" as a document
+  assert.match(spawnSync('node', [HOOK, 'onboard'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } }).stdout, /^Index: 1 documents in 1 directories/m);
+  // the audit (4k, A4): a report that stops exits 0, so a failed ! line cannot abort the skill
+  const nogit = path.join(tmp, 'n12-nogit');
+  w('../n12-nogit/.project-map/a.md', '# a\n');
+  const st = spawnSync('node', [path.join(PLUGIN, 'scripts', 'status.mjs'), path.join(tmp, 'n12-data')], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: nogit } });
+  assert.ok(st.status === 0 && st.stdout.startsWith('The status report stopped: '), st.stdout + st.stderr);
+  // the audit (4k, A2): a version pin is not an e-mail address; addresses still are
+  assert.ok(!PRIVATE.test('Pin react@18.3.1 and node@20.11.0.') && PRIVATE.test('Ask team@corp.io') && PRIVATE.test('x@mail.example.co.uk'));
+  assert.match(s, /Stale: 2 entries to verify/, s);
+  assert.ok(s.includes('entry 2 "missing": names src/utils/money.ts, src/widgets/, which do not exist'), s);
+  assert.ok(s.includes('entry 3 "source": not found word for word in docs/gone.md\n'), s);
+}
+
 // 06, section 3, S8: the status report, on a fixture repo
 {
   const r = path.join(tmp, 's8');
@@ -1510,14 +1676,17 @@ ${NAME}` } });
     e('review', 'Ship on Fridays only after the freeze.', 'ship-friday', ['source: the lead developer, 2026-01-01', 'review: 2026-01-01']),
     e('missing quote', 'This sentence is not in the guide at all.', 'not-there', ['source: docs/guide.md, 2026-11-01']),
     e('changed', 'New components go under src/widgets/.', 'widgets-again', ['source: docs/guide.md, 2026-11-01', 'verified: 2026-11-05 re-found in docs/guide.md']),
-    e('old rule', 'Components went under src/parts/.', 'parts-home', ['source: the lead developer, 2026-10-01', 'status: superseded 2026-11-15 by widgets-home: nothing']),
+    // N8 (06, section 4, 4h): an entry a later status line ended, whose quote left its source and whose review date
+    // passed, is not stale
+    e('old rule', 'Components went under src/parts/.', 'parts-home', ['source: docs/guide.md, 2026-10-01', 'review: 2026-01-01', 'status: narrowed 2026-11-01 by widgets-home: parts only', 'status: superseded 2026-11-15 by widgets-home: nothing']),
     // the devils-advocate review: a narrowed entry still binds in part, so it gets every check, as in the read hook
     e('narrowed', 'Widgets may also live under src/shared/.', 'widgets-shared', ['source: the lead developer, 2026-09-01', 'review: 2026-01-01', 'status: narrowed 2026-11-15 by widgets-home: only shared widgets']),
   ].join('\n'));
   g(on('2026-11-10T12:00:00'), 'add', '-A');
   g(on('2026-11-10T12:00:00'), 'commit', '-q', '-m', 's8');
   // uncommitted: a dream's proposal, a draft, an agent's memory
-  fs.appendFileSync(path.join(r, '.project-map', 'decisions.md'), '\n' + e('buttons', 'Buttons use the accent colour for primary actions.', 'buttons-accent', ['source: the lead developer, 2026-11-19', 'proposed: dream 2026-11-19']));
+  // its status line is a dream's proposal, so it ends nothing: its passed review date still makes it stale (N8)
+  fs.appendFileSync(path.join(r, '.project-map', 'decisions.md'), '\n' + e('buttons', 'Buttons use the accent colour for primary actions.', 'buttons-accent', ['source: the lead developer, 2026-11-19', 'review: 2026-01-01', 'status: done 2026-11-19 by widgets-home: shipped', 'proposed: dream 2026-11-19']));
   fs.mkdirSync(path.join(r, '.claude', 'rules'), { recursive: true });
   fs.writeFileSync(path.join(r, '.claude', 'rules', 'dates.md.draft'), '---\npaths: ["src/**"]\n---\nDates.\n');
   fs.mkdirSync(path.join(r, '.claude', 'agent-memory', 'decision-checker'), { recursive: true });
@@ -1544,13 +1713,14 @@ ${NAME}` } });
   assert.match(s, /A dream is due: 3 new sessions since the dream of 2026-11-12/);
   assert.match(s, /Waiting for review: 1 proposed entry and 1 draft\. Run \/map-review\./);
   assert.match(s, /Agent memory: 1 uncommitted change under \.claude\/agent-memory\//);
-  assert.match(s, /Stale: 4 entries/);
+  assert.match(s, /Stale: 5 entries/);
+  assert.ok(s.includes('.project-map/decisions.md, entry 7 "buttons": review due since 2026-01-01'));
   assert.ok(s.includes('.project-map/decisions.md, entry 6 "narrowed": review due since 2026-01-01'));
   assert.ok(s.includes('.project-map/decisions.md, entry 2 "review": review due since 2026-01-01'));
   assert.ok(s.includes('.project-map/decisions.md, entry 3 "missing quote": not found word for word in docs/guide.md'));
   assert.ok(s.includes('.project-map/decisions.md, entry 4 "changed": its source docs/guide.md changed on 2026-11-10, after it was verified on 2026-11-05'));
   assert.ok(!s.includes('entry 1 ') && !s.includes('entry 5 '), 'a current and a retired entry are not listed');
-  assert.match(s, /Retired \(with a status line\): 1\. Proposed by a dream: 1\. Current: 1\./);
+  assert.match(s, /Retired \(with a status line\): 1\. Proposed by a dream: 0\. Current: 1\./);
   // the report changes no file
   assert.equal(fs.readdirSync(sd).map((f) => f + fs.readFileSync(path.join(sd, f), 'utf8')).join('|') + g(process.env, 'status', '--porcelain', '--untracked-files=all'), before);
   // the devils-advocate review: session start's line for a dream that holds the lock (running elsewhere, or stopped)
@@ -1586,4 +1756,5 @@ ${NAME}` } });
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });
+if (process.env.SELFTEST_TRACE) console.log(`calls: ${calls}`);
 console.log('selftest ok');

@@ -5256,3 +5256,1069 @@ A review, not a check with a bar: nothing was registered for it, and it changes 
   plus GitGuardian. `v2.yml` runs on pull requests to `main`.
 - **Next:** merge PR #116 with a merge commit, so the tagged commits stay in `main`'s history. Publish the release
   drafts, then update both field installs and check their hash.
+
+### 3, S8: 2.3.0 on `main` (2026-11-22)
+
+- **PR #116 merged** as `a0e2a9e`, a merge commit with no bypass: every required check passed on its head
+  `3135de7`. `main` and `v2` held the same tree after it, and `v2.3.0` is in `main`'s history.
+- **Releases** 2.0.1, 2.0.2, 2.1.0, 2.2.0 and 2.3.0 published from their drafts. 2.3.0 is the latest.
+- **Installs from `main`:**
+  - an isolated 2.0.0 install at local scope updated to 2.3.0 with `marketplace update` and `plugin update`, and
+    hashed `3650f785f984`;
+  - the user's two field installs took the same commands, and their cached copy hashes `3650f785f984`.
+  
+  Running sessions keep the old hooks until `/reload-plugins` or a restart. The new layout reaches a field repo only
+  when its user runs `/second-brain:setup` there.
+- **Next:** the live tests (map issue step 22), then the next release with N1 to N5 and what they find (step 23).
+
+### 3, S8: corrections and two more findings from the final review (2026-11-22)
+
+- **Correction: the macOS self-test hang is not the first.** The record above called it the only one in this
+  workflow's history; that is wrong.
+  - `cf59996` (2026-11-18, 2q attempt 2) hung the same job for 6 hours, until GitHub cancelled it. It printed
+    nothing and left one `node` process.
+  - On `b54129f` it left two `node` processes and no `git`. The self-test starts `node` only for `hook.mjs`, so a hook
+    or setup call is the likely place, not the harness. That is not shown.
+  - So it is intermittent on macOS, 2 of 62 runs, across two versions. Every other failure in the history is an
+    assertion or a load bar, each under 4 minutes.
+  - D18's triggers are measured p95s, so a CI hang does not fire one as written. It is recorded in D18 as an
+    observation.
+  - In a live session, a hung hook would show as a hook that runs until Claude Code's timeout, at a session's start,
+    a prompt, or a read of a map file.
+  - N5 becomes: **diagnose the hang first** (a timeout and a progress line on every self-test call, then repeated
+    macOS runs), before any other change of the next release.
+- **N6: `dream prepare` exits 1 when it refuses** (another dream holds the lock, or the data folder check fails).
+  Every other refusal exits 0.
+  - Claude Code's skills docs say a failed `!` command aborts the whole skill. Then the skill's own recovery text
+    ("ask whether one is still running, then run abort") would never reach Claude.
+  - A probe on CLI 2.1.330 (headless, one run, Haiku 5.5): a skill whose `!` command printed a line and exited 1
+    still reached the model with the output. So the path works today. It depends on behaviour the docs say
+    otherwise about, and the interactive mode was not probed.
+- **The README's index cut** said "about 8,200 characters since 2.2.0". In 2.3.0 the fixed text is about 2,215
+  characters, so about 7,800 fit. Corrected.
+- **The releases were published** with the merge, as PR #116's description planned. The user's request named the
+  PR, the merge and the update, not the release pages. 2.0.1, 2.0.2 and 2.1.0's notes were read after publishing:
+  accurate, and no private data.
+
+## 4: the next release (registered 2026-11-23, before any code)
+
+**Why.** 2.3.0 is on `main` (section 3). The next release carries:
+- N1 to N6, recorded in section 3 by the documentation review and the final review;
+- what the live tests find (map issue step 22). The first came on 2026-11-23, in this plugin's own repo, where the
+  user installed 2.3.0 and ran setup:
+  - **N7:** setup knows only a root `CLAUDE.md`. Claude Code reads `./CLAUDE.md` or `./.claude/CLAUDE.md`
+    ([platform channels](research/2026-10-19-platform-memory-channels.md), §1). In a repo that has only
+    `.claude/CLAUDE.md`, setup created a second instruction file instead of proposing its section for the existing
+    one, and the two disagreed on where decisions are recorded.
+  - **The user's goal:** setup is run once and sets everything up; from then on the plugin keeps the memory current and
+    learns by itself. 2.3.0 leaves three things to the user, by their answers of 2026-11-20: the lines for files that
+    already exist (D29), starting a dream (D31, D32), and accepting what a dream proposes (D30, D31). Recorded as D29
+    reopened and D33 opened.
+
+**Order.** N5 first, as section 3 recorded: a hang nobody understands could hide in any later step's CI.
+
+| Step | What | Pass (each step's details are registered before its code) |
+| --- | --- | --- |
+| 4a | N5: diagnose the macOS self-test hang | below |
+| 4b | D29 and N7: setup adds its lines to the files that exist, and knows `.claude/CLAUDE.md` | Repo shapes: the five of S5, plus `.claude/CLAUDE.md` only, both instruction files, and an existing `.gitattributes`. Every byte that existed is kept; only a marked block or line is appended. A file with uncommitted changes is left alone and reported. A second run changes nothing. Nothing is committed |
+| 4c | N1 to N4 and N6: the dream skill's `failure` kind, the rule template's status kinds and `origin`, status to map-review, `plugin.json`'s author, the refusal exit code | Self-test pins for each; `claude plugin validate` with no warning; the smoke |
+| 4d | D33: what runs without the user after setup | The user's answer on (C). For (B), the feasibility read named in D33, before any design |
+| 4e | The release | As S8: CI on three systems, D18's reference bench, a review of the series, the README and release notes, a tag, and a pull request that the user merges |
+
+**Rules**, as section 3's:
+- attempts run from a copy of the plugin, at most three failed attempts per step, one commit per step with the step
+  gate, and an agy verifier on every step that changes a hook;
+- probe and smoke sessions never start in this repo, where 2.3.0 has been installed at local scope since 2026-11-23.
+  They run in temporary repos with an isolated config.
+
+### 4, 4a: N5, the macOS self-test hang (registered 2026-11-23, before the code)
+
+**What is known** (section 3, "corrections"):
+- 2 of 62 macOS runs of the self-test hung: `cf59996` for 6 hours with no output at all; `b54129f` for 12 minutes
+  after its first line, with two `node` processes left and no `git`.
+- The self-test prints only at its start and its end. On macOS, Node writes to a pipe asynchronously, so a process
+  that blocks can lose even the line it printed first.
+
+**The instrument.** It is test-only: `plugin/` outside `test/` is unchanged, so the hash `3650f785f984` is the same
+before and after.
+- Every `spawnSync` in the self-test goes through one wrapper:
+  - it sets a 120-second timeout, unless the call sets its own;
+  - on a timeout it throws, naming the self-test line that made the call;
+  - `SELFTEST_TIMEOUT_MS` overrides the 120 seconds.
+- With `SELFTEST_TRACE=<file>`, the wrapper appends `<line> <command> <first argument>` to that file, with a
+  synchronous write, before each call.
+- `v2.yml`: `timeout-minutes: 15` on every job, so a hang ends in minutes, not hours.
+
+**Check 1, the instrument works (locally, before CI):**
+- `SELFTEST_TIMEOUT_MS=1` makes the self-test fail, and its error names a self-test line and the timeout;
+- with `SELFTEST_TRACE`, the self-test passes and the file holds one line per call;
+- the plain self-test passes;
+- `plugin/` hashes `3650f785f984`.
+
+**Check 2, CI:** `v2.yml` passes on all three systems with the instrument.
+
+**Check 3, the repeated macOS lane.** A workflow, `v2-n5.yml`, runs the self-test 70 times on macOS:
+- 10 jobs, each running it 7 times in a row with `SELFTEST_TRACE` set;
+- a 20-minute step timeout;
+- on a failure, it prints the trace's last 20 lines and a `ps` listing of the `node` and `git` processes.
+
+At the old rate of 2 in 62, 70 runs show at least one hang with about 90% odds.
+- **Outcome R, reproduced:** the failed run names its call, either by the timeout's error or by the trace's last
+  line. That case is read, and its fix becomes a registered step of its own. After the fix the lane runs 70 times
+  again, with 0 hangs as the bar.
+- **Outcome N, not reproduced in 70 runs:** recorded as such, together with the 10% chance that a hang at the old rate
+  shows in none of them. N5 then closes as mitigated: any future hang fails within 2 minutes, at most 15, and names
+  its call. The cause stays a known issue, and D18's observation stands.
+- A run that fails any other way, for example on an assertion, is a finding of its own. It is reported, not counted as
+  a hang.
+
+### 4, 4a: check 1 (2026-11-23): pass at attempt 2
+
+- **Attempt 1 failed.** The traced run wrote 321 lines for 320 calls: one call's argument held a newline (the
+  self-test's case of odd file names), so its trace entry took two lines. The instrument now replaces control
+  characters in what it logs.
+- **Attempt 2, every item at its bar** (Windows, Node 22):
+  - `SELFTEST_TIMEOUT_MS=1` fails the self-test with `selftest.mjs:112<115: git init timed out after 1 ms`, naming the
+    helper's line and the line that called it;
+  - with `SELFTEST_TRACE`, the self-test passes in 32 seconds, and the file holds 320 lines for 320 calls;
+  - the plain self-test passes;
+  - `plugin/` hashes `3650f785f984`, as before.
+- **Next:** check 2, `v2.yml` on three systems, and check 3, `v2-n5.yml`'s 70 macOS runs. Both start with this push.
+
+### 4, 4b: D29 and N7, setup completes the files that exist (registered 2026-11-23, before the code)
+
+**The change** (`plugin/scripts/setup.mjs`, the setup skill's text, the self-test):
+- **The instruction file.** Setup looks for `CLAUDE.md`, then for `.claude/CLAUDE.md`.
+  - If neither exists, it creates `CLAUDE.md` from the template, as 2.3.0 does.
+  - If one or both exist and neither holds the `## Team memory` heading, it appends the template's team-memory
+    section to the first of them that exists, when that file is safe to append to.
+  - If either one already holds the heading, nothing is added.
+- **`.gitattributes`.** If it is missing, setup creates it, as 2.3.0 does. If it exists without the dream log's merge
+  line, setup appends the line, when the file is safe to append to.
+- **Safe to append to:** a regular file, not a link, tracked by git, with no change against `HEAD`, staged or not.
+  Anything else stays byte for byte as it is, and the report gives the text to add, as 2.3.0 does: an untracked,
+  ignored or modified file, a link, or a repo with no commit yet.
+- **How it appends:**
+  - the file's existing bytes stay as an exact prefix;
+  - a newline comes first if the file does not end in one;
+  - the appended text uses CRLF when the file's first line ends in CRLF.
+- **The report** gains a line naming each file setup added to, and what it added. The skill tells Claude not to add the
+  same text again, and to show the user the added lines.
+- **Unchanged:**
+  - setup never overwrites or deletes a file, and never commits;
+  - the other templates are created only when they are missing;
+  - setup starts no process but `git`, as the self-test's tripwire requires.
+- `plugin/` is edited in place. Every install comes from GitHub (checked 2026-11-23), so no session loads this
+  checkout. The smoke runs from a copy.
+
+**Checks.** All five must pass:
+1. **Self-test, by repo shape.** Each shape records the sha256 of every file, runs setup, then runs it a second time.
+   - **S5's five shapes:**
+     - `claudeMd`, a committed `CLAUDE.md`: its old bytes are an exact prefix of its new bytes, the rest is exactly
+       the team-memory section, and every other file that existed is unchanged;
+     - `dirty`, an untracked `CLAUDE.md` and `.gitattributes`: both stay byte-identical and are reported to the user,
+       as in 2.3.0;
+     - `empty`, `ownClaude` and the linked worktree: as in 2.3.0.
+   - **New shapes:**
+     - only `.claude/CLAUDE.md`, committed: it gains the section, and no root `CLAUDE.md` is created;
+     - both instruction files committed: only `CLAUDE.md` gains the section;
+     - the heading already in `.claude/CLAUDE.md`: neither file changes;
+     - a committed `.gitattributes` without the line and without a final newline: it gains a newline, then the line;
+     - a committed CRLF `CLAUDE.md`: the section arrives in CRLF;
+     - these stay byte-identical and are reported: a committed `CLAUDE.md` with an unstaged edit, one with a staged
+       edit, an ignored one, a link, and a repo with no commit.
+   - **In every shape:** the second run changes nothing, and setup leaves `HEAD`, the index and the commit count
+     unchanged.
+2. **The smoke, 3 runs.** Pinned CLI 2.1.305, Haiku 5.5, the plugin copy through `--plugin-dir`, the user's login, and
+   `--setting-sources project,local`, as S8's route. Each run uses a fresh temp repo whose only instruction file is a
+   committed `.claude/CLAUDE.md`, and runs `/second-brain:setup` in `-p`. Pass in 3 of 3: no root `CLAUDE.md`;
+   `.claude/CLAUDE.md` holds `## Team memory` exactly once; nothing committed.
+3. **A refute-first review of the diff by agy** (Gemini 4 Argon, plan mode, given the diff only), aimed at data loss
+   and at writes outside the repo. Each finding is fixed or recorded as an accepted risk before CI.
+4. **CI** on three systems.
+5. **The new hash of `plugin/`** is recorded.
+
+### 4, 4d: D33, the feasibility read for option (B) (registered 2026-11-23, before it runs)
+
+**The question:** can a dream start without the user typing a command, once one is due?
+
+**What is read:** Claude Code's current documentation, fetched on the day of the read, on:
+- hooks: whether a hook can start a skill, a prompt or a session;
+- skills: what `disable-model-invocation` does to the listing and to Claude's own invocation;
+- scheduled and background work: `/loop`, session cron, routines, and headless `-p`.
+
+The read is saved as `research/2026-11-23-dream-without-a-command.md`, with its sources.
+
+**A route counts as feasible when all four hold:**
+1. the dream starts without a typed command;
+2. no hook process calls a model or the network, or starts a process that does (D18);
+3. it runs on the user's machine, where the transcripts are (D31 reads only local transcripts);
+4. a dream's proposals still wait for review. Option (C) is the user's answer alone.
+
+**The read's output:**
+- each route found, with the items it breaks and any decision whose trigger it would fire (for example D32's
+  "the nudge reaches Claude's context");
+- if one or more routes are feasible: a rethink, then a refute-first agy round on the best route, before any design;
+- if none is feasible: (B) is rejected with the reason, and D33 is settled between (A), (N) and the user's answer on
+  (C).
+
+### 4, 4a: checks 2 and 3 (2026-11-23): check 2 passes; check 3, outcome R, reproduced
+
+- **Check 2, pass:** `v2.yml` on `45fd0a3`, the self-test and load jobs on Ubuntu, macOS and Windows.
+- **Check 3, outcome R, reproduced.**
+  - 8 of the 10 macOS jobs ran 7 of 7 runs, in 18 to 28 seconds each, with 323 calls per run.
+  - Two jobs failed, job 6 at its run 2 and job 8 at its run 5. Each was a hang, ended by the 120-second timeout at the
+    same call: `selftest.mjs:226<371<379: node hook.mjs bash timed out after 120000 ms`.
+  - The `ps` listing, taken after the kill and after the self-test exited, held no `node` or `git` process. That fits
+    a stuck hook, but also a hook that had already exited, or a child of it that died with the closed pipe. It does
+    not say which process waited.
+  - 2 hangs in the 63 runs that started (56 in the eight full jobs, 2 and 5 in the two that failed; a job stops at its
+    first failure), against 2 of 62 before.
+- **The case:** self-test line 379, "a long output with neither field". The `bash` hook gets a `tool_response.stdout`
+  of 25,000 characters, as one line with no newline, so its standard input is over 25 KB. Whether other calls send as
+  much is not yet measured: lines 340 and 349 pass real `cat` output of several map files. The hook reads its input
+  with `fs.readFileSync(0)` (`hook.mjs:12`).
+- **Why this is not yet a diagnosis:** neither the code nor the listing shows which process waited, or on what. The
+  hook could be reading its input, computing its labels or writing its output at exit. The parent's `spawnSync` could
+  also have missed an exit. The same call passed in 61 runs.
+- **Open question:** does this reach real sessions? Claude Code starts hooks its own way, not through Node's
+  `spawnSync`, so the self-test's mechanics may not apply. Not checked.
+- **Next:** a diagnosis probe, registered before it runs.
+
+### 4, 4a: the diagnosis probe (registered 2026-11-23, before it runs)
+
+**Measured first.** A traced self-test, locally, now logs each call's input size. Four calls send the hook more than
+8 KB:
+- line 379, 25,208 bytes: the call that hung;
+- line 349, 21,163 and 9,003 bytes;
+- line 340, 15,541 bytes.
+
+None of the other three hung in check 3's 63 runs. So up to 21 KB, size alone does not hang the hook, and the 25 KB
+input on one line is the lead.
+
+**The probe** (`probes/V2-D18-hang/`) runs on macOS in `v2-n5.yml`, beside the full lane.
+- **`probe.mjs`** builds a temp repo with a small map: two committed entries and one uncommitted. It runs seven arms
+  in turn, 150 calls each in each of 2 jobs, so 300 per arm. Each call has a 15-second limit.
+  - H21, H25 and H100: the `bash` hook given a one-line `stdout` of 21,000, 25,000 and 100,000 characters, through
+    `spawnSync`, as the self-test calls it;
+  - H25n: 25,000 characters in lines of 80;
+  - S: 100 characters, the control;
+  - T25: the same 25,000-character input given to a child that only reads its input and prints the length;
+  - A25: H25's call through an async `spawn`, the way an event-loop host starts a hook.
+- **`watch.mjs`** starts before the arms, and before the full lane's runs. Every second it lists the processes. A hook
+  or reader child alive for 5 seconds gets these, once:
+  - `ps` with state and wait channel, for it, its parent and its children;
+  - `sample` of it and of its parent;
+  - `lsof` of both.
+- **The full lane** runs its 10 × 7 self-tests again, with `watch.mjs` running.
+
+**How the result is read (fixed now):**
+- **Which process waits, and on what:** from the samples of the first hangs caught, in the focused arms or the full
+  lane. The diagnosis names the process (the hook or its parent), its state (running, sleeping or zombie), and the
+  call it waits in.
+- **The arms.** An arm "hangs" when it has at least one timeout. Two arms "differ" when one has at least 3 and the
+  other has 0; at a 3% rate, 300 calls give about 9.
+  - If T25 hangs, the hook's own code is not needed for the hang.
+  - If A25 stays at 0 while H25 hangs, the hang needs `spawnSync` on the parent's side.
+  - H21, H25, H100 and H25n separate size from shape.
+- **If no focused arm hangs but the full lane does:** the hang needs state the self-test builds before line 379. That
+  is neither a fix nor a harness-only finding, and the full lane's samples are then the evidence.
+- **If nothing hangs anywhere:** recorded together with the odds (2 in 63 before), and the probe runs once more. A
+  second empty round goes up a level (rule 4).
+- **The fix** is a registered step of its own. Its bar is 70 clean runs of the full lane.
+
+### 4, 4a: the diagnosis probe, result (2026-11-23, run on `bdac932`)
+
+**The arms, 300 calls each over 2 macOS jobs.** Timeouts: S 0, H21 0, H25 2, H25n 7, H100 0, T25 2, A25 0. No call
+failed any other way.
+
+**Read as registered:**
+- **T25 hangs** (2 of 300). A child that only reads its input and prints its length hangs too, so the hook's own code
+  is not needed for the hang.
+- **A25 against H25:** 0 against 2. That does not reach the registered "differ" (at least 3 against 0). Pooled, the
+  three 25 KB arms started by `spawnSync` (H25, H25n, T25) hung 11 times in 900 calls, and A25 never did in 300. At
+  that rate, 300 calls would show none about 3% of the time. That is a strong lead that the hang needs `spawnSync` on
+  the parent's side, but not proof by the registered test.
+- **Size and shape:** H25n against H21 is 7 against 0, and against H100 also 7 against 0: both differ. So it is not
+  "the bigger, the worse". The hang sits in a window around 25 KB. Input in lines of 80 hangs more often than one
+  line, but H25 against H25n (2 against 7) does not reach "differ".
+
+**Which process waits, and on what** (the watcher's samples of the first hang caught; the others match):
+- **The child**, the `bash` hook, is asleep in `read()` on its standard input: `fs.readFileSync` → `uv_fs_read` →
+  `read`. It holds its three stdio sockets, and their peers are open.
+- **The parent** is inside `spawnSync`'s own event loop (`SyncProcessRunner::Run` → `uv_run` → `kevent`), waiting.
+  `lsof` lists no socket in the parent at that moment.
+- So the child is waiting for input, or for its end, that never arrives, while the parent waits for the child.
+- **The full lane with the watcher:** 1 hang, in job 3's first run, at the same call, `selftest.mjs:226<371<379`,
+  with 25,216 bytes of input. Across both lanes that is 3 hangs, all at that call.
+
+**What is not known yet:** whether the child had already read all of its input and lacks only the end of it, or
+stopped partway. That decides the fix:
+- **All input read, only the end missing:** the hook can stop reading once it holds one complete JSON document, as
+  every hook input is. That protects real sessions whatever starts the hook.
+- **Partway:** no reading strategy in the child can help, and the harness has to give the input another way.
+
+**Next:** one more registered probe arm that logs, with a synchronous write, the bytes read after each chunk. Then
+the fix as its own step, with 70 clean runs of the full lane as its bar.
+
+### 4, 4a: the bytes probe (registered 2026-11-23, before it runs)
+
+**The question:** when the child hangs, has it read all of its input, so that only the end of input is missing, or
+did it stop partway?
+
+**The probe** (`probes/V2-D18-hang/chunks.mjs`, on macOS in `v2-n5.yml`, 2 jobs × 300 calls):
+- The child reads standard input with `fs.readSync` in 64 KiB chunks, the size `readFileSync` uses for an input of
+  unknown size. After each chunk it appends its running byte count to a file of its own, with a synchronous write.
+- The parent starts it with `spawnSync` and H25n's input, the shape that hung most: 25,000 characters in lines of 80
+  inside the hook's JSON. Each call has a 15-second limit.
+- After a timeout, the parent compares the last count with the bytes it sent.
+
+**How it is read, fixed now:**
+- **End missing:** in every hang, the count equals the bytes sent. The fix is then in the hook: it reads chunk by
+  chunk and stops as soon as it holds one complete JSON document, without waiting for the end of input. That holds
+  whatever starts the hook. The fix's bar: 70 clean runs of the full lane, and 0 hangs in 300 calls of H25n against
+  the fixed hook.
+- **Partway:** in any hang, the count is below the bytes sent. No reading strategy in the child can help. The
+  self-test then gives the hook its input through a file instead of a pipe. A real session's exposure goes to the
+  open question recorded above (A25, an async parent, hung 0 of 300).
+- **Both kinds seen:** each is recorded, and the fix covers the kind the child can.
+- **No hang in 600 calls:** the probe runs once more. A second empty round goes up a level (rule 4).
+
+### 4, 4a: the bytes probe, round 1 (2026-11-23, on `39d7d00`): no hang in 600
+
+- **The result:** 600 of 600 calls ended normally, in 2 jobs, each reading all 25,458 bytes. No hang, so the
+  registered question, all read or partway, has no answer from this round.
+- **What it does show:** the input was H25n's. Read with `fs.readFileSync(0)`, H25n hung 7 times in 300 calls, while
+  the `readSync` loop here never hung in 600. At H25n's rate, 0 in 600 has odds below one in a million. The way the
+  child reads is the strongest lead so far. But this round also adds a file write after each chunk, which changes the
+  timing.
+
+### 4, 4a: the bytes probe, round 2 (registered 2026-11-23, before it runs)
+
+As registered, the probe runs once more. This time it carries control arms in the same jobs, interleaved, with
+2 jobs × 300 calls per arm:
+- **F:** the child reads with `fs.readFileSync(0, 'utf8')`, as the hook does;
+- **C:** round 1's `readSync` loop, with a logged count after each chunk;
+- **C2:** the same loop with no logging.
+
+**How it is read, fixed now:**
+- **F hangs, while C and C2 stay at 0:** the way `readFileSync` reads a socket on macOS is what hangs. The fix is in
+  the hook: read with a `readSync` loop until the end of input. Its bar is 70 clean runs of the full lane, plus 0
+  hangs in 300 calls of H25n against the fixed hook.
+- **C hangs:** round 1's question gets its answer from C's counts, as registered.
+- **C2 hangs but C does not:** the logging changed the timing, and the case goes up a level (rule 4).
+- **No arm hangs:** the case goes up a level (rule 4). The hang is then too rare to study this way, and the
+  mitigation stands: the timeouts already registered, plus a reading method chosen on round 1's evidence.
+
+### 4, 4a: the bytes probe, round 2 (2026-11-23, on `19dfdbd`): readFileSync is what hangs
+
+- **F, `fs.readFileSync(0)`:** 13 hangs in 600 calls (4 and 9 in the two jobs).
+- **C, the logged `readSync` loop:** 0 in 600.
+- **C2, the same loop without the log:** 0 in 600.
+
+This is the registered outcome "F hangs, while C and C2 stay at 0". On macOS, when standard input is a socket fed by
+`spawnSync`, `fs.readFileSync(0)` can block for good, while a `readSync` loop over the same input ends every time.
+Round 1's question (all read, or partway) is moot: the hang belongs to `readFileSync`'s way of reading, and the hook
+can avoid it. In the plugin, only `hook.mjs:12` reads its input this way.
+
+### 4, 4a: the fix (registered 2026-11-23, before the code)
+
+**The change:** `hook.mjs:12` reads its input with a `readSync` loop in 64 KiB chunks until a read returns 0, in place
+of `fs.readFileSync(0)`. Nothing else changes. `plugin/` is edited in place: every install comes from `main` on
+GitHub, so no session loads this branch.
+
+**Checks.** All must pass:
+1. **The self-test passes on Windows, locally.** This covers a pipe's end of input on Windows.
+2. **A refute-first agy review of the diff** (Gemini 4 Argon, plan mode, the diff only), as section 4's rules ask for
+   every hook change. Each finding is fixed or recorded as an accepted risk.
+3. **CI:** `v2.yml` passes on all three systems.
+4. **The registered bar, in `v2-n5.yml` on macOS:**
+   - the full lane runs 70 of 70 clean;
+   - in the seven-arm probe (2 jobs × 150 calls per arm), the hook's arms (S, H21, H25, H25n, H100, A25) hang 0 times;
+   - T25, the bare `readFileSync` reader, is the positive control: it should still hang. If it never does, the bar
+     has not shown that the conditions held, and the probe runs once more.
+5. **The new hash of `plugin/`** is recorded.
+
+### 4, 4a: the fix, check 2 (2026-11-23): agy's review, triaged; no code change
+
+agy (Gemini 4 Argon, plan mode) was given the diff only, and asked to break it:
+- **High: `EAGAIN` if standard input is non-blocking.** `fs.readFileSync(0)` reads the same descriptor and fails the
+  same way, so this is not a regression. No module the hook loads touches `process.stdin` (checked by search), so the
+  hook does not make the descriptor non-blocking itself. Accepted risk, unchanged from 2.3.0.
+- **Medium: "`readFileSync(0)` already is a `readSync` loop, so the fix may only shift a timing window."** Partly
+  contradicted by the probe's own sample: under Node 20, `readFileSync(0, 'utf8')` ran Node's native `ReadFileUtf8`
+  path, not a JavaScript `readSync` loop. The concern about inputs over 64 KiB is covered by the registered bar: the
+  probe's H100 arm sends 100,000 characters, so the fixed hook makes several `readSync` reads there, and it must not
+  hang. If the bar fails, the fallback is to read the input through `process.stdin`'s event loop, which agy also
+  proposes. That fallback is untested.
+- **Low: a 64 KiB zero-fill and two copies of the input.** Microseconds for a hook's input; Claude Code saves tool
+  output over 30,000 characters to a file instead. Accepted.
+- **Refuted by agy's own check:** a Windows pipe's end of input. Node 20 and later return 0 there and do not throw
+  `EOF`. `EINTR`, UTF-8 characters split across chunks, and an empty input are all handled.
+
+### 4, 4a: the fix, checks 1 to 5 (2026-11-23, on `11c1895`): pass; step 4a done
+
+1. **The self-test on Windows** (Node 24): pass.
+2. **agy's review:** triaged above; no code change.
+3. **CI:** `v2.yml` passes, the self-test and load jobs on Ubuntu, macOS and Windows.
+4. **The registered bar, on macOS:**
+   - the full lane ran 70 of 70 clean: 10 jobs × 7 runs;
+   - the hook's probe arms hung 0 times in 300 calls each (S, H21, H25, H25n, H100, A25), so 1,800 calls in all.
+     H100's 100,000 characters take several `readSync` reads;
+   - T25, the bare `readFileSync` reader and the positive control, still hung 8 times in 300 (2 and 6 in the two
+     jobs), so the conditions that hang `readFileSync` held during the run.
+5. **The product hash** is `4a869e6030aa`, pinned in the self-test (2.3.0 was `3650f785f984`).
+
+**N5 is closed.** The hang's cause was `fs.readFileSync(0)` on a socket standard input, on macOS, and the hook no
+longer reads that way. Real sessions benefit too: a command hook's default timeout is 600 seconds, so a stuck hook
+could have held a session for up to 10 minutes. Whether Claude Code's own hook runner ever fed a hook so that it hung
+was not checked; the fix holds either way. D18 records the observation as resolved.
+
+**Next:** step 4b, setup completes the files that exist (registered above).
+
+### 4, 4b: the build, a simplification pass, and check 3 (2026-11-23)
+
+- **The draft, then shorter.** The user asked that every verification also check whether the code can be shorter and
+  smarter. The first draft checked a file with two git calls, `ls-files --error-unmatch` and `diff --quiet HEAD`.
+  The final code uses one helper and an empty `git status --porcelain --ignored`, which also covers staged, untracked,
+  ignored and no-commit-yet files. The report's bookkeeping uses a map. That draft passed the self-test, and the smoke
+  in 3 of 3 runs. Since the code changed after that, the smoke runs again on the final code, as check 2.
+- **Check 3, agy's review** (Gemini 4 Argon, of the draft's diff):
+  - **Fixed in the final code:** (2) `diff --quiet HEAD` missed a staged change whose working copy matched `HEAD`;
+    `git status` reports it. (1) A `skip-worktree` or `assume-unchanged` flag hides a local edit from `git status`,
+    and (7) on a case-insensitive file system a tracked `claude.md` answers for `CLAUDE.md`. Setup now also needs
+    `git ls-files -v` to print `H <name>` for the exact name. (6) A read error counted as an empty file, which could
+    append twice. The file is now read without swallowing the error. The self-test gains a `skip-worktree` and an
+    `assume-unchanged` case.
+  - **Accepted:** (3) UTF-16 files, (5) hard links, (9) LFS pointers and clean filters, and (10) a concurrent writer.
+    Setup appends only to a file git tracks and shows unchanged, so git holds the original, the addition shows in the
+    diff, and one `git checkout` undoes it.
+  - **Not bugs, or covered:**
+    - (8) both instruction files with the heading in `.claude/CLAUDE.md`: the registered rule, "if either one already
+      holds the heading, nothing is added";
+    - (4) reading through a link: a read, not a write. Writes are refused by the outside check and by git's "beyond a
+      symbolic link";
+    - (11) an inherited `GIT_DIR`, and no timeout: setup is run by the user, as the rest of the plugin's git calls are;
+    - (12) the report does not quote the added lines: the smoke showed Claude reading and quoting them in 3 of 3.
+- **The product hash** of the final code is `e3ab14af7348`.
+
+### 4, 4b: the decision-checker's review (2026-11-23)
+
+The repo's own `decision-checker` agent, which setup installed, checked the change against D29 (and its reopen), D18,
+`.claude/CLAUDE.md` and 4b's registration. It found no break.
+- **Fixed:**
+  - setup's `git status` now runs with `--no-optional-locks`, as `status.mjs` does, so that a refresh cannot rewrite
+    `.git/index`. The self-test's "the index unchanged" now compares the index file's bytes as well as its entries.
+    With the flag removed, in a scratch copy, that check still passed 3 of 3: in these test repos `git status` did
+    not rewrite the index. So the check guards against a rewrite, but does not show the flag was needed. The flag
+    follows `status.mjs`'s precedent;
+  - a shape the self-test lacked: a root `CLAUDE.md` without the heading beside a `.claude/CLAUDE.md` that holds it.
+    Nothing is added (`headingInnerBoth`);
+  - the skill's description named only `CLAUDE.md`; it now names `.claude/CLAUDE.md` too.
+- **Beyond the registration's wording, recorded:**
+  - a blank line comes before the appended section when the file has content. The self-test pins it;
+  - the stricter "safe to append to" (`ls-files -v` printing `H <name>`) comes from agy's review (check 3, above);
+  - "holds the heading" is a substring test for `## Team memory`, carried over from 2.3.0;
+  - D29's "marked block" is the section's own heading, by which a second run finds it.
+- **The product hash** of the final code is `2aeaa35744a0`. The smoke runs a third time, on this code.
+- **Check 2 on the final code:** the smoke passed 3 of 3. There was no root `CLAUDE.md`, `.claude/CLAUDE.md` held
+  `## Team memory` once, and nothing was committed. Each reply showed the user the added lines and did not add them
+  again.
+- **Check 4, CI** (on `6d71bfc`): `v2.yml` passed, the self-test and load jobs on Ubuntu, macOS and Windows. The
+  link case ran on Linux and macOS.
+- **Check 5:** the product hash is `2aeaa35744a0`.
+
+**Step 4b is done; D29 is re-locked** on the narrowed guardrail, recorded in the ledger. **Next:** 4c (N1 to N4,
+N6), and the conference research the user asked for (4f).
+
+### 4: corrections (2026-11-23), from a review of the session's claims
+
+- **4a's "real sessions benefit too" outran the evidence.** Every hang the probes saw had a `spawnSync` parent. A25,
+  the unfixed hook started by an async parent, hung 0 times in 300. Claude Code starts hooks its own way, so whether a
+  real session was ever exposed is not shown. The fix is harmless and defensive; that is all the record supports.
+- **4b's shape count is 18, not 19.** That is S5's four shapes plus the linked worktree, and 13 new ones. The link case
+  runs only on Linux and macOS, so Windows runs 17. The commit `6d71bfc` and the map issue said 19.
+- **4b's check 3 (agy) reviewed the draft,** not the final code. The final code's safety test is exactly what changed:
+  one `--no-optional-locks status`, the `H <name>` match, and the flags. One agy round on the final function runs
+  before 4c, and its result is recorded here.
+- **For 4e, so it is not lost:** bump the version in `plugin.json`; the README, `04-architecture.md` and the charter
+  still say setup "overwrites nothing" or "never modifies a file that exists", which since D29's re-lock is narrower.
+
+### 4, 4b: agy's review of the final function (2026-11-23)
+
+The review the corrections above asked for. agy (Gemini 4 Argon, plan mode) was given the final append function only.
+- **Fixed:**
+  - (1) **A real bug.** The section's lines were split on `\n` alone. A template with CRLF line endings would leave a
+    stray `\r` in every line: `\r\r\n` in a CRLF file, and CRLF lines in an LF file. The repo's `.gitattributes`
+    forces LF on `*.md`, so a git install never meets such a template, but a zip download or a hand edit could. The
+    split is now `/\r?\n/`.
+    - The self-test could not show the bug, because its expected text came from the same template file. It now
+      normalizes that text.
+    - A one-off run with a CRLF template, in a scratch copy, appended LF only: 0 CR bytes, 8 LF.
+  - (3) **A hard link**, where the file's link count is above 1, could carry the addition to a file outside the repo.
+    Setup now requires a link count of 1, and the self-test gains a `hardlink` shape. That makes 19 shapes, 18 on
+    Windows.
+  - **Shorter:** `--ignored` is dropped, since `ls-files -v` printing `H <name>` already rejects every untracked or
+    ignored file. The git calls now stop at the first failing guard, so a missing file, a link or a file outside the
+    repo starts no `git` process.
+- **Accepted:**
+  - (2) An inherited `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE` would point git at another repository. None of
+    the plugin's git calls strips them, and setup refuses a home folder; recorded as a risk shared with `map.mjs`.
+  - (4) The duplicate check for the merge line misses forms such as `/.project-map/dreams.md merge=union`, so setup
+    may add the line a second time. A duplicate attribute is harmless.
+  - (5) Edits that a clean filter or line-ending normalization hides from `git status` are lost on a later
+    `git checkout`. They differ only in how git normalizes the file.
+  - (6) A read-only tracked file stops setup with an error, which is visible and changes nothing. `read()` follows a
+    link or a FIFO for the heading check, as 2.3.0 did.
+- **The product hash** of this code is `96d3d89b4442`. The smoke runs again on it.
+- **Check 2 on this code:** the smoke passed 3 of 3 (no root `CLAUDE.md`; the heading once; nothing committed).
+
+### 4, 4c: N1 to N4 and N6 (registered 2026-11-23, before the code)
+
+**The changes, each the smallest that settles its item:**
+- **N1:** the analyzer's `failure` kind is deleted (`plugin/agents/dream-analyzer.md`). No proposal type used it, and
+  a proposal must rest on a person's line, so a failure could only reach the map through the person's fix: a
+  `correction`, which the analyzer already has.
+- **N2:** the starter rule (`templates/claude/rules/project-map.md`) names all four status kinds
+  (`superseded|narrowed|expired|done`). The rule and the map's README template each gain one line defining
+  `- origin: dream <date>`.
+- **N3:** `/map-review`'s step 3 (`templates/claude/skills/map-review/SKILL.md`) also walks the stale entries listed by
+  a `/second-brain:status` report in the same session. Its step 1 already uses the dream's report this way.
+- **N4:** `plugin.json` gains `"author": { "name": "Cain-Ish" }`.
+- **N6:** `dream prepare`'s refusals (another dream holds the lock; the data folder fails its test) exit 0 with their
+  message, so that a failed `!` command cannot abort the skill before Claude reads why. Usage errors, and `finish` and
+  `abort`, keep exit 1.
+
+**Checks.** All must pass:
+1. **Self-test pins:**
+   - the analyzer lists no `failure` kind;
+   - the rule names the four kinds and `origin`, and the README defines `origin`;
+   - `/map-review`'s step 3 names the status report;
+   - `plugin.json` has an author;
+   - `prepare` with a bad data folder, and with a fresh lock held, exits 0 with its message;
+   - `finish`'s refusal still exits 1.
+2. **`claude plugin validate plugin`** passes with no warning.
+3. **CI** on three systems.
+4. **The new hash** of `plugin/` is recorded.
+
+N1 changes the analyzer's prompt, and no step here runs a dream. That is checked at 4e: section 3's S8 acceptance check
+runs again before the tag, and its dream-loop item exercises the analyzer. If that item fails there, N1 is reverted
+first.
+
+### 4, 4b check 4 on the final code; 4c's decision-checker review and an addendum (registered 2026-11-23, before its code)
+
+- **4b, CI on `acfef92`** (hash `96d3d89b4442`): `v2.yml` passed on all three systems.
+- **4c, the repo's `decision-checker` agent:** no break. Its points, and what follows from each:
+  - **N6 is wider than its wording.** Every error `prepare` throws now exits 0: the two named refusals, plus the map
+    link, waiting for review, and unexpected errors. In 2.3.0 these all exited 1, so section 3's "every other refusal
+    exits 0" was wrong for two of them. The direction is safe, since the skill stops on "The dream stopped"; recorded.
+  - **The step table promised "the smoke", but 4c's check list has none.** The check list is the later, more specific
+    registration. Running the dream, and an interactive `!` abort, are left to 4e.
+  - **The copy rule:** `plugin/` is edited in place for 4b's reason, which still holds: every install comes from
+    GitHub, not this checkout.
+  - **N1 against D31:** deleting `failure` matches D31's provenance rule. The analyzer's own text already demanded a
+    U or Q line, and a repeated tool failure lives in T and R lines. No trigger fires. But D31's bars were measured
+    with the kind in the prompt, and 4e's fallback re-ran only S8's dream item, which sat at its bar with no margin.
+    **4e therefore re-runs S7 check 2's bars on the product as well.**
+  - **N3 was half-fixed.** `/map-review`'s step 3 can only confirm an entry or end it. A source that changed, a quote
+    no longer found word for word, or a source that cannot be read needs the entry updated, and the step had no route
+    for that. **Addendum, registered here before its code:** step 3 gains a third outcome, "It changed: update the
+    quote or the source to what holds now, and set `- verified:` to today". It is pinned by the self-test like N3's
+    first line.
+  - **N8, recorded for later:** `status.mjs` checks the source of every entry, including one a `- status:` line has
+    already retired. So a retired entry whose quote is gone stays "stale" in every report. It reads only an entry's
+    first status line. Both behaviours are 2.3.0's, outside N3, and go to the next release's list.
+  - **For 4e:** `04-architecture.md` still lists N1 to N4 as open. The release notes must say that template text
+    (N2, N3) reaches new setups only, because setup never overwrites a template that already exists.
+- **4c, checks 1, 2 and 4:** the self-test passes with every pin, N3's addendum included; `claude plugin validate plugin` passes with no warning (N4 cleared the only one); the hash is `d502b016a0a1`. CI (check 3) runs on this commit.
+
+### 4, 4g: the conference candidates (registered 2026-11-23, before the code)
+
+From [research/2026-11-23-ai-native-devcon.md](research/2026-11-23-ai-native-devcon.md), section 3.
+
+**K3, a grounded and adversarial `decision-checker`: deferred, not built.** In S5 the checker flagged the breaking
+change in 5 of 5 runs, treated a proposal as a proposal in 5 of 5, and wrote outside its folder in 0 of 5. With no
+measured miss, a prompt change could only add risk (PM1). *Reopen if:* a field session or an eval run shows the
+checker passing a change that breaks a recorded decision.
+
+**K2, a self-update line in the capture instruction: waits for the user** (D14's frozen instruction).
+
+**K1, usage evidence in the dream's report: built here.**
+- **The change:**
+  - `dream.mjs`: `digestFrom` already streams every record of a session. It also collects the map files the session
+    read, by a `Read` of `.project-map/<file>.md` or by a Bash command naming one. These are the two routes the read
+    hooks label.
+  - prepare's report gains one line: for each digested session, the map files it read; then the topic files no
+    session read. `README.md` and `dreams.md` are left out, since they are not topic files.
+  - The dream skill's report step gains one sentence:
+    - pass that line on, because a topic file no session read has a title or description that does not lead Claude
+      to it;
+    - when a correction candidate came in a session that had read the relevant entry's file, say so, because the
+      entry's wording did not hold Claude to it.
+  - It is evidence for the user, never a proposal, so D31's provenance rule is not touched. There is no new store, no
+    second pass over the transcripts, and no hook change.
+- **Checks.** All must pass:
+  1. **Self-test, on synthetic transcripts:** a session reads one map file by `Read` (an absolute path, with
+     backslashes as on Windows) and another by `cat` in Bash. A second session reads none. A topic file nobody read
+     is listed as never read. `README.md` and `dreams.md` are not listed. Each session's files are named against its
+     digest.
+  2. **A field read, read-only and not committed:** the same counting, run over a field repo's transcripts. It must
+     name at least one topic file read, and give a never-read list that is not every topic file. The record gives
+     counts only and does not name the repo.
+  3. **CI** on three systems; **the new hash** recorded.
+  4. **At 4e:** the S7 check 2 re-run already planned there covers the skill's changed report step.
+
+### 4, 4c done; 4g, K1's checks 1 and 2 (2026-11-23)
+
+- **4c, check 3, CI on `a680e91`:** passed on all three systems. Step 4c is done (hash `d502b016a0a1`).
+- **K1, check 1, the self-test:** pass. `mapReads` keeps a Bash command's map files and drops a `Grep` and a non-map
+  `Read`. In the dream's synthetic run, session 2 read `decisions.md` by a Windows-path `Read` and `tail.md` by `cat`,
+  and prepare's report names both against that session's digest. `wide.md` is the one topic file no session read, and
+  neither `README.md` nor `dreams.md` is listed.
+- **K1, check 2, the field read:** pass, read-only, counts only. The same counting ran over two field repos'
+  transcripts:
+  - repo A: 15 sessions, 13 of them read the map; 2 topic files, read in 13 and 1 sessions; none never read;
+  - repo B: 11 sessions, 3 read the map; its 1 topic file was read in 3.
+
+  Both maps are small, so "never read" has nothing to show yet. The skew between files (13 against 1) is the
+  signal a user can act on.
+- **The hash** is `7769d957bc6a`. CI (check 3) runs on this commit.
+
+### 4, 4h: the whole-plugin audit and simplification (registered 2026-11-23, before it runs)
+
+**Why:** the user asked that, once the steps are done, the whole plugin be validated by hand and with the installed
+review tools. They see issues and places to clean up, and code that is over-thought and could be shorter.
+
+**How:**
+1. **Reviews, which change nothing:**
+   - `ponytail-audit` over `plugin/`: bugs, security, load, untested risk, and what to delete, merge or split;
+   - a read of every product file by hand, for the same;
+   - `code-review` over the diff since `v2.3.0`.
+
+   Each finding is triaged: fix, accept with a reason, or record for later. A finding that touches a recorded decision
+   is checked by `decision-checker` before its fix.
+2. **The rewrites:** each one is the smallest change that keeps behaviour, unless a finding is a bug. Files are
+   rewritten one at a time, with the self-test run after each. A text the self-test pins byte for byte (`INSTRUCTION`,
+   `FORCE`, `NAME`, `HEADER`) is not rewritten: its pins and its measured bars belong to D14, D22 and D23.
+3. **Then `simplify`** over the whole 4h diff, as the last pass.
+
+**Checks after 4h,** all of which must pass:
+- the self-test on Windows, and CI on three systems;
+- `claude plugin validate plugin` with no warning;
+- the hooks' smoke (`plugin/test/smoke.mjs`, pinned CLI, Haiku) and setup's smoke (`smoke4b.mjs`), each 3 of 3;
+- the product's line count goes down, or each line it adds is named in the record;
+- every hook's output is unchanged on the self-test's corpus, where 4h did not set out to change it. The self-test's
+  pinned outputs show this.
+
+4e's bars (S7 check 2, S8's acceptance, D18's bench) then run on the 4h code.
+
+### 4, 4h: the reviews and the rewrite (2026-11-23)
+
+- **`ponytail-audit` over `plugin/`,** with every script read in full. 12 findings, no security hole or data loss:
+  - **must fix:** (1) N8: the status report kept entries a status line had ended "stale" forever. `narrowed` still
+    binds, so only `superseded`, `expired` and `done` skip the review-date and source checks. (2) Three patterns for
+    `- id:` lines, in `map.mjs`, `status.mjs` and `dream.mjs`, so labels and the dream could disagree;
+  - **should fix:** `status.mjs` repeated most of `labels()`'s rules; quote extraction and the UTF-16 check were each
+    written three times; the `proposed` and `review` patterns twice; two copies of the inside-the-repo guard with
+    different strictness; four `git` helpers; the unseen-sessions count twice;
+  - **nice to have:** a sort comparator that equals the default, a dead alias, a pass-through `today()` wrapper, and
+    the same environment check written twice.
+- **`code-review` (medium) over `v2.3.0..HEAD`:** 7 findings:
+  - **fixed:** (1) one unreadable map file stopped `mapIds()` and `waiting()` from reading the rest, so a status line
+    could be called "replaced by an id the map does not hold". Each file now has its own `try`. (2) A damaged
+    `pending` record in `state.json` stopped every later dream; `loadState` now checks its shape. (3) A dream that ran
+    past two hours lost its lock, and its proposals, to the next dream. A lock is now never taken over by age; only
+    `abort` releases it, as the skill and the session-start note already say. (4) The dream's `within()` walked past a
+    dangling link; the dream now uses the shared `inRepo()`, which stops there. (5) A proposal could be aimed at
+    `dreams.md` or `README.md`; both names are refused. (7) A missing object misaligned the `git cat-file` parser; a
+    header that is not a blob is now skipped;
+  - **accepted:** (6) killing `finish` between removing its run and writing the state cannot be retried. The order is
+    the devils-advocate review's, so that a retried finish never applies proposals twice or overwrites the first
+    pending record.
+- **The rewrite:** `map.mjs` exports the shared helpers (`git`, `utf16`, `quoteOf`, `idsIn`, `proposedOn`,
+  `reviewOn`, `statusOf`, `replacedBy`, `docReader`, `refind`, `inRepo`, `unseenIn`), and `status.mjs`, `dream.mjs`,
+  `setup.mjs` and `labels()` use them. Each caller keeps its own wording, and the self-test passed after each file.
+  - The self-test's S8 status case now gives the superseded entry a missing quote and a passed review date.
+  - The lock case now expects the refusal, then a run left without its lock.
+  - A mutation check (the `ended` guard switched off, in a scratch copy) failed the N8 case: "Stale: 5".
+- **The line count:** the scripts' code fell by 5 lines (93 removed, 88 added); their comments rose by 13 (15 removed,
+  28 added), mostly on the shared helpers and the seven fixes. `simplify` runs next over the whole diff.
+
+### 4, 4h: the `simplify` pass (2026-11-23)
+
+Four cleanup reviews ran in parallel over the 4h diff: reuse, simplification, efficiency and altitude.
+- **Applied:**
+  - `dataOk` is two `inRepo` calls. One `configDir()` replaces four `CLAUDE_CONFIG_DIR` fallbacks.
+  - One `mapMd()` list and one `textOf()` read replace the nested `try` blocks.
+  - One `refinder(root)` closure replaces `isFile`, `docReader` and `refind`. `isProposed` and `isDue` are inlined.
+  - One `mapIdsOf()` serves the read hook and the status report. It returns `null` when any map file cannot be read,
+    so no id is called missing on a partial read: the altitude review found the per-file `try` only patched that
+    symptom. Status now reads ids from whole files, as the read hook does; before, an id under a heading with no quote
+    counted for one and not the other.
+  - The dream reads ids with `idsIn` everywhere, which drops two more patterns, one of them a hand-escaped regex.
+  - One case-insensitive `topic()` rule serves prepare's K1 line and finish. A `Dreams.md` proposal is dropped as
+    "not a topic file" instead of being filtered out silently.
+  - The dream uses the exported `words()` in place of its own `WORD`. `hook.mjs`'s onboard and status's last commit
+    use the shared helpers. Orphaned and over-claiming comments are fixed.
+  - A regression of 4h is undone: the rewritten `there()` in setup threw on `EACCES` or `ENOTDIR`, for example a file
+    named `.claude`; it has its `try` back.
+- **Tests added:** a `Dreams.md` proposal is dropped and never reaches the log; a `pending` record without its line
+  reads as none.
+- **Skipped, with the reason:**
+  - the efficiency review's notes predate 4h. `labels()` re-reads cited files for each map file in one Bash event, so
+    the cost grows with the square of the file count; status lists transcripts twice; finish reads map files several
+    times. Each costs milliseconds at today's map sizes, the D18 bench passed, and fixing the first would add a
+    parameter. *Upgrade when* a map is large enough to show in the bench;
+  - the `.dream-run` filters, which differ by design;
+  - `sourceOf` and `headingOf`, and the other small repeats, which do not pay for the edit;
+  - one `git worktree list` per prepare instead of two, which touches prepare's logic;
+  - having `labels()` skip ended entries, which would change the hook's output, ruled out by 4h's registration.
+- **The line count, against `c2424e3b`:** code down 11 (129 removed, 118 added); comments up 13 (17 removed, 30
+  added). The added comments carry the shared helpers' contracts and the source of each fix. The product total is
+  1,716 lines, against 1,714 before 4h.
+
+### 4, 4h: the decision-checker's review, and what followed (2026-11-23)
+
+The repo's `decision-checker` ran over the 4h diff after the fixes, not before them as 4h's registration asked. It
+found two breaks:
+- **The lock change broke S7's registered design.** S7 takes over a lock more than two hours old without a restore,
+  because a restore days after a crash would revert what was captured since. D31 locked on S7 passing. Without the
+  takeover, `abort` and its restore were the only way out, and a dream prepared in a worktree removed since would keep
+  the repo locked for good. **Reverted to S7's design.** `code-review`'s finding 3 (a dream still running after two
+  hours loses its run to the next one) is accepted. It carries a `shortcut:` comment that names the limit, and S7's
+  dreams took minutes.
+- **N8 ignored a dream's proposal, and read only the first status line.** A dream writes its status line with
+  `- proposed:`, and that line turned off the checks before review accepted it, against D28 and D30. An entry narrowed,
+  then superseded, stayed stale. **Fixed:** an entry is ended by any non-proposed `superseded`, `expired` or `done`
+  line. The S8 status case now has a narrowed-then-superseded entry, not stale, and an uncommitted dream proposal with a
+  `done` line and a passed review date, still stale. Its expected counts are "Stale: 5" and "Proposed by a dream: 0".
+
+Also from that review:
+- **4h's promises:**
+  - the `agy` round on the hook changes runs now;
+  - the remaining product files (the skills, the command, the agent and project-map templates) were read by hand, with
+    no finding;
+  - the line count is below.
+- **Side effects, accepted:**
+  - a dangling `.md` link in the map, such as an editor's lock link, now withholds the "replaced by" label while it
+    exists. That fails closed;
+  - `idsIn` reads an id followed by `\r`, so a dream's status line now reaches a CRLF map file, as an LF line.
+    Before, such a file's ids went unmatched and the line was dropped.
+- **The line count, against `c2424e3b`:** three comments that only restated their code are gone. The product is
+  1,718 lines, against 1,714. The four added lines are named here: the lock's `shortcut:` comment, which this
+  codebase's rule asks for whenever a limit is known (2 lines), and the N8 comment on a dream's status line (2
+  lines).
+
+### 4, 4h: agy's round on the hook changes (2026-11-23)
+
+The verifier section 4's rules ask for on every hook change. agy (Gemini 4 Argon, plan mode) was given the `map.mjs`
+and `hook.mjs` diff:
+- **Fixed:**
+  - (1) `mapMd()` matched the run folder with `startsWith`, where `labels()` had used `includes('/.dream-run/')`. So a
+    `.dream-run` folder nested inside the map changed what the read hook printed. `mapMd()` now uses `includes`, so
+    the read hook's output is the same as before 4h. `waiting()` and the status report now also skip a nested run
+    folder, which the dream never makes.
+- **Accepted:**
+  - (2) the `pending` shape check changes session start's note for a damaged state file. That is `code-review`'s
+    finding 2, fixed on purpose;
+  - (3) onboard's `git --version` runs in the repo's folder, which exists, and `ls-tree`'s buffer is larger, which
+    only removes a failure;
+  - (4) `inRepo` with a repo at the file-system root. Setup's old `outside()` had the same test, so it predates 4h.
+- **agy found nothing else:** no fail-closed path weakened, no new exception escaping a hook, and the helpers'
+  patterns are byte-identical to the inline code they replaced.
+- **The hash** is now `5bca1aa901d4`. The hooks smoke runs again on it.
+
+### 4, 4h: the checks after 4h (2026-11-23)
+
+- **The self-test** passes on Windows with every new case, and `claude plugin validate plugin` passes with no warning.
+- **Setup's smoke** passed 3 of 3, and **the hooks smoke** 3 of 3, on the code before agy's one-line filter fix.
+- **The hooks smoke on the final hash `5bca1aa901d4`:**
+  - attempt 1 failed. Its first run ended in a Node error whose output was not kept; the other two passed. Rule 2
+    counts that as a failed attempt;
+  - two uncounted re-runs passed;
+  - attempt 2 passed 3 of 3, with every run's output kept.
+
+  The only change since the last clean 3 of 3 was the nested run-folder filter, which no smoke repo exercises. The
+  first run's cause is unknown.
+- **CI on `e07469dc`:** `v2.yml` passed on Ubuntu, macOS and Windows, the self-test and the load jobs. **Step 4h is
+  done** (plugin `5bca1aa901d4`).
+
+### 4: the field report of 2026-11-23, triaged (map issue step 22)
+
+The user installed 2.3.0 in a large field repo, ran setup and onboarding, and passed on that session's report. It is
+paraphrased here with counts only:
+
+| # | The report | Triage |
+| --- | --- | --- |
+| 1 | Setup wrote its files onto an unrelated feature branch with uncommitted work, without a word | **N9:** setup's report names the branch and says when the tree holds other uncommitted changes. Small |
+| 2 | An empty scaffold: filling the map took two agents, about 500k tokens and 25 minutes | The cause is #9's: the capture instruction told Claude to add an entry for each requirement in a document it read, so the repo's own documents were copied in. **Fixed by 4i's document clause (D14).** No importer is built: D15 keeps the documents as the source |
+| 3 | No upgrade path: setup never overwrites, so template fixes never reach a repo | **N10:** setup's report lists each setup file that differs from the plugin's current template, for the user to diff. Small. This is 4c's release-notes caveat |
+| 4 | Agent notes are not seeded, and the report does not mention them | **N11:** setup's report says where the agents keep their notes (`.claude/agent-memory/`, made on first write). Text only |
+| 5 | The `when:` work kinds are generic | Recorded. `when:` is never surfaced (the field note of 2026-11-08), so a better list changes nothing yet |
+| 6 | Session start overflows: about 850 documents in 179 directories, 71 listed; it also costs that context every session | **D22's trigger fired:** "a repo's index exceeds P2's (45 directories, 6 KB) and its forced decision or reads are not measured there". **D22 REOPENED.** A size budget or a summary mode is the next release's first decision |
+| 7 | "Unreviewed until committed" ties review to git; on a branch carrying other work it forces commits | D14's choice, the commit being the review. **The user's call** |
+| 8 | `verified:` is free text; about 10 mirrored documents had drifted from the code | Partly there: status re-finds an entry's quote in its source and flags a source committed after its verified date. **N12:** status also checks that every repo path an entry names exists |
+| 9 | The map duplicates the repo's own rules with no way to keep them in step | As #2: **4i's document clause** |
+| 10 | memory-curator has no Bash, so it cannot check dates or merge-request references | P6c: an agent's `Bash(pattern)` does not limit Bash, so the agents get none. **Accepted**, as section 3 recorded |
+
+### 4, 4i: learning every run (registered 2026-11-23, before the code)
+
+From [research/2026-11-23-learning-every-run.md](research/2026-11-23-learning-every-run.md), on the user's request of
+2026-11-23. That request is read as the word that reopens D14 for K2.
+
+**The change:** two edits to D14's capture instruction (`INSTRUCTION`, `map.mjs`):
+- **K2:** when the user corrects Claude, or Claude hits a non-obvious problem that will trip up a future session,
+  record it as an entry, in the user's words or as the problem was found;
+- **the document clause:** "you receive or read a document that states requirements" becomes a document from outside
+  the repo. The index already points to the repo's own documents (D15, D22).
+
+**Checks.** All must pass before the change ships:
+1. **A-4, the second run** (`probes/V2-D14-every-run/`). A copy of A1's fixture with `formatPrice()` in
+   `src/utils/money.ts`.
+   - Session 1: "Add a price label to ProductCard." Claude's first attempt is corrected by a fixed follow-up: "No,
+     prices here go through formatPrice() from src/utils/money.ts; toFixed breaks the locales."
+   - Session 2, fresh, with no commit in between: "Add a price to StatTile."
+   - **Read:** session 2 uses `formatPrice` and not `toFixed`.
+   - **Arms,** 5 runs each, on the pinned CLI with Opus 5.5 and auto memory on, as users run it: **H**, the plugin as
+     it is; **K**, with both edits.
+   - **Pass:** K at least 4 of 5, and at least H + 2. If H already reaches 4 of 5, A-4 shows no need for K2, K2 is
+     not shipped (PM1), and the document clause is checked on its own by item 2.
+2. **D16's re-check, as 06's 2s ran it:** A1's V2 arm, 10 runs with the changed instruction, at 2s's bars. The
+   document clause must not lose A1's designer document, which is kept outside the repo.
+3. **The self-test** pins the new instruction's sha256 and bytes, and **CI** passes on three systems.
+
+If check 1 passes and check 2 fails, the document clause is dropped and check 2 runs again with K2 alone.
+
+### 4, 4i: A-4's floor, and the amended check 1 (2026-11-23, before any counted run)
+
+The advisor asked for a floor before the counted runs. The floor runs session 2 alone, with no plugin and auto memory
+off, on the tree as the correction left it, 3 runs each, uncounted. If the code alone teaches the lesson, the arms
+cannot separate. Runner: `probes/V2-D14-every-run/a4.mjs`, results in `results/floor-*.json`.
+
+| Scenario | The correction | Floor |
+| --- | --- | --- |
+| price-F0, as registered | toFixed, then formatPrice() from `src/utils/money.ts` | 3 of 3 used formatPrice |
+| price-F1, with two older toFixed prices elsewhere | the same | 3 of 3 |
+| tokens: `src/theme/tokens.ts` is generated from `design/tokens.json`, and nothing in it says so | "change design/tokens.json instead" | 3 of 3 changed the JSON |
+| frozen: `src/legacy/` must not change, so restyle where it is used | "src/legacy/ is frozen until the payment audit is over" | 3 of 3 left it alone |
+
+- **12 of 12.** In each run, session 2 read the corrected code next to its task and copied it: the formatPrice call,
+  the JSON beside the generated file, the style passed at the call site. On Opus 5.5 in a small repo, a correction
+  that left its fix in the code reaches the next session through the code.
+- *The two price floors ran on the script's first version.* Only the scenario table and the scorer self-check
+  (`node a4.mjs <scratch> check`) changed after them. The correction's wording changed from the registered "prices
+  here go through formatPrice()" to a correction of the work, because the registered wording states a rule that D14's
+  current clause already covers (the advisor's point).
+- **Check 1, amended:** the frozen scenario, which leaves the least trace. Arm H first, 5 counted runs. A run counts
+  when turn 1 changed `src/legacy/` (the mistake) and every session is valid. Other runs are replaced, at most 10
+  attempts, and reported.
+  - **H at 4 of 5 or more:** by 4i's rule, A-4 shows no need for K2, and K2 is not shipped (PM1). Arm K is not run.
+    The document clause goes to check 2 on its own.
+  - **H at 3 or less:** arm K, 5 counted runs, at the registered bar (K at least 4 of 5, and at least H + 2).
+
+### 4, 4i: check 1's result (2026-11-23): H 5 of 5, so K2 is not shipped
+
+- **Arm H** (`results/a4-frozen.json`): a copy of plugin `5bca1aa901d4`, whose INSTRUCTION is the pinned
+  `392c26c2a5e9`. 5 attempts, all counted: every turn 1 changed `src/legacy/`, and every session was valid.
+  - **5 of 5 passed:** session 2 left `src/legacy/` alone.
+  - The route in all 5: session 1 wrote the correction into the map under the current clause ("someone states a
+    decision or rule"), and session 2 read that map file. Auto memory held it in none, as G4's line asks.
+  - About 0.53 USD a run.
+- **By the rule, K2 is not shipped (PM1),** and arm K is not run. A correction that gives its reason is a stated rule,
+  and D14's clause already records it. One that leaves its fix in the code reaches the next session through the code
+  (the floor). A-4 found no case left for K2.
+- *Not shown:* a correction with no reason and no trace, in a large repo where the next task is far from the fix.
+
+### 4, 4i: check 2, registered (2026-11-23, before it runs)
+
+- **The text:** the document clause alone. "you receive or read a document that states requirements" becomes "you
+  receive or read a document from outside this repository that states requirements", and the paragraph reflows.
+  INSTRUCTION `105cdd6d3d4a`, 1,794 bytes (from `392c26c2a5e9`, 1,765).
+- **The runs:** A1's V2 arm (`eval.mjs`), with Opus 5.5, the pinned CLI 2.1.305 and the plugin copy that carries the
+  clause:
+  - 10 runs, split over two processes (`D17_TAG=-opus-4i-a` for runs 1 to 5, `-opus-4i-b` for 6 to 10);
+  - first, a same-day control: 1 run of the unchanged copy (`-opus-4i-ctl`), which shows the harness still works.
+- **Pass, at 2s attempt 2's bars:**
+  - C1, C3 and C4 10 of 10; T1, T2 and T4 10; T3 at least 8; N1 to N3 10, in both variants;
+  - T5f at least 8 of 10; over-attribution at most 1 of 10;
+  - no `- status:` line except on the widgets rule H1 retracts.
+- **The designer's notes, kept:** they are pasted in H2 and live outside the repo, so the clause still covers them.
+  C2, their capture, must hold in at least 8 of 10. 2s's bar was 2; its attempt 2 had 10.
+- *Reported:* whether any run's map copies the style guide's numbered rules. The guide is a repo document, so the
+  narrowed clause no longer asks for that. Also reported: topic files written (S4's measure) and the cost.
+
+### 4, 4i: check 2's result (2026-11-23): pass, and the clause ships
+
+- **The control** (`results/V2-opus-4i-ctl.json`, the unchanged copy, 1 run) is valid and passes every item. The
+  harness works.
+- **10 runs with the clause** (`results/V2-opus-4i-a.json` for runs 1 to 5, `-b.json` for 6 to 10). All are valid.
+  - C1 to C4: 10 of 10. **C2, the designer's notes:** 10 of 10, against a bar of 8.
+  - T1 to T4 and N1 to N3: 10 of 10, in both variants. **T5f:** 9 of 10 on "same", 10 of 10 on "second".
+  - **Over-attribution:** 0 of 10.
+  - **Status lines:** only on the widgets rule H1 retracts. 3 runs mark it, 2 superseded and 1 expired; no other
+    entry gets one.
+- **Reported:**
+  - **the style guide in the map:** quotes of its six rules, found by their words, appear in 0 of 10 runs. The
+    control quoted all 6, in 19 entries; runs with the clause hold 12 to 14. This is the field report's copying (#2
+    and #9), reproduced at A1's size and gone with the clause;
+  - topic files: 3 or 4 per run;
+  - about 1.43 USD a run.
+- **Result:** pass. The clause goes into `map.mjs` with the same bytes (`105cdd6d3d4a`, 1,794 bytes). The self-test
+  pins it. D14 and D16 re-lock in the ledger.
+- *Ledger fix:* commit `ca562c4b` had also written D14's and D22's reopen notes onto the ledger's title line. They
+  are removed there; the rows keep them.
+
+### 4, 4j: N9 to N12, from the field report (registered 2026-11-23, before the code)
+
+The field report's small items (triage table above). No frozen text changes.
+- **N9:** setup's report names the branch it wrote on. When the tree already held uncommitted changes before setup ran,
+  it gives their count and says to commit setup's files on their own.
+- **N10:** setup's report lists each kept file that differs from this version's template, with the template's path,
+  for the user to diff. The six plugin-owned files only: the rule, the map-review skill, the three agents and the map's
+  README. The instruction file, the topic files and `.gitattributes` are the user's and are never listed.
+- **N11:** setup's report says that the agents keep their notes in `.claude/agent-memory/`, made on their first write.
+  When auto memory is off, the existing warning stands in its place.
+- **N12:** status flags an entry that names a repo path which does not exist. A path counts when it holds a slash and
+  ends in a file extension or a slash, and its first folder exists in the repo, so build output (`dist/`), URLs, globs,
+  package names and "and/or" are not flagged. The entry's source path is left to the existing check. An entry a status
+  line ended is not checked (N8).
+
+**Checks:**
+1. *The self-test:*
+   - N9: a clean repo's report names the branch and no count; the `dirty` shape gives "3 uncommitted changes";
+   - N10: the `ownClaude` shape lists its own decision-checker, and a second run on the `empty` shape lists nothing;
+   - N11: the line in the `empty` shape;
+   - N12: a fixture with a present path, a missing path, a path under a missing top folder, a URL, a glob, "and/or" and
+     an ended entry: only the missing path is stale. S8's existing counts stay as they are.
+2. `claude plugin validate plugin` with no warning, setup's smoke, and CI on three systems.
+3. A shorter-code pass on the diff (the user's rule of 2026-11-23).
+
+### 4, 4j: checks and reviews (2026-11-23)
+
+- **Edited in place, not from a copy:** the user's installs come from GitHub at a release tag. Checked in
+  `known_marketplaces.json` on 2026-11-23: `second-brain` is a `github` source. So the checkout reaches no real
+  session. Setup's smoke ran from a copy, as before.
+- **Check 1, the self-test:** every registered case passes. A mutation check, with the product-hash pin disabled so
+  that the mutations are what fails, kills all 12 mutants. Two survivors were found and closed along the way:
+  - one mutation was written wrong (`[] && ended` is `ended`);
+  - one was a real gap, that the user's own files are never listed. Its assertion was added.
+- **Check 2:** `claude plugin validate plugin` passes. Setup's smoke passed 3 of 3; run 3's reply named the branch.
+  CI runs on the commit.
+- **An independent review** (a fresh Claude subagent, given the code and the brief only; agy's quota was spent on
+  2026-11-23) reproduced five defects. All are fixed, each with a self-test case that a mutation check kills:
+  - a second setup run said "already held N uncommitted changes" although it wrote nothing;
+  - a failing `git branch` read as "a detached HEAD";
+  - `src/../../x.md` was looked up outside the repo;
+  - `release/2.3.0`, and the folder before a glob (`src/old/*.ts`), were flagged;
+  - one path was named three times.
+
+  Accepted, with a `shortcut:` comment: non-ASCII names, and a path in markdown italics, are missed.
+- **The decision-checker's review:** no recorded decision is broken. Acted on:
+  - the setup skill's summary step now names the branch, the work already there, and the differing files. Its old
+    "at most six lines" would likely have dropped them, and field item #1 was "without a word";
+  - tests for the source-path exclusion and a folder path;
+  - the N10 test that pins the template's path; status's header comment;
+  - the plugin-owned files as a positive test (`.claude/` or the map's README).
+  - *Accepted:* letter case differs by file system; an entry that records a removal stays flagged until it is
+    reworded (in the shortcut comment).
+- **Check 3, shorter code:** the review's rewrites are taken: one `replace` for both normalisations, a `Set` for
+  duplicates, `!ended &&`, and the positive owned-file test. 4j adds 18 lines of product code in all.
+
+### 4, 4k: the whole-plugin audit's fixes (registered 2026-11-23, before the code)
+
+The user asked for an audit at the end. A subagent ran `ponytail-audit` on `plugin/`, with no edits. Its findings and
+what is done:
+
+| # | Finding (audit's verdict) | Done |
+| --- | --- | --- |
+| A1 | The dream analyzer may read only the start of a long digest: 7 of this repo's 11 transcripts make digests over 100 KB, the largest 2,575 lines (PLAUSIBLE) | One line in `dream-analyzer.md`: read the whole digest, continuing with offset and limit. Checked by S7's check 2 re-run at 4e |
+| A2 | The privacy filter drops "react@18.3.1" and "node@20.11.0" as e-mail addresses (CONFIRMED) | The e-mail pattern needs a letter TLD. `PRIVATE` is exported for a self-test of both sides |
+| A3 | Setup appends UTF-8 text to a UTF-16 `CLAUDE.md` (CONFIRMED) | Setup refuses a UTF-16 file and gives the text to the user, as the dream already does. A 4b-style case |
+| A4 | A failing status report exits 1, which can abort the skill (CONFIRMED) | Status exits 0 with its message, as `dream prepare` does (N6). A self-test case |
+| A5 | A URL source is re-found as a repo path (CONFIRMED) | **Not now:** it changes the read hook's labels, which D16 locks. Recorded as **N13** for the next release, with its own check |
+| A6 | Status counts a dream-proposed entry with a status line as retired (CONFIRMED) | `proposed` is counted before `retired`. A self-test case |
+| A7 | Onboard counts ", 1 due" and ", 2 proposed" as documents (CONFIRMED) | Strip the counts before the split. A self-test case |
+| L | Lean: the dream skill's "new topic file starts with front matter" (finish writes its own); the skill-draft clause `disable-model-invocation` (finish forces it); `drafts` exported but not imported elsewhere; `git worktree list` parsed twice | All four removed. The two skill lines change no behaviour, since finish enforces both |
+
+*Not taken:* the dream's transcript read past its recorded size, and `state.json` written without a rename. Both
+are small and stay as they are.
+
+**Checks:** the self-test with each new case killed by a mutation; `claude plugin validate`; CI. A1 and A2 change
+the dream, so S7's check 2 re-runs at 4e, as already planned.
+
+### 4, 4k: result (2026-11-23)
+
+- **Built as registered.** Every fix has a self-test case. A mutation check, with the hash pin disabled, kills each
+  one: A2 (the e-mail pattern), A3 (UTF-16), A4 (the exit code), A6 (the tally) and A7 (onboard's count). A1 and the
+  lean items change only text, or the dream's internals that its self-test covers.
+- **The self-test passes** (product `8f7f9b95dbd7`, 1,745 lines) and `claude plugin validate plugin` passes. CI runs
+  on the commit.
+- **4i, 4j and 4k share one commit,** because their code meets in the same files (`map.mjs`, `status.mjs`, the
+  self-test's hash pin). Each has its own step gate in the commit body.
+- **N13 for the next release:** a URL source is re-found as a repo path (audit A5). Changing it changes the read
+  hook's labels, so it needs a registered check under D16.
+- **Still before the tag (4e):** S7's check 2 on this build (A1 and A2 change the dream), S8's acceptance, D18's
+  bench, the version bump, the release notes, and the pull request.
+
+### 4, 4e: the release checks, registered (2026-11-23, before their results)
+
+The candidate is `5456401e`, `2.4.0`, product `60455a805197`. Each check is as section 3 ran it for 2.3.0, at the
+same bars:
+- **S7's check 2** (`s1.mjs`, histories then `product`, 10 runs, Opus 5.5, the pinned CLI;
+  `results/s7-product-a5.json`). It runs on a copy of `8f7f9b95dbd7`, which differs from the candidate only by
+  `plugin.json`'s version. The bars are `psummary`'s: C1 to C3 in at least 8, rule, skill and choice at least 4 of 5,
+  noise at most 1 per run, a wrong status line in fewer than 2 runs, the nonce 0, live rules 0.
+- **S8's acceptance check** (`e2e.mjs`, 5 runs, from a clone at `5456401e` installed as a user installs it;
+  `results/s8-e2e-240.json`). The items are those of S8's attempt 2, at its bars.
+- **D18's reference bench** (`pairbench.mjs`, 200 calls per hook kind at 1 and 8 concurrent). The candidate is
+  `60455a805197`; the control is `v2.3.0`, exported from its tag (`3650f785f984`). The fixture is S6's, rebuilt:
+  `fixture.mjs`, `benchmap.mjs` and `benchprep.mjs` (300 unseen transcripts). It runs only in D18's reference state,
+  after S7 and S8 end, with nothing else running. *Pass:* every hook kind's added p95 at most 100 ms, at 1 and 8, with
+  0 errors.
+- **CI** on the candidate, on three systems.
+- *Then:* the release notes, the tag `v2.4.0`, and a pull request to `main` that the user merges.
+
+### 4, 4e: S7's check 2 on `8f7f9b95dbd7` (2026-11-23): pass
+
+- `results/s7-product-a5.json`: 10 runs, all finished in one turn, with no background analyzer call. Each dream made
+  9 analyzer calls.
+- **Bars:** C1 to C3 10 of 10; the rule 4 of 5 (bar 4); the skill and the choice 5 of 5; noise 0; status lines on
+  other entries 0; the nonce 0 of 5; live rules 0.
+- **The miss is the same as 2.3.0's:** in run 5, the dream filed the repeated date correction as a map entry, not as
+  a rule draft (`s7-product-a4.json`, also run 5). The audit's analyzer line (A1) and the e-mail pattern (A2) changed
+  nothing measured here.
+- 5.92 USD for the 10 dreams, against 5.93 for 2.3.0.
+
+### 4, 4e: S8's acceptance check on `5456401e` (2026-11-23): pass
+
+- `probes/V2-D29-setup/results/s8-e2e-240.json`: 5 runs, each in a new repo. In every run, 2.4.0 was installed from a
+  clone at the candidate, as a user installs it, and the installed copy was byte-identical to the candidate.
+- **Every item 5 of 5:** install, layout, awareness, capture, the scoped rule, `decision-checker` used with the entry
+  named, the dream loop, and the nudge. The dream loop was 4 of 5 in 2.3.0's attempt 2.
+- 11.49 USD for the 5 runs.
+
+### 4, 4e: the reference bench (2026-11-23): pass, and 4e's result
+
+- **Builds hashed before the run:** candidate `60455a805197` (`5456401e`), control `3650f785f984` (`v2.3.0`). Both
+  match.
+- **Reference state:** the CPU sample was 9.4% over 10 seconds, just before the run. Empty Node's p95 at 8 concurrent
+  was at most 52.1 ms.
+- **Added p95 in ms, 2.3.0 against 2.4.0,** 200 calls per hook kind, with the nudge's 300 unseen transcripts
+  (`probes/V2-D30-entries/results-4e-reference.json`):
+
+  | | session start | prompt | read-other | read-map | bash-map | bash-other |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | @1 | 42.7 / 48.5 | 10.1 / 10.5 | 10.3 / 10.4 | 47.1 / 48.0 | 48.5 / 48.9 | 48.4 / 48.8 |
+  | @8 | 62.1 / 70.0 | 19.4 / 17.9 | 17.7 / 22.0 | 74.8 / 76.0 | 74.7 / 76.2 | 76.3 / 75.8 |
+
+- **Pass:** every hook is within 100 ms, with 0 errors.
+  - *The control now has a data folder to use and is not given one,* so its session start skips the nudge's work.
+    The 7.9 ms between the two on session start is that work.
+  - The other hooks are within 5 ms of 2.3.0.
+  - The whole table sits about 10 to 20 ms above 2.3.0's own bench of 2026-11-22. This window's empty Node was
+    slower (52 against 49 ms at 8), and the two builds moved together.
+- **CI on `5456401e`:** `v2.yml` passed on Ubuntu, macOS and Windows.
+- **A review of the series:** the whole-plugin audit (4k) ran on the code after 4j, and its fixes are mutation-tested.
+  4b to 4j each had their own reviews.
+- **4e's checks all pass.** The release is `2.4.0`, product `60455a805197`. Next: the tag, the release draft, and the
+  pull request to `main`, which the user merges.

@@ -31,8 +31,7 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
    - **A skill draft:** a procedure repeated in two or more sessions.
 4. **Write each proposal under `.project-map/.dream-run/proposals/`.** The finish step applies them, after it checks
    them:
-   - `map/<topic>.md`: the entries to add to the topic file of that name. A new topic file starts with front matter
-     `name` and `description`. Each entry:
+   - `map/<topic>.md`: the entries to add to the topic file of that name. Each entry:
      ```
      ### <the part of the project it governs>
      > <the person's words, quoted exactly from the U or Q line>
@@ -48,9 +47,8 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      is an entry the map holds or one you propose in this dream.
    - `rules/<name>.md`: front matter with a `paths:` list; the rule in one or two sentences; and a last line
      `<!-- evidence: <digest>:<line>, <digest>:<line> -->` from at least two sessions.
-   - `skills/<name>/SKILL.md`: front matter with `name`, `description` (what it does and when to use it) and
-     `disable-model-invocation: true`; the steps; and a last line with evidence from at least two sessions, as for
-     rules.
+   - `skills/<name>/SKILL.md`: front matter with `name` and `description` (what it does and when to use it); the
+     steps; and a last line with evidence from at least two sessions, as for rules.
    - Every quote comes from a U or Q line, or from a tracked file of this repo, as a run of three words or more; a
      quote trimmed with … keeps three words or more in each piece. Secrets, session ids, email addresses and
      absolute paths stay out of every proposal.
@@ -61,3 +59,6 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
    run the same command with `abort` in place of `finish`: it puts the map back as it was.
 6. **Tell the user** what was proposed, and why, in a few lines per kind. Then tell them `/map-review` accepts or
    rejects each proposal and promotes drafts. Nothing counts as reviewed until it is committed.
+   - From prepare's report, name the topic files no session read: their names or descriptions do not lead Claude to
+     them. When a correction came in a session that had read the entry's file, say that the entry did not hold
+     Claude to it. This is evidence for the user, not a proposal.

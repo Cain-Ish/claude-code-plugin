@@ -1,24 +1,27 @@
 // 06, section 3, S8: the report /second-brain:status shows. No model and no network; spawns only git; changes no
 // file. Run as a command by the skill, never by a hook:   node status.mjs <the plugin's data folder>
-// The stale conditions are the read hook's (labels() in map.mjs), in its words, applied to every entry; plus a source
-// committed after the entry's verified date.
+// The stale conditions are the read hook's (labels() in map.mjs, through the same helpers), in its words, applied to
+// every entry but one a status line ended (N8); plus a source committed after the entry's verified date, and a repo
+// path the entry names that is gone (N12).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { MAP, entries, foundIn, sourcePath, under, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, decode, dreamDate } from './map.mjs';
+import { MAP, entries, sourcePath, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, dreamDate, git, quoteOf, proposedOn, reviewOn, statusOf, replacedBy, refinder, unseenIn, mapMd, mapIdsOf, textOf } from './map.mjs';
 
-const git = (root, ...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 const count = (s) => (s ?? '').split('\n').filter(Boolean).length;
+// N12 (the field report of 2026-11-23): the repo paths an entry names, each once: a slash in them and a file extension
+// or a slash at the end. A URL, a glob or the folder before it, a package name, a version (release/2.3.0), "and/or" or
+// a path out through .. is not one. shortcut: ASCII names only, and a path in markdown italics (_a/b.md_) is missed
+const pathsIn = (b) => [...new Set([...b.matchAll(/(?<![\w.:/@-])(?:\.\/)?\.?[\w-]+(?:\/[\w.-]+)+\/?(?![\w.*{/-])/g)]
+  .map((m) => m[0].replace(/^\.\/|\.+$/g, '')))].filter((p) => /\/$|\.[a-z]\w*$/i.test(p) && !p.split('/').includes('..'));
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 export function status(root, data) {
   if (!fs.existsSync(path.join(root, MAP))) return `This repo has no team memory (${MAP}/). Run /second-brain:setup to create it.`;
   const today = localDate();
-  const files = under(root, MAP).filter((p) => p.endsWith('.md') && !p.startsWith(`${MAP}/.dream-run/`));
-  const all = files.map((f) => { try { return { f, es: entries(decode(fs.readFileSync(path.join(root, f)))) }; } catch { return { f, es: [] }; } });
-  const ids = new Set(all.flatMap(({ es }) => es.flatMap((b) => [...b.matchAll(/^- id:[ \t]*(\S+)[ \t]*$/gm)].map((m) => m[1]))));
-  const docs = new Map();
-  const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
+  const files = mapMd(root);
+  const all = files.map((f) => ({ f, es: entries(textOf(root, f)) }));
+  const ids = mapIdsOf(root);
+  const refind = refinder(root);
   const commits = new Map();
   const lastCommit = (p) => { if (!commits.has(p)) commits.set(p, git(root, 'log', '-1', '--format=%cs', '--', p).stdout?.trim() ?? ''); return commits.get(p); };
   const stale = [];
@@ -27,18 +30,19 @@ export function status(root, data) {
     es.forEach((b, i) => {
       total++;
       const why = [];
-      // every entry gets every check, as the read hook gives every entry its labels: a narrowed entry still binds in
-      // part (the devils-advocate review). A status line adds the replaced-by check
-      const st = /^- status:[ \t]*(\S.*)$/m.exec(b)?.[1].trim();
-      const by = st && /^\S+[ \t]+\d{4}-\d{2}-\d{2}[ \t]+by[ \t]+((?=[\w.-]*[\d-])[A-Za-z0-9][\w.-]*)[ \t]*(?::|$)/.exec(st)?.[1];
-      if (by && ids.size && !ids.has(by)) why.push(`replaced by ${by}, which the map does not hold`);
-      const review = /^- review:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/m.exec(b)?.[1];
+      // every check, as the read hook gives every entry its labels: a narrowed entry still binds in part (the
+      // devils-advocate review). An entry any status line ended no longer binds, so its review date and source are not
+      // checked, and it cannot stay stale after its source moves on (N8, 06 section 4, 4h); a dream's status line ends
+      // nothing until review accepts it (D28, D30; the decision-checker's 4h review)
+      const st = statusOf(b);
+      const ended = !proposedOn(b) && /^- status:[ \t]*(superseded|expired|done)\b/m.test(b);
+      const by = replacedBy(st);
+      if (by && ids?.size && !ids.has(by)) why.push(`replaced by ${by}, which the map does not hold`);
+      const review = !ended && reviewOn(b);
       if (review && review < today) why.push(`review due since ${review}`);
-      const at = sourcePath(/^- source:(.*)$/m.exec(b)?.[1] ?? '');
+      const at = !ended && sourcePath(/^- source:(.*)$/m.exec(b)?.[1] ?? '');
       if (at) {
-        const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
-        let found;
-        try { found = Boolean(fs.statSync(path.join(root, at), { throwIfNoEntry: false })?.isFile() && foundIn(quote, doc(at))); } catch { found = null; }
+        const found = refind(at, quoteOf(b));
         if (found === null) why.push(`cannot read ${at}`);
         else if (!found) why.push(`not found word for word in ${at}`);
         else {
@@ -47,20 +51,24 @@ export function status(root, data) {
           if (changed && changed > verified) why.push(`its source ${at} changed on ${changed}, after it was verified on ${verified}`);
         }
       }
+      // shortcut: a path counts as the repo's only when its first folder exists, so build output (dist/) is not flagged
+      // and a removed top folder is missed, and an entry that records a removal stays flagged until it is reworded;
+      // check git's tree if that misses real drift
+      const gone = !ended && pathsIn(b).filter((p) => p !== at && fs.existsSync(path.join(root, p.split('/')[0])) && !fs.existsSync(path.join(root, p)));
+      if (gone.length) why.push(`names ${gone.join(', ')}, which ${gone.length === 1 ? 'does' : 'do'} not exist`);
       if (why.length) stale.push(`  - ${f}, entry ${i + 1} "${b.split('\n')[0].slice(4)}": ${why.join('; ')}`);
+      else if (proposedOn(b)) proposed++; // a dream's status line ends nothing until review (D28, D30)
       else if (st) retired++;
-      else if (/^- proposed:[ \t]*dream/m.test(b)) proposed++;
       else current++;
     });
   }
   // the sessions since the last dream, counted as session start's nudge counts them
   const dir = stateDir(root, data);
   const state = loadState(dir);
-  let since = 0;
-  for (const d of knownDirs(dir)) { let names = []; try { names = fs.readdirSync(d); } catch {} since += names.filter((n) => n.endsWith('.jsonl') && !Object.hasOwn(state.seen, n)).length; }
+  const since = unseenIn(knownDirs(dir), state.seen).length;
   const due = dreamDue(root, data, null).replace(/^second-brain: a dream/, 'A dream');
   const wait = waiting(root).replace(/^second-brain: waiting/, 'Waiting');
-  const last = git(root, 'log', '-1', '--format=%cs', '--', MAP).stdout?.trim();
+  const last = lastCommit(MAP);
   // --no-optional-locks: a status refresh would rewrite .git/index, and the report changes no file
   const dirty = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--', MAP).stdout);
   const agents = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--', '.claude/agent-memory').stdout);
@@ -81,5 +89,6 @@ if (path.basename(process.argv[1] ?? '') === 'status.mjs') {
   const data = process.argv[2];
   const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
   if (!data) { console.log('usage: node status.mjs <the plugin data folder>; run it as /second-brain:status'); process.exitCode = 1; }
-  else { try { console.log(status(root, data)); } catch (e) { console.log(`The status report stopped: ${e.message}`); process.exitCode = 1; } }
+  // a failure exits 0, as dream prepare's refusal does: a failed ! line can abort the skill (N6; the audit, 4k)
+  else { try { console.log(status(root, data)); } catch (e) { console.log(`The status report stopped: ${e.message}`); } }
 }
