@@ -17,3 +17,6 @@
 *.jpg       binary
 *.jpeg      binary
 *.pdf       binary
+
+# second-brain: two branches that both log a dream merge without a conflict
+.project-map/dreams.md merge=union
