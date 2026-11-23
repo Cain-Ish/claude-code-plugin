@@ -6666,3 +6666,20 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
     GitHub install, and it misreads nothing else.
 - **Triage:** no defect, no new candidate. Step 22 is read as done for 2.3.0 to 2.4.0; the next read waits for
   sessions on 2.5.0.
+
+### 5: 2.5.0 checked live (2026-11-23, the user's request)
+
+- **GitHub:**
+  - `v2.5.0` is published and marked latest; the tag is on `fbc32ae6`;
+  - `main` (`530ab3eb`) says 2.5.0 in `plugin.json` and `marketplace.json`, and its `plugin/` hashes
+    `44a8c3454df2`, the release.
+- **The user's installs:** the two field repos and this repo are each recorded at 2.5.0, enabled, and pointing at the
+  2.5.0 cache, which hashes `44a8c3454df2`. The marketplace clone is at #119's merge.
+- **A new user's install:** with an isolated config folder, `marketplace add Cain-Ish/claude-code-plugin` and
+  `plugin install` from GitHub got 2.5.0, byte-identical to the release.
+- **A session:** a headless session on the user's current CLI (2.1.330) ran in a scratch repo, with the installed
+  2.5.0 copy:
+  - the plugin was loaded, session start and the prompt hook both exited 0, and the forced decision arrived;
+  - the start text is 2.4.0's narrowed capture wording, and the index listed the repo's documents;
+  - the reply was a success.
+- Sessions already running in the three repos keep their old hooks until `/reload-plugins` or a restart.
