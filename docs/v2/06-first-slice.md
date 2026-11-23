@@ -5675,3 +5675,52 @@ could have held a session for up to 10 minutes. Whether Claude Code's own hook r
 was not checked; the fix holds either way. D18 records the observation as resolved.
 
 **Next:** step 4b, setup completes the files that exist (registered above).
+
+### 4, 4b: the build, a simplification pass, and check 3 (2026-11-23)
+
+- **The draft, then shorter.** The user asked that every verification also check whether the code can be shorter and
+  smarter. The first draft checked a file with two git calls, `ls-files --error-unmatch` and `diff --quiet HEAD`.
+  The final code uses one helper and an empty `git status --porcelain --ignored`, which also covers staged, untracked,
+  ignored and no-commit-yet files. The report's bookkeeping uses a map. That draft passed the self-test, and the smoke
+  in 3 of 3 runs. Since the code changed after that, the smoke runs again on the final code, as check 2.
+- **Check 3, agy's review** (Gemini 4 Argon, of the draft's diff):
+  - **Fixed in the final code:** (2) `diff --quiet HEAD` missed a staged change whose working copy matched `HEAD`;
+    `git status` reports it. (1) A `skip-worktree` or `assume-unchanged` flag hides a local edit from `git status`,
+    and (7) on a case-insensitive file system a tracked `claude.md` answers for `CLAUDE.md`. Setup now also needs
+    `git ls-files -v` to print `H <name>` for the exact name. (6) A read error counted as an empty file, which could
+    append twice. The file is now read without swallowing the error. The self-test gains a `skip-worktree` and an
+    `assume-unchanged` case.
+  - **Accepted:** (3) UTF-16 files, (5) hard links, (9) LFS pointers and clean filters, and (10) a concurrent writer.
+    Setup appends only to a file git tracks and shows unchanged, so git holds the original, the addition shows in the
+    diff, and one `git checkout` undoes it.
+  - **Not bugs, or covered:**
+    - (8) both instruction files with the heading in `.claude/CLAUDE.md`: the registered rule, "if either one already
+      holds the heading, nothing is added";
+    - (4) reading through a link: a read, not a write. Writes are refused by the outside check and by git's "beyond a
+      symbolic link";
+    - (11) an inherited `GIT_DIR`, and no timeout: setup is run by the user, as the rest of the plugin's git calls are;
+    - (12) the report does not quote the added lines: the smoke showed Claude reading and quoting them in 3 of 3.
+- **The product hash** of the final code is `e3ab14af7348`.
+
+### 4, 4b: the decision-checker's review (2026-11-23)
+
+The repo's own `decision-checker` agent, which setup installed, checked the change against D29 (and its reopen), D18,
+`.claude/CLAUDE.md` and 4b's registration. It found no break.
+- **Fixed:**
+  - setup's `git status` now runs with `--no-optional-locks`, as `status.mjs` does, so that a refresh cannot rewrite
+    `.git/index`. The self-test's "the index unchanged" now compares the index file's bytes as well as its entries.
+    With the flag removed, in a scratch copy, that check still passed 3 of 3: in these test repos `git status` did
+    not rewrite the index. So the check guards against a rewrite, but does not show the flag was needed. The flag
+    follows `status.mjs`'s precedent;
+  - a shape the self-test lacked: a root `CLAUDE.md` without the heading beside a `.claude/CLAUDE.md` that holds it.
+    Nothing is added (`headingInnerBoth`);
+  - the skill's description named only `CLAUDE.md`; it now names `.claude/CLAUDE.md` too.
+- **Beyond the registration's wording, recorded:**
+  - a blank line comes before the appended section when the file has content. The self-test pins it;
+  - the stricter "safe to append to" (`ls-files -v` printing `H <name>`) comes from agy's review (check 3, above);
+  - "holds the heading" is a substring test for `## Team memory`, carried over from 2.3.0;
+  - D29's "marked block" is the section's own heading, by which a second run finds it.
+- **The product hash** of the final code is `2aeaa35744a0`. The smoke runs a third time, on this code.
+- **Check 2 on the final code:** the smoke passed 3 of 3. There was no root `CLAUDE.md`, `.claude/CLAUDE.md` held
+  `## Team memory` once, and nothing was committed. Each reply showed the user the added lines and did not add them
+  again.

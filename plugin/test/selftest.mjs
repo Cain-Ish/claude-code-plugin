@@ -103,8 +103,9 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey, with every hook's
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
-// 06, section 4, 4a: the hook reads its input with a readSync loop (N5); 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '4a869e6030aa', 'the product changed: record its hash with a new epoch (06)');
+// 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
+// that exist (D29 reopened, N7). 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), '2aeaa35744a0', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -866,6 +867,12 @@ ${NAME}` } });
   const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
   const snapshot = (r) => { const m = new Map(); const w = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name === '.git') continue; const p = path.join(d, e.name); if (e.isDirectory()) w(p); else m.set(path.relative(r, p).split(path.sep).join('/'), sha(p)); } }; w(r); return m; };
   const setupRun = (r) => { const x = spawnSync('node', [HOOK, 'setup'], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '' } }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
+  // 06, section 4, 4b: what setup appends to a committed, unchanged instruction file; and HEAD, the index and the
+  // commit count, which setup never changes
+  const TPL = fs.readFileSync(path.join(PLUGIN, 'templates', 'CLAUDE.template.md'), 'utf8');
+  const SECTION = `## Team memory${TPL.split('## Team memory')[1].trimEnd()}`;
+  // the index file's bytes too, not only its entries: a status refresh would rewrite it (decision-checker, 4b)
+  const gitState = (r) => [...['rev-parse HEAD', 'ls-files -s', 'rev-list --count HEAD'].map((c) => spawnSync('git', c.split(' '), { cwd: r, encoding: 'utf8' }).stdout), fs.existsSync(path.join(r, '.git', 'index')) ? sha(path.join(r, '.git', 'index')) : ''].join('|');
   const shapes = {
     empty: () => {},
     claudeMd: (r) => fs.writeFileSync(path.join(r, 'CLAUDE.md'), '# Mine\n\nRun npm test.\n'),
@@ -881,18 +888,70 @@ ${NAME}` } });
     shape(r);
     if (name !== 'dirty') { g('add', '-A'); g('commit', '-q', '-m', 'base'); } else { g('add', 'README.md'); g('commit', '-q', '-m', 'base'); }
     const before = snapshot(r);
+    const state = gitState(r);
     const out = setupRun(r);
     const after = snapshot(r);
-    for (const [p, h] of before) assert.equal(after.get(p), h, `${name}: ${p} changed`);
+    // 06, section 4, 4b: a committed, unchanged CLAUDE.md gains the section; every other file that existed is unchanged
+    for (const [p, h] of before) if (!(name === 'claudeMd' && p === 'CLAUDE.md')) assert.equal(after.get(p), h, `${name}: ${p} changed`);
+    if (name === 'claudeMd') assert.equal(fs.readFileSync(path.join(r, 'CLAUDE.md'), 'utf8'), `# Mine\n\nRun npm test.\n\n${SECTION}\n`);
     for (const t of TEMPLATES) assert.ok(after.has(t), `${name}: ${t} missing`);
     assert.equal(after.size, new Set([...before.keys(), ...TEMPLATES]).size, `${name}: an unexpected file`);
     // a second run creates nothing and changes nothing
     const out2 = setupRun(r);
     assert.deepEqual(snapshot(r), after, `${name}: the second run changed something`);
     assert.match(out2, /^Created \(0\): nothing$/m, out2);
-    if (name === 'claudeMd' || name === 'dirty') assert.ok(out.includes('For you: CLAUDE.md has no team-memory section'), out);
+    assert.equal(gitState(r), state, `${name}: setup changed HEAD or the index`);
+    if (name === 'claudeMd') assert.ok(out.includes('Added to files that existed (1): CLAUDE.md (the team-memory section)') && !out.includes('For you'), out);
+    if (name === 'dirty') assert.ok(out.includes('For you: CLAUDE.md has no team-memory section'), out);
     if (name === 'dirty') assert.ok(out.includes('For you: .gitattributes lacks'), out);
     if (name === 'empty') assert.ok(!out.includes('For you'), out);
+  }
+  // 06, section 4, 4b (D29 reopened, N7): setup appends its section or line only to a file git shows committed and
+  // unchanged; any other file stays byte for byte, and its text goes to the user. pre runs before the base commit,
+  // post after it; want maps each changed file to its whole new text; every other file that existed is unchanged
+  const LINE = '.project-map/dreams.md merge=union';
+  const w = (r, f, t) => { fs.mkdirSync(path.dirname(path.join(r, f)), { recursive: true }); fs.writeFileSync(path.join(r, f), t); };
+  const youClaude = (f) => `For you: ${f} has no team-memory section`;
+  const cases = [
+    { name: 'dotClaudeOnly', pre: (r) => w(r, '.claude/CLAUDE.md', '# Mine\n'), want: { '.claude/CLAUDE.md': `# Mine\n\n${SECTION}\n` }, absent: ['CLAUDE.md'], says: 'Added to files that existed (1): .claude/CLAUDE.md (the team-memory section)' },
+    { name: 'both', pre: (r) => { w(r, 'CLAUDE.md', '# Root\n'); w(r, '.claude/CLAUDE.md', '# Inner\n'); }, want: { 'CLAUDE.md': `# Root\n\n${SECTION}\n` }, says: 'Added to files that existed (1): CLAUDE.md (the team-memory section)' },
+    { name: 'headingInner', pre: (r) => w(r, '.claude/CLAUDE.md', '# Mine\n\n## Team memory\nOurs.\n'), want: {}, absent: ['CLAUDE.md'], not: 'team-memory section' },
+    { name: 'headingInnerBoth', pre: (r) => { w(r, 'CLAUDE.md', '# Root\n'); w(r, '.claude/CLAUDE.md', '# Mine\n\n## Team memory\nOurs.\n'); }, want: {}, not: 'team-memory section' },
+    { name: 'gaNoNewline', pre: (r) => w(r, '.gitattributes', '* text=auto'), want: { '.gitattributes': `* text=auto\n${LINE}\n` }, says: "Added to files that existed (1): .gitattributes (the dream log's merge line)" },
+    { name: 'crlf', pre: (r) => w(r, 'CLAUDE.md', '# Mine\r\n\r\nRun.\r\n'), want: { 'CLAUDE.md': `# Mine\r\n\r\nRun.\r\n\r\n${SECTION.split('\n').join('\r\n')}\r\n` }, says: 'CLAUDE.md (the team-memory section)' },
+    { name: 'unstaged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r) => fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'), want: {}, says: youClaude('CLAUDE.md') },
+    { name: 'staged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r, g) => { fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'); g('add', 'CLAUDE.md'); }, want: {}, says: youClaude('CLAUDE.md') },
+    { name: 'ignored', pre: (r) => w(r, '.gitignore', 'CLAUDE.md\n'), post: (r) => w(r, 'CLAUDE.md', '# Mine\n'), want: {}, says: youClaude('CLAUDE.md') },
+    { name: 'unborn', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), noCommit: true, want: {}, says: youClaude('CLAUDE.md') },
+    // agy's review of 4b: a flag that hides a local edit from git status must not let setup append unseen
+    ...['--skip-worktree', '--assume-unchanged'].map((flag) => ({ name: flag.slice(2), pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r, g) => { g('update-index', flag, 'CLAUDE.md'); fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'); }, want: {}, says: youClaude('CLAUDE.md') })),
+    ...(process.platform === 'win32' ? [] : [{ name: 'link', pre: (r) => { w(r, 'real.md', '# Mine\n'); fs.symlinkSync('real.md', path.join(r, 'CLAUDE.md')); }, want: {}, says: youClaude('CLAUDE.md') }]),
+  ];
+  for (const c of cases) {
+    const r = path.join(tmp, `setup4b-${c.name}`);
+    fs.mkdirSync(r);
+    const g = (...a) => { const x = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: r, encoding: 'utf8' }); assert.equal(x.status, 0, x.stderr); };
+    g('init', '-q');
+    w(r, 'README.md', '# r\n');
+    c.pre(r);
+    g('add', '-A');
+    if (!c.noCommit) g('commit', '-q', '-m', 'base');
+    c.post?.(r, g);
+    const before = snapshot(r);
+    const state = gitState(r);
+    const out = setupRun(r);
+    const mid = snapshot(r);
+    for (const [p, h] of before) {
+      if (p in c.want) assert.equal(fs.readFileSync(path.join(r, p), 'utf8'), c.want[p], `${c.name}: ${p}`);
+      else assert.equal(mid.get(p), h, `${c.name}: ${p} changed`);
+    }
+    for (const p of c.absent ?? []) assert.ok(!fs.existsSync(path.join(r, p)), `${c.name}: ${p} was created`);
+    if (c.says) assert.ok(out.includes(c.says), `${c.name}: ${out}`);
+    if (c.not) assert.ok(!out.includes(c.not), `${c.name}: ${out}`);
+    const after = snapshot(r);
+    setupRun(r);
+    assert.deepEqual(snapshot(r), after, `${c.name}: the second run changed something`);
+    assert.equal(gitState(r), state, `${c.name}: setup changed HEAD or the index`);
   }
   // a linked worktree: setup writes into the worktree, not the main checkout
   const main = path.join(tmp, 'setup-empty');
