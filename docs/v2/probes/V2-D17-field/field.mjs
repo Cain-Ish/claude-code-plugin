@@ -44,8 +44,27 @@ function kind(r) {
   return /^This session is being continued from a previous conversation/.test(t) ? null : 'human';
 }
 
+// the entries a label block names, by heading (06, section 5, 2026-11-23). A line "N. <heading>: <label>" names one, and
+// from 2.1.0 a label can open with a status, a dream's proposal or a passed review date. 2.0.1's grouped line,
+// "unverified quote, committed: entries 1-3 (captured …), 5", names entries by number: orderOf(file) gives the headings,
+// in the plugin's order (a "### " block with a quote line)
+const labelled = (ctx, orderOf) => ctx.split(/(?=\[project map\] Labels on the entries of )/).flatMap((c) => {
+  const file = /Labels on the entries of (\S+?)(?=,| )/.exec(c)?.[1];
+  const byLine = [...c.matchAll(/^\d+\. (.+?): (?:unreviewed|unverified quote|not found|cannot read|status: |proposed by a dream|review due)/gm)].map((m) => m[1]);
+  const order = file ? orderOf(file) : [];
+  const byNum = [...c.matchAll(/^unverified quote, committed: entries (.+)$/gm)].flatMap((m) => m[1].replace(/ \(captured [^)]*\)/g, '').split(', ')
+    .flatMap((r) => { const [a, b = a] = r.split('-').map(Number); return Array.from({ length: b - a + 1 }, (_, k) => order[a - 1 + k]); }));
+  return [...byLine, ...byNum].filter(Boolean);
+});
+{ // a self-check on the shapes 2.0.1 to 2.4.0 print
+  const ctx = '[project map] Labels on the entries of .project-map/a.md, in file order:\n2. Two: status: superseded 2026-11-10 by x\n'
+    + 'unverified quote, committed: entries 1, 3-4 (captured 2026-11-23)\n';
+  const got = labelled(ctx, () => ['One', 'Two', 'Three', 'Four']).sort().join('|');
+  if (got !== 'Four|One|Three|Two') throw new Error(`labelled() self-check: ${got}`);
+}
+
 // entries in a capture write: "### area" blocks
-const entries = (s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### ')).map((b) => ({
+const entries =(s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### ')).map((b) => ({
   area: b.split('\n')[0].slice(4).trim(),
   quote: b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^>\s?/, '')).join(' ').trim(),
   source: (b.match(/^- source:\s*(.*)$/m) ?? [])[1] ?? null,
@@ -176,7 +195,8 @@ function scan(file) {
   for (const b of S.bash) {
     const t = results.get(b.id) ?? '';
     const seen = known.filter((e) => t.includes(e.area) || e.lines.some((l) => l.length >= 20 && t.includes(l))).map((e) => e.area);
-    const named = new Set((ctxByTool.get(b.id) ?? []).filter((c) => c.startsWith(LABEL)).flatMap((c) => [...c.matchAll(/^\d+\. (.+): (?:unreviewed|unverified quote|not found|cannot read)/gm)].map((m) => m[1])));
+    const orderOf = (f) => { try { return entries(fs.readFileSync(path.join(cwd, f), 'utf8').replace(/\r/g, '')).filter((e) => e.lines.length).map((e) => e.area); } catch { return []; } };
+    const named = new Set((ctxByTool.get(b.id) ?? []).filter((c) => c.startsWith(LABEL)).flatMap((c) => labelled(c, orderOf)));
     // count 5's amendment: a miss whose entry cites a repo file may be one D16 verified (no label due); read by hand
     const cites = new Set(known.filter((e) => CITES.test(outside(e.source ?? ''))).map((e) => e.area));
     const missed = seen.filter((a) => !named.has(a));

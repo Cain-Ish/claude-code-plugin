@@ -15,7 +15,7 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.4.0`, built on branch `v2`.
+**Status:** `2.5.0`, built on branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
@@ -34,7 +34,9 @@ locks: no hook blocks a write.
     - `codebase-guide` answers where-is and how-do-we questions;
     - `memory-curator` flags due and duplicate entries, and changes no committed claim.
   - `.project-map/README.md`, a first topic file `decisions.md`, the dream log `dreams.md`, and a `.gitattributes`
-    line that merges the log.
+    line that merges the log. The README's table "Where it belongs" (2.5.0) tells Claude the home of each
+    kind of knowledge. A rule a tool can enforce, a repeated procedure, or a rule for certain paths still becomes an
+    entry, and Claude also offers you a check, a skill or a path rule. It never makes one live by itself.
 
   It warns when Claude Code's auto memory is off, since the agents' memory then does nothing. Since 2.4.0 its report
   also names the branch it wrote on and any uncommitted work that was already there, lists the files you kept that
@@ -120,6 +122,10 @@ locks: no hook blocks a write.
   - new entries, each marked `- proposed: dream <date>`;
   - rules and skills as `*.md.draft` files, which Claude Code never loads until `/map-review` promotes them;
   - one counts-only line in `.project-map/dreams.md`.
+
+  Since 2.5.0 it then asks whether to review the proposals now. On a yes, Claude walks them with you in the same
+  session, as `/map-review` does; nothing is accepted without your answer. `/map-review`'s last step offers to commit
+  only the files the review changed, so other work on the branch stays out of that commit.
 
   Anything else that changed during the dream, under `.project-map/`, in Claude's instruction folders, `CLAUDE.md` or
   `.mcp.json`, is put back, with what it replaced saved in the plugin's data folder.
@@ -531,10 +537,12 @@ Then remove them in this order:
   session's tool output, asking the analyzer to read a file outside the repo, was not followed in 3 of 3 runs.
 - **Agent memory loads before review**, as Claude Code's own does. The starter agents are told to keep only working
   notes there.
-- **Small mismatches in 2.3.0's own texts,** fixed in the next release:
-  - `/second-brain:status` sends stale entries to `/map-review`, which walks only entries whose review date passed.
-    Ask Claude to check the others against their sources;
-  - the starter rule names only `superseded` for a status line; `narrowed`, `expired` and `done` work too.
+- **A large repo's index is cut.** Past the 10,000-character limit of one hook output, session start lists
+  directories until it is full and says how many are left out. Claude then searches past it: in a 179-directory test
+  repo it found the binding document in a left-out directory in 5 of 5 runs. Listing every directory without file
+  names was tried, and found it in only 3 of 5.
+- **Template fixes reach new setups only.** Setup never overwrites a file; its report lists the files you kept that
+  differ from the current templates.
 - **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
   name `second-brain`, so only one of them can be registered on a machine.
 

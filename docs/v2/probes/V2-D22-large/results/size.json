@@ -1,0 +1,23 @@
+{
+ "shape": {
+  "dirs": 179,
+  "docs": 789
+ },
+ "control": {
+  "mode": "cut",
+  "listed": 65,
+  "total": 181,
+  "chars": 9886,
+  "D1": true,
+  "D2": false
+ },
+ "candidate": {
+  "mode": "summary",
+  "listed": 181,
+  "total": 181,
+  "chars": 9031,
+  "D1": true,
+  "D2": true
+ },
+ "pass": true
+}

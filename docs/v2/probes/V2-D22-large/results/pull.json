@@ -1,0 +1,131 @@
+{
+ "model": "claude-opus-5-5",
+ "cli": "2.1.305 (Claude Code)",
+ "control": {
+  "valid": 5,
+  "D1": 0,
+  "D2": 5,
+  "readD1": 5,
+  "readD2": 4
+ },
+ "candidate": {
+  "valid": 5,
+  "D1": 1,
+  "D2": 3,
+  "readD1": 5,
+  "readD2": 3
+ },
+ "runs": [
+  {
+   "arm": "control",
+   "run": 1,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": true,
+   "reads": 11,
+   "costUsd": 0.34
+  },
+  {
+   "arm": "candidate",
+   "run": 1,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": true,
+   "reads": 11,
+   "costUsd": 0.28
+  },
+  {
+   "arm": "control",
+   "run": 2,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": false,
+   "reads": 10,
+   "costUsd": 0.33
+  },
+  {
+   "arm": "candidate",
+   "run": 2,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": true,
+   "reads": 12,
+   "costUsd": 0.37
+  },
+  {
+   "arm": "control",
+   "run": 3,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": true,
+   "reads": 13,
+   "costUsd": 0.36
+  },
+  {
+   "arm": "candidate",
+   "run": 3,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": true,
+   "reads": 13,
+   "costUsd": 0.39
+  },
+  {
+   "arm": "control",
+   "run": 4,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": true,
+   "reads": 10,
+   "costUsd": 0.33
+  },
+  {
+   "arm": "candidate",
+   "run": 4,
+   "valid": true,
+   "D1": false,
+   "D2": false,
+   "readD1": true,
+   "readD2": false,
+   "reads": 10,
+   "costUsd": 0.3
+  },
+  {
+   "arm": "control",
+   "run": 5,
+   "valid": true,
+   "D1": false,
+   "D2": true,
+   "readD1": true,
+   "readD2": true,
+   "reads": 11,
+   "costUsd": 0.36
+  },
+  {
+   "arm": "candidate",
+   "run": 5,
+   "valid": true,
+   "D1": true,
+   "D2": false,
+   "readD1": true,
+   "readD2": false,
+   "reads": 11,
+   "costUsd": 0.32
+  }
+ ],
+ "pass": false
+}

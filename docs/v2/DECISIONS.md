@@ -25,18 +25,18 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the net is decision-checker, used for a decision check in 5 of 5 (S8 item 5, attempt 2)) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the inventory aid is codebase-guide's navigation notes (S5: fewer tool calls in 4 of 5)) | evidence + user | D10, D13 |
-| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the catalog line for topic files; repos without front matter byte-identical (S6)); REOPENED 2026-11-23 (trigger fired: an index of 179 directories, 71 listed) | evidence | D12, D13, D15, D20 |
+| V2-D22 | Selection: how does the knowledge that binds a task reach Claude without a hand-made list? (The 8 KB bound fell with the volume check.) | BLOCKED 2026-10-21; LOCKED 2026-10-22 (the measure was wrong; forced route, forced again after each compaction); REOPENED 2026-10-25 (build step 2d: above the no-worse ceiling on P2 plan; investigation cells missed); re-LOCKED 2026-10-25 (route unchanged; the claim narrowed to change and plan tasks, open to the user's override); REOPENED 2026-10-26 (build step 2e: on P2, rules missed on a vague first prompt and after two compactions); BLOCKED 2026-10-26 (rethink 4's attempt failed its stage-1 bar: the read before the first code write in 3 of 5, bar 4; the assumption reopens); still BLOCKED 2026-10-26 (the user's (A), a gate at the write, failed its stage-1 bar: the read before the first C# write in 0 of 5, as batched edits spent the 2-deny cap and Claude chose documents by topic; the selector reopens; the scope probe failed); re-LOCKED 2026-10-26 (the user's choice of scope: the route unchanged, the claim narrowed to changes named in an epoch's first prompt; the vague first prompt and the task switch named weaknesses); REOPENED 2026-11-03 (its `paths:` trigger, in the field: 30 of 30 rule files in the user's other repo carry `paths:`, and Claude Code delivered 19 of them by path in one session; (S-b) runs again, pre-registered first); 17m chose (N), use Claude Code's own path delivery (R 4 of 92 pairs), and (S-b) failed again; 2k published as alpha.5 (2026-11-03, the user's choice, P1 build not run): the index leaves `.claude/rules/` to Claude Code; re-LOCKED 2026-11-06 on 2k's field check (D 15, R 1 of 17 pairs; a thin base, no in-claim epoch); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the catalog line for topic files; repos without front matter byte-identical (S6)); REOPENED 2026-11-23 (trigger fired: an index of 179 directories, 71 listed); re-LOCKED 2026-11-23 on the cut (5d: a summary of every directory found a cut document in 3 of 5 runs against the cut's 5 of 5; reverted) | evidence | D12, D13, D15, D20 |
 | V2-D23 | How is A1 item (5) met and measured: Claude names each decision it followed and where it came from? | LOCKED 2026-10-25 (T5f scores item 5 as the fixture states it; the plugin names decisions and sources: T5f 10 of 10, over-attribution 0); REOPENED 2026-11-18 on its own field trigger (28% restated in 41 lists), re-LOCKED on (d), session-scoped naming (06 2s) | user, settled by a written rethink and a second opinion | D14, D17, D22 |
 | V2-D24 | What must hold before v2 leaves alpha and replaces v1 on `main`? | OPEN 2026-11-06; LOCKED 2026-11-07 ((b): the user's "continue as we plan", with a deadline of their return; the field bar set before the count); REOPENED and re-LOCKED 2026-11-12 (the user's C1 for a resume Claude Code skips; the bar met at count 4) | user | D03, D05, D22 |
 | V2-D25 | When `main` moves to v2, under which marketplace name does a v1 install reach 2.0.0? | LOCKED 2026-11-06 ((K): keep `second-brain`; both arms reached 2.0.0 in place) | evidence | D03 |
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux); REOPENED 2026-11-07 (2.0.0's release review: a running v1 session re-installs the timer; v1's custom config folders); re-LOCKED unchanged 2026-11-07 (the README fixed; D26's workflow passes on it) | evidence | D25 |
 | V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
 | V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18; LOCKED 2026-11-18 on (LIN), by the user's delegation: the labels read a status line (06 2r), the instruction asks for it and the naming line skips an ended entry (2s); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (status lines name ids; a dream's status line is proposed until review (S3, S7, S8)) | user | D13, D14, D16, D23 |
-| V2-D29 | Setup: what does the plugin create in a new or existing repo, and with which guardrails? | OPEN 2026-11-20 (the user's choices recorded; S5 checks them); LOCKED 2026-11-20 (setup passed S5 and the acceptance check (layout 5 of 5, aware 5 of 5)); REOPENED 2026-11-23 (the user's goal after a live test: setup run once sets everything up; N7; 06, section 4, step 4b); re-LOCKED 2026-11-23 (4b passed: setup appends only to tracked, unchanged files) | user + evidence | D10, D11, D15 |
+| V2-D29 | Setup: what does the plugin create in a new or existing repo, and with which guardrails? | OPEN 2026-11-20 (the user's choices recorded; S5 checks them); LOCKED 2026-11-20 (setup passed S5 and the acceptance check (layout 5 of 5, aware 5 of 5)); REOPENED 2026-11-23 (the user's goal after a live test: setup run once sets everything up; N7; 06, section 4, step 4b); re-LOCKED 2026-11-23 (4b passed: setup appends only to tracked, unchanged files); REOPENED 2026-11-23 (the user's word: P1, a placement table in the map's README template; 06, section 5, 5a); re-LOCKED 2026-11-23 (5a passed: a check offered for a tool-enforceable rule in 5 of 5 against 0, capture 5 of 5, no live file made) | user + evidence | D10, D11, D15 |
 | V2-D30 | Versioned entries: how does the map record versions, and tell stale memory from current? | OPEN 2026-11-20 (S3, S4 and S6 check it); LOCKED 2026-11-20 (versioned entries passed S3, S4 and S6, and the status report shows staleness (S8)) | user + evidence | D13, D16, D28 |
-| V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4) | user + evidence | D14, D18, PM1, PM5 |
+| V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4); REOPENED 2026-11-23 (the user's word: P2, draft-writing rules in the dream skill; 06, section 5, 5a); re-LOCKED 2026-11-23 (5a passed at attempt 2: skill drafts say how each step is done; the rule-paths clause dropped after it narrowed a rule to two files) | user + evidence | D14, D18, PM1, PM5 |
 | V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
-| V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d) | user + evidence | D18, D29, D30, D31, D32 |
+| V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d); LOCKED 2026-11-23 on (M) with (A)'s "later" (B and C rejected; 06, section 5, 5c) | user + evidence | D18, D29, D30, D31, D32 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -842,6 +842,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   correction or a problem Claude hit, which reaches the map only through a dream after two sessions. And its document
   clause made Claude copy the repo's own documents into the map: the field report of 2026-11-23. *Check:* 06, section
   4, step 4i (A-4, the second run; D16's re-check), registered before the code.
+- *Note, 2026-11-23, not a reopen (field item #7; 06, section 5, 5c):* on a branch that carries other work, "the
+  commit is the review" forces map changes into that branch's commits. Kept:
+  - a separate review marker would be a file the same hand can write, so an injected entry could mark itself
+    reviewed (this decision's own trigger);
+  - instead, `/map-review`'s last step offers `git add <files> && git commit -m "…" -- <files>`, which commits only
+    the reviewed files and leaves the branch's other work as it is.
 - **Re-LOCKED 2026-11-23** (06, section 4, 4i):
   - **K2, a line for corrections, is not shipped.** In A-4's floor, a fresh session with neither plugin nor memory
     re-found the corrected code in 12 of 12 runs, over three scenarios. On the frozen-folder scenario, the plugin as
@@ -1641,6 +1647,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   unchanged. The narrowed document clause changes which documents are copied, not how a quote is re-found. 4i's A1
   runs pass C1 to C4 in 10 of 10. 4j adds one stale condition to the status report (a repo path the entry names that
   is gone); the read hook's labels are unchanged.
+- *Note, 2026-11-23, not a reopen (06, section 5, 5b):* a path inside a URL was taken as the source's file, so a URL
+  source read "not found word for word" for ever. A URL now names no repo file, and its entry reads as an unverified
+  quote, like any source that is no file here. The re-find itself is unchanged.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
@@ -4430,6 +4439,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   decision or reads are not measured there"). A field repo's index holds about 850 documents in 179 directories;
   session start listed 71 of them, past the 10,000-character cap, and pays that context every session (06, section 4,
   the field report). The next decision is a size budget or a summary mode, for the next release.
+- **Re-LOCKED 2026-11-23 on the cut** (06, section 5, 5d). A summary mode that listed every directory without file
+  names was built and checked on a synthetic field-shaped repo (179 directories, 789 documents). It covered all
+  directories in fewer characters. But in a pull check, the document in a directory the cut drops was followed in 3
+  of 5 runs against the cut's 5 of 5: Claude judged directories by name, while the cut's "not listed" note sent it
+  searching. Reverted. The size of a large repo's session start is accepted. *Reopen if:* the triggers above, or a
+  field session misses a document past the cut that a search would have found.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and
@@ -5026,6 +5041,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     reopened: the commit stays the user's review.
   - *Check:* 06, section 4, step 4b, registered before its code.
 - **Re-LOCKED 2026-11-23** (06, section 4, 4b: checks 1-5 passed). The guardrail now reads: setup never overwrites or deletes a file and commits nothing; it appends its section or line only to an instruction file (`CLAUDE.md`, or `.claude/CLAUDE.md` when that is the only one) or `.gitattributes` that git tracks under that name, with no skip-worktree or assume-unchanged flag, and shows unchanged. *Reopen if:* setup changes a file that git does not show tracked and unchanged, overwrites or deletes a file, or commits anything.
+- **REOPENED 2026-11-23, on the user's word** ("yes to P1 and P2, implement them", after the
+  [Matt Pocock research](research/2026-11-23-matt-pocock-approach.md)). P1 adds a placement table to the map's
+  README template, with a pointer to it in the rule template. Captured knowledge still lands in the map; the other
+  homes are offers to the user. *Check:* 06, section 5, step 5a, registered before its code.
+- **Re-LOCKED 2026-11-23** (06, section 5, 5a, check 2). Told a rule a tool can enforce, Claude recorded it and
+  offered a check in 5 of 5 runs, against 0 for 2.4.0. It made no live rule or skill. *Reopen if:* the triggers above.
 
 ### V2-D30 — Versioned entries and staleness
 - **Question:** how does the map record an entry's versions, so that the plugin can say which memory is stale and
@@ -5091,6 +5112,13 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   PM1 is met for the dream, so it is built in S7. D31 stays OPEN until S7 passes.
 - **S7 passed (2026-11-20; 06, section 3, S7: result).** The dream product met S1's bars at its second attempt: C1-C3 10 of 10; the rule, the skill draft and the choice 5 of 5 each; noise 0; wrong status lines 0; the nonce 0 of 5; $5.73 for 10 dreams. Attempt 1 failed (the rule 3 of 5): one run's analyzers ran in the background, the turn ended, and the finish command lost the skill's grant, which lasts one turn. The skill now keeps every step in one turn. Drafts never loaded in three modes. The security review (two agy rounds, /security-review, the canary and grant probes) ended in the fixes listed in 06; its accepted risks go to the README.
 - **Status:** LOCKED 2026-11-20. Reopens if Claude Code changes its transcript format, the skill grant's lifetime or what it loads from .claude/, or if a dream ever lands text from an R line or an untracked file.
+- **REOPENED 2026-11-23, on the user's word** (P2, the same request). The dream skill gains draft-writing
+  rules: a rule's paths no wider than the sessions' files; a skill's description with "Use when"; steps for the kind
+  of task, each with how to tell it is done. *Check:* 06, section 5, step 5a (S7's check 2 at its bars).
+- **Re-LOCKED 2026-11-23** (06, section 5, 5a, check 3 at attempt 2). Only the skill part ships. The clause "paths:
+  no wider than the files the sessions worked on" narrowed the date rule to the two files the sessions touched, so it
+  was dropped. On the final text, S7's bars pass, with the rule 5 of 5 and every rule draft on globs.
+  *Reopen if:* the triggers above.
 
 ### V2-D32 — Dream tracking and the due nudge
 - **Question:** how does the plugin know when the last dream ran, when memory last changed, and when a dream is due,
@@ -5156,3 +5184,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     `disable-model-invocation`, the four hooks and D32 all hold.
   - **Still open:** the user's answer on (C), the only route to upkeep with no command at all. (M) is designed in
     step 4d once that answer is in.
+- **LOCKED 2026-11-23 on (M), with (A)'s "later"** (06, section 5, 5c; the user's "do it byself", settled by a
+  written rethink and an independent second opinion, as agy's quota was spent).
+  - **(C) is rejected.** With (B) rejected, a dream still starts on a typed command, so (C) would skip only the
+    review. A proposal counts only through a commit, so (C) would mean the dream commits text from transcripts by
+    itself. That is the charter's non-goal, "a background process that rewrites knowledge without a reviewable
+    diff".
+  - **(M) is built.** The dream's last step asks whether to review now. On a yes, Claude follows the map-review
+    skill's file in the same session; "later" leaves it to `/map-review`. In 10 headless dreams, nothing was
+    accepted without that yes.
+  - R4 (a desktop scheduled task) stays out: setup could never create one, and testing it means driving the user's
+    desktop app.
+  - *Reopen if:* a dream's proposal is accepted without the user's yes, or Claude Code lets a scheduled task run a
+    flagged skill.

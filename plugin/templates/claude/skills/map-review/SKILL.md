@@ -23,4 +23,5 @@ Work through each list with the user, one item at a time. Done when every list i
    - It changed: update the quote or the source to what holds now, and set `- verified:` to today.
    - It ended: add `- status: expired <today> by review: <what still holds>`.
 4. Show `git diff --stat`. Tell the user that committing is the review: an entry counts as reviewed once it is
-   committed.
+   committed. Offer to commit only the files this review changed, so other work on the branch stays as it is:
+   `git add <those files> && git commit -m "Review the team memory" -- <those files>`.

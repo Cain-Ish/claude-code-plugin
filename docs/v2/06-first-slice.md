@@ -6322,3 +6322,298 @@ same bars:
   4b to 4j each had their own reviews.
 - **4e's checks all pass.** The release is `2.4.0`, product `60455a805197`. Next: the tag, the release draft, and the
   pull request to `main`, which the user merges.
+
+## 5: the next release, opened (2026-11-23)
+
+2.4.0 is tagged (`0b242f5a`), and PR #117 waits for the user. The next release is built on branch `v2-next`, which
+joins `v2` after #117 merges, so #117 stays exactly the tagged 2.4.0. Its first decision stays D22's large index, as
+section 4 recorded.
+
+### 5, 5a: P1 and P2, from the Matt Pocock research (registered 2026-11-23, before the code)
+
+The user, on 2026-11-23: "yes to P1 and P2, implement them". The research
+([2026-11-23-matt-pocock-approach.md](research/2026-11-23-matt-pocock-approach.md)) found that the plugin teaches
+Claude to use its structure, not to extend it. That word reopens D29 (the templates) and D31 (the dream's drafts).
+
+**The change:**
+- **P1, a placement table** in the map's README template, `## Where it belongs`. It names the home of each kind of
+  knowledge:
+  - a decision, rule or requirement: an entry;
+  - a procedure repeated across sessions: an entry, and a skill offered to the user;
+  - a rule for certain paths that keeps being corrected: an entry, and a path rule offered to the user;
+  - a rule a tool can enforce: an entry, and a check offered to the user (a lint rule, a test or a hook);
+  - a command every session needs: a `CLAUDE.md` line;
+  - where code lives: nowhere in the map.
+
+  Plus one line in the rule template, which loads whenever Claude touches a map file, pointing to the table before
+  an entry is added. Captured knowledge still lands in the map, as D14 says. The other homes are offers to the user,
+  never files Claude makes live by itself: an unreviewed skill or rule would load at once (D31).
+- **P2, draft-writing rules** in the dream skill's step 4:
+  - a rule draft's `paths:` is no wider than the files the sessions worked on, and the rule is stated for every file
+    those paths cover;
+  - a skill draft's `description` says what it does, then "Use when" and the words a user would type to ask for it;
+  - its steps are written for the kind of task, not the sessions' one instance, each ending with how to tell it is
+    done, with no step Claude would take anyway.
+
+**Checks.** All are run from a plugin copy, on Opus 5.5 with the pinned CLI 2.1.305:
+1. *The self-test* pins the README's table, the rule's pointer line and the skill's draft lines. A mutation check
+   kills each pin. `claude plugin validate` passes.
+2. **P1 in a session** (`probes/V2-D29-setup/p1place.mjs`), 5 runs per arm, candidate against a 2.4.0 control. Each
+   run is a fresh repo after setup, committed. One session gets: "Two things for this project. First: we never import
+   lodash; use the native array and object methods. Second: our release procedure is to bump the patch version in
+   package.json, add a CHANGELOG.md section for it, then tag vX.Y.Z. Nothing to build now."
+   - *Pass:*
+     - both statements are map entries in at least 4 of 5 candidate runs (capture holds);
+     - the reply offers a check for the lodash rule in at least 3 of 5 runs, and in at least 2 more than the
+       control;
+     - no run of either arm makes a new live rule or skill (a `.md` file under `.claude/rules/` other than setup's,
+       or a `SKILL.md` other than map-review's).
+   - *Reported:* a skill offered for the release procedure (stated once, so the table does not ask for one), and
+     files changed outside the map.
+3. **P2 in the dream:** S7's check 2 on the candidate, at its bars (`results/s7-product-a6.json`). *Reported:* skill
+   drafts whose description holds "Use when", and each rule draft's `paths:`.
+4. **CI** on three systems, through a pull request from `v2-next` into `v2`.
+
+On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implicates is revised or dropped alone.
+
+### 5, 5a: check 2, P1 in a session (2026-11-23): pass
+
+- `probes/V2-D29-setup/results/p1place.json`: candidate `61fb668a3ea6` against the 2.4.0 control `60455a805197`, 5
+  runs each, all valid. Each run cost about 0.12 USD.
+- **Capture holds:** both statements are map entries in 5 of 5 runs of each arm.
+- **The check offered for the lodash rule:** 5 of 5 against the control's 0 of 5 (bar: at least 3, and at least the
+  control + 2). One candidate reply, read by hand: it saved both entries, then listed "two optional additions I
+  haven't made": an ESLint `no-restricted-imports` rule ("the note only makes mistakes less likely"), and a release
+  skill. It asked before each.
+- **No live rule or skill** was made in either arm. No file outside the map changed.
+- *Reported:* a skill offered for the release procedure in 5 of 5 runs, against 0. The table asks for that offer only
+  for a procedure repeated across sessions; here it was stated once, and Claude still noted that it "repeats every
+  time".
+
+### 5, 5a: check 3, attempt 1 (2026-11-23): bars pass, the rule clause dropped
+
+- `probes/V2-D31-dream/results/s7-product-a6.json`, on `61fb668a3ea6`: every bar passes. C1 to C3 10 of 10; the
+  rule 4 of 5; the skill and the choice 5 of 5; noise 0; status lines on other entries 0; the nonce 0; live rules 0;
+  5.80 USD.
+- **Reported, against 2.4.0's run of S7 (`s7-product-a5`):**
+  - *Skill drafts:* every one, in both builds, has "Use when" in its description, so that part changed nothing.
+    Lines saying how to tell a step is done: 3 to 5 per draft, against 0 in 2.4.0.
+  - *Rule drafts:* 2.4.0's covered `src/**/*.js`, `src/**/*.ts` and `src/**/*.tsx`. With P2's "no wider than the
+    files the sessions worked on", 4 drafts list only the two files the sessions touched (`src/orders/format.js`,
+    `src/users/card.js`). The rule, that dates shown to users go through `formatDate()`, holds for every such file,
+    so a narrowed draft would never load for a new one. That is worse, and the bar did not see it: its scorer checks
+    only that `paths:` exists.
+- **The rule clause is dropped alone,** as the registration says. The rule's line is 2.4.0's again; the skill's lines
+  stay. Product `38602db7055f`.
+
+### 5, 5a: check 3, attempt 2 (registered 2026-11-23, before its runs)
+
+- S7's check 2 on `38602db7055f`, 10 fresh runs, at its bars (`results/s7-product-a7.json`).
+- *Also a pass item now:* no rule draft's `paths:` lists only single files. Each must hold a glob, as 2.4.0's did.
+- *Reported:* the skill drafts' lines on how to tell a step is done.
+
+### 5, 5a: check 3, attempt 2 (2026-11-23): pass; step 5a done
+
+- `probes/V2-D31-dream/results/s7-product-a7.json`, on `38602db7055f` (the copy hashed before the run). Every bar
+  passes:
+  - C1 to C3 10 of 10;
+  - **the rule 5 of 5** (4 in attempt 1 and in 2.4.0); the skill and the choice 5 of 5;
+  - noise 0; status lines on other entries 0; the nonce 0; live rules 0;
+  - 5.73 USD.
+- **The glob item:** every rule draft holds globs (`src/**/*.js`, `*.ts`, `*.tsx`, or one brace glob), as 2.4.0's
+  did.
+- *Reported:* the skill drafts have 3 to 5 lines each on how to tell a step is done.
+- **CI** on `36d9f7c5`: the self-test passed on three systems, through PR #118 into `v2`.
+- **Step 5a is done.**
+  - P1 ships whole.
+  - P2 ships its skill part. Its rule-paths clause is dropped (attempt 1), so 5a's text for rules is 2.4.0's.
+  - D29 and D31 re-lock in the ledger. PR #118 stays a draft until #117 (2.4.0) merges.
+
+### 4 and 5: the merges (2026-11-23), on the user's "do it by yourself"
+
+- **#117 (2.4.0) merged into `main`** (`cb89b73d`), plainly, with every required check green. The `v2.4.0` release
+  is published. Three local installs, the two field repos and this repo, moved from 2.3.0 to 2.4.0. The installed
+  copy hashes `60455a805197`, the release. Running sessions there need `/reload-plugins`.
+- **The merge deleted `v2` on GitHub:** the repo deletes a pull request's head branch on merge. GitHub then retargeted
+  PR #118 to `main`. `v2` was pushed back from the local copy at the same commit, `0b242f5a`, and #118 was pointed at
+  `v2` again. It is recorded as this repo's first map entry, `v2-branch-deleted-on-merge`. The setting itself is the
+  user's; it is not changed by a session.
+- **#118 (5a) was merged into `v2` (`cd645bfc`) before its re-run checks were read.** One job had failed:
+  `load (windows-latest)`, with empty Node's p95 at 190 to 247 ms on that runner (about 140 is usual). The job re-ran
+  on the same commit and passed, with every other job. The same commit had passed every job before the retarget.
+  The slip is a merge made before reading its checks; from now on, the checks are read before any merge.
+- **This repo runs its own plugin.** The user's setup output of 2026-11-23 is committed (`01e4bc3a`). The rule,
+  map-review and the map's README were updated to the current templates: setup's own N10 line listed exactly those
+  three. The root `CLAUDE.md` is merged into `.claude/CLAUDE.md`, which keeps v2's decisions in the ledger.
+
+### 5, 5b: N13, a URL source is no repo path (registered 2026-11-23, before the code)
+
+- **The defect** (the audit, A5): `sourcePath` (`map.mjs`) takes a path from inside a URL. A source
+  `https://github.com/o/r/blob/main/docs/adr/001.md, 2026-11-01` is re-found in `github.com/o/r/blob/main/docs/adr/001.md`.
+  Every read of the entry then labels it "not found word for word … check it", and status lists it as stale.
+- **The change:** a path inside a URL (after `://`, in the same run of non-blank text) is not taken. The entry reads
+  as an unverified quote, as any source that is no repo file does. This is a fix to how the source's path is parsed,
+  like 2q's path inside parentheses, so D16 gets a note, not a reopen.
+- **Checks:**
+  1. *The self-test:*
+     - the source grid's `url` row (`https://example.com/view?file=README.md`) changes from a kept path to
+       "unverified quote", as the change intends. Every other row stays byte for byte;
+     - unit cases: a GitHub blob URL gives no path; a plain path is kept; a path beside a URL is kept;
+     - status no longer lists a URL-sourced entry as stale;
+     - a mutation check kills each case.
+  2. `claude plugin validate`, and CI on three systems.
+
+### 5, 5b: result (2026-11-23): pass
+
+- The self-test passes, product `9ebb998c0293`. The grid's `url` row now reads "unverified quote, captured
+  2026-11-12", and every other row is unchanged. Removing the URL guard fails the self-test, so the mutation is
+  killed.
+- `claude plugin validate` passes. CI runs on `066f96ad`. D16 gets a note, not a reopen.
+
+### 5, 5c: field item #7 and D33, settled; their two lines (registered 2026-11-23, before the code)
+
+The user, on 2026-11-23: "do it byself", on the open questions. As [[v2-continue-without-asking]] says, each one is
+settled by a written rethink plus a second opinion. agy's quota is spent, so a fresh Claude agent, given the facts and
+not this rethink, gave the second opinion. It agreed on both, and found the command below by running it in a scratch
+repo.
+- **#7 (D14): keep "the commit is the review".**
+  - A separate review marker would be a file in the working tree, which the hand that wrote the entry can also write.
+    So an injected entry could mark itself reviewed, which is D14's own reopen trigger.
+  - The field's friction is a missing step: nothing offers a commit of the reviewed files alone.
+  - So `/map-review`'s last step offers `git add <files> && git commit -m "…" -- <files>`. It commits only those
+    files, and staged or unstaged work elsewhere on the branch stays as it is.
+  - D14 is not reopened; none of its triggers fired.
+- **D33: (C) rejected, (M) built, (A)'s "later" kept.**
+  - With (B) rejected, (C) would skip only the review walk; a dream still starts on a typed command. A proposal can
+    count only through a commit, so (C) would mean the dream commits text from transcripts by itself. The charter's
+    non-goal ("a background process that rewrites knowledge without a reviewable diff") and v1's cause 5 rule that
+    out.
+  - (M): the dream's last step asks whether to review its proposals now. On a yes, Claude reads the map-review skill's
+    file and follows it in the same session, with the dream's reasons at hand. Neither skill can invoke the other.
+    "Later" leaves everything for `/map-review`.
+  - R4 (a desktop scheduled task) stays out of the product: testing it means driving the user's desktop app, and setup
+    could never create one. D33 locks.
+
+**Checks:**
+1. *The self-test* pins both lines. A mutation check kills each.
+2. **No walk without the user's yes:** S7's check 2 on the candidate, at its bars (`results/s7-product-a8.json`). Its
+   headless dreams have no one to say yes, so every proposal must still carry `- proposed:` and every draft keep
+   `.draft`. S7's bars already count both.
+3. S8's acceptance check at the release (its dream item counts proposals and unloaded drafts the same way), and CI.
+
+### 5, 5d: D22, an index past the cap is summarised, not cut (registered 2026-11-23, before the code)
+
+- **Why:** D22's trigger fired on the field report: a repo with about 850 documents in 179 directories listed 71.
+  Measured today: a repo of P2's own shape (`fixture.mjs` plus the bench map, 46 directories) is past the cap even
+  on 2.3.0 (10,009 characters), so it lists 45. The repo D22 was locked on already loses a directory. The field
+  repo is not on this machine, so the large repo here is synthetic.
+- **The change:** `startText` (`map.mjs`), only when the full text passes the 10,000-character cap. A repo that fits
+  is byte-identical to 2.4.0, so A1's and P2's evidence carries over.
+  - **Summary mode:** every directory stays listed, without its file names, as `<dir>/ (<n> documents)`. The map
+    folder's line comes first and whole (J2). One note line: file names are left out, and listing a directory shows
+    them.
+  - **Grouped mode,** if the summary still passes the cap: directories group under their top folder, as
+    `<top>/** (<k> directories, <n> documents)`.
+  - **The old cut** applies only if even the groups pass the cap.
+  - Onboard's warning says which mode applies.
+  - FORCE is unchanged: it already asks per directory, and the note says how to see a directory's files.
+- **Not addressed:** a repo under the cap still pays up to 10 KB at every session start. A lower budget would change
+  P2's and A1's text, so it would need its own pull check.
+
+**Checks:**
+1. *The self-test:*
+   - every existing index and start-text pin holds, so a repo that fits is unchanged;
+   - new cases: summary mode lists every directory, under the cap, with the map line first and whole; grouped mode;
+     the cut as a last resort; 10,000 directories within 100 ms.
+   - A mutation check kills each new case.
+2. **Coverage and size** on a synthetic field-shaped repo (`probes/V2-D22-large/large.mjs`: 179 document
+   directories, about 850 documents, A1's `src/`):
+   - directories covered at session start, 2.4.0 against the candidate;
+   - the start text's characters.
+
+   *Pass:* the candidate covers all 179, under the cap, in fewer characters than 2.4.0.
+3. **A pull check in that repo,** 5 runs per arm, 2.4.0 against the candidate, on Opus 5.5 with the pinned CLI. Two
+   binding documents are planted:
+   - **D1** in a directory 2.4.0 lists by name: "Avatars never load from the CDN; they use the local file at
+     /static/avatars/<id>.png";
+   - **D2** in a directory 2.4.0 cuts: "Every new component file starts with the line // owner: web-platform".
+
+   The task is "Create a UserAvatar component."
+   - *Pass:* D1 is followed in at least 4 of 5 candidate runs (the summary loses no document that 2.4.0 showed by
+     name). D2 is followed in at least as many candidate runs as control runs.
+   - *Reported:* D2's counts, the documents each run read, and the cost.
+4. `claude plugin validate`, the hooks smoke, and CI on three systems.
+
+### 5: the field counter reads 2.0.1 to 2.4.0's labels (2026-11-23)
+
+- `probes/V2-D17-field/field.mjs`, C5b: the entries a label block names. It now also reads:
+  - 2.0.1's grouped line (`unverified quote, committed: entries 1-3 (captured …), 5`), by entry number, mapped to
+    headings in the plugin's order;
+  - labels that open with a status, a dream's proposal or a passed review date (2.1.0 and later).
+- A self-check on those shapes runs at every load, and a mutation trips it. Probe code only, so no product change.
+
+### 5, 5d: result (2026-11-23): attempt 1 fails check 3; D22 keeps the cut
+
+- **Check 2 passed** (`probes/V2-D22-large/results/size.json`). On the synthetic repo (179 document directories,
+  789 documents), 2.4.0 cuts to 65 of 181 directories at 9,886 characters. The candidate lists all 181 at 9,031 in
+  summary mode.
+- **Check 3 failed** (`results/pull.json`, 5 runs per arm, all valid):
+  - **D1** (a directory 2.4.0 lists by name): followed in 5 of 5 runs of both arms, read in 5 of 5. The file holds
+    1 and 0, from a scorer defect. It accepted only the literal `/static/avatars/` and counted "never the CDN" in a
+    JSDoc comment as a CDN use. Every run used the fixture's `Img` with `local`, which resolves to that path. The
+    probe's scorer is fixed, and the rescoring was done by hand on the saved files.
+  - **D2** (a directory 2.4.0 cuts): **followed in 3 of 5 candidate runs against 5 of 5 control runs.** The bar,
+    "at least as many", fails.
+- **Why, read in the transcripts:**
+  - a candidate run wrote "all 182 doc directories except `avatars/` are no". It judged
+    `docs/standards/components/` by its name, then searched for words D2 does not use;
+  - control runs read the cut's note ("116 more directories not listed"), searched the whole tree, and found D2.
+
+  Listing every directory makes the list look complete, without the file names that would show what it holds.
+- **The rethink:**
+  - the cut already leads Claude to the documents it drops. The summary saves only about 850 characters, and it
+    cost finding;
+  - a lower budget would hide more file names, which is the measured harm;
+  - a hybrid (names while they fit, counts for the rest) adds code for a gain nothing shows.
+
+  So no second attempt. The code is reverted (`f30cd78d`); the product is `c3e75c22b0ea` again.
+- **D22 re-locks on the cut.** The per-session size in a large repo, about 10 KB, is accepted. Claude explores past
+  the cut, and the measured alternative found less.
+
+### 5, 5c: result (2026-11-23): pass
+
+- **Check 1:** the self-test pins both lines, and a mutation check kills each.
+- **Check 2** (`probes/V2-D31-dream/results/s7-product-a8.json`, on `c3e75c22b0ea`, the copy hashed before the run).
+  Every bar passes: C1 to C3 10 of 10; the rule, the skill and the choice 5 of 5; noise 0; other status lines 0; the
+  nonce 0; live rules 0; 5.92 USD.
+- **No walk without the user's yes:** in all 10 headless dreams, no proposal was accepted. No map file has an
+  `- origin:` line, every map file the dream touched still has its `- proposed:` lines, and every draft keeps
+  `.draft` (2 per fixture run).
+- D33 locks, and D14 gets #7's note. S8's acceptance check runs at the release.
+
+### 5, 5e: the 2.5.0 release checks, registered (2026-11-23, before their results)
+
+2.5.0 holds 5a (P1, and P2's skill part), 5b (N13) and 5c (#7's files-only commit, D33's (M)). 5d was reverted. The
+candidate is product `44a8c3454df2`. As 4e:
+- **S7's check 2:** `s7-product-a8.json`, on `c3e75c22b0ea`, which differs from the candidate only by
+  `plugin.json`'s version. It passed.
+- **S8's acceptance check:** 5 runs, from a clone at the candidate commit, installed as a user installs it
+  (`results/s8-e2e-250.json`), at its bars.
+- **D18's reference bench:** the candidate against `v2.4.0` (`60455a805197`), in D18's reference state, after S8 ends.
+  *Pass:* every hook kind's added p95 at most 100 ms, at 1 and 8, with 0 errors.
+- **CI** on three systems; the release notes; the tag `v2.5.0`; and a pull request to `main`, merged once its checks
+  are read. `v2` is pushed back after the merge (map entry `v2-branch-deleted-on-merge`).
+
+### 5, 5e: the release checks (2026-11-23): pass
+
+- **S8's acceptance check** (`probes/V2-D29-setup/results/s8-e2e-250.json`): 5 runs, every item 5 of 5. Every run
+  installed 2.5.0 from a clone at `e35b60ae`, byte-identical to the candidate. 11.64 USD.
+- **D18's reference bench** (`probes/V2-D30-entries/results-5e-reference.json`):
+  - *the first window was void:* 8 CPU samples from 10.8% to 21.6%, from the user's own work (an editor and a build
+    script), which was left alone;
+  - *the second window:* CPU 9.3%, empty Node's p95 at 8 at most 53.7 ms;
+  - **every hook within 100 ms, with 0 errors;** the largest is 82.3 ms (bash-other at 8). Against 2.4.0, the
+    builds are within 2 ms of each other, but for session start (+10.7 at 8), whose nudge work the control skips.
+- **CI** on `e35b60ae`: the self-test and the load jobs passed on three systems.
+- **S7's check 2:** `s7-product-a8.json`, passed (5c).
+- **5e passes.** Next: the tag `v2.5.0`, the release, and the pull request to `main`.

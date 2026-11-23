@@ -373,6 +373,7 @@ export const sourcePath = (src) => {
   for (const c of src.split('')) { if (c === ')') d--; depth.push(d); if (c === '(') d++; if (d < 0) break; }
   const paired = d === 0 && depth.length === src.length;
   for (const m of src.matchAll(/[\w.-]+(?:\/[\w.-]+)*\.\w+/g)) {
+    if (/:\/\/\S*$/.test(src.slice(0, m.index))) continue; // 06, section 5, 5b (N13): a URL names no file of this repo
     const p = m[0].replace(/^\.\//, '');
     if ((p.includes('/') || DOC.test(p)) && !p.split('/').includes('..')) return paired && depth[m.index] > 0 ? undefined : p;
   }
