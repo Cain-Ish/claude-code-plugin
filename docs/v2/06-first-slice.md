@@ -6445,3 +6445,20 @@ On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implic
 - **This repo runs its own plugin.** The user's setup output of 2026-11-23 is committed (`01e4bc3a`). The rule,
   map-review and the map's README were updated to the current templates: setup's own N10 line listed exactly those
   three. The root `CLAUDE.md` is merged into `.claude/CLAUDE.md`, which keeps v2's decisions in the ledger.
+
+### 5, 5b: N13, a URL source is no repo path (registered 2026-11-23, before the code)
+
+- **The defect** (the audit, A5): `sourcePath` (`map.mjs`) takes a path from inside a URL. A source
+  `https://github.com/o/r/blob/main/docs/adr/001.md, 2026-11-01` is re-found in `github.com/o/r/blob/main/docs/adr/001.md`.
+  Every read of the entry then labels it "not found word for word … check it", and status lists it as stale.
+- **The change:** a path inside a URL (after `://`, in the same run of non-blank text) is not taken. The entry reads
+  as an unverified quote, as any source that is no repo file does. This is a fix to how the source's path is parsed,
+  like 2q's path inside parentheses, so D16 gets a note, not a reopen.
+- **Checks:**
+  1. *The self-test:*
+     - the source grid's `url` row (`https://example.com/view?file=README.md`) changes from a kept path to
+       "unverified quote", as the change intends. Every other row stays byte for byte;
+     - unit cases: a GitHub blob URL gives no path; a plain path is kept; a path beside a URL is kept;
+     - status no longer lists a URL-sourced entry as stale;
+     - a mutation check kills each case.
+  2. `claude plugin validate`, and CI on three systems.

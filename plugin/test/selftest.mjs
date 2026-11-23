@@ -9,7 +9,7 @@ import { spawnSync as spawnRaw } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { prepare, finish, abort, mapReads, PRIVATE } from '../scripts/dream.mjs';
 import { status } from '../scripts/status.mjs';
-import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue, dreamLeft, loadState } from '../scripts/map.mjs';
+import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue, dreamLeft, loadState, sourcePath } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
@@ -106,8 +106,8 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
-// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '38602db7055f', 'the product changed: record its hash with a new epoch (06)');
+// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13. 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), '9ebb998c0293', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -208,11 +208,15 @@ assert.equal(labels(repo, '.project-map/sourced.md'), '[project map] Labels on t
   + `6. inner: ${UNREVIEWED}; unverified quote\n7. quoted: ${UNREVIEWED}; unverified quote, captured 2026-11-18\n`
   + `8. unclosed: ${UNREVIEWED}\n9. titled: ${UNREVIEWED}; unverified quote, captured 2026-11-09\n`
   + `10. stray: ${UNREVIEWED}\n11. fused: ${UNREVIEWED}; unverified quote, captured 2026-11-11\n`
-  + `12. url: ${UNREVIEWED}\n13. folder: ${UNREVIEWED}\n`
+  + `12. url: ${UNREVIEWED}; unverified quote, captured 2026-11-12\n13. folder: ${UNREVIEWED}\n`
   + `14. asked: ${UNREVIEWED}; unverified quote, captured 2026-11-14\n15. open quote: ${UNREVIEWED}\n`
   + `16. build tag: ${UNREVIEWED}; unverified quote\n17. range: ${UNREVIEWED}; unverified quote\n`
   + `18. backslash: ${UNREVIEWED}; not found word for word in grid.md; check it, captured 2026-11-16\n${UNVERIFIED_NOTE}\n`);
 fs.writeFileSync(path.join(repo, 'README.md'), README);
+// 06, section 5, 5b (N13): a path inside a URL is no file of this repo; a plain path, or one beside a URL, still is
+assert.equal(sourcePath('https://github.com/o/r/blob/main/docs/adr/001.md, 2026-11-01'), undefined);
+assert.equal(sourcePath('docs/adr/001.md, 2026-11-01'), 'docs/adr/001.md');
+assert.equal(sourcePath('docs/a.md (mirrored at https://x.io/b.md), 2026-11-01'), 'docs/a.md');
 fs.rmSync(path.join(repo, 'docs', 'guide.md'));
 fs.rmSync(path.join(repo, 'lib'), { recursive: true });
 // and onboarding counts the map files HEAD lacks, staged ones too
@@ -1637,10 +1641,12 @@ ${NAME}` } });
     e('patterns', 'Tests match src/**/*.test.ts or src/old/*.ts, and/or use @scope/pkg.js, node:fs/promises, release/2.3.0 and src/../../outside.txt.'),
     e('ended', 'Old code lived in src/old/thing.ts.', ['status: superseded 2026-11-10 by present: nothing']),
     // the audit (4k, A6): a dream's status line ends nothing until review, so the entry counts as proposed
+    // 5b (N13): a URL source is not re-found as a repo path, so the entry is not stale
+    e('url', 'Each decision gets its own record.', [], 'https://github.com/o/r/blob/main/docs/adr/001.md'),
     e('proposal', 'Buttons use the accent colour.', ['status: done 2026-11-19 by present: shipped', 'proposed: dream 2026-11-19']),
   ].join('\n'));
   const s = status(r, path.join(tmp, 'n12-data'));
-  assert.match(s, /Retired \(with a status line\): 1\. Proposed by a dream: 1\. Current: 3\./, s);
+  assert.match(s, /Retired \(with a status line\): 1\. Proposed by a dream: 1\. Current: 4\./, s);
   // the audit (4k, A7): onboard does not count the catalog's ", 1 proposed" as a document
   assert.match(spawnSync('node', [HOOK, 'onboard'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } }).stdout, /^Index: 1 documents in 1 directories/m);
   // the audit (4k, A4): a report that stops exits 0, so a failed ! line cannot abort the skill
