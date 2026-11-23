@@ -6590,3 +6590,16 @@ repo.
   `- origin:` line, every map file the dream touched still has its `- proposed:` lines, and every draft keeps
   `.draft` (2 per fixture run).
 - D33 locks, and D14 gets #7's note. S8's acceptance check runs at the release.
+
+### 5, 5e: the 2.5.0 release checks, registered (2026-11-23, before their results)
+
+2.5.0 holds 5a (P1, and P2's skill part), 5b (N13) and 5c (#7's files-only commit, D33's (M)). 5d was reverted. The
+candidate is product `44a8c3454df2`. As 4e:
+- **S7's check 2:** `s7-product-a8.json`, on `c3e75c22b0ea`, which differs from the candidate only by
+  `plugin.json`'s version. It passed.
+- **S8's acceptance check:** 5 runs, from a clone at the candidate commit, installed as a user installs it
+  (`results/s8-e2e-250.json`), at its bars.
+- **D18's reference bench:** the candidate against `v2.4.0` (`60455a805197`), in D18's reference state, after S8 ends.
+  *Pass:* every hook kind's added p95 at most 100 ms, at 1 and 8, with 0 errors.
+- **CI** on three systems; the release notes; the tag `v2.5.0`; and a pull request to `main`, merged once its checks
+  are read. `v2` is pushed back after the merge (map entry `v2-branch-deleted-on-merge`).
