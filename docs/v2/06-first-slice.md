@@ -6617,3 +6617,13 @@ candidate is product `44a8c3454df2`. As 4e:
 - **CI** on `e35b60ae`: the self-test and the load jobs passed on three systems.
 - **S7's check 2:** `s7-product-a8.json`, passed (5c).
 - **5e passes.** Next: the tag `v2.5.0`, the release, and the pull request to `main`.
+
+### 5: 2.5.0 released (2026-11-23)
+
+- **PR #119 merged into `main`** (`530ab3eb`) after its checks were read: all seven passed. GitHub deleted `v2`
+  again, as the map entry `v2-branch-deleted-on-merge` says, and it was pushed back at once at the same commit,
+  `fbc32ae6`.
+- **The `v2.5.0` release is published.** The two field repos and this repo moved from 2.4.0 to 2.5.0. The installed
+  copy hashes `44a8c3454df2`, the release. Running sessions need `/reload-plugins`.
+- **Open:** nothing from the user's list of 2026-11-23. The talk the user saw is not found in published text (4f),
+  and R4 stays out (D33).
