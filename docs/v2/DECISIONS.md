@@ -32,10 +32,11 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D26 | What removes v1's leftovers (statusline, timer) after a v1 install moves to v2, with the user's data untouched? | LOCKED 2026-11-06 ((M): the README's commands; pass on Windows, macOS and Linux); REOPENED 2026-11-07 (2.0.0's release review: a running v1 session re-installs the timer; v1's custom config folders); re-LOCKED unchanged 2026-11-07 (the README fixed; D26's workflow passes on it) | evidence | D25 |
 | V2-D27 | How does a v1 user whose install moved to v2 learn that v1's statusline and timer stay behind? | LOCKED 2026-11-06 ((S): one `systemMessage` line at session start while v1's shims are on disk) | evidence, settled while the user was away | D18, D26 |
 | V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18; LOCKED 2026-11-18 on (LIN), by the user's delegation: the labels read a status line (06 2r), the instruction asks for it and the naming line skips an ended entry (2s); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (status lines name ids; a dream's status line is proposed until review (S3, S7, S8)) | user | D13, D14, D16, D23 |
-| V2-D29 | Setup: what does the plugin create in a new or existing repo, and with which guardrails? | OPEN 2026-11-20 (the user's choices recorded; S5 checks them); LOCKED 2026-11-20 (setup passed S5 and the acceptance check (layout 5 of 5, aware 5 of 5)) | user + evidence | D10, D11, D15 |
+| V2-D29 | Setup: what does the plugin create in a new or existing repo, and with which guardrails? | OPEN 2026-11-20 (the user's choices recorded; S5 checks them); LOCKED 2026-11-20 (setup passed S5 and the acceptance check (layout 5 of 5, aware 5 of 5)); REOPENED 2026-11-23 (the user's goal after a live test: setup run once sets everything up; N7; 06, section 4, step 4b) | user + evidence | D10, D11, D15 |
 | V2-D30 | Versioned entries: how does the map record versions, and tell stale memory from current? | OPEN 2026-11-20 (S3, S4 and S6 check it); LOCKED 2026-11-20 (versioned entries passed S3, S4 and S6, and the status report shows staleness (S8)) | user + evidence | D13, D16, D28 |
 | V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4) | user + evidence | D14, D18, PM1, PM5 |
 | V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
+| V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d) | user + evidence | D18, D29, D30, D31, D32 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -4989,6 +4990,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   idempotence, the smoke, and one outcome check per project agent (PM6).
 - **Status:** OPEN.
 - **LOCKED 2026-11-20** (06, section 3, S5 and S8). Setup passed every S5 check and the acceptance check (layout 5 of 5, aware 5 of 5). *Reopen if:* setup changes or overwrites a file that exists, or commits anything (the user's guardrails above).
+- **REOPENED 2026-11-23, on the user's word** (06, section 4). The user ran setup as a live test in this plugin's own
+  repo, which had `.claude/CLAUDE.md` and `.gitattributes` but no root `CLAUDE.md`.
+  - Setup created a second instruction file, a root `CLAUDE.md`, because it looks only for that name (N7). Claude
+    Code reads `./CLAUDE.md` or `./.claude/CLAUDE.md` ([platform channels](research/2026-10-19-platform-memory-channels.md),
+    §1), so the two files loaded together and disagreed on where decisions are recorded.
+  - It left the `.gitattributes` line to the user, as its guardrail says.
+  - The user's goal: setup is run once and sets everything up, and from then on the plugin keeps the memory current
+    by itself (the second half is D33).
+  - What this reopens is the guardrail "setup never changes a file that exists". "Setup commits nothing" is not
+    reopened: the commit stays the user's review.
+  - *Check:* 06, section 4, step 4b, registered before its code.
 
 ### V2-D30 — Versioned entries and staleness
 - **Question:** how does the map record an entry's versions, so that the plugin can say which memory is stale and
@@ -5076,3 +5088,32 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Status:** OPEN.
 - **S6 passed (2026-11-20).** The nudge and the waiting-review line reach the user only, on `startup` and `clear`. The thresholds are the user's. Session start's only write is one `dirs.log` line. Added p95 at most 78.8 ms with 300 unseen transcripts. D32 stays OPEN until S8's status report passes.
 - **LOCKED 2026-11-20** (06, section 3, S6 and S8). The nudge reached the user only, in 5 of 5 acceptance runs (S8 item 7), and the status report shows the last dream and the sessions since (S8). *Reopen if:* the nudge reaches Claude's context, or session start leaves D18's 100 ms (the design above).
+
+### V2-D33 — What runs without the user after setup
+- **Question:** after setup, which of the plugin's upkeep runs without the user: starting a dream, and accepting what
+  a dream proposes?
+- **Why now:** the user's goal of 2026-11-23, after the live test in this plugin's own repo (D29's reopen): setup is
+  run once, and from then on the plugin keeps the memory current and learns by itself. 2.3.0 leaves both to the user,
+  by their answers of 2026-11-20:
+  - starting a dream: D31 runs it only on demand, and D32 tells the user, never Claude, that one is due;
+  - accepting a proposal: D30's `- proposed:` line stays until the user accepts it in `/map-review`.
+
+  The charter's non-goals include "a background process that rewrites knowledge without a reviewable diff".
+- **Options:**
+  - (A) as 2.3.0: the user starts a dream when told one is due, and reviews what it proposes;
+  - (B) a dream starts without a typed command when one is due; its proposals still wait for review;
+  - (C) as (B), and proposals count without review;
+  - (N) use what Claude Code already does: its Auto-dream consolidates auto memory in the background. By the research
+    of 2026-11-20 (section 7) that memory does not reach `.project-map/`, so (N) means building nothing here.
+- **What any route must meet:**
+  - D18: hooks call no model and no network, so a hook cannot run a dream itself;
+  - the dream skill's `disable-model-invocation: true`, so Claude cannot invoke it;
+  - D32's trigger, the nudge reaching Claude's context;
+  - D31's provenance and injection bars;
+  - the cost: a dream uses about a session's worth of usage.
+- **Decider:** the user for (C), because it removes the review that D14, D30 and D31 rest on. Evidence for whether (B)
+  has a route inside D18.
+- **Check:** for (C), the user's explicit answer, with its date. For (B), a feasibility read of Claude Code's current
+  documentation (hooks, skills, scheduled tasks) for a route that starts a dream without a model call in a hook. It is
+  registered in 06, section 4, before it runs.
+- **Status:** OPEN.

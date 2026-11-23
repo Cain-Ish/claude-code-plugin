@@ -5299,3 +5299,75 @@ A review, not a check with a bar: nothing was registered for it, and it changes 
 - **The releases were published** with the merge, as PR #116's description planned. The user's request named the
   PR, the merge and the update, not the release pages. 2.0.1, 2.0.2 and 2.1.0's notes were read after publishing:
   accurate, and no private data.
+
+## 4: the next release (registered 2026-11-23, before any code)
+
+**Why.** 2.3.0 is on `main` (section 3). The next release carries:
+- N1 to N6, recorded in section 3 by the documentation review and the final review;
+- what the live tests find (map issue step 22). The first came on 2026-11-23, in this plugin's own repo, where the
+  user installed 2.3.0 and ran setup:
+  - **N7:** setup knows only a root `CLAUDE.md`. Claude Code reads `./CLAUDE.md` or `./.claude/CLAUDE.md`
+    ([platform channels](research/2026-10-19-platform-memory-channels.md), §1). In a repo that has only
+    `.claude/CLAUDE.md`, setup created a second instruction file instead of proposing its section for the existing
+    one, and the two disagreed on where decisions are recorded.
+  - **The user's goal:** setup is run once and sets everything up; from then on the plugin keeps the memory current and
+    learns by itself. 2.3.0 leaves three things to the user, by their answers of 2026-11-20: the lines for files that
+    already exist (D29), starting a dream (D31, D32), and accepting what a dream proposes (D30, D31). Recorded as D29
+    reopened and D33 opened.
+
+**Order.** N5 first, as section 3 recorded: a hang nobody understands could hide in any later step's CI.
+
+| Step | What | Pass (each step's details are registered before its code) |
+| --- | --- | --- |
+| 4a | N5: diagnose the macOS self-test hang | below |
+| 4b | D29 and N7: setup adds its lines to the files that exist, and knows `.claude/CLAUDE.md` | Repo shapes: the five of S5, plus `.claude/CLAUDE.md` only, both instruction files, and an existing `.gitattributes`. Every byte that existed is kept; only a marked block or line is appended. A file with uncommitted changes is left alone and reported. A second run changes nothing. Nothing is committed |
+| 4c | N1 to N4 and N6: the dream skill's `failure` kind, the rule template's status kinds and `origin`, status to map-review, `plugin.json`'s author, the refusal exit code | Self-test pins for each; `claude plugin validate` with no warning; the smoke |
+| 4d | D33: what runs without the user after setup | The user's answer on (C). For (B), the feasibility read named in D33, before any design |
+| 4e | The release | As S8: CI on three systems, D18's reference bench, a review of the series, the README and release notes, a tag, and a pull request that the user merges |
+
+**Rules**, as section 3's:
+- attempts run from a copy of the plugin, at most three failed attempts per step, one commit per step with the step
+  gate, and an agy verifier on every step that changes a hook;
+- probe and smoke sessions never start in this repo, where 2.3.0 has been installed at local scope since 2026-11-23.
+  They run in temporary repos with an isolated config.
+
+### 4, 4a: N5, the macOS self-test hang (registered 2026-11-23, before the code)
+
+**What is known** (section 3, "corrections"):
+- 2 of 62 macOS runs of the self-test hung: `cf59996` for 6 hours with no output at all; `b54129f` for 12 minutes
+  after its first line, with two `node` processes left and no `git`.
+- The self-test prints only at its start and its end. On macOS, Node writes to a pipe asynchronously, so a process
+  that blocks can lose even the line it printed first.
+
+**The instrument.** It is test-only: `plugin/` outside `test/` is unchanged, so the hash `3650f785f984` is the same
+before and after.
+- Every `spawnSync` in the self-test goes through one wrapper:
+  - it sets a 120-second timeout, unless the call sets its own;
+  - on a timeout it throws, naming the self-test line that made the call;
+  - `SELFTEST_TIMEOUT_MS` overrides the 120 seconds.
+- With `SELFTEST_TRACE=<file>`, the wrapper appends `<line> <command> <first argument>` to that file, with a
+  synchronous write, before each call.
+- `v2.yml`: `timeout-minutes: 15` on every job, so a hang ends in minutes, not hours.
+
+**Check 1, the instrument works (locally, before CI):**
+- `SELFTEST_TIMEOUT_MS=1` makes the self-test fail, and its error names a self-test line and the timeout;
+- with `SELFTEST_TRACE`, the self-test passes and the file holds one line per call;
+- the plain self-test passes;
+- `plugin/` hashes `3650f785f984`.
+
+**Check 2, CI:** `v2.yml` passes on all three systems with the instrument.
+
+**Check 3, the repeated macOS lane.** A workflow, `v2-n5.yml`, runs the self-test 70 times on macOS:
+- 10 jobs, each running it 7 times in a row with `SELFTEST_TRACE` set;
+- a 20-minute step timeout;
+- on a failure, it prints the trace's last 20 lines and a `ps` listing of the `node` and `git` processes.
+
+At the old rate of 2 in 62, 70 runs show at least one hang with about 90% odds.
+- **Outcome R, reproduced:** the failed run names its call, either by the timeout's error or by the trace's last
+  line. That case is read, and its fix becomes a registered step of its own. After the fix the lane runs 70 times
+  again, with 0 hangs as the bar.
+- **Outcome N, not reproduced in 70 runs:** recorded as such, together with the 10% chance that a hang at the old rate
+  shows in none of them. N5 then closes as mitigated: any future hang fails within 2 minutes, at most 15, and names
+  its call. The cause stays a known issue, and D18's observation stands.
+- A run that fails any other way, for example on an assertion, is a finding of its own. It is reported, not counted as
+  a hang.
