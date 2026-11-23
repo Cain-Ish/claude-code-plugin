@@ -5484,3 +5484,45 @@ The read is saved as `research/2026-11-23-dream-without-a-command.md`, with its 
 - **Open question:** does this reach real sessions? Claude Code starts hooks its own way, not through Node's
   `spawnSync`, so the self-test's mechanics may not apply. Not checked.
 - **Next:** a diagnosis probe, registered before it runs.
+
+### 4, 4a: the diagnosis probe (registered 2026-11-23, before it runs)
+
+**Measured first.** A traced self-test, locally, now logs each call's input size. Four calls send the hook more than
+8 KB:
+- line 379, 25,208 bytes: the call that hung;
+- line 349, 21,163 and 9,003 bytes;
+- line 340, 15,541 bytes.
+
+None of the other three hung in check 3's 63 runs. So up to 21 KB, size alone does not hang the hook, and the 25 KB
+input on one line is the lead.
+
+**The probe** (`probes/V2-D18-hang/`) runs on macOS in `v2-n5.yml`, beside the full lane.
+- **`probe.mjs`** builds a temp repo with a small map: two committed entries and one uncommitted. It runs seven arms
+  in turn, 150 calls each in each of 2 jobs, so 300 per arm. Each call has a 15-second limit.
+  - H21, H25 and H100: the `bash` hook given a one-line `stdout` of 21,000, 25,000 and 100,000 characters, through
+    `spawnSync`, as the self-test calls it;
+  - H25n: 25,000 characters in lines of 80;
+  - S: 100 characters, the control;
+  - T25: the same 25,000-character input given to a child that only reads its input and prints the length;
+  - A25: H25's call through an async `spawn`, the way an event-loop host starts a hook.
+- **`watch.mjs`** starts before the arms, and before the full lane's runs. Every second it lists the processes. A hook
+  or reader child alive for 5 seconds gets these, once:
+  - `ps` with state and wait channel, for it, its parent and its children;
+  - `sample` of it and of its parent;
+  - `lsof` of both.
+- **The full lane** runs its 10 × 7 self-tests again, with `watch.mjs` running.
+
+**How the result is read (fixed now):**
+- **Which process waits, and on what:** from the samples of the first hangs caught, in the focused arms or the full
+  lane. The diagnosis names the process (the hook or its parent), its state (running, sleeping or zombie), and the
+  call it waits in.
+- **The arms.** An arm "hangs" when it has at least one timeout. Two arms "differ" when one has at least 3 and the
+  other has 0; at a 3% rate, 300 calls give about 9.
+  - If T25 hangs, the hook's own code is not needed for the hang.
+  - If A25 stays at 0 while H25 hangs, the hang needs `spawnSync` on the parent's side.
+  - H21, H25, H100 and H25n separate size from shape.
+- **If no focused arm hangs but the full lane does:** the hang needs state the self-test builds before line 379. That
+  is neither a fix nor a harness-only finding, and the full lane's samples are then the evidence.
+- **If nothing hangs anywhere:** recorded together with the odds (2 in 63 before), and the probe runs once more. A
+  second empty round goes up a level (rule 4).
+- **The fix** is a registered step of its own. Its bar is 70 clean runs of the full lane.

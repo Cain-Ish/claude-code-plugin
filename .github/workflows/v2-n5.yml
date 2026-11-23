@@ -1,6 +1,7 @@
-# second-brain v2 (06, section 4, 4a): N5, the macOS self-test hang (2 of 62 CI runs), looked for in 70 runs:
-# 10 jobs, each running the self-test 7 times in a row with its trace on. A failed run names its call by the
-# timeout's error or by the trace's last line; the processes left are listed.
+# second-brain v2 (06, section 4, 4a): N5, the macOS self-test hang (2 of 62 CI runs, then 2 of 63 in this lane, both
+# at the bash hook given a 25,000-character output). The full lane: 10 jobs, each running the self-test 7 times in a
+# row with its trace on. The probe: seven arms that separate size, shape, the hook's code and the parent's spawnSync.
+# watch.mjs runs beside both and captures ps, lsof and sample of any hook still alive after 5 seconds.
 name: v2-n5
 on:
   push:
@@ -23,6 +24,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 20
+      - name: the watcher
+        run: nohup node docs/v2/probes/V2-D18-hang/watch.mjs "$RUNNER_TEMP/diag" > /dev/null 2>&1 &
       - name: seven runs in a row
         timeout-minutes: 20
         run: |
@@ -33,8 +36,35 @@ jobs:
             SELFTEST_TRACE="$RUNNER_TEMP/trace.txt" node plugin/test/selftest.mjs || { echo "run $i failed"; exit 1; }
             echo "run $i ok in $(( $(date +%s) - start )) s, $(wc -l < "$RUNNER_TEMP/trace.txt") calls"
           done
-      - name: on a failure, the last calls and the processes left
+      - name: on a failure, the last calls, the processes left and what the watcher caught
         if: failure() || cancelled()
         run: |
           tail -20 "$RUNNER_TEMP/trace.txt" || true
-          ps -axo pid,ppid,etime,command | grep -E '[n]ode|[g]it' || true
+          ps -axo pid,ppid,stat,etime,command | grep -E '[n]ode|[g]it' || true
+          for f in $(ls "$RUNNER_TEMP"/diag/* 2>/dev/null | head -9); do echo "=== $f"; head -150 "$f"; done
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [1, 2]
+    runs-on: macos-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: the watcher
+        run: nohup node docs/v2/probes/V2-D18-hang/watch.mjs "$RUNNER_TEMP/diag" > /dev/null 2>&1 &
+      - name: 150 calls per arm
+        timeout-minutes: 35
+        run: node docs/v2/probes/V2-D18-hang/probe.mjs 150 "$RUNNER_TEMP/probe"
+      - name: the results and what the watcher caught
+        if: always()
+        run: |
+          cat "$RUNNER_TEMP/probe/results.json" || true
+          cat "$RUNNER_TEMP/probe/timeouts.txt" 2>/dev/null || echo "no timeouts"
+          for f in $(ls "$RUNNER_TEMP"/diag/* 2>/dev/null | head -9); do echo "=== $f"; head -150 "$f"; done

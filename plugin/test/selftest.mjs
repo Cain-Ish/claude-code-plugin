@@ -23,7 +23,7 @@ const spawnSync = (cmd, args = [], opts = {}) => {
   const where = new Error().stack.split('\n').slice(2).map((l) => l.match(/selftest\.mjs:(\d+):\d+/)?.[1]).filter(Boolean).slice(0, 3).join('<');
   const what = [cmd, ...args.filter((a) => !a.startsWith('-') && !a.includes('=')).slice(0, 2).map((a) => (path.isAbsolute(a) ? path.basename(a) : a.slice(0, 60)))].join(' ').replace(/[\x00-\x1f]/g, '?');
   calls++;
-  if (process.env.SELFTEST_TRACE) fs.appendFileSync(process.env.SELFTEST_TRACE, `${where} ${what}\n`);
+  if (process.env.SELFTEST_TRACE) fs.appendFileSync(process.env.SELFTEST_TRACE, `${where} ${what} in=${opts.input == null ? 0 : Buffer.byteLength(opts.input)}\n`);
   const r = spawnRaw(cmd, args, { timeout: LIMIT, killSignal: 'SIGKILL', ...opts });
   if (r.error?.code === 'ETIMEDOUT') throw new Error(`selftest.mjs:${where}: ${what} timed out after ${opts.timeout ?? LIMIT} ms`);
   return r;
