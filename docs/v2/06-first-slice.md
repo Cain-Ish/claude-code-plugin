@@ -5526,3 +5526,37 @@ input on one line is the lead.
 - **If nothing hangs anywhere:** recorded together with the odds (2 in 63 before), and the probe runs once more. A
   second empty round goes up a level (rule 4).
 - **The fix** is a registered step of its own. Its bar is 70 clean runs of the full lane.
+
+### 4, 4a: the diagnosis probe, result (2026-11-23, run on `bdac932`)
+
+**The arms, 300 calls each over 2 macOS jobs.** Timeouts: S 0, H21 0, H25 2, H25n 7, H100 0, T25 2, A25 0. No call
+failed any other way.
+
+**Read as registered:**
+- **T25 hangs** (2 of 300). A child that only reads its input and prints its length hangs too, so the hook's own code
+  is not needed for the hang.
+- **A25 against H25:** 0 against 2. That does not reach the registered "differ" (at least 3 against 0). Pooled, the
+  three 25 KB arms started by `spawnSync` (H25, H25n, T25) hung 11 times in 900 calls, and A25 never did in 300. At
+  that rate, 300 calls would show none about 3% of the time. That is a strong lead that the hang needs `spawnSync` on
+  the parent's side, but not proof by the registered test.
+- **Size and shape:** H25n against H21 is 7 against 0, and against H100 also 7 against 0: both differ. So it is not
+  "the bigger, the worse". The hang sits in a window around 25 KB. Input in lines of 80 hangs more often than one
+  line, but H25 against H25n (2 against 7) does not reach "differ".
+
+**Which process waits, and on what** (the watcher's samples of the first hang caught; the others match):
+- **The child**, the `bash` hook, is asleep in `read()` on its standard input: `fs.readFileSync` → `uv_fs_read` →
+  `read`. It holds its three stdio sockets, and their peers are open.
+- **The parent** is inside `spawnSync`'s own event loop (`SyncProcessRunner::Run` → `uv_run` → `kevent`), waiting.
+  `lsof` lists no socket in the parent at that moment.
+- So the child is waiting for input, or for its end, that never arrives, while the parent waits for the child.
+- **The full lane with the watcher:** 1 hang, in job 3's first run, at the same call, `selftest.mjs:226<371<379`,
+  with 25,216 bytes of input. Across both lanes that is 3 hangs, all at that call.
+
+**What is not known yet:** whether the child had already read all of its input and lacks only the end of it, or
+stopped partway. That decides the fix:
+- **All input read, only the end missing:** the hook can stop reading once it holds one complete JSON document, as
+  every hook input is. That protects real sessions whatever starts the hook.
+- **Partway:** no reading strategy in the child can help, and the harness has to give the input another way.
+
+**Next:** one more registered probe arm that logs, with a synchronous write, the bytes read after each chunk. Then
+the fix as its own step, with 70 clean runs of the full lane as its bar.

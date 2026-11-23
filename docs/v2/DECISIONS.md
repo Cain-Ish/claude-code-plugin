@@ -5117,3 +5117,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   documentation (hooks, skills, scheduled tasks) for a route that starts a dream without a model call in a hook. It is
   registered in 06, section 4, before it runs.
 - **Status:** OPEN.
+- **The feasibility read and its refute round (2026-11-23,
+  [research](research/2026-11-23-dream-without-a-command.md)):**
+  - Routes R1, R2, R4 and R5 met the four registered criteria.
+  - The rethink put R1 forward: the `Stop` hook blocks once while a dream is due. agy's refute round rejected it,
+    because `Stop` fires after every turn, so R1 would start the dream after a session's first reply. It would also
+    drop a platform guard (`disable-model-invocation`), break headless runs, and bill the working session's whole
+    context.
+  - **(B) is rejected:** R2 shares R1's faults, and R5 is v1's timer. R4 stays possible only for users who keep the
+    desktop app open, and its flagged-skill question is untested.
+  - **A new option, (M):** a dream's proposals count only after review, so the dream can run and then walk its
+    proposals with the user in the same session. Upkeep becomes one command, typed when the due notice says so.
+    `disable-model-invocation`, the four hooks and D32 all hold.
+  - **Still open:** the user's answer on (C), the only route to upkeep with no command at all. (M) is designed in
+    step 4d once that answer is in.
