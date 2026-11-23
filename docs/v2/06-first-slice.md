@@ -6812,3 +6812,14 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   unchanged:
   - it appends its section or line to an instruction file or `.gitattributes`;
   - it replaces a file whose text is a template an earlier release shipped.
+
+### 6: 2.5.1 released (2026-11-24)
+
+- **PR #120 merged into `main`** (`e180263d`) after its seven checks were read, all passing. GitHub deleted `v2`
+  again (`v2-branch-deleted-on-merge`), and it was pushed back at once at `155aad9c`.
+- **The tag `v2.5.1`** is on `155aad9c`, whose `plugin/` is byte-identical to `6072c38e`, where CI passed. The release
+  is published and marked latest. `main`'s `plugin/` equals the tag.
+- **The user's installs:** the two field repos and this repo moved from 2.5.0 to 2.5.1 at local scope. The installed
+  copy is byte-identical to the tag. Running sessions need `/reload-plugins`.
+- **Next, the user's own test:** in the first field repo, `/reload-plugins`, then `/second-brain:setup`. By check 2,
+  it should update the three files and leave the rest of the tree as it is.
