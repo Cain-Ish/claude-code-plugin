@@ -6641,3 +6641,28 @@ second field repo has none.
 - **Triage,** by the loop's rule 6: a defect is fixed under its decision with a check registered first; an
   observation goes to the ledger; a candidate goes to the map issue.
 - *Not a pass or fail:* D24's bar was 2.0.0's. This read looks for defects and for what real use shows.
+
+### 5: the field read (2026-11-23): no defect
+
+Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compaction 3). Counts only.
+- **C1, arrival:** the plugin's session start arrived in 6 of 6 epochs, and its context was recorded each time. The
+  index listed 10 or 11 directories.
+- **C2, the forced decision:** once per epoch with a human prompt (5 of 5); never on a later prompt, never twice.
+- **C6, capture in real use:** 2 entries written in the main session, both in the format and quoted word for word.
+  None was forbidden data.
+- **C8:** 0 hook errors in either session.
+- **C5b, labels by output:** 9 calls showed map entries, 85 entries in all, and 81 were labelled by the counter's
+  rule. All three calls it flagged were read by hand:
+  - two printed files from Claude Code's own auto-memory folder, which restate some map headings. They are not map
+    reads, and no label was due, so the counter's loose heading match is the false alarm;
+  - one was a real `grep` of the map. Checked against the map as it was then, all 16 entries it showed are
+    labelled. The counter compares each call with the map as it is now, and the file was committed again after the
+    call.
+- **Observations, recorded and not changed:**
+  - **C9:** subagents (20 and 14) never got the index, and made no map entries in 188 repo writes. D14's
+    instruction reaches the main session only, by design;
+  - **field-scope:** (S-b)'s unread-documents bar is missed in 9 of 10 events, as in 17m. D22 settled on (N).
+  - The counter's build label ("alpha.8") is stale for sessions after 2.0.0. Its time-to-build table stops at the
+    GitHub install, and it misreads nothing else.
+- **Triage:** no defect, no new candidate. Step 22 is read as done for 2.3.0 to 2.4.0; the next read waits for
+  sessions on 2.5.0.
