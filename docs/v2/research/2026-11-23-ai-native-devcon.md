@@ -19,7 +19,7 @@ speech-to-text `transcript.md`. There are 42 talks. The registry states no dates
 
 ## 1. The talk the user described
 
-**Not found as described at this conference.**
+**Not found in the conference's published text** (the limits are at the end of this section).
 - **Lamis's talk** (`talk-lamis-context-engineering-dreaming`; the files give only her first name) has no live coding
   or demo, no graph, no named telemetry, and no project-specific agents. It covers context engineering, memory in
   production, and dreaming: "the orchestrator deploy a fleet of sub agents that go and analyze what those
@@ -39,8 +39,22 @@ speech-to-text `transcript.md`. There are 42 talks. The registry states no dates
     non-obvious problem during a session that's going to trip up future users ... record it and propose an update."
   - **May Walter (Hud), "Runtime intelligence".** Production telemetry, "a sensor that runs with your app in
     production", feeds a weekly repo agent.
-- The description may combine these, or come from another event. A Code with Claude 2026 London workshop, "Build a
-  production-ready agent with Claude Managed Agents", was not checked. The user can supply the link.
+- **The other leads, checked on 2026-11-23:**
+  - Tessl's second registry, `latest-aidevcon-speakers-london-2026` (0.1.6), holds the same 42 talks.
+  - The event ran on 1 and 2 June 2026. Its agenda ([luma](https://luma.com/aidevcon-ldn26)) lists "live demos" on
+    day 1, and "Workshops & Unconference sessions" on day 2. It gives no titles or speakers, and neither registry
+    holds the workshops.
+  - [Tessl podcast 113](https://tessl.io/podcast/113), "Inside Anthropic: How Claude Tag Is Changing Agentic Work"
+    (7 July 2026), is the only other source with Lamis Mukta. By the page's summary, she describes Claude Tag, an
+    agent "with its own permissions and its own keys, scoped per channel", and dreaming as "a review pass over
+    session transcripts and memory stores" that a person approves. The summary names no graph, telemetry or demo.
+    The [video](https://youtu.be/7Ue0yM4J-B8) was not watched.
+  - The Code with Claude 2026 London workshop "Build a production-ready agent with Claude Managed Agents" (19 May
+    2026) is a live build, by Michael Cohen of Anthropic, not Lamis.
+- **Limits of this search:** most talks were read by their outline and quotes, not their whole transcript; Trieloff's
+  live demo is redacted in the files; the day-2 workshops and the podcast's video were not seen. So "not found" means
+  not in the published text. The talk may be one of the day-2 workshops, or the podcast. The user can supply the
+  link.
 
 ## 2. What the talks confirm in v2 as it is
 
@@ -90,9 +104,12 @@ trip up future sessions", as a proposal.
 
 ## 4. Not taken
 
-- **A graph of sessions** (Douglas's Merkle DAG). Git and Claude Code's own transcripts already hold the record; a
+These reject only the variants seen in these talks. The user's ask (dedicated project agents, a graph, telemetry and
+a self-improving loop, as Lamis showed them) stays open until its source is found and read.
+- **Douglas's graph of sessions** (a Merkle DAG). Git and Claude Code's own transcripts already hold the record, and a
   second store is what v1's postmortem warns about.
-- **A telemetry proxy** on the API path. It needs the network and sits between the user and the model (D18).
+- **Douglas's telemetry proxy** on the API path. It needs the network, and it sits between the user and the model
+  (D18).
 - **Nightly or scheduled dreaming** (Lopopolo's aim). See D33: option (B) was rejected on 2026-11-23.
 - **Fine-tuning on sessions** (Douglas) and **fine-grained agent hierarchies.** Marsden's case is for few,
   coarse-grained agents (agy's reading, not checked).

@@ -5730,3 +5730,16 @@ The repo's own `decision-checker` agent, which setup installed, checked the chan
 
 **Step 4b is done; D29 is re-locked** on the narrowed guardrail, recorded in the ledger. **Next:** 4c (N1 to N4,
 N6), and the conference research the user asked for (4f).
+
+### 4: corrections (2026-11-23), from a review of the session's claims
+
+- **4a's "real sessions benefit too" outran the evidence.** Every hang the probes saw had a `spawnSync` parent. A25,
+  the unfixed hook started by an async parent, hung 0 times in 300. Claude Code starts hooks its own way, so whether a
+  real session was ever exposed is not shown. The fix is harmless and defensive; that is all the record supports.
+- **4b's shape count is 18, not 19.** That is S5's four shapes plus the linked worktree, and 13 new ones. The link case
+  runs only on Linux and macOS, so Windows runs 17. The commit `6d71bfc` and the map issue said 19.
+- **4b's check 3 (agy) reviewed the draft,** not the final code. The final code's safety test is exactly what changed:
+  one `--no-optional-locks status`, the `H <name>` match, and the flags. One agy round on the final function runs
+  before 4c, and its result is recorded here.
+- **For 4e, so it is not lost:** bump the version in `plugin.json`; the README, `04-architecture.md` and the charter
+  still say setup "overwrites nothing" or "never modifies a file that exists", which since D29's re-lock is narrower.
