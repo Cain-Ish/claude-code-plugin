@@ -5384,3 +5384,103 @@ At the old rate of 2 in 62, 70 runs show at least one hang with about 90% odds.
   - the plain self-test passes;
   - `plugin/` hashes `3650f785f984`, as before.
 - **Next:** check 2, `v2.yml` on three systems, and check 3, `v2-n5.yml`'s 70 macOS runs. Both start with this push.
+
+### 4, 4b: D29 and N7, setup completes the files that exist (registered 2026-11-23, before the code)
+
+**The change** (`plugin/scripts/setup.mjs`, the setup skill's text, the self-test):
+- **The instruction file.** Setup looks for `CLAUDE.md`, then for `.claude/CLAUDE.md`.
+  - If neither exists, it creates `CLAUDE.md` from the template, as 2.3.0 does.
+  - If one or both exist and neither holds the `## Team memory` heading, it appends the template's team-memory
+    section to the first of them that exists, when that file is safe to append to.
+  - If either one already holds the heading, nothing is added.
+- **`.gitattributes`.** If it is missing, setup creates it, as 2.3.0 does. If it exists without the dream log's merge
+  line, setup appends the line, when the file is safe to append to.
+- **Safe to append to:** a regular file, not a link, tracked by git, with no change against `HEAD`, staged or not.
+  Anything else stays byte for byte as it is, and the report gives the text to add, as 2.3.0 does: an untracked,
+  ignored or modified file, a link, or a repo with no commit yet.
+- **How it appends:**
+  - the file's existing bytes stay as an exact prefix;
+  - a newline comes first if the file does not end in one;
+  - the appended text uses CRLF when the file's first line ends in CRLF.
+- **The report** gains a line naming each file setup added to, and what it added. The skill tells Claude not to add the
+  same text again, and to show the user the added lines.
+- **Unchanged:**
+  - setup never overwrites or deletes a file, and never commits;
+  - the other templates are created only when they are missing;
+  - setup starts no process but `git`, as the self-test's tripwire requires.
+- `plugin/` is edited in place. Every install comes from GitHub (checked 2026-11-23), so no session loads this
+  checkout. The smoke runs from a copy.
+
+**Checks.** All five must pass:
+1. **Self-test, by repo shape.** Each shape records the sha256 of every file, runs setup, then runs it a second time.
+   - **S5's five shapes:**
+     - `claudeMd`, a committed `CLAUDE.md`: its old bytes are an exact prefix of its new bytes, the rest is exactly
+       the team-memory section, and every other file that existed is unchanged;
+     - `dirty`, an untracked `CLAUDE.md` and `.gitattributes`: both stay byte-identical and are reported to the user,
+       as in 2.3.0;
+     - `empty`, `ownClaude` and the linked worktree: as in 2.3.0.
+   - **New shapes:**
+     - only `.claude/CLAUDE.md`, committed: it gains the section, and no root `CLAUDE.md` is created;
+     - both instruction files committed: only `CLAUDE.md` gains the section;
+     - the heading already in `.claude/CLAUDE.md`: neither file changes;
+     - a committed `.gitattributes` without the line and without a final newline: it gains a newline, then the line;
+     - a committed CRLF `CLAUDE.md`: the section arrives in CRLF;
+     - these stay byte-identical and are reported: a committed `CLAUDE.md` with an unstaged edit, one with a staged
+       edit, an ignored one, a link, and a repo with no commit.
+   - **In every shape:** the second run changes nothing, and setup leaves `HEAD`, the index and the commit count
+     unchanged.
+2. **The smoke, 3 runs.** Pinned CLI 2.1.305, Haiku 5.5, the plugin copy through `--plugin-dir`, the user's login, and
+   `--setting-sources project,local`, as S8's route. Each run uses a fresh temp repo whose only instruction file is a
+   committed `.claude/CLAUDE.md`, and runs `/second-brain:setup` in `-p`. Pass in 3 of 3: no root `CLAUDE.md`;
+   `.claude/CLAUDE.md` holds `## Team memory` exactly once; nothing committed.
+3. **A refute-first review of the diff by agy** (Gemini 4 Argon, plan mode, given the diff only), aimed at data loss
+   and at writes outside the repo. Each finding is fixed or recorded as an accepted risk before CI.
+4. **CI** on three systems.
+5. **The new hash of `plugin/`** is recorded.
+
+### 4, 4d: D33, the feasibility read for option (B) (registered 2026-11-23, before it runs)
+
+**The question:** can a dream start without the user typing a command, once one is due?
+
+**What is read:** Claude Code's current documentation, fetched on the day of the read, on:
+- hooks: whether a hook can start a skill, a prompt or a session;
+- skills: what `disable-model-invocation` does to the listing and to Claude's own invocation;
+- scheduled and background work: `/loop`, session cron, routines, and headless `-p`.
+
+The read is saved as `research/2026-11-23-dream-without-a-command.md`, with its sources.
+
+**A route counts as feasible when all four hold:**
+1. the dream starts without a typed command;
+2. no hook process calls a model or the network, or starts a process that does (D18);
+3. it runs on the user's machine, where the transcripts are (D31 reads only local transcripts);
+4. a dream's proposals still wait for review. Option (C) is the user's answer alone.
+
+**The read's output:**
+- each route found, with the items it breaks and any decision whose trigger it would fire (for example D32's
+  "the nudge reaches Claude's context");
+- if one or more routes are feasible: a rethink, then a refute-first agy round on the best route, before any design;
+- if none is feasible: (B) is rejected with the reason, and D33 is settled between (A), (N) and the user's answer on
+  (C).
+
+### 4, 4a: checks 2 and 3 (2026-11-23): check 2 passes; check 3, outcome R, reproduced
+
+- **Check 2, pass:** `v2.yml` on `45fd0a3`, the self-test and load jobs on Ubuntu, macOS and Windows.
+- **Check 3, outcome R, reproduced.**
+  - 8 of the 10 macOS jobs ran 7 of 7 runs, in 18 to 28 seconds each, with 323 calls per run.
+  - Two jobs failed, job 6 at its run 2 and job 8 at its run 5. Each was a hang, ended by the 120-second timeout at the
+    same call: `selftest.mjs:226<371<379: node hook.mjs bash timed out after 120000 ms`.
+  - The `ps` listing, taken after the kill and after the self-test exited, held no `node` or `git` process. That fits
+    a stuck hook, but also a hook that had already exited, or a child of it that died with the closed pipe. It does
+    not say which process waited.
+  - 2 hangs in the 63 runs that started (56 in the eight full jobs, 2 and 5 in the two that failed; a job stops at its
+    first failure), against 2 of 62 before.
+- **The case:** self-test line 379, "a long output with neither field". The `bash` hook gets a `tool_response.stdout`
+  of 25,000 characters, as one line with no newline, so its standard input is over 25 KB. Whether other calls send as
+  much is not yet measured: lines 340 and 349 pass real `cat` output of several map files. The hook reads its input
+  with `fs.readFileSync(0)` (`hook.mjs:12`).
+- **Why this is not yet a diagnosis:** neither the code nor the listing shows which process waited, or on what. The
+  hook could be reading its input, computing its labels or writing its output at exit. The parent's `spawnSync` could
+  also have missed an exit. The same call passed in 61 runs.
+- **Open question:** does this reach real sessions? Claude Code starts hooks its own way, not through Node's
+  `spawnSync`, so the self-test's mechanics may not apply. Not checked.
+- **Next:** a diagnosis probe, registered before it runs.
