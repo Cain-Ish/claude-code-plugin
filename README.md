@@ -15,14 +15,16 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.5.0`, built on branch `v2`.
+**Status:** `2.5.1`, built on branch `v2`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
 
 ## What it does
 
-- **`/second-brain:setup`** (2.3.0) creates what is missing, never overwrites a file, and never commits:
+- **`/second-brain:setup`** (2.3.0) creates what is missing and never commits. Since 2.5.1 it also updates a file
+  that is an earlier version's template, committed and unchanged, so nothing of yours is in it; a file you changed is
+  kept, and Claude offers to add the template's new lines. It sets up:
   - `CLAUDE.md`, under 200 lines, pointing to the team memory. If you already have one (`CLAUDE.md` or
     `.claude/CLAUDE.md`), it adds a short section at its end when git shows that file committed and unchanged, and
     otherwise gives you the section to add (2.4.0).
@@ -40,8 +42,8 @@ locks: no hook blocks a write.
 
   It warns when Claude Code's auto memory is off, since the agents' memory then does nothing. Since 2.4.0 its report
   also names the branch it wrote on and any uncommitted work that was already there, lists the files you kept that
-  differ from this version's templates (setup never updates them, so compare by hand), and says where the agents keep
-  their notes.
+  differ from this version's templates because you changed them (Claude offers their new lines, since 2.5.1), and
+  says where the agents keep their notes.
 - **At session start**, and again after `/clear`, a resume or a compaction, Claude gets two things:
   - an index of the repo's documents, by directory: every tracked `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`
     file, plus every Markdown file in `.project-map/`, even one that is not committed or that `.gitignore` excludes.
@@ -370,7 +372,8 @@ Then remove them in this order:
 
 ## What it writes
 
-- *Setup* (2.3.0) writes the files listed under What it does, only the missing ones, and commits nothing.
+- *Setup* (2.3.0) writes the files listed under What it does, only the missing ones, and commits nothing. Since 2.5.1
+  it also rewrites a kept file that is an earlier version's template, committed and unchanged.
 - *At run time:*
   - `.project-map/*.md` in your repo, written by Claude under the capture instruction;
   - one empty marker file per session in the OS temp folder (`project-map-<session>.pending`). The session's first
@@ -541,8 +544,9 @@ Then remove them in this order:
   directories until it is full and says how many are left out. Claude then searches past it: in a 179-directory test
   repo it found the binding document in a left-out directory in 5 of 5 runs. Listing every directory without file
   names was tried, and found it in only 3 of 5.
-- **Template fixes reach new setups only.** Setup never overwrites a file; its report lists the files you kept that
-  differ from the current templates.
+- **A template file you changed is not updated.** Run `/second-brain:setup` after an update: it updates each file
+  that is an earlier version's template, committed and unchanged (2.5.1). A file you edited, or one with uncommitted
+  changes, is kept; setup lists it, and Claude shows the template's new lines and adds them on your yes.
 - **For contributors:** a copy installed from a local checkout and one installed from GitHub share the marketplace
   name `second-brain`, so only one of them can be registered on a machine.
 

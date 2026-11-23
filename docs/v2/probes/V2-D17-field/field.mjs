@@ -25,7 +25,11 @@ const log = spawnSync('git', ['log', '--format=%h %cI', '--', ':/plugin/'], { cw
 // was not recorded: its tag's commit stands in, and no session falls in that window
 const MOVES = [['2026-11-08T21:18:04Z', 'alpha.8'], ['2026-11-07T13:49:19Z', 'alpha.7'], ['2026-11-06T22:08:21Z', 'alpha.6'], ['2026-11-03T17:05:05Z', 'alpha.5'], ['2026-10-29T20:26:00Z', 'alpha.4'], ['2026-10-29T19:51:09Z', 'alpha.3'],
   ['2026-10-29T00:52:30Z', 'alpha.2']].map(([t, v]) => [Date.parse(t), `tag v2.0.0-${v}`]);
-const build = (ms) => (ms >= GITHUB ? MOVES.find(([t]) => ms >= t)[1] : (log.find(([, t]) => t <= ms) ?? ['?'])[0]);
+// after 2.0.0 the table stops (06, section 6): the release the install path names in the session, which shows when a
+// plugin skill ran, else "2.0.0 or later". shortcut: v2.0.0's tag time stands in for the move, which was not recorded
+const V200 = Date.parse('2026-11-12T05:49:31Z');
+let VERS = []; // [ms, version] of the session scanned now, set by scan()
+const build = (ms) => { const v = VERS.findLast(([t]) => t <= ms); return v ? `v${v[1]}` : ms >= V200 ? '2.0.0 or later' : ms >= GITHUB ? MOVES.find(([t]) => ms >= t)[1] : (log.find(([, t]) => t <= ms) ?? ['?'])[0]; };
 const excluded = (ms) => ms >= EXCLUDE[0] && ms < EXCLUDE[1];
 
 const read = (f) => fs.readFileSync(f, 'utf8').split('\n').flatMap((l) => { try { return l ? [JSON.parse(l)] : []; } catch { return []; } });
@@ -76,6 +80,7 @@ const entries =(s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### ')).
 
 function scan(file) {
   const recs = read(file).filter((r) => r.timestamp).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  VERS = recs.flatMap((r) => { const m = JSON.stringify(r).match(/second-brain[\w-]*[\\/]+second-brain[\\/]+(\d+\.\d+\.\d+[\w.-]*)[\\/]/); return m ? [[Date.parse(r.timestamp), m[1]]] : []; });
   const cwd = recs.find((r) => r.cwd)?.cwd;
   const S = { epochs: [], writes: [], mapReads: [], mapOther: [], entries: [], named: [], hookErrors: [], anyHookErrors: 0, sources: [], bash: [] };
   const corpus = []; // [ms, normalized text] of human prompts, tool results and hook contexts, for C6c

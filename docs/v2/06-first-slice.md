@@ -6741,3 +6741,73 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
 - **Release:** 2.5.1, by 5e's route. Tag it, open a PR to `main`, read its checks before the merge, push `v2` back,
   publish the release, then move the three installs and check their hash. Setup in the field repo stays the user's own
   test.
+
+### 6: check 3, attempt 1 (2026-11-23): fails on the skill step
+
+- `probes/V2-D29-setup/upgrade.mjs`, 3 runs, CLI 2.1.331, Opus 5.5. The script updated the two untouched copies in 3
+  of 3, and the edited README was untouched in 3 of 3. The other bars missed in 3 of 3: shown 0, asked 0, merged 0.
+- **Why:** the new step had Claude run `git diff --no-index` against the template in the plugin's install folder.
+  That folder is outside the repo, and Claude Code refused both the diff and a Read of it. So Claude could only ask
+  for the access, and the "yes" granted none. The field session ran in auto mode, which allowed that read; a session
+  that asks for permissions does not.
+- **Attempt 2** (rule 4), registered here before its code. Setup's report itself carries, for each file that differs,
+  its diff against the template (`git diff --no-index`, run by the script, CR at line end ignored, at most 4,000
+  characters per file). Lines marked `+` are the template's. The skill step says to show those and add them on a yes.
+  Claude then reads nothing outside the repo. The bars stay as registered, and the self-test pins the diff in the
+  report.
+
+### 6: the results (2026-11-24): pass on the final build; D29 re-locks when CI passes
+
+- **Where it ran:** the edits were made in `plugin/` on `v2`'s working tree. No real session runs from this checkout:
+  the installs run GitHub's release since 2026-10-29. Every check ran from a copy of it in the session's scratch
+  folder, and check 3's probe names only the copy's folder name.
+- **Attempts under rule 4, in this reopen:** 2 failed, and the final build is the third.
+  1. Check 3's first skill step (above).
+  2. Check 1's expected outcome for an untracked 2.3.0 copy changed after the review's result: from "listed as
+     differing" to "named apart, with why". Rule 2 counts that as a failed attempt.
+- **Check 1, the self-test,** passes. Product `2625c8cd263b`.
+  - *Fixtures:* the three changed templates of 2.3.0 and 2.4.0, under `plugin/test/earlier/`. Each one's hash is listed
+    in `setup.mjs`, and the six templates setup may replace are pinned.
+  - *Updated:* 2.3.0 copies, and 2.4.0 copies. A CRLF copy keeps CRLF. An update with every other file in place
+    counts as a write.
+  - *Kept and named apart, with why:* untracked, staged, with an uncommitted change, skip-worktree, hard-linked, and
+    read-only copies.
+  - *Kept and listed as changed here, with its diff in the report:* an edited copy.
+  - *A second run* writes nothing, and its last line asks for no review, in every case.
+  - *The mutation check* (`probes/V2-D29-setup/mutate6.mjs`, `results/mutate6.txt`): 16 mutations of the update
+    path, 16 killed.
+- **Check 2, the field shape:** in a local clone of the first field repo, setup updated exactly the three files, and
+  each equals the template. `git status` lists only them. The second run wrote nothing ("Ran on …", "Nothing was
+  written.").
+- **Check 3, attempt 2:** 3 runs, CLI 2.1.331, Opus 5.5. Updated 3, untouched 3, shown 3, asked 3, merged 3, for
+  1.06 USD. It ran on the build before the review's fixes. The final build's report is byte-identical on that repo
+  shape (44 lines), but the review's fix also changed the skill's step 5, so check 3 ran again on the final build
+  (`results/upgrade.json`): updated 3, untouched 3, shown 3, asked 3, merged 3, for 1.12 USD. Pass.
+- **Check 5, the review** (a fresh Claude agent):
+  - It found no way to lose a file's own content or to write outside the repo.
+  - It reproduced the refusals: staged, skip-worktree, a hard link, a junction, a name that differs in case, a
+    submodule, untracked, ignored, a UTF-8 BOM.
+  - It reported five findings:
+    - an untouched copy that the guard stops was labelled "changed in this repo", so the skill would mix old and new
+      lines in it. *Fixed:* such a file is named apart, with why;
+    - a read-only copy stopped setup with an error and no report. *Fixed:* the write error is caught and the file is
+      named;
+    - the skill's diff read a CRLF file as all changed. *Fixed by attempt 2:* the script diffs it, ignoring CR at
+      line end;
+    - a file with mixed line endings is rewritten in its first line's ending. *Recorded:* only template text is
+      affected;
+    - test gaps on the update path. *Closed* by the staged, skip-worktree, hard-link and read-only cases.
+  - Also fixed while checking: a run that wrote nothing said "Written on"; it now says "Ran on".
+- **Check 4:** `claude plugin validate plugin` passes. CI runs on the commit that records these results.
+- **The decision-checker** (this repo's agent) found no broken guardrail: setup commits nothing, deletes nothing, and
+  replaces only on an earlier release's hash with the guard passing. Its process points are taken: the attempt
+  count, where the build ran, and the re-lock waiting for CI (all above); the mutation script is now in the repo; a
+  second run's last line is asserted in every case; and check 3 runs again on the final build. A partly written file
+  (a write that fails midway) stays tracked and is named "not updated", and `git checkout` restores it.
+- **The counter:** `field.mjs` labels the three latest field sessions "v2.3.0" or "2.0.0 or later", and never
+  "alpha.8".
+- **D29 re-locks once CI passes.** The guardrail will read: setup commits nothing and deletes no file. It changes a
+  file that exists only in two ways, and only when git shows that file tracked under its name, with no flag, and
+  unchanged:
+  - it appends its section or line to an instruction file or `.gitattributes`;
+  - it replaces a file whose text is a template an earlier release shipped.
