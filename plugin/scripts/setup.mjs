@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { git, inRepo, configDir } from './map.mjs';
+import { git, inRepo, configDir, utf16 } from './map.mjs';
 
 const FILES = [
   ['CLAUDE.template.md', 'CLAUDE.md'],
@@ -44,6 +44,10 @@ export function setup(root, pluginRoot) {
   try { home = fs.realpathSync.native(root) === fs.realpathSync.native(os.homedir()); } catch {}
   if (home) return 'Setup runs in a project\'s repository, not in your home folder, whose .claude/ is your own Claude configuration. Nothing was created.';
   const created = [], kept = [], refused = [], forYou = [], added = new Map();
+  // N9 (the field report of 2026-11-23): setup writes on whatever branch is checked out, beside any work in progress
+  const head = git(root, 'branch', '--show-current');
+  const branch = head.status ? 'a branch git did not name' : head.stdout.trim() ? `branch ${head.stdout.trim()}` : 'a detached HEAD';
+  const before = (git(root, '--no-optional-locks', 'status', '--porcelain').stdout ?? '').split('\n').filter(Boolean).length;
   // N7: Claude Code reads ./CLAUDE.md or ./.claude/CLAUDE.md, so a repo with only the second gets no second file
   const instr = !there(path.join(root, 'CLAUDE.md')) && there(path.join(root, '.claude', 'CLAUDE.md')) ? '.claude/CLAUDE.md' : 'CLAUDE.md';
   for (const [from, to] of FILES) {
@@ -66,7 +70,8 @@ export function setup(root, pluginRoot) {
     const p = path.join(root, f);
     let file = false;
     try { const s = fs.lstatSync(p); file = s.isFile() && s.nlink === 1; } catch {}
-    if (!file || !inRepo(root, path.dirname(p)) || git(root, 'ls-files', '-v', '--', f).stdout !== `H ${f}\n` || !unchanged(f)) return forYou.push(`${ask}\n${text}`);
+    // a UTF-16 file (Windows PowerShell 5.1 writes one) would take UTF-8 bytes it cannot show (the audit, 4k)
+    if (!file || utf16(fs.readFileSync(p)) || !inRepo(root, path.dirname(p)) || git(root, 'ls-files', '-v', '--', f).stdout !== `H ${f}\n` || !unchanged(f)) return forYou.push(`${ask}\n${text}`);
     const old = fs.readFileSync(p, 'utf8'), eol = /^[^\n]*\r\n/.test(old) ? '\r\n' : '\n';
     fs.appendFileSync(p, `${old && !old.endsWith('\n') ? eol : ''}${blankLine && old.trim() ? eol : ''}${text.split(/\r?\n/).join(eol)}${eol}`);
     added.set(f, what);
@@ -82,8 +87,17 @@ export function setup(root, pluginRoot) {
   const out = [`Created (${created.length}): ${created.join(', ') || 'nothing'}`, `Kept as they were (${same.length}): ${same.join(', ') || 'nothing'}`];
   if (added.size) out.push(`Added to files that existed (${added.size}): ${[...added].map(([f, what]) => `${f} (${what})`).join(', ')}`);
   if (refused.length) out.push(`Refused, because a folder resolves outside the repo: ${refused.join(', ')}`);
+  // N10 (the field report): setup never overwrites, so a newer template reaches a repo only by hand. Only the plugin's
+  // own files are compared: the instruction file, the topic files and .gitattributes are the user's
+  const differ = FILES.filter(([from, to]) => kept.includes(to) && (to.startsWith('.claude/') || to === '.project-map/README.md')
+    && read(to).replace(/\r\n/g, '\n') !== fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8').replace(/\r\n/g, '\n'));
+  if (differ.length) out.push(`Differ from this version's templates (${differ.length}), to compare by hand: ${differ.map(([from, to]) => `${to} (${path.join(pluginRoot, 'templates', from)})`).join(', ')}`);
   if (autoMemoryOff(root)) out.push('Warning: auto memory is off here, so the three agents keep no project memory until it is on (/memory).');
+  else out.push('The three agents keep their notes in .claude/agent-memory/, made on their first write; review those with the map.');
   out.push(...forYou.map((s) => `For you: ${s}`));
+  // a run that wrote nothing has no files of its own to keep apart (the review of 4j)
+  const wrote = created.length || added.size;
+  out.push(`Written on ${branch}.${wrote && before ? ` The tree already held ${before} uncommitted change${before === 1 ? '' : 's'} before setup ran: commit setup's files on their own.` : ''}`);
   out.push('Nothing is committed: review the new files in the diff, and commit them.');
   return out.join('\n');
 }

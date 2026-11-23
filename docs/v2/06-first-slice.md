@@ -6040,7 +6040,8 @@ and `hook.mjs` diff:
 
   The only change since the last clean 3 of 3 was the nested run-folder filter, which no smoke repo exercises. The
   first run's cause is unknown.
-- **CI** runs on the commit.
+- **CI on `e07469dc`:** `v2.yml` passed on Ubuntu, macOS and Windows, the self-test and the load jobs. **Step 4h is
+  done** (plugin `5bca1aa901d4`).
 
 ### 4: the field report of 2026-11-23, triaged (map issue step 22)
 
@@ -6087,4 +6088,174 @@ From [research/2026-11-23-learning-every-run.md](research/2026-11-23-learning-ev
 3. **The self-test** pins the new instruction's sha256 and bytes, and **CI** passes on three systems.
 
 If check 1 passes and check 2 fails, the document clause is dropped and check 2 runs again with K2 alone.
-- **CI on `e07469dc`:** `v2.yml` passed on Ubuntu, macOS and Windows, the self-test and the load jobs. **Step 4h is done** (plugin `5bca1aa901d4`).
+
+### 4, 4i: A-4's floor, and the amended check 1 (2026-11-23, before any counted run)
+
+The advisor asked for a floor before the counted runs. The floor runs session 2 alone, with no plugin and auto memory
+off, on the tree as the correction left it, 3 runs each, uncounted. If the code alone teaches the lesson, the arms
+cannot separate. Runner: `probes/V2-D14-every-run/a4.mjs`, results in `results/floor-*.json`.
+
+| Scenario | The correction | Floor |
+| --- | --- | --- |
+| price-F0, as registered | toFixed, then formatPrice() from `src/utils/money.ts` | 3 of 3 used formatPrice |
+| price-F1, with two older toFixed prices elsewhere | the same | 3 of 3 |
+| tokens: `src/theme/tokens.ts` is generated from `design/tokens.json`, and nothing in it says so | "change design/tokens.json instead" | 3 of 3 changed the JSON |
+| frozen: `src/legacy/` must not change, so restyle where it is used | "src/legacy/ is frozen until the payment audit is over" | 3 of 3 left it alone |
+
+- **12 of 12.** In each run, session 2 read the corrected code next to its task and copied it: the formatPrice call,
+  the JSON beside the generated file, the style passed at the call site. On Opus 5.5 in a small repo, a correction
+  that left its fix in the code reaches the next session through the code.
+- *The two price floors ran on the script's first version.* Only the scenario table and the scorer self-check
+  (`node a4.mjs <scratch> check`) changed after them. The correction's wording changed from the registered "prices
+  here go through formatPrice()" to a correction of the work, because the registered wording states a rule that D14's
+  current clause already covers (the advisor's point).
+- **Check 1, amended:** the frozen scenario, which leaves the least trace. Arm H first, 5 counted runs. A run counts
+  when turn 1 changed `src/legacy/` (the mistake) and every session is valid. Other runs are replaced, at most 10
+  attempts, and reported.
+  - **H at 4 of 5 or more:** by 4i's rule, A-4 shows no need for K2, and K2 is not shipped (PM1). Arm K is not run.
+    The document clause goes to check 2 on its own.
+  - **H at 3 or less:** arm K, 5 counted runs, at the registered bar (K at least 4 of 5, and at least H + 2).
+
+### 4, 4i: check 1's result (2026-11-23): H 5 of 5, so K2 is not shipped
+
+- **Arm H** (`results/a4-frozen.json`): a copy of plugin `5bca1aa901d4`, whose INSTRUCTION is the pinned
+  `392c26c2a5e9`. 5 attempts, all counted: every turn 1 changed `src/legacy/`, and every session was valid.
+  - **5 of 5 passed:** session 2 left `src/legacy/` alone.
+  - The route in all 5: session 1 wrote the correction into the map under the current clause ("someone states a
+    decision or rule"), and session 2 read that map file. Auto memory held it in none, as G4's line asks.
+  - About 0.53 USD a run.
+- **By the rule, K2 is not shipped (PM1),** and arm K is not run. A correction that gives its reason is a stated rule,
+  and D14's clause already records it. One that leaves its fix in the code reaches the next session through the code
+  (the floor). A-4 found no case left for K2.
+- *Not shown:* a correction with no reason and no trace, in a large repo where the next task is far from the fix.
+
+### 4, 4i: check 2, registered (2026-11-23, before it runs)
+
+- **The text:** the document clause alone. "you receive or read a document that states requirements" becomes "you
+  receive or read a document from outside this repository that states requirements", and the paragraph reflows.
+  INSTRUCTION `105cdd6d3d4a`, 1,794 bytes (from `392c26c2a5e9`, 1,765).
+- **The runs:** A1's V2 arm (`eval.mjs`), with Opus 5.5, the pinned CLI 2.1.305 and the plugin copy that carries the
+  clause:
+  - 10 runs, split over two processes (`D17_TAG=-opus-4i-a` for runs 1 to 5, `-opus-4i-b` for 6 to 10);
+  - first, a same-day control: 1 run of the unchanged copy (`-opus-4i-ctl`), which shows the harness still works.
+- **Pass, at 2s attempt 2's bars:**
+  - C1, C3 and C4 10 of 10; T1, T2 and T4 10; T3 at least 8; N1 to N3 10, in both variants;
+  - T5f at least 8 of 10; over-attribution at most 1 of 10;
+  - no `- status:` line except on the widgets rule H1 retracts.
+- **The designer's notes, kept:** they are pasted in H2 and live outside the repo, so the clause still covers them.
+  C2, their capture, must hold in at least 8 of 10. 2s's bar was 2; its attempt 2 had 10.
+- *Reported:* whether any run's map copies the style guide's numbered rules. The guide is a repo document, so the
+  narrowed clause no longer asks for that. Also reported: topic files written (S4's measure) and the cost.
+
+### 4, 4i: check 2's result (2026-11-23): pass, and the clause ships
+
+- **The control** (`results/V2-opus-4i-ctl.json`, the unchanged copy, 1 run) is valid and passes every item. The
+  harness works.
+- **10 runs with the clause** (`results/V2-opus-4i-a.json` for runs 1 to 5, `-b.json` for 6 to 10). All are valid.
+  - C1 to C4: 10 of 10. **C2, the designer's notes:** 10 of 10, against a bar of 8.
+  - T1 to T4 and N1 to N3: 10 of 10, in both variants. **T5f:** 9 of 10 on "same", 10 of 10 on "second".
+  - **Over-attribution:** 0 of 10.
+  - **Status lines:** only on the widgets rule H1 retracts. 3 runs mark it, 2 superseded and 1 expired; no other
+    entry gets one.
+- **Reported:**
+  - **the style guide in the map:** quotes of its six rules, found by their words, appear in 0 of 10 runs. The
+    control quoted all 6, in 19 entries; runs with the clause hold 12 to 14. This is the field report's copying (#2
+    and #9), reproduced at A1's size and gone with the clause;
+  - topic files: 3 or 4 per run;
+  - about 1.43 USD a run.
+- **Result:** pass. The clause goes into `map.mjs` with the same bytes (`105cdd6d3d4a`, 1,794 bytes). The self-test
+  pins it. D14 and D16 re-lock in the ledger.
+- *Ledger fix:* commit `ca562c4b` had also written D14's and D22's reopen notes onto the ledger's title line. They
+  are removed there; the rows keep them.
+
+### 4, 4j: N9 to N12, from the field report (registered 2026-11-23, before the code)
+
+The field report's small items (triage table above). No frozen text changes.
+- **N9:** setup's report names the branch it wrote on. When the tree already held uncommitted changes before setup ran,
+  it gives their count and says to commit setup's files on their own.
+- **N10:** setup's report lists each kept file that differs from this version's template, with the template's path,
+  for the user to diff. The six plugin-owned files only: the rule, the map-review skill, the three agents and the map's
+  README. The instruction file, the topic files and `.gitattributes` are the user's and are never listed.
+- **N11:** setup's report says that the agents keep their notes in `.claude/agent-memory/`, made on their first write.
+  When auto memory is off, the existing warning stands in its place.
+- **N12:** status flags an entry that names a repo path which does not exist. A path counts when it holds a slash and
+  ends in a file extension or a slash, and its first folder exists in the repo, so build output (`dist/`), URLs, globs,
+  package names and "and/or" are not flagged. The entry's source path is left to the existing check. An entry a status
+  line ended is not checked (N8).
+
+**Checks:**
+1. *The self-test:*
+   - N9: a clean repo's report names the branch and no count; the `dirty` shape gives "3 uncommitted changes";
+   - N10: the `ownClaude` shape lists its own decision-checker, and a second run on the `empty` shape lists nothing;
+   - N11: the line in the `empty` shape;
+   - N12: a fixture with a present path, a missing path, a path under a missing top folder, a URL, a glob, "and/or" and
+     an ended entry: only the missing path is stale. S8's existing counts stay as they are.
+2. `claude plugin validate plugin` with no warning, setup's smoke, and CI on three systems.
+3. A shorter-code pass on the diff (the user's rule of 2026-11-23).
+
+### 4, 4j: checks and reviews (2026-11-23)
+
+- **Edited in place, not from a copy:** the user's installs come from GitHub at a release tag. Checked in
+  `known_marketplaces.json` on 2026-11-23: `second-brain` is a `github` source. So the checkout reaches no real
+  session. Setup's smoke ran from a copy, as before.
+- **Check 1, the self-test:** every registered case passes. A mutation check, with the product-hash pin disabled so
+  that the mutations are what fails, kills all 12 mutants. Two survivors were found and closed along the way:
+  - one mutation was written wrong (`[] && ended` is `ended`);
+  - one was a real gap, that the user's own files are never listed. Its assertion was added.
+- **Check 2:** `claude plugin validate plugin` passes. Setup's smoke passed 3 of 3; run 3's reply named the branch.
+  CI runs on the commit.
+- **An independent review** (a fresh Claude subagent, given the code and the brief only; agy's quota was spent on
+  2026-11-23) reproduced five defects. All are fixed, each with a self-test case that a mutation check kills:
+  - a second setup run said "already held N uncommitted changes" although it wrote nothing;
+  - a failing `git branch` read as "a detached HEAD";
+  - `src/../../x.md` was looked up outside the repo;
+  - `release/2.3.0`, and the folder before a glob (`src/old/*.ts`), were flagged;
+  - one path was named three times.
+
+  Accepted, with a `shortcut:` comment: non-ASCII names, and a path in markdown italics, are missed.
+- **The decision-checker's review:** no recorded decision is broken. Acted on:
+  - the setup skill's summary step now names the branch, the work already there, and the differing files. Its old
+    "at most six lines" would likely have dropped them, and field item #1 was "without a word";
+  - tests for the source-path exclusion and a folder path;
+  - the N10 test that pins the template's path; status's header comment;
+  - the plugin-owned files as a positive test (`.claude/` or the map's README).
+  - *Accepted:* letter case differs by file system; an entry that records a removal stays flagged until it is
+    reworded (in the shortcut comment).
+- **Check 3, shorter code:** the review's rewrites are taken: one `replace` for both normalisations, a `Set` for
+  duplicates, `!ended &&`, and the positive owned-file test. 4j adds 18 lines of product code in all.
+
+### 4, 4k: the whole-plugin audit's fixes (registered 2026-11-23, before the code)
+
+The user asked for an audit at the end. A subagent ran `ponytail-audit` on `plugin/`, with no edits. Its findings and
+what is done:
+
+| # | Finding (audit's verdict) | Done |
+| --- | --- | --- |
+| A1 | The dream analyzer may read only the start of a long digest: 7 of this repo's 11 transcripts make digests over 100 KB, the largest 2,575 lines (PLAUSIBLE) | One line in `dream-analyzer.md`: read the whole digest, continuing with offset and limit. Checked by S7's check 2 re-run at 4e |
+| A2 | The privacy filter drops "react@18.3.1" and "node@20.11.0" as e-mail addresses (CONFIRMED) | The e-mail pattern needs a letter TLD. `PRIVATE` is exported for a self-test of both sides |
+| A3 | Setup appends UTF-8 text to a UTF-16 `CLAUDE.md` (CONFIRMED) | Setup refuses a UTF-16 file and gives the text to the user, as the dream already does. A 4b-style case |
+| A4 | A failing status report exits 1, which can abort the skill (CONFIRMED) | Status exits 0 with its message, as `dream prepare` does (N6). A self-test case |
+| A5 | A URL source is re-found as a repo path (CONFIRMED) | **Not now:** it changes the read hook's labels, which D16 locks. Recorded as **N13** for the next release, with its own check |
+| A6 | Status counts a dream-proposed entry with a status line as retired (CONFIRMED) | `proposed` is counted before `retired`. A self-test case |
+| A7 | Onboard counts ", 1 due" and ", 2 proposed" as documents (CONFIRMED) | Strip the counts before the split. A self-test case |
+| L | Lean: the dream skill's "new topic file starts with front matter" (finish writes its own); the skill-draft clause `disable-model-invocation` (finish forces it); `drafts` exported but not imported elsewhere; `git worktree list` parsed twice | All four removed. The two skill lines change no behaviour, since finish enforces both |
+
+*Not taken:* the dream's transcript read past its recorded size, and `state.json` written without a rename. Both
+are small and stay as they are.
+
+**Checks:** the self-test with each new case killed by a mutation; `claude plugin validate`; CI. A1 and A2 change
+the dream, so S7's check 2 re-runs at 4e, as already planned.
+
+### 4, 4k: result (2026-11-23)
+
+- **Built as registered.** Every fix has a self-test case. A mutation check, with the hash pin disabled, kills each
+  one: A2 (the e-mail pattern), A3 (UTF-16), A4 (the exit code), A6 (the tally) and A7 (onboard's count). A1 and the
+  lean items change only text, or the dream's internals that its self-test covers.
+- **The self-test passes** (product `8f7f9b95dbd7`, 1,745 lines) and `claude plugin validate plugin` passes. CI runs
+  on the commit.
+- **4i, 4j and 4k share one commit,** because their code meets in the same files (`map.mjs`, `status.mjs`, the
+  self-test's hash pin). Each has its own step gate in the commit body.
+- **N13 for the next release:** a URL source is re-found as a repo path (audit A5). Changing it changes the read
+  hook's labels, so it needs a registered check under D16.
+- **Still before the tag (4e):** S7's check 2 on this build (A1 and A2 change the dream), S8's acceptance, D18's
+  bench, the version bump, the release notes, and the pull request.

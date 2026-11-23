@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync as spawnRaw } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { prepare, finish, abort, mapReads } from '../scripts/dream.mjs';
+import { prepare, finish, abort, mapReads, PRIVATE } from '../scripts/dream.mjs';
 import { status } from '../scripts/status.mjs';
 import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue, dreamLeft, loadState } from '../scripts/map.mjs';
 
@@ -29,9 +29,11 @@ const spawnSync = (cmd, args = [], opts = {}) => {
   return r;
 };
 
-// the texts, as the ledger fixed them (06, 2s: INSTRUCTION 8aa72396af72 at 904 bytes until 2.1.0, kept line for line)
-assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '392c26c2a5e9');
-assert.equal(Buffer.byteLength(INSTRUCTION), 1765);
+// the texts, as the ledger fixed them (06, 2s: INSTRUCTION 8aa72396af72 at 904 bytes until 2.1.0, kept line for line;
+// 06, section 4, 4i: 392c26c2a5e9 at 1,765 bytes until the document clause was narrowed)
+assert.equal(crypto.createHash('sha256').update(INSTRUCTION).digest('hex').slice(0, 12), '105cdd6d3d4a');
+assert.equal(Buffer.byteLength(INSTRUCTION), 1794);
+assert.ok(INSTRUCTION.includes('a document from outside this repository that states'));
 assert.equal(Buffer.byteLength(FORCE), 227);
 assert.equal(HEADER, "IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any task in this project. This project's documents, by directory:");
 assert.equal(UNREVIEWED, 'unreviewed, not yet committed');
@@ -104,8 +106,8 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
-// that exist (D29 reopened, N7). 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '5bca1aa901d4', 'the product changed: record its hash with a new epoch (06)');
+// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes. 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), '8f7f9b95dbd7', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -866,7 +868,8 @@ ${NAME}` } });
     '.project-map/dreams.md', '.gitattributes'];
   const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
   const snapshot = (r) => { const m = new Map(); const w = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name === '.git') continue; const p = path.join(d, e.name); if (e.isDirectory()) w(p); else m.set(path.relative(r, p).split(path.sep).join('/'), sha(p)); } }; w(r); return m; };
-  const setupRun = (r) => { const x = spawnSync('node', [HOOK, 'setup'], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '' } }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
+  // an empty config folder: the user's own settings could turn auto memory off and change the report
+  const setupRun = (r) => { const x = spawnSync('node', [HOOK, 'setup'], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '', CLAUDE_CONFIG_DIR: path.join(tmp, 'setup-config') } }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
   // 06, section 4, 4b: what setup appends to a committed, unchanged instruction file; and HEAD, the index and the
   // commit count, which setup never changes
   const TPL = fs.readFileSync(path.join(PLUGIN, 'templates', 'CLAUDE.template.md'), 'utf8').replace(/\r\n/g, '\n');
@@ -905,6 +908,17 @@ ${NAME}` } });
     if (name === 'dirty') assert.ok(out.includes('For you: CLAUDE.md has no team-memory section'), out);
     if (name === 'dirty') assert.ok(out.includes('For you: .gitattributes lacks'), out);
     if (name === 'empty') assert.ok(!out.includes('For you'), out);
+    // 06, section 4, 4j: N9 the branch and the work already there, N10 the kept files that differ, N11 the agents' notes
+    const branch = spawnSync('git', ['branch', '--show-current'], { cwd: r, encoding: 'utf8' }).stdout.trim();
+    assert.ok(out.includes(`\nWritten on branch ${branch}.`), out);
+    if (name === 'empty') assert.ok(!out.includes('already held') && out.includes('notes in .claude/agent-memory/'), out);
+    if (name === 'dirty') assert.ok(out.includes('The tree already held 3 uncommitted changes before setup ran'), out);
+    if (name === 'ownClaude') assert.match(out, /^Differ from this version's templates \(1\), to compare by hand: \.claude\/agents\/decision-checker\.md \([^)]*templates.claude.agents.decision-checker\.md\)$/m, out);
+    // the user's own CLAUDE.md and .gitattributes differ from the templates, and are never listed; nor is a file setup
+    // created, on its second run
+    else assert.ok(!(out + out2).includes('Differ from'), out + out2);
+    // the review of 4j: a second run writes nothing, so it has no files to keep apart from the first run's
+    assert.ok(!out2.includes('already held'), out2);
   }
   // 06, section 4, 4b (D29 reopened, N7): setup appends its section or line only to a file git shows committed and
   // unchanged; any other file stays byte for byte, and its text goes to the user. pre runs before the base commit,
@@ -919,6 +933,8 @@ ${NAME}` } });
     { name: 'headingInnerBoth', pre: (r) => { w(r, 'CLAUDE.md', '# Root\n'); w(r, '.claude/CLAUDE.md', '# Mine\n\n## Team memory\nOurs.\n'); }, want: {}, not: 'team-memory section' },
     { name: 'gaNoNewline', pre: (r) => w(r, '.gitattributes', '* text=auto'), want: { '.gitattributes': `* text=auto\n${LINE}\n` }, says: "Added to files that existed (1): .gitattributes (the dream log's merge line)" },
     { name: 'crlf', pre: (r) => w(r, 'CLAUDE.md', '# Mine\r\n\r\nRun.\r\n'), want: { 'CLAUDE.md': `# Mine\r\n\r\nRun.\r\n\r\n${SECTION.split('\n').join('\r\n')}\r\n` }, says: 'CLAUDE.md (the team-memory section)' },
+    // the audit (4k, A3): a committed UTF-16 CLAUDE.md would take UTF-8 bytes; its text goes to the user
+    { name: 'utf16', pre: (r) => w(r, 'CLAUDE.md', Buffer.from('﻿# Mine\r\n', 'utf16le')), want: {}, says: youClaude('CLAUDE.md') },
     { name: 'unstaged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r) => fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'), want: {}, says: youClaude('CLAUDE.md') },
     { name: 'staged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r, g) => { fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'); g('add', 'CLAUDE.md'); }, want: {}, says: youClaude('CLAUDE.md') },
     // agy's review of the final code: a hard link could carry the addition to a file outside the repo
@@ -1587,6 +1603,44 @@ ${NAME}` } });
   fs.renameSync(path.join(r, '.project-map-real'), path.join(r, '.project-map'));
   assert.ok(before.length > 0);
   if (savedCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCfg;
+}
+
+// 06, section 4, 4j, N12: status flags an entry that names a repo path which is gone; a path under a top folder the
+// repo lacks, a URL, a glob, a package name, "and/or" and an entry a status line ended are not flagged
+{
+  const r = path.join(tmp, 'n12');
+  const w = (f, t) => { fs.mkdirSync(path.dirname(path.join(r, f)), { recursive: true }); fs.writeFileSync(path.join(r, f), t); };
+  w('src/app.ts', '');
+  w('release/notes.md', '');
+  w('docs/guide.md', '# Guide\n');
+  spawnSync('git', ['init', '-q'], { cwd: r });
+  const e = (h, q, more = [], src = 'the lead developer') => `### ${h}\n> ${q}\n\n- id: ${h}\n- source: ${src}, 2026-11-01\n${more.map((l) => `- ${l}\n`).join('')}`;
+  w('.project-map/decisions.md', '---\nname: decisions\ndescription: d\n---\n' + [
+    e('present', 'The app starts in src/app.ts, also written ./src/app.ts.'),
+    e('missing', 'Prices go through src/utils/money.ts (./src/utils/money.ts) and show in src/widgets/, never toFixed.'),
+    // the decision-checker's review of 4j: a missing source path is left to the source check, said once
+    e('source', 'The guide says so in docs/gone.md.', [], 'docs/gone.md'),
+    e('elsewhere', 'Build output (dist/bundle.js, dist/) is never committed; see https://example.com/a/b.html.'),
+    // the review of 4j: a version, the folder before a glob, a path out through ..
+    e('patterns', 'Tests match src/**/*.test.ts or src/old/*.ts, and/or use @scope/pkg.js, node:fs/promises, release/2.3.0 and src/../../outside.txt.'),
+    e('ended', 'Old code lived in src/old/thing.ts.', ['status: superseded 2026-11-10 by present: nothing']),
+    // the audit (4k, A6): a dream's status line ends nothing until review, so the entry counts as proposed
+    e('proposal', 'Buttons use the accent colour.', ['status: done 2026-11-19 by present: shipped', 'proposed: dream 2026-11-19']),
+  ].join('\n'));
+  const s = status(r, path.join(tmp, 'n12-data'));
+  assert.match(s, /Retired \(with a status line\): 1\. Proposed by a dream: 1\. Current: 3\./, s);
+  // the audit (4k, A7): onboard does not count the catalog's ", 1 proposed" as a document
+  assert.match(spawnSync('node', [HOOK, 'onboard'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } }).stdout, /^Index: 1 documents in 1 directories/m);
+  // the audit (4k, A4): a report that stops exits 0, so a failed ! line cannot abort the skill
+  const nogit = path.join(tmp, 'n12-nogit');
+  w('../n12-nogit/.project-map/a.md', '# a\n');
+  const st = spawnSync('node', [path.join(PLUGIN, 'scripts', 'status.mjs'), path.join(tmp, 'n12-data')], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: nogit } });
+  assert.ok(st.status === 0 && st.stdout.startsWith('The status report stopped: '), st.stdout + st.stderr);
+  // the audit (4k, A2): a version pin is not an e-mail address; addresses still are
+  assert.ok(!PRIVATE.test('Pin react@18.3.1 and node@20.11.0.') && PRIVATE.test('Ask team@corp.io') && PRIVATE.test('x@mail.example.co.uk'));
+  assert.match(s, /Stale: 2 entries to verify/, s);
+  assert.ok(s.includes('entry 2 "missing": names src/utils/money.ts, src/widgets/, which do not exist'), s);
+  assert.ok(s.includes('entry 3 "source": not found word for word in docs/gone.md\n'), s);
 }
 
 // 06, section 3, S8: the status report, on a fixture repo

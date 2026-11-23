@@ -13,5 +13,6 @@ leaves to the user.
    files (package.json scripts, a Makefile, pyproject.toml, a .csproj and the like). Delete each line you cannot fill.
 2. If it added to files that existed, show the user the lines it added. Do not add them again.
 3. For each "For you" item, show the user the exact text and where it goes. Add it with an edit once they agree.
-4. Tell the user, in at most six lines: what was created or added, any warning, and that nothing is committed. They
-   review the diff, then commit it.
+4. Tell the user, in at most eight lines: what was created or added, any warning, the branch it was written on and any
+   uncommitted changes that were already there, each file that differs from this version's templates, and that
+   nothing is committed. They review the diff, then commit it.

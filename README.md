@@ -22,9 +22,10 @@ locks: no hook blocks a write.
 
 ## What it does
 
-- **`/second-brain:setup`** (2.3.0) creates what is missing, and never overwrites or commits anything:
-  - `CLAUDE.md`, under 200 lines, pointing to the team memory. If you already have one, it gives you a short block to
-    add.
+- **`/second-brain:setup`** (2.3.0) creates what is missing, never overwrites a file, and never commits:
+  - `CLAUDE.md`, under 200 lines, pointing to the team memory. If you already have one (`CLAUDE.md` or
+    `.claude/CLAUDE.md`), it adds a short section at its end when git shows that file committed and unchanged, and
+    otherwise gives you the section to add (2.4.0).
   - `.claude/rules/project-map.md`: the entry format. Its `paths:` load it only when Claude touches a map file.
   - `.claude/skills/map-review/`, which you run to accept or reject what a dream proposed, promote its drafts, and
     settle entries due for review. It never loads unless you run it.
@@ -35,7 +36,10 @@ locks: no hook blocks a write.
   - `.project-map/README.md`, a first topic file `decisions.md`, the dream log `dreams.md`, and a `.gitattributes`
     line that merges the log.
 
-  It warns when Claude Code's auto memory is off, since the agents' memory then does nothing.
+  It warns when Claude Code's auto memory is off, since the agents' memory then does nothing. Since 2.4.0 its report
+  also names the branch it wrote on and any uncommitted work that was already there, lists the files you kept that
+  differ from this version's templates (setup never updates them, so compare by hand), and says where the agents keep
+  their notes.
 - **At session start**, and again after `/clear`, a resume or a compaction, Claude gets two things:
   - an index of the repo's documents, by directory: every tracked `.md`, `.mdx`, `.markdown`, `.txt` and `.rst`
     file, plus every Markdown file in `.project-map/`, even one that is not committed or that `.gitignore` excludes.
@@ -125,7 +129,7 @@ locks: no hook blocks a write.
   - what waits for review;
   - uncommitted agent memory;
   - stale entries: a review date passed, a quote no longer in its source, a source committed after the entry was
-    verified, or a replacement the map does not hold.
+    verified, a replacement the map does not hold, or (2.4.0) a repo path the entry names that no longer exists.
 - **`/second-brain:onboard`** checks Node and git, sizes the index, and says how many map files are not committed.
 
 The hooks call no model and use no network or MCP server. They run Node and start only `git`. The dream runs inside
@@ -413,7 +417,7 @@ Then remove them in this order:
     many sessions at once, expect each session start and map read to take a few tenths of a second.
   - 2.3.0, in pooled pairs against a build without its session-start changes, with 300 unseen transcripts on disk:
     every hook added at most 78.8 ms at 1 and at 8 sessions at once, on the 32-thread machine.
-- *Context, always on:* 1,765 B (the capture instruction, since 2.3.0) and 212 B per session plus the index (2 to 6
+- *Context, always on:* 1,794 B (the capture instruction, since 2.4.0; 1,765 B in 2.3.0) and 212 B per session plus the index (2 to 6
   KB in the tested repos), and 227 B for each forced decision. Each read of a map file, through the Read tool or
   Bash, adds that file's labels. The skills (setup, dream, status, map-review) are never listed, so they cost no
   context until you run one. Each of the three project agents adds its one-line description to Claude's list of

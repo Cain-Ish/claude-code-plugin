@@ -1,12 +1,18 @@
 // 06, section 3, S8: the report /second-brain:status shows. No model and no network; spawns only git; changes no
 // file. Run as a command by the skill, never by a hook:   node status.mjs <the plugin's data folder>
 // The stale conditions are the read hook's (labels() in map.mjs, through the same helpers), in its words, applied to
-// every entry but one a status line ended (N8); plus a source committed after the entry's verified date.
+// every entry but one a status line ended (N8); plus a source committed after the entry's verified date, and a repo
+// path the entry names that is gone (N12).
 import fs from 'node:fs';
 import path from 'node:path';
 import { MAP, entries, sourcePath, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, dreamDate, git, quoteOf, proposedOn, reviewOn, statusOf, replacedBy, refinder, unseenIn, mapMd, mapIdsOf, textOf } from './map.mjs';
 
 const count = (s) => (s ?? '').split('\n').filter(Boolean).length;
+// N12 (the field report of 2026-11-23): the repo paths an entry names, each once: a slash in them and a file extension
+// or a slash at the end. A URL, a glob or the folder before it, a package name, a version (release/2.3.0), "and/or" or
+// a path out through .. is not one. shortcut: ASCII names only, and a path in markdown italics (_a/b.md_) is missed
+const pathsIn = (b) => [...new Set([...b.matchAll(/(?<![\w.:/@-])(?:\.\/)?\.?[\w-]+(?:\/[\w.-]+)+\/?(?![\w.*{/-])/g)]
+  .map((m) => m[0].replace(/^\.\/|\.+$/g, '')))].filter((p) => /\/$|\.[a-z]\w*$/i.test(p) && !p.split('/').includes('..'));
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 export function status(root, data) {
@@ -45,9 +51,14 @@ export function status(root, data) {
           if (changed && changed > verified) why.push(`its source ${at} changed on ${changed}, after it was verified on ${verified}`);
         }
       }
+      // shortcut: a path counts as the repo's only when its first folder exists, so build output (dist/) is not flagged
+      // and a removed top folder is missed, and an entry that records a removal stays flagged until it is reworded;
+      // check git's tree if that misses real drift
+      const gone = !ended && pathsIn(b).filter((p) => p !== at && fs.existsSync(path.join(root, p.split('/')[0])) && !fs.existsSync(path.join(root, p)));
+      if (gone.length) why.push(`names ${gone.join(', ')}, which ${gone.length === 1 ? 'does' : 'do'} not exist`);
       if (why.length) stale.push(`  - ${f}, entry ${i + 1} "${b.split('\n')[0].slice(4)}": ${why.join('; ')}`);
+      else if (proposedOn(b)) proposed++; // a dream's status line ends nothing until review (D28, D30)
       else if (st) retired++;
-      else if (proposedOn(b)) proposed++;
       else current++;
     });
   }
@@ -78,5 +89,6 @@ if (path.basename(process.argv[1] ?? '') === 'status.mjs') {
   const data = process.argv[2];
   const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
   if (!data) { console.log('usage: node status.mjs <the plugin data folder>; run it as /second-brain:status'); process.exitCode = 1; }
-  else { try { console.log(status(root, data)); } catch (e) { console.log(`The status report stopped: ${e.message}`); process.exitCode = 1; } }
+  // a failure exits 0, as dream prepare's refusal does: a failed ! line can abort the skill (N6; the audit, 4k)
+  else { try { console.log(status(root, data)); } catch (e) { console.log(`The status report stopped: ${e.message}`); } }
 }

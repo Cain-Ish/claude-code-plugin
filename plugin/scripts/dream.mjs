@@ -199,12 +199,13 @@ async function digestFrom(file, start, accept) {
   input.destroy();
   return { lines, first, last, cwd, dream, reads };
 }
+// the root and its worktrees, by real path; a worktree whose folder was deleted but never pruned is still listed by git
+const worktrees = (root) => [root, ...git(root, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9))]
+  .map((r) => { try { return real(r); } catch { return path.resolve(r); } });
 // this repo's transcript folders: the ones session start learned, plus the folders of the root and its worktrees
-function folders(root, dir) {
+function folders(dir, rootsReal) {
   const projects = path.join(configDir(), 'projects');
-  const roots = [root, ...git(root, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9))];
-  // a worktree whose folder was deleted but never pruned is still listed by git
-  const prefixes = [...new Set(roots.map((r) => { try { return enc(real(r)); } catch { return enc(path.resolve(r)); } }))];
+  const prefixes = [...new Set(rootsReal.map(enc))];
   let names = [];
   try { names = fs.readdirSync(projects); } catch {}
   const found = names.filter((n) => prefixes.some((p) => n === p || n.startsWith(`${p}-`))).map((n) => path.join(projects, n));
@@ -262,8 +263,7 @@ export async function prepare(root, data) {
     const snap = path.join(runDir, 'snapshot');
     fs.mkdirSync(snap, { recursive: true });
     for (const f of list) { fs.mkdirSync(path.dirname(path.join(snap, f)), { recursive: true }); fs.copyFileSync(path.join(root, f), path.join(snap, f)); }
-    const roots = [root, ...git(root, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9))];
-    const rootsReal = roots.map((r) => { try { return real(r); } catch { return path.resolve(r); } });
+    const rootsReal = worktrees(root);
     // whose session: the repo of its cwd, or of the nearest folder above it that still exists. A session of another
     // repo is foreign. One whose folder is gone and whose nearest folder is not ours is ours when it sits in a
     // transcript folder this repo's session start learned (a removed worktree's), and otherwise is marked seen
@@ -282,7 +282,7 @@ export async function prepare(root, data) {
       return ours ? 'ours' : gone ? 'gone' : 'foreign';
     };
     const candidates = [];
-    for (const d of folders(root, dir)) {
+    for (const d of folders(dir, rootsReal)) {
       for (const f of fs.readdirSync(d).filter((x) => x.endsWith('.jsonl'))) {
         const p = path.join(d, f);
         const size = fs.statSync(p).size;
@@ -336,9 +336,9 @@ export async function prepare(root, data) {
 }
 
 // ---------- finish: validate, apply, log ----------
-// email addresses; drive, UNC and home-like absolute paths; UUIDs (session ids); common key shapes. A word character
+// email addresses (with a letter TLD, so react@18.3.1 is not one: the audit, 4k); drive, UNC and home-like absolute paths; UUIDs (session ids); common key shapes. A word character
 // such as "_" before an id or a key does not hide it
-const PRIVATE = /[\w.+-]+@[\w-]+\.[\w.]+|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
+export const PRIVATE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?![\w-])|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
 const front = (t) => /^---\n([\s\S]*?)\n---\n/.exec(t.replace(/\r/g, ''));
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
 // every ellipsis-separated segment of a proposed quote has 3 or more words, so none goes unchecked (the read hook's

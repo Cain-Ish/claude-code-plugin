@@ -10,12 +10,13 @@ export const MAP = '.project-map';
 
 // D14's capture instruction, frozen: its sha256 is in the ledger. 06, section 3, S4: new entries go to topic files
 // with front matter, and carry id and verified lines; a review line where a decision is time-bound; status lines
-// name the new entry's id
+// name the new entry's id. 06, section 4, 4i: only a document from outside the repo is copied in; the index points to
+// the repo's own (the field report of 2026-11-23)
 export const INSTRUCTION = `This project keeps a map of its knowledge in the folder .project-map/. When, during your work, someone states a
-decision or rule for this project, or you receive or read a document that states requirements, specifications or
-rules the project's work must follow, add each one as its own entry, in the words used, with its source, to the
-topic file in .project-map/ that covers its area. If none fits, create one named for the area, such as avatars.md,
-that starts with this front matter:
+decision or rule for this project, or you receive or read a document from outside this repository that states
+requirements, specifications or rules the project's work must follow, add each one as its own entry, in the words
+used, with its source, to the topic file in .project-map/ that covers its area. If none fits, create one named for
+the area, such as avatars.md, that starts with this front matter:
 
 ---
 name: <the area>
@@ -241,7 +242,7 @@ export const loadState = (dir) => {
 export const dreamDate = (st) => (typeof st.lastDreamDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(st.lastDreamDate) ? st.lastDreamDate : st.lastDream?.slice(0, 10) ?? null);
 export const knownDirs = (dir) => { try { return [...new Set(fs.readFileSync(path.join(dir, 'dirs.log'), 'utf8').split(/\r?\n/).filter(Boolean))]; } catch { return []; } };
 // the inert drafts a dream wrote: .claude/rules/*.md.draft and .claude/skills/*/SKILL.md.draft (D31)
-export function drafts(root) {
+function drafts(root) {
   const out = [];
   try { for (const f of fs.readdirSync(path.join(root, '.claude', 'rules'))) if (f.endsWith('.md.draft')) out.push(`.claude/rules/${f}`); } catch {}
   try { for (const d of fs.readdirSync(path.join(root, '.claude', 'skills'))) if (fs.existsSync(path.join(root, '.claude', 'skills', d, 'SKILL.md.draft'))) out.push(`.claude/skills/${d}/SKILL.md.draft`); } catch {}

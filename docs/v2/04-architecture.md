@@ -23,7 +23,7 @@ Everything a person needs is readable and correctable with the plugin off (PM4).
 | Path | What | Who writes it | Decision |
 | --- | --- | --- | --- |
 | the repo's documents (`.md`, `.mdx`, `.markdown`, `.txt`, `.rst`) | the project's own rules and knowledge | the project's people | D15, D22 |
-| `CLAUDE.md`, `.claude/rules/project-map.md` (`paths: .project-map/**`), `.claude/skills/map-review/`, `.claude/agents/{decision-checker,codebase-guide,memory-curator}.md`, `.gitattributes` (`dreams.md merge=union`) | the layout. Each file is created with `wx` only when missing. For an existing `CLAUDE.md` or `.gitattributes`, setup shows the user the lines to add. Nothing is committed | `/second-brain:setup` | D29 |
+| `CLAUDE.md`, `.claude/rules/project-map.md` (`paths: .project-map/**`), `.claude/skills/map-review/`, `.claude/agents/{decision-checker,codebase-guide,memory-curator}.md`, `.gitattributes` (`dreams.md merge=union`) | the layout. Each file is created with `wx` only when missing. An existing `CLAUDE.md` (or `.claude/CLAUDE.md`) or `.gitattributes` that lacks setup's section or line gets it appended when git shows the file committed and unchanged; otherwise setup shows the user the lines to add (4b). Nothing is committed | `/second-brain:setup` | D29 |
 | `.claude/agent-memory/<agent>/` | the project agents' notes (`memory: project`; needs Claude Code's auto memory on) | the agents | D21, D29 |
 | `.project-map/*.md` | topic files with `name` and `description` front matter, holding entries: a heading, the quote, `id`, `source` ending in a date, `when`, `verified`, and optionally `review`, `status` (naming the replacing `id`), and `proposed` (a dream's, until accepted; then `origin`). `README.md` explains the format, and `dreams.md` logs each dream. `captured.md` from 2.2.0 stays valid | Claude under the capture instruction; a dream's proposals; committed with the work | D11, D13, D14, D16, D28, D30 |
 | `.claude/rules/*.md.draft`, `.claude/skills/*/SKILL.md.draft` | a dream's rule and skill drafts. Claude Code loads only names ending in `.md`, so a draft binds nothing until `/map-review` promotes it | the dream's finish step | D31 |
@@ -40,7 +40,7 @@ is missing.
 
 | Event | What it does | Bytes | Reaches (D12) | Decision |
 | --- | --- | --- | --- | --- |
-| `SessionStart`: `startup`, `clear`, `resume`, `compact` | the capture instruction, then the document index by directory. Once map files have front matter, the map's line is a catalog: each topic file's description and its counts of entries, due entries and proposals. Past Claude Code's 10,000-character cap, the index is cut at a directory, with the map's line kept first. Then the line asking Claude to name the decisions it followed | 1,767 B + the index + 304 B | Claude's context | D13, D14, D22, D23, D30 |
+| `SessionStart`: `startup`, `clear`, `resume`, `compact` | the capture instruction, then the document index by directory. Once map files have front matter, the map's line is a catalog: each topic file's description and its counts of entries, due entries and proposals. Past Claude Code's 10,000-character cap, the index is cut at a directory, with the map's line kept first. Then the line asking Claude to name the decisions it followed | 1,794 B + the index + 304 B | Claude's context | D13, D14, D22, D23, D30 |
 | the same, `startup` and `clear` only | for the user, in `systemMessage`: what waits for review (proposals, drafts); a dream that is due (10 or more new sessions; 7 days with 3 or more; sessions Claude Code's cleanup deletes within 5 days); a dream that did not finish. On any source, a line while v1's shims are on disk | 0 in Claude's context | the user only | D27, D32 |
 | `UserPromptSubmit`, the first typed prompt and the first after each compaction (a subagent's report or another session's message is skipped) | the forced decision: per index directory yes or no, then read the yes ones before changing anything | 227 B | Claude's context | D22 |
 | `PostToolUse` after a Read of a `.project-map/*.md` file | labels its entries. Uncommitted: "unreviewed, not yet committed". A source naming a repo file is re-found in it now: found, no label; not found, "not found word for word in <path>". Any other source: "unverified quote" (committed ones share one line of ranges). Also: "cannot read <path>"; `status: …`; "proposed by a dream <date>, not yet accepted"; "review due since <date>"; "replaced by <id>, which the map does not hold". A file that fails to parse gets one fail-closed label. Past the cap, labels are cut, and the last line says to treat every later entry as unreviewed | per read | Claude's context | D14, D16, D28, D30 |
@@ -56,9 +56,9 @@ the user starts them.
 
 | Name | What it does | Decision |
 | --- | --- | --- |
-| `/second-brain:setup` | creates the layout above at the top of a git repo. Refuses a home folder, and any target a link would carry out of the repo. Warns when auto memory is off | D29 |
+| `/second-brain:setup` | creates the layout above at the top of a git repo. Refuses a home folder, and any target a link would carry out of the repo. Warns when auto memory is off. Its report names the branch and the uncommitted work already there (N9), the kept plugin files that differ from this version's templates (N10), and where the agents keep notes (N11) | D29 |
 | `/second-brain:dream` | *prepare*: lock, snapshot, and turn unread transcripts into tagged digests. *Analyze*: one `dream-analyzer` call per digest. *Stage*: the main session writes proposals. *Finish*: format lint, privacy and secret scan, and provenance (a proposal must rest on the user's typed lines, a chosen answer or a tracked file); committed entries are never changed; drafts are written. *Close*: compare with the snapshot, write the log line, move the watermark. All in one turn, since the skill's grant ends with it | D31 |
-| `/second-brain:status` | the report: stale entries (the read hook's states, plus a source committed after its `verified` date), what waits for review, the last dream and the sessions since, uncommitted agent memory. Changes no file | D30, D32 |
+| `/second-brain:status` | the report: stale entries (the read hook's states, plus a source committed after its `verified` date, and a repo path the entry names that is gone (N12)), what waits for review, the last dream and the sessions since, uncommitted agent memory. Changes no file | D30, D32 |
 | `/second-brain:onboard` | checks that Node and git are present and reports the index, with a count of uncommitted map files | D15 |
 | `dream-analyzer` (plugin agent) | reads one digest and returns candidates, each resting on a typed or chosen line. Tools: Read, Grep, Glob | D31 |
 | `decision-checker`, `codebase-guide`, `memory-curator` (project agents, from setup) | check a change against the recorded decisions; keep navigation notes; flag due and duplicate entries. `memory: project`, no Bash | D20, D21, D29 |
@@ -66,7 +66,7 @@ the user starts them.
 
 ## Budgets (PM8)
 
-- Always on, per session: 1,767 B of instruction, 304 B of naming, and the index: 0.3 KB in a fresh repo after setup,
+- Always on, per session: 1,794 B of instruction, 304 B of naming, and the index: 0.3 KB in a fresh repo after setup,
   2 KB in P1, 6 KB in P2. Plus 227 B per forced decision.
 - Hooks: added p95 at most 100 ms (V2-D18). 2.3.0's release bench: at most 62.7 ms at 8 concurrent (06, S8).
 - Surface: 4 hook events, 3 skills, 1 command, 1 plugin agent, 0 MCP servers.
@@ -104,11 +104,11 @@ the user starts them.
     entry;
   - the agent rate was measured only in the acceptance repo;
   - the index still lists `.claude/agents`, `skills`, `commands` and `output-styles`.
-- **Texts that disagree in small ways** (found 2026-11-22; on record for the next release, 06):
-  - the analyzer's `failure` kind has no proposal type;
-  - the rule template names only `superseded`, and neither it nor the map's README defines `origin`;
-  - the status report sends stale entries to `/map-review`, which walks only due ones;
-  - `plugin.json` has no `author`, which `claude plugin validate` warns about.
+- **Template text reaches new setups only.** Setup never overwrites a file, so a repo set up before 2.4.0 keeps the
+  old rule, skill, agents and map README. Since 2.4.0 setup's report lists the kept files that differ (N10); the
+  user compares them by hand.
+- **The session-start index in a large repo** (the field report of 2026-11-23): about 850 documents in 179
+  directories listed 71. D22 is reopened for a size budget or a summary mode.
 
 ## Not v2
 
