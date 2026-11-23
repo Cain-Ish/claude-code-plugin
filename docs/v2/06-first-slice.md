@@ -6683,3 +6683,61 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   - the start text is 2.4.0's narrowed capture wording, and the index listed the repo's documents;
   - the reply was a success.
 - Sessions already running in the three repos keep their old hooks until `/reload-plugins` or a restart.
+
+## 6: 2.5.1, setup brings a set-up repo up to date (registered 2026-11-23, before the code)
+
+- **What the field showed.** In the first field repo, after `/reload-plugins` on 2.5.0, `/second-brain:setup`
+  created nothing and kept 10 files. Three of them differ from 2.5.0's templates: the map rule, the review skill and
+  the map's README.
+  - Each of the three is byte-identical to 2.3.0's template (sha256, CRLF folded), committed and unchanged.
+  - None of 2.4.0's or 2.5.0's template changes reached the repo, so the user cannot try them there.
+  - The setup skill only says to name the files that differ. The session counted their lines and changed nothing.
+- **The user's word** (2026-11-23): "we need to fix everything and push it to v2 and main branch cause we cannot test
+  it now". Asked how setup should bring a repo up to date, the user chose "Auto-update copies". D29's guardrail
+  "setup never overwrites a file" reopens.
+- **The change:**
+  - `setup.mjs`: each template that setup leaves in the repo for the plugin (the rule, the review skill, the three
+    agents, the map's README) lists the hashes of the texts earlier releases shipped (2.3.0, 2.4.0). A kept file is
+    replaced with this version's template only when both hold:
+    - its text, CRLF folded, hashes to one of them, so it holds nothing of the repo's own;
+    - it passes the guard that appending already uses: a regular, singly linked file inside the repo, not UTF-16,
+      that git tracks under that name with no flag, and that shows unchanged.
+
+    The diff is then the upgrade alone, and `git checkout -- <file>` undoes it. The file keeps its line ending. The
+    report says "Updated to this version's templates (N)".
+  - A file that differs and is no earlier template was changed in the repo. It is kept and listed, as now. The setup
+    skill gains a step: show the user the template's lines that the file lacks, and add them on the user's yes,
+    keeping the file's own lines.
+  - The closing "review the new files in the diff, and commit them" shows only when setup wrote something. The field
+    run printed it with nothing written.
+  - `CLAUDE.md`, the topic files, `dreams.md` and `.gitattributes` stay the user's, and are never replaced.
+- **Checks:**
+  1. *The self-test:*
+     - fixtures, under `test/`: the three changed templates as 2.3.0 and 2.4.0 shipped them. Each fixture's hash is
+       in setup's list for its path. Each current template's hash is pinned, so a template change fails the
+       self-test until the old hash is listed;
+     - 2.3.0 copies, and 2.4.0 copies, committed and clean: each is replaced, equals the template, and is reported
+       as updated. A second run updates and creates nothing, and its last line asks for no review;
+     - kept and listed as differing: a 2.3.0 copy with an uncommitted change; a 2.3.0 copy edited and committed; an
+       untracked 2.3.0 copy;
+     - a CRLF copy keeps CRLF;
+     - a mutation check kills each guard: the hash match, tracked, unchanged, and the write itself.
+  2. *The field shape:* a local clone of the first field repo at its HEAD, in the scratch folder. Setup updates
+     exactly the three files, each equals the candidate's template, `git status` lists only them, and a second run
+     updates nothing. Counts only in this record.
+  3. *The skill, headless* (the candidate copy, Opus 5.5, the user's CLI), 3 runs, in a scratch repo where the
+     README is a 2.3.0 copy with one line added and committed, and the other two files are 2.3.0 copies:
+     - the script updates the two copies, in 3 of 3;
+     - with no yes given, the README is unchanged, and the reply shows its missing lines and asks, in 3 of 3;
+     - each run resumed with "yes": the README holds every line of the template and its own added line, in 3 of 3.
+  4. `claude plugin validate plugin`, and CI on three systems.
+  5. A review of the diff by a fresh Claude agent (agy's quota is out). Each finding is fixed or recorded.
+  - *Not run, and why:* D18's bench, because no hook path changes (`setup.mjs` runs only from the setup skill, and
+    the module grows by a constant); S7, because the dream is untouched; S8, because a new repo's path (create with
+    `wx`) is unchanged and pinned; A1, because the capture text is untouched.
+- **The field counter** (`probes/V2-D17-field/field.mjs`, not the product): its time table stops at alpha.8, so every
+  session after 2.0.0 was named "alpha.8". It now takes the version from the install path when the session shows one
+  (a plugin skill ran), and otherwise says "2.0.0 or later".
+- **Release:** 2.5.1, by 5e's route. Tag it, open a PR to `main`, read its checks before the merge, push `v2` back,
+  publish the release, then move the three installs and check their hash. Setup in the field repo stays the user's own
+  test.
