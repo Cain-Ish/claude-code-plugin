@@ -34,7 +34,9 @@ locks: no hook blocks a write.
     - `codebase-guide` answers where-is and how-do-we questions;
     - `memory-curator` flags due and duplicate entries, and changes no committed claim.
   - `.project-map/README.md`, a first topic file `decisions.md`, the dream log `dreams.md`, and a `.gitattributes`
-    line that merges the log.
+    line that merges the log. The README's table "Where it belongs" (next release) tells Claude the home of each
+    kind of knowledge. A rule a tool can enforce, a repeated procedure, or a rule for certain paths still becomes an
+    entry, and Claude also offers you a check, a skill or a path rule. It never makes one live by itself.
 
   It warns when Claude Code's auto memory is off, since the agents' memory then does nothing. Since 2.4.0 its report
   also names the branch it wrote on and any uncommitted work that was already there, lists the files you kept that

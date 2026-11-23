@@ -4,6 +4,9 @@ paths:
 ---
 # Writing the team memory
 
+Before adding an entry, check the table "Where it belongs" in `.project-map/README.md`: a procedure, a rule for
+certain paths, or a rule a tool can enforce also gets an offer to the user.
+
 Each decision is one entry in the topic file for its area, in the words used:
 
 ```

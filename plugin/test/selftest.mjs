@@ -106,8 +106,8 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
-// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '60455a805197', 'the product changed: record its hash with a new epoch (06)');
+// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2. 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), '38602db7055f', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -991,6 +991,18 @@ ${NAME}` } });
   assert.match(fs.readFileSync(path.join(T, '.project-map/README.md'), 'utf8'), /- origin: dream <date>/);
   assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /stale entries a `\/second-brain:status` report[\s\S]*It changed: update the quote or the source/);
   assert.ok(!/^\s*- failure:/m.test(fs.readFileSync(path.join(PLUGIN, 'agents', 'dream-analyzer.md'), 'utf8')));
+  // 06, section 5, 5a: P1, the README's placement table (six homes, the other homes only offered) and the rule's
+  // pointer to it, which loads whenever Claude touches a map file; P2, the dream skill's draft-writing rules
+  const readme = fs.readFileSync(path.join(T, '.project-map/README.md'), 'utf8');
+  assert.match(readme, /^## Where it belongs\n[\s\S]*Claude only offers the other homes/m);
+  assert.equal((readme.split('## Where it belongs')[1].split('\n## ')[0].match(/^\| (?!What it is|---)/gm) ?? []).length, 6);
+  assert.match(readme, /^\| A rule a tool can enforce[^\n]*offer the user a check/m);
+  assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /^---[\s\S]*?---\n# [^\n]*\n\nBefore adding an entry, check the table "Where it belongs" in `\.project-map\/README\.md`/);
+  const dreamSkill = fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8');
+  // 5a, check 3: "no wider than the files the sessions worked on" narrowed a project-wide rule's paths to the two files
+  // the sessions touched, so it was dropped; the rule's line is 2.4.0's again
+  assert.match(dreamSkill, /`rules\/<name>\.md`: front matter with a `paths:` list; the rule in one or two sentences;/);
+  assert.match(dreamSkill, /then "Use\s+when" and the words a user would type[\s\S]*each ending with how to tell it is done/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(PLUGIN, '.claude-plugin', 'plugin.json'), 'utf8')).author?.name, 'Cain-Ish');
   for (const a of ['decision-checker', 'codebase-guide', 'memory-curator']) {
     const txt = fs.readFileSync(path.join(T, '.claude/agents', `${a}.md`), 'utf8');

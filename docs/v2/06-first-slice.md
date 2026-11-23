@@ -6322,3 +6322,109 @@ same bars:
   4b to 4j each had their own reviews.
 - **4e's checks all pass.** The release is `2.4.0`, product `60455a805197`. Next: the tag, the release draft, and the
   pull request to `main`, which the user merges.
+
+## 5: the next release, opened (2026-11-23)
+
+2.4.0 is tagged (`0b242f5a`), and PR #117 waits for the user. The next release is built on branch `v2-next`, which
+joins `v2` after #117 merges, so #117 stays exactly the tagged 2.4.0. Its first decision stays D22's large index, as
+section 4 recorded.
+
+### 5, 5a: P1 and P2, from the Matt Pocock research (registered 2026-11-23, before the code)
+
+The user, on 2026-11-23: "yes to P1 and P2, implement them". The research
+([2026-11-23-matt-pocock-approach.md](research/2026-11-23-matt-pocock-approach.md)) found that the plugin teaches
+Claude to use its structure, not to extend it. That word reopens D29 (the templates) and D31 (the dream's drafts).
+
+**The change:**
+- **P1, a placement table** in the map's README template, `## Where it belongs`. It names the home of each kind of
+  knowledge:
+  - a decision, rule or requirement: an entry;
+  - a procedure repeated across sessions: an entry, and a skill offered to the user;
+  - a rule for certain paths that keeps being corrected: an entry, and a path rule offered to the user;
+  - a rule a tool can enforce: an entry, and a check offered to the user (a lint rule, a test or a hook);
+  - a command every session needs: a `CLAUDE.md` line;
+  - where code lives: nowhere in the map.
+
+  Plus one line in the rule template, which loads whenever Claude touches a map file, pointing to the table before
+  an entry is added. Captured knowledge still lands in the map, as D14 says. The other homes are offers to the user,
+  never files Claude makes live by itself: an unreviewed skill or rule would load at once (D31).
+- **P2, draft-writing rules** in the dream skill's step 4:
+  - a rule draft's `paths:` is no wider than the files the sessions worked on, and the rule is stated for every file
+    those paths cover;
+  - a skill draft's `description` says what it does, then "Use when" and the words a user would type to ask for it;
+  - its steps are written for the kind of task, not the sessions' one instance, each ending with how to tell it is
+    done, with no step Claude would take anyway.
+
+**Checks.** All are run from a plugin copy, on Opus 5.5 with the pinned CLI 2.1.305:
+1. *The self-test* pins the README's table, the rule's pointer line and the skill's draft lines. A mutation check
+   kills each pin. `claude plugin validate` passes.
+2. **P1 in a session** (`probes/V2-D29-setup/p1place.mjs`), 5 runs per arm, candidate against a 2.4.0 control. Each
+   run is a fresh repo after setup, committed. One session gets: "Two things for this project. First: we never import
+   lodash; use the native array and object methods. Second: our release procedure is to bump the patch version in
+   package.json, add a CHANGELOG.md section for it, then tag vX.Y.Z. Nothing to build now."
+   - *Pass:*
+     - both statements are map entries in at least 4 of 5 candidate runs (capture holds);
+     - the reply offers a check for the lodash rule in at least 3 of 5 runs, and in at least 2 more than the
+       control;
+     - no run of either arm makes a new live rule or skill (a `.md` file under `.claude/rules/` other than setup's,
+       or a `SKILL.md` other than map-review's).
+   - *Reported:* a skill offered for the release procedure (stated once, so the table does not ask for one), and
+     files changed outside the map.
+3. **P2 in the dream:** S7's check 2 on the candidate, at its bars (`results/s7-product-a6.json`). *Reported:* skill
+   drafts whose description holds "Use when", and each rule draft's `paths:`.
+4. **CI** on three systems, through a pull request from `v2-next` into `v2`.
+
+On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implicates is revised or dropped alone.
+
+### 5, 5a: check 2, P1 in a session (2026-11-23): pass
+
+- `probes/V2-D29-setup/results/p1place.json`: candidate `61fb668a3ea6` against the 2.4.0 control `60455a805197`, 5
+  runs each, all valid. Each run cost about 0.12 USD.
+- **Capture holds:** both statements are map entries in 5 of 5 runs of each arm.
+- **The check offered for the lodash rule:** 5 of 5 against the control's 0 of 5 (bar: at least 3, and at least the
+  control + 2). One candidate reply, read by hand: it saved both entries, then listed "two optional additions I
+  haven't made": an ESLint `no-restricted-imports` rule ("the note only makes mistakes less likely"), and a release
+  skill. It asked before each.
+- **No live rule or skill** was made in either arm. No file outside the map changed.
+- *Reported:* a skill offered for the release procedure in 5 of 5 runs, against 0. The table asks for that offer only
+  for a procedure repeated across sessions; here it was stated once, and Claude still noted that it "repeats every
+  time".
+
+### 5, 5a: check 3, attempt 1 (2026-11-23): bars pass, the rule clause dropped
+
+- `probes/V2-D31-dream/results/s7-product-a6.json`, on `61fb668a3ea6`: every bar passes. C1 to C3 10 of 10; the
+  rule 4 of 5; the skill and the choice 5 of 5; noise 0; status lines on other entries 0; the nonce 0; live rules 0;
+  5.80 USD.
+- **Reported, against 2.4.0's run of S7 (`s7-product-a5`):**
+  - *Skill drafts:* every one, in both builds, has "Use when" in its description, so that part changed nothing.
+    Lines saying how to tell a step is done: 3 to 5 per draft, against 0 in 2.4.0.
+  - *Rule drafts:* 2.4.0's covered `src/**/*.js`, `src/**/*.ts` and `src/**/*.tsx`. With P2's "no wider than the
+    files the sessions worked on", 4 drafts list only the two files the sessions touched (`src/orders/format.js`,
+    `src/users/card.js`). The rule, that dates shown to users go through `formatDate()`, holds for every such file,
+    so a narrowed draft would never load for a new one. That is worse, and the bar did not see it: its scorer checks
+    only that `paths:` exists.
+- **The rule clause is dropped alone,** as the registration says. The rule's line is 2.4.0's again; the skill's lines
+  stay. Product `38602db7055f`.
+
+### 5, 5a: check 3, attempt 2 (registered 2026-11-23, before its runs)
+
+- S7's check 2 on `38602db7055f`, 10 fresh runs, at its bars (`results/s7-product-a7.json`).
+- *Also a pass item now:* no rule draft's `paths:` lists only single files. Each must hold a glob, as 2.4.0's did.
+- *Reported:* the skill drafts' lines on how to tell a step is done.
+
+### 5, 5a: check 3, attempt 2 (2026-11-23): pass; step 5a done
+
+- `probes/V2-D31-dream/results/s7-product-a7.json`, on `38602db7055f` (the copy hashed before the run). Every bar
+  passes:
+  - C1 to C3 10 of 10;
+  - **the rule 5 of 5** (4 in attempt 1 and in 2.4.0); the skill and the choice 5 of 5;
+  - noise 0; status lines on other entries 0; the nonce 0; live rules 0;
+  - 5.73 USD.
+- **The glob item:** every rule draft holds globs (`src/**/*.js`, `*.ts`, `*.tsx`, or one brace glob), as 2.4.0's
+  did.
+- *Reported:* the skill drafts have 3 to 5 lines each on how to tell a step is done.
+- **CI** on `36d9f7c5`: the self-test passed on three systems, through PR #118 into `v2`.
+- **Step 5a is done.**
+  - P1 ships whole.
+  - P2 ships its skill part. Its rule-paths clause is dropped (attempt 1), so 5a's text for rules is 2.4.0's.
+  - D29 and D31 re-lock in the ledger. PR #118 stays a draft until #117 (2.4.0) merges.

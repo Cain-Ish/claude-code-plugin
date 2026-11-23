@@ -47,8 +47,10 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      is an entry the map holds or one you propose in this dream.
    - `rules/<name>.md`: front matter with a `paths:` list; the rule in one or two sentences; and a last line
      `<!-- evidence: <digest>:<line>, <digest>:<line> -->` from at least two sessions.
-   - `skills/<name>/SKILL.md`: front matter with `name` and `description` (what it does and when to use it); the
-     steps; and a last line with evidence from at least two sessions, as for rules.
+   - `skills/<name>/SKILL.md`: front matter with `name` and a `description` that says what it does, then "Use
+     when" and the words a user would type to ask for it. Then the steps, written for the kind of task rather than
+     the sessions' one instance, each ending with how to tell it is done, and none that Claude would take anyway.
+     Last, a line with evidence from at least two sessions, as for rules.
    - Every quote comes from a U or Q line, or from a tracked file of this repo, as a run of three words or more; a
      quote trimmed with … keeps three words or more in each piece. Secrets, session ids, email addresses and
      absolute paths stay out of every proposal.

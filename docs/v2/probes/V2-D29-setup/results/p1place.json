@@ -1,0 +1,141 @@
+{
+ "model": "claude-opus-5-5",
+ "cli": "2.1.305 (Claude Code)",
+ "runs": [
+  {
+   "arm": "candidate",
+   "run": 1,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": true,
+   "skillOffered": true,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.27
+  },
+  {
+   "arm": "control",
+   "run": 1,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": false,
+   "skillOffered": false,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.12
+  },
+  {
+   "arm": "candidate",
+   "run": 2,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": true,
+   "skillOffered": true,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.12
+  },
+  {
+   "arm": "control",
+   "run": 2,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": false,
+   "skillOffered": false,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.11
+  },
+  {
+   "arm": "candidate",
+   "run": 3,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": true,
+   "skillOffered": true,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.12
+  },
+  {
+   "arm": "control",
+   "run": 3,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": false,
+   "skillOffered": false,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.11
+  },
+  {
+   "arm": "candidate",
+   "run": 4,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": true,
+   "skillOffered": true,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.12
+  },
+  {
+   "arm": "control",
+   "run": 4,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": false,
+   "skillOffered": false,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.12
+  },
+  {
+   "arm": "candidate",
+   "run": 5,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": true,
+   "skillOffered": true,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.12
+  },
+  {
+   "arm": "control",
+   "run": 5,
+   "valid": true,
+   "lodashEntry": true,
+   "releaseEntry": true,
+   "checkOffered": false,
+   "skillOffered": false,
+   "newLive": 0,
+   "changedOutsideMap": 0,
+   "costUsd": 0.12
+  }
+ ],
+ "candidate": {
+  "valid": 5,
+  "bothEntries": 5,
+  "checkOffered": 5,
+  "skillOffered": 5,
+  "newLive": 0
+ },
+ "control": {
+  "valid": 5,
+  "bothEntries": 5,
+  "checkOffered": 0,
+  "skillOffered": 0,
+  "newLive": 0
+ },
+ "pass": true
+}
