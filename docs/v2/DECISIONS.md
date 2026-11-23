@@ -1641,6 +1641,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   unchanged. The narrowed document clause changes which documents are copied, not how a quote is re-found. 4i's A1
   runs pass C1 to C4 in 10 of 10. 4j adds one stale condition to the status report (a repo path the entry names that
   is gone); the read hook's labels are unchanged.
+- *Note, 2026-11-23, not a reopen (06, section 5, 5b):* a path inside a URL was taken as the source's file, so a URL
+  source read "not found word for word" for ever. A URL now names no repo file, and its entry reads as an unverified
+  quote, like any source that is no file here. The re-find itself is unchanged.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the

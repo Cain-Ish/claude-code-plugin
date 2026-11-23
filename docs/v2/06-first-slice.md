@@ -6462,3 +6462,10 @@ On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implic
      - status no longer lists a URL-sourced entry as stale;
      - a mutation check kills each case.
   2. `claude plugin validate`, and CI on three systems.
+
+### 5, 5b: result (2026-11-23): pass
+
+- The self-test passes, product `9ebb998c0293`. The grid's `url` row now reads "unverified quote, captured
+  2026-11-12", and every other row is unchanged. Removing the URL guard fails the self-test, so the mutation is
+  killed.
+- `claude plugin validate` passes. CI runs on `066f96ad`. D16 gets a note, not a reopen.
