@@ -1,5 +1,5 @@
 # second-brain v2 (06, section 4, 4a): N5, the macOS self-test hang. This round runs only the bytes probe (chunks.mjs):
-# when a child hangs, has it read all of its input, or did it stop partway? The full lane and the seven-arm probe ran
+# round 2: arms F (readFileSync), C (readSync, logged) and C2 (readSync). The full lane and the seven-arm probe ran
 # on bdac932; the full lane returns for the fix's bar.
 name: v2-n5
 on:
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 20
-      - name: 300 calls
+      - name: 300 calls per arm
         timeout-minutes: 35
         run: node docs/v2/probes/V2-D18-hang/chunks.mjs 300 "$RUNNER_TEMP/chunks"
       - name: the record

@@ -5583,3 +5583,29 @@ did it stop partway?
   open question recorded above (A25, an async parent, hung 0 of 300).
 - **Both kinds seen:** each is recorded, and the fix covers the kind the child can.
 - **No hang in 600 calls:** the probe runs once more. A second empty round goes up a level (rule 4).
+
+### 4, 4a: the bytes probe, round 1 (2026-11-23, on `39d7d00`): no hang in 600
+
+- **The result:** 600 of 600 calls ended normally, in 2 jobs, each reading all 25,458 bytes. No hang, so the
+  registered question, all read or partway, has no answer from this round.
+- **What it does show:** the input was H25n's. Read with `fs.readFileSync(0)`, H25n hung 7 times in 300 calls, while
+  the `readSync` loop here never hung in 600. At H25n's rate, 0 in 600 has odds below one in a million. The way the
+  child reads is the strongest lead so far. But this round also adds a file write after each chunk, which changes the
+  timing.
+
+### 4, 4a: the bytes probe, round 2 (registered 2026-11-23, before it runs)
+
+As registered, the probe runs once more. This time it carries control arms in the same jobs, interleaved, with
+2 jobs × 300 calls per arm:
+- **F:** the child reads with `fs.readFileSync(0, 'utf8')`, as the hook does;
+- **C:** round 1's `readSync` loop, with a logged count after each chunk;
+- **C2:** the same loop with no logging.
+
+**How it is read, fixed now:**
+- **F hangs, while C and C2 stay at 0:** the way `readFileSync` reads a socket on macOS is what hangs. The fix is in
+  the hook: read with a `readSync` loop until the end of input. Its bar is 70 clean runs of the full lane, plus 0
+  hangs in 300 calls of H25n against the fixed hook.
+- **C hangs:** round 1's question gets its answer from C's counts, as registered.
+- **C2 hangs but C does not:** the logging changed the timing, and the case goes up a level (rule 4).
+- **No arm hangs:** the case goes up a level (rule 4). The hang is then too rare to study this way, and the
+  mitigation stands: the timeouts already registered, plus a reading method chosen on round 1's evidence.
