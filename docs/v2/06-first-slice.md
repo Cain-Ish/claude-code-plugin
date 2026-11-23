@@ -6756,7 +6756,7 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   Claude then reads nothing outside the repo. The bars stay as registered, and the self-test pins the diff in the
   report.
 
-### 6: the results (2026-11-24): pass on the final build; D29 re-locks when CI passes
+### 6: the results (2026-11-24): pass on the final build; D29 re-locked after CI
 
 - **Where it ran:** the edits were made in `plugin/` on `v2`'s working tree. No real session runs from this checkout:
   the installs run GitHub's release since 2026-10-29. Every check ran from a copy of it in the session's scratch
@@ -6798,7 +6798,8 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
       affected;
     - test gaps on the update path. *Closed* by the staged, skip-worktree, hard-link and read-only cases.
   - Also fixed while checking: a run that wrote nothing said "Written on"; it now says "Ran on".
-- **Check 4:** `claude plugin validate plugin` passes. CI runs on the commit that records these results.
+- **Check 4:** `claude plugin validate plugin` passes. CI passed on `6072c38e`, the commit that records these results:
+  the self-test and the load check on Linux, macOS and Windows, 6 of 6 jobs.
 - **The decision-checker** (this repo's agent) found no broken guardrail: setup commits nothing, deletes nothing, and
   replaces only on an earlier release's hash with the guard passing. Its process points are taken: the attempt
   count, where the build ran, and the re-lock waiting for CI (all above); the mutation script is now in the repo; a
@@ -6806,7 +6807,7 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   (a write that fails midway) stays tracked and is named "not updated", and `git checkout` restores it.
 - **The counter:** `field.mjs` labels the three latest field sessions "v2.3.0" or "2.0.0 or later", and never
   "alpha.8".
-- **D29 re-locks once CI passes.** The guardrail will read: setup commits nothing and deletes no file. It changes a
+- **D29 is re-LOCKED (2026-11-24),** CI having passed. The guardrail now reads: setup commits nothing and deletes no file. It changes a
   file that exists only in two ways, and only when git shows that file tracked under its name, with no flag, and
   unchanged:
   - it appends its section or line to an instruction file or `.gitattributes`;
