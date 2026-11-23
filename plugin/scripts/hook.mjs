@@ -2,8 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { MAP, CAP, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft } from './map.mjs';
+import { MAP, CAP, git, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft } from './map.mjs';
 import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
@@ -34,8 +33,11 @@ if (which === 'session-start') {
   const notes = v1 ? [V1_LEFT] : [];
   if (idx !== null && ['startup', 'clear'].includes(input.source)) {
     try { const w = waiting(root); if (w) notes.push(w); } catch {}
-    if (process.env.CLAUDE_PLUGIN_DATA) try { const d = dreamDue(root, process.env.CLAUDE_PLUGIN_DATA, input.transcript_path); if (d) notes.push(d); } catch {}
-    if (process.env.CLAUDE_PLUGIN_DATA) try { const l = dreamLeft(root, process.env.CLAUDE_PLUGIN_DATA); if (l) notes.push(l); } catch {}
+    const data = process.env.CLAUDE_PLUGIN_DATA;
+    if (data) {
+      try { const d = dreamDue(root, data, input.transcript_path); if (d) notes.push(d); } catch {}
+      try { const l = dreamLeft(root, data); if (l) notes.push(l); } catch {}
+    }
   }
   emit('SessionStart', startText(idx).text, notes.length ? notes.join('\n') : undefined);
 } else if (which === 'prompt') {
@@ -61,7 +63,7 @@ if (which === 'session-start') {
   // the map's .md files, in git's order, through links to folders, each folder once; when the folder exists, any error
   // listing it fails closed as a whole (2o attempt 2: a subfolder that cannot be opened also throws ENOENT)
   let files;
-  try { files = under(root, MAP, new Set([fs.realpathSync(path.join(root, MAP))])).filter((f) => f.endsWith('.md')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); } catch (e) { files = e.code === 'ENOENT' && !fs.existsSync(path.join(root, MAP)) ? [] : null; }
+  try { files = under(root, MAP, new Set([fs.realpathSync(path.join(root, MAP))])).filter((f) => f.endsWith('.md')).sort(); } catch (e) { files = e.code === 'ENOENT' && !fs.existsSync(path.join(root, MAP)) ? [] : null; }
   // a listed file that cannot be read fails closed too: labels() reads ENOENT as "no file", and a name that is not
   // valid UTF-8 is listed with U+FFFD, which no read finds (2o attempt 3). A name listed twice (two names decoded
   // alike) cannot tell which file a read reaches, so it fails closed (attempt 4)
@@ -84,13 +86,13 @@ if (which === 'session-start') {
   // 06, section 3, S5 (D29): the templates sit beside scripts/, in the plugin this file runs from
   console.log(setup(root, path.resolve(path.dirname(process.argv[1]), '..')));
 } else if (which === 'onboard') {
-  const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8' }).stdout?.trim();
+  const gitVersion = git(root, '--version').stdout?.trim();
   const idx = index(root);
   const fit = startText(idx);
   const mapDir = path.join(root, MAP);
   const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')) : [];
   // 06, 2q: a map file HEAD lacks keeps its entries labelled unreviewed until it is committed
-  const tracked = spawnSync('git', ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', MAP], { cwd: root, encoding: 'utf8' }).stdout?.split('\0') ?? [];
+  const tracked = git(root, 'ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', MAP).stdout?.split('\0') ?? [];
   const loose = mapFiles.filter((f) => !tracked.includes(`${MAP}/${f}`)).length;
   console.log([
     `Node ${process.version}${Number(process.versions.node.split('.')[0]) < 20 ? ': the project map needs Node 20 or later' : ''}`,

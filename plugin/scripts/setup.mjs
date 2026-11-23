@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { git, inRepo, configDir } from './map.mjs';
 
 const FILES = [
   ['CLAUDE.template.md', 'CLAUDE.md'],
@@ -22,25 +22,14 @@ const FILES = [
 ];
 const POINTER = '## Team memory';
 
-// a target whose nearest existing folder resolves outside the repo takes no write: a link at any depth (.claude, or
-// .claude/skills) could aim it anywhere (/code-review's finding: only the top folder was checked)
-// The walk stops at a dangling link too (lstat sees it, existsSync does not), and a path that cannot be resolved counts
-// as outside (agy's release round: mkdir followed a dangling link out of the repo)
+// a target whose nearest existing folder resolves outside the repo takes no write (inRepo, map.mjs): a link at any
+// depth (.claude, or .claude/skills) could aim it anywhere (/code-review's finding: only the top folder was checked)
 const there = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
-function outside(root, target) {
-  try {
-    let q = path.dirname(target);
-    while (!there(q)) q = path.dirname(q);
-    const real = fs.realpathSync.native(q);
-    const base = fs.realpathSync.native(root);
-    return real !== base && !real.startsWith(base + path.sep);
-  } catch { return true; }
-}
 // project memory needs auto memory on (Claude Code's docs). shortcut: managed settings are not read; read them if an
 // organisation turns auto memory off there
 function autoMemoryOff(root) {
   if (process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY === '1') return true;
-  const user = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'settings.json');
+  const user = path.join(configDir(), 'settings.json');
   return [user, path.join(root, '.claude', 'settings.json'), path.join(root, '.claude', 'settings.local.json')].some((f) => {
     try { return JSON.parse(fs.readFileSync(f, 'utf8')).autoMemoryEnabled === false; } catch { return false; }
   });
@@ -60,7 +49,7 @@ export function setup(root, pluginRoot) {
   for (const [from, to] of FILES) {
     if (to === 'CLAUDE.md' && instr !== to) { kept.push(instr); continue; }
     const target = path.join(root, to);
-    if (outside(root, target)) { refused.push(to); continue; }
+    if (!inRepo(root, path.dirname(target))) { refused.push(to); continue; }
     const text = fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8');
     fs.mkdirSync(path.dirname(target), { recursive: true });
     try { fs.writeFileSync(target, text, { flag: 'wx' }); created.push(to); } catch (e) { if (e.code !== 'EEXIST') throw e; kept.push(to); }
@@ -71,14 +60,13 @@ export function setup(root, pluginRoot) {
   // file stays as it is, and the text goes to the user (06, section 4, 4b; agy's reviews). The old bytes stay a prefix;
   // the text takes the file's line ending, after a newline if the file lacks a final one
   const read = (f) => { try { return fs.readFileSync(path.join(root, f), 'utf8'); } catch { return ''; } };
-  const git = (...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8' });
   // --no-optional-locks: a status refresh would rewrite .git/index
-  const unchanged = (f) => { const s = git('--no-optional-locks', 'status', '--porcelain', '--', f); return s.status === 0 && s.stdout === ''; };
+  const unchanged = (f) => { const s = git(root, '--no-optional-locks', 'status', '--porcelain', '--', f); return s.status === 0 && s.stdout === ''; };
   const complete = (f, text, what, ask, blankLine) => {
     const p = path.join(root, f);
     let file = false;
     try { const s = fs.lstatSync(p); file = s.isFile() && s.nlink === 1; } catch {}
-    if (!file || outside(root, p) || git('ls-files', '-v', '--', f).stdout !== `H ${f}\n` || !unchanged(f)) return forYou.push(`${ask}\n${text}`);
+    if (!file || !inRepo(root, path.dirname(p)) || git(root, 'ls-files', '-v', '--', f).stdout !== `H ${f}\n` || !unchanged(f)) return forYou.push(`${ask}\n${text}`);
     const old = fs.readFileSync(p, 'utf8'), eol = /^[^\n]*\r\n/.test(old) ? '\r\n' : '\n';
     fs.appendFileSync(p, `${old && !old.endsWith('\n') ? eol : ''}${blankLine && old.trim() ? eol : ''}${text.split(/\r?\n/).join(eol)}${eol}`);
     added.set(f, what);

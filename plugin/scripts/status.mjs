@@ -1,24 +1,21 @@
 // 06, section 3, S8: the report /second-brain:status shows. No model and no network; spawns only git; changes no
 // file. Run as a command by the skill, never by a hook:   node status.mjs <the plugin's data folder>
-// The stale conditions are the read hook's (labels() in map.mjs), in its words, applied to every entry; plus a source
-// committed after the entry's verified date.
+// The stale conditions are the read hook's (labels() in map.mjs, through the same helpers), in its words, applied to
+// every entry but one a status line ended (N8); plus a source committed after the entry's verified date.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { MAP, entries, foundIn, sourcePath, under, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, decode, dreamDate } from './map.mjs';
+import { MAP, entries, sourcePath, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, dreamDate, git, quoteOf, proposedOn, reviewOn, statusOf, replacedBy, refinder, unseenIn, mapMd, mapIdsOf, textOf } from './map.mjs';
 
-const git = (root, ...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 const count = (s) => (s ?? '').split('\n').filter(Boolean).length;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 export function status(root, data) {
   if (!fs.existsSync(path.join(root, MAP))) return `This repo has no team memory (${MAP}/). Run /second-brain:setup to create it.`;
   const today = localDate();
-  const files = under(root, MAP).filter((p) => p.endsWith('.md') && !p.startsWith(`${MAP}/.dream-run/`));
-  const all = files.map((f) => { try { return { f, es: entries(decode(fs.readFileSync(path.join(root, f)))) }; } catch { return { f, es: [] }; } });
-  const ids = new Set(all.flatMap(({ es }) => es.flatMap((b) => [...b.matchAll(/^- id:[ \t]*(\S+)[ \t]*$/gm)].map((m) => m[1]))));
-  const docs = new Map();
-  const doc = (p) => { if (!docs.has(p)) docs.set(p, decode(fs.readFileSync(path.join(root, p))).toLowerCase()); return docs.get(p); };
+  const files = mapMd(root);
+  const all = files.map((f) => ({ f, es: entries(textOf(root, f)) }));
+  const ids = mapIdsOf(root);
+  const refind = refinder(root);
   const commits = new Map();
   const lastCommit = (p) => { if (!commits.has(p)) commits.set(p, git(root, 'log', '-1', '--format=%cs', '--', p).stdout?.trim() ?? ''); return commits.get(p); };
   const stale = [];
@@ -27,18 +24,19 @@ export function status(root, data) {
     es.forEach((b, i) => {
       total++;
       const why = [];
-      // every entry gets every check, as the read hook gives every entry its labels: a narrowed entry still binds in
-      // part (the devils-advocate review). A status line adds the replaced-by check
-      const st = /^- status:[ \t]*(\S.*)$/m.exec(b)?.[1].trim();
-      const by = st && /^\S+[ \t]+\d{4}-\d{2}-\d{2}[ \t]+by[ \t]+((?=[\w.-]*[\d-])[A-Za-z0-9][\w.-]*)[ \t]*(?::|$)/.exec(st)?.[1];
-      if (by && ids.size && !ids.has(by)) why.push(`replaced by ${by}, which the map does not hold`);
-      const review = /^- review:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/m.exec(b)?.[1];
+      // every check, as the read hook gives every entry its labels: a narrowed entry still binds in part (the
+      // devils-advocate review). An entry any status line ended no longer binds, so its review date and source are not
+      // checked, and it cannot stay stale after its source moves on (N8, 06 section 4, 4h); a dream's status line ends
+      // nothing until review accepts it (D28, D30; the decision-checker's 4h review)
+      const st = statusOf(b);
+      const ended = !proposedOn(b) && /^- status:[ \t]*(superseded|expired|done)\b/m.test(b);
+      const by = replacedBy(st);
+      if (by && ids?.size && !ids.has(by)) why.push(`replaced by ${by}, which the map does not hold`);
+      const review = !ended && reviewOn(b);
       if (review && review < today) why.push(`review due since ${review}`);
-      const at = sourcePath(/^- source:(.*)$/m.exec(b)?.[1] ?? '');
+      const at = !ended && sourcePath(/^- source:(.*)$/m.exec(b)?.[1] ?? '');
       if (at) {
-        const quote = b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
-        let found;
-        try { found = Boolean(fs.statSync(path.join(root, at), { throwIfNoEntry: false })?.isFile() && foundIn(quote, doc(at))); } catch { found = null; }
+        const found = refind(at, quoteOf(b));
         if (found === null) why.push(`cannot read ${at}`);
         else if (!found) why.push(`not found word for word in ${at}`);
         else {
@@ -49,18 +47,17 @@ export function status(root, data) {
       }
       if (why.length) stale.push(`  - ${f}, entry ${i + 1} "${b.split('\n')[0].slice(4)}": ${why.join('; ')}`);
       else if (st) retired++;
-      else if (/^- proposed:[ \t]*dream/m.test(b)) proposed++;
+      else if (proposedOn(b)) proposed++;
       else current++;
     });
   }
   // the sessions since the last dream, counted as session start's nudge counts them
   const dir = stateDir(root, data);
   const state = loadState(dir);
-  let since = 0;
-  for (const d of knownDirs(dir)) { let names = []; try { names = fs.readdirSync(d); } catch {} since += names.filter((n) => n.endsWith('.jsonl') && !Object.hasOwn(state.seen, n)).length; }
+  const since = unseenIn(knownDirs(dir), state.seen).length;
   const due = dreamDue(root, data, null).replace(/^second-brain: a dream/, 'A dream');
   const wait = waiting(root).replace(/^second-brain: waiting/, 'Waiting');
-  const last = git(root, 'log', '-1', '--format=%cs', '--', MAP).stdout?.trim();
+  const last = lastCommit(MAP);
   // --no-optional-locks: a status refresh would rewrite .git/index, and the report changes no file
   const dirty = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--', MAP).stdout);
   const agents = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--', '.claude/agent-memory').stdout);

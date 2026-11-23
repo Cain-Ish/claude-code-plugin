@@ -8,32 +8,22 @@
 // ignores itself. The snapshot and the run record, which names session ids, live in the plugin's data folder.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { spawnSync } from 'node:child_process';
-import { MAP, entries, foundIn, stateDir, loadState, knownDirs, localDate, toplevel, decode, dreamDate, reviewStep } from './map.mjs';
+import { MAP, entries, foundIn, stateDir, loadState, knownDirs, localDate, toplevel, decode, dreamDate, reviewStep, git, quoteOf, idsIn, utf16, inRepo, words, configDir } from './map.mjs';
 
 const RUN = `${MAP}/.dream-run`;
 const MAX_SESSIONS = 30;
 const MAX_BYTES = 5 << 20;
 const STALE_LOCK_MS = 2 * 3600e3;
-const git = (root, ...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 const enc = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
-const today = () => localDate();
 const real = (p) => fs.realpathSync.native(p);
+const topic = (f) => f.endsWith('.md') && !['readme.md', 'dreams.md'].includes(f.toLowerCase());
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 
 // ---------- the watched set: the map, and what Claude Code loads as instructions (06, S7 amendments) ----------
-// the nearest existing folder at or above p resolves inside the repo
-const within = (root, p) => {
-  let q = p;
-  while (!fs.existsSync(q)) q = path.dirname(q);
-  const r = real(root);
-  const a = real(q);
-  return a === r || a.startsWith(r + path.sep);
-};
 // no folder on the way from the repo's root to p (p itself not counted) is a link. A link there could aim a scan, a
 // write or a delete anywhere: outside the repo, or at its .git/hooks (agy's release round). Such a path is never
 // watched, written or removed; a link that was there before the dream is kept, and not followed
@@ -55,7 +45,7 @@ const scan = (root, d) => {
   const files = [];
   const links = [];
   const top = path.join(root, d);
-  if (!lstat(top)?.isDirectory() || !plain(root, top) || !within(root, top)) return { files, links };
+  if (!lstat(top)?.isDirectory() || !plain(root, top) || !inRepo(root, top)) return { files, links };
   const walk = (rel) => { let es = []; try { es = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; } for (const e of es) { const p = `${rel}/${e.name}`; if (p === RUN) continue; if (e.isSymbolicLink()) links.push(p); else if (e.isDirectory()) walk(p); else if (e.isFile()) files.push(p); } };
   walk(d);
   return { files, links };
@@ -84,7 +74,7 @@ const links = (root) => Object.fromEntries([...FOLDERS.filter((f) => linkAt(root
 const watchable = (f) => typeof f === 'string' && !f.includes('\\') && !f.split('/').some((s) => !s || s === '.' || s === '..')
   && ((f.startsWith(`${MAP}/`) && f.endsWith('.md') && !f.startsWith(`${RUN}/`)) || DIRS.some((d) => f.startsWith(`${d}/`)) || TOP.includes(f));
 // a write target: plain, not a link itself, and its nearest existing folder inside the repo
-const inside = (root, p) => plain(root, p) && !lstat(p)?.isSymbolicLink() && within(root, path.dirname(p));
+const inside = (root, p) => plain(root, p) && !lstat(p)?.isSymbolicLink() && inRepo(root, path.dirname(p));
 // puts the watched set back to the snapshot. Each file it replaces or removes is copied to undone/ first, so nothing
 // is destroyed: another session may have captured an entry during the dream
 function restore(root, dir, runDir, list, before) {
@@ -104,7 +94,7 @@ function restore(root, dir, runDir, list, before) {
   for (const f of list) {
     const p = path.join(root, f);
     // a link on its path, or a folder that leads outside the repo: nothing there is touched
-    if (!plain(root, p) || !within(root, path.dirname(p))) { changed.push(`not restored ${f} (a link is on its path)`); continue; }
+    if (!plain(root, p) || !inRepo(root, path.dirname(p))) { changed.push(`not restored ${f} (a link is on its path)`); continue; }
     const bytes = fs.readFileSync(path.join(snap, f));
     let link = false, now = null;
     try { link = fs.lstatSync(p).isSymbolicLink(); if (!link) now = fs.readFileSync(p); } catch {}
@@ -133,18 +123,12 @@ function record(root, dir, step) {
 // devils-advocate review)
 // The test is on real paths: the folder's nearest existing ancestor, through any link, lies under Claude Code's own
 // plugins/data, not inside the repo (agy's release round: a link named plugins/data passed a test on the name)
-const dataOk = (root, data) => {
-  try {
-    const base = real(path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'plugins', 'data'));
-    let q = path.resolve(data);
-    while (!lstat(q) && path.dirname(q) !== q) q = path.dirname(q);
-    const a = real(q);
-    return (a === base || a.startsWith(base + path.sep)) && !within(root, path.resolve(data));
-  } catch { return false; }
-};
+const dataOk = (root, data) => inRepo(path.join(configDir(), 'plugins', 'data'), data) && !inRepo(root, data);
 
 // ---------- the lock: it names the root that holds it; its age is its file's mtime (a reader between create and
-// write would see no time in it) ----------
+// write would see no time in it). Past two hours it is taken over without a restore (S7: a restore days after a crash
+// would revert what was captured since). shortcut: a dream still running after two hours loses its run to the next one
+// (/code-review of 2.3.0); refresh the lock during a run if dreams ever take that long ----------
 function lock(dir, root) {
   const f = path.join(dir, 'dream.lock');
   fs.mkdirSync(dir, { recursive: true });
@@ -217,7 +201,7 @@ async function digestFrom(file, start, accept) {
 }
 // this repo's transcript folders: the ones session start learned, plus the folders of the root and its worktrees
 function folders(root, dir) {
-  const projects = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+  const projects = path.join(configDir(), 'projects');
   const roots = [root, ...git(root, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9))];
   // a worktree whose folder was deleted but never pruned is still listed by git
   const prefixes = [...new Set(roots.map((r) => { try { return enc(real(r)); } catch { return enc(path.resolve(r)); } }))];
@@ -228,7 +212,7 @@ function folders(root, dir) {
 }
 export async function prepare(root, data) {
   const dir = stateDir(root, data);
-  if (!within(root, path.join(root, MAP))) throw new Error(`${MAP}/ is a link that leads outside the repo: the dream writes nothing through it`);
+  if (!inRepo(root, path.join(root, MAP))) throw new Error(`${MAP}/ is a link that leads outside the repo: the dream writes nothing through it`);
   lock(dir, root);
   try {
     const st = loadState(dir);
@@ -335,11 +319,11 @@ export async function prepare(root, data) {
     }
     // the commit the tracked sources come from; none before the first commit (rev-parse would print "HEAD" itself)
     const pinned = git(root, 'rev-parse', '--verify', '-q', 'HEAD');
-    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: pinned.status === 0 ? pinned.stdout.trim() : '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: today() }, null, 1));
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: pinned.status === 0 ? pinned.stdout.trim() : '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: localDate() }, null, 1));
     const digests = manifest.filter((m) => m.digest);
     // K1: which topic files each session read, and the ones none read (evidence for the user, never a proposal)
     let topics = [];
-    try { topics = fs.readdirSync(path.join(root, MAP)).filter((f) => f.endsWith('.md') && !['README.md', 'dreams.md'].includes(f)); } catch {}
+    try { topics = fs.readdirSync(path.join(root, MAP)).filter(topic); } catch {}
     const read = new Set(digests.flatMap((m) => m.reads));
     return [
       `Dream prepared: ${digests.length} session digest(s) in ${RUN}/digests/: ${digests.map((m) => `${m.digest} (${m.first}${m.last && m.last !== m.first ? ` to ${m.last}` : ''})`).join(', ') || 'none'}.`,
@@ -356,12 +340,10 @@ export async function prepare(root, data) {
 // such as "_" before an id or a key does not hide it
 const PRIVATE = /[\w.+-]+@[\w-]+\.[\w.]+|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
 const front = (t) => /^---\n([\s\S]*?)\n---\n/.exec(t.replace(/\r/g, ''));
-const quoteOf = (b) => b.split('\n').filter((l) => l.startsWith('>')).map((l) => l.replace(/^> ?/, '')).join('\n');
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
-const WORD = /[\p{L}\p{N}]+/gu;
 // every ellipsis-separated segment of a proposed quote has 3 or more words, so none goes unchecked (the read hook's
 // foundIn skips shorter segments, as 2.2.0's did)
-const provable = (q) => { const segs = q.split(/…|\.\.\./).map((s) => s.match(WORD) ?? []).filter((w) => w.length); return segs.length > 0 && segs.every((w) => w.length >= 3); };
+const provable = (q) => { const segs = q.split(/…|\.\.\./).map((s) => words(s)).filter((w) => w.length); return segs.length > 0 && segs.every((w) => w.length >= 3); };
 // a proposed entry keeps its heading (80 characters), its quote, and the lines id, source (200), when and review
 const KEEP = /^- (id|source|when|review):/;
 const tidy = (b) => b.split('\n').filter((l, k) => k === 0 || l.startsWith('>') || !l.trim() || KEEP.test(l))
@@ -403,7 +385,7 @@ export function finish(root, data) {
   // choice (/code-review's finding)
   const lines = Object.values(digests).flat();
   const userText = lines.filter((l) => l.startsWith('U: ')).join('\n').toLowerCase();
-  const answers = lines.filter((l) => l.startsWith('Q: ') && l.includes(' = ')).map((l) => ({ question: l.slice(3, l.lastIndexOf(' = ')).toLowerCase(), answer: (l.slice(l.lastIndexOf(' = ') + 3).toLowerCase().match(WORD) ?? []).join(' ') }));
+  const answers = lines.filter((l) => l.startsWith('Q: ') && l.includes(' = ')).map((l) => ({ question: l.slice(3, l.lastIndexOf(' = ')).toLowerCase(), answer: words(l.slice(l.lastIndexOf(' = ') + 3)).join(' ') }));
   // the quote holds the choice as its own part, "<the question> = <the answer>": its question part (three words or
   // more) is found in the Q line's question, and its answer part is the answer chosen, word for word. Before, an
   // answer's word that also occurred in the question let a quote of the question alone pass (agy's release round)
@@ -411,8 +393,8 @@ export function finish(root, data) {
     const k = q.lastIndexOf(' = ');
     if (k < 0) return false;
     const asked = q.slice(0, k);
-    const picked = (q.slice(k + 3).toLowerCase().match(WORD) ?? []).join(' ');
-    return (asked.match(WORD) ?? []).length >= 3 && answers.some((a) => a.answer && picked === a.answer && foundIn(asked, a.question));
+    const picked = words(q.slice(k + 3)).join(' ');
+    return words(asked).length >= 3 && answers.some((a) => a.answer && picked === a.answer && foundIn(asked, a.question));
   };
   // a tracked file's text as HEAD holds it: an uncommitted edit, or a tracked link to an ignored file, is no source.
   // shortcut: blobs over 2 MB are skipped and the rest are read at once; stream them if a repo's text outgrows memory
@@ -425,35 +407,38 @@ export function finish(root, data) {
     if (!oids.length) return '';
     const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: `${oids.join('\n')}\n`, maxBuffer: 1 << 30 }).stdout ?? Buffer.alloc(0);
     const parts = [];
-    // "<oid> blob <size>\n<bytes>\n" per blob
+    // "<oid> blob <size>\n<bytes>\n" per blob; a missing object is "<oid> missing\n", with no body (/code-review)
     for (let i = 0; i < out.length;) {
       const nl = out.indexOf(10, i);
       if (nl < 0) break;
-      const size = Number(out.toString('latin1', i, nl).split(' ')[2]) || 0;
-      parts.push(out.toString('utf8', nl + 1, nl + 1 + size));
-      i = nl + 1 + size + 1;
+      const [, type, size] = out.toString('latin1', i, nl).split(' ');
+      if (type !== 'blob') { i = nl + 1; continue; }
+      parts.push(out.toString('utf8', nl + 1, nl + 1 + Number(size)));
+      i = nl + 1 + Number(size) + 1;
     }
     return parts.join('\n').toLowerCase();
   };
-  const inRepo = (q) => { repoText ??= headText(); return foundIn(q, repoText); };
-  const date = today();
+  const inTracked = (q) => { repoText ??= headText(); return foundIn(q, repoText); };
+  const date = localDate();
   const n = { entries: 0, status: 0, rules: 0, skills: 0 };
   const dropped = {};
   const drop = (why) => { dropped[why] = (dropped[why] ?? 0) + 1; };
   const written = [];
   // every id the map holds now, so a new entry never reuses one
-  const ids = new Set(mapFiles(root).flatMap((f) => [...decode(fs.readFileSync(path.join(root, f))).matchAll(/^- id:[ \t]*(\S+)/gm)].map((m) => m[1])));
+  const ids = new Set(mapFiles(root).flatMap((f) => idsIn(decode(fs.readFileSync(path.join(root, f))))));
   // a UTF-16 map file (Windows PowerShell 5.1 writes one) is never appended to: UTF-8 text after it would corrupt it
-  const utf16 = (p) => { try { const b = fs.readFileSync(p); return (b[0] === 0xff && b[1] === 0xfe) || (b[0] === 0xfe && b[1] === 0xff); } catch { return false; } };
+  const utf16At = (p) => { try { return utf16(fs.readFileSync(p)); } catch { return false; } };
   const P = path.join(run, 'proposals');
-  // map entries: appended to their topic file, each marked proposed, never replacing or changing what is there
+  // map entries: appended to their topic file, each marked proposed, never replacing or changing what is there. The
+  // dream log and the README are no topic files (/code-review of 2.3.0)
   const mapDir = path.join(P, 'map');
   for (const f of fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((x) => /^[\w.-]+\.md$/.test(x)) : []) {
+    if (!topic(f)) { drop('not a topic file'); continue; }
     if (PRIVATE.test(f)) { drop('private data'); continue; } // a file name becomes a path and a name in the repo
     const text = fs.readFileSync(path.join(mapDir, f), 'utf8').replace(/\r/g, '');
     const target = path.join(root, MAP, f);
     const safe = inside(root, target);
-    const wide = utf16(target);
+    const wide = utf16At(target);
     const keep = [];
     for (let b of entries(text)) {
       if (!safe) { drop('a link on its path'); continue; }
@@ -462,8 +447,8 @@ export function finish(root, data) {
       if (PRIVATE.test(b)) { drop('private data'); continue; }
       b = tidy(b);
       const q = quoteOf(b);
-      if (!q.trim() || !provable(q) || !(foundIn(q, userText) || chosen(q) || inRepo(q))) { drop('no typed or tracked source'); continue; }
-      let id = /^- id:[ \t]*(\S+)/m.exec(b)?.[1];
+      if (!q.trim() || !provable(q) || !(foundIn(q, userText) || chosen(q) || inTracked(q))) { drop('no typed or tracked source'); continue; }
+      let id = idsIn(b)[0];
       if (!id || ids.has(id)) { const base = slug(id ?? b.split('\n')[0].slice(4)); id = base; for (let k = 2; ids.has(id); k++) id = `${base}-${k}`; b = /^- id:/m.test(b) ? b.replace(/^- id:.*$/m, `- id: ${id}`) : `${b}\n- id: ${id}`; }
       if (PRIVATE.test(b)) { drop('private data'); continue; }
       ids.add(id);
@@ -488,7 +473,7 @@ export function finish(root, data) {
     if (!/^[\w.-]+$/.test(id) || !s || PRIVATE.test(raw)) { drop('malformed status line'); continue; }
     if (!ids.has(s[3])) { drop('status naming an unknown id'); continue; }
     const sline = `- status: ${s[1]} ${s[2]} by ${s[3]}: ${s[4].slice(0, 200)}`;
-    const file = mapFiles(root).find((p) => !utf16(path.join(root, p)) && new RegExp(`^- id:[ \\t]*${id.replace(/[.]/g, '\\.')}[ \\t]*$`, 'm').test(fs.readFileSync(path.join(root, p), 'utf8')));
+    const file = mapFiles(root).find((p) => !utf16At(path.join(root, p)) && idsIn(fs.readFileSync(path.join(root, p), 'utf8')).includes(id));
     if (!file) { drop('status for an unknown id'); continue; }
     if (!inside(root, path.join(root, file))) { drop('a link on its path'); continue; }
     const t = fs.readFileSync(path.join(root, file), 'utf8');
@@ -590,7 +575,7 @@ export function abort(root, data) {
     said = `Dream aborted: the map and Claude's instruction files are as they were before the dream, and the next dream reads the same sessions.${changed.length ? ` Undone: ${changed.join(', ')}.${undone ? ` What they replaced is saved in ${undone}.` : ''}` : ''}`
       + (settings.length ? ` Changed during the dream and left as they are: ${settings.join(', ')}; check them, hooks above all.` : '');
   }
-  if (within(root, path.join(root, MAP))) fs.rmSync(path.join(root, RUN), { recursive: true, force: true });
+  if (inRepo(root, path.join(root, MAP))) fs.rmSync(path.join(root, RUN), { recursive: true, force: true });
   fs.rmSync(runDir, { recursive: true, force: true });
   unlock(dir);
   return said;

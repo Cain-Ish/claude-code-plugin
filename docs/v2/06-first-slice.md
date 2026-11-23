@@ -5883,3 +5883,161 @@ checker passing a change that breaks a recorded decision.
   Both maps are small, so "never read" has nothing to show yet. The skew between files (13 against 1) is the
   signal a user can act on.
 - **The hash** is `7769d957bc6a`. CI (check 3) runs on this commit.
+
+### 4, 4h: the whole-plugin audit and simplification (registered 2026-11-23, before it runs)
+
+**Why:** the user asked that, once the steps are done, the whole plugin be validated by hand and with the installed
+review tools. They see issues and places to clean up, and code that is over-thought and could be shorter.
+
+**How:**
+1. **Reviews, which change nothing:**
+   - `ponytail-audit` over `plugin/`: bugs, security, load, untested risk, and what to delete, merge or split;
+   - a read of every product file by hand, for the same;
+   - `code-review` over the diff since `v2.3.0`.
+
+   Each finding is triaged: fix, accept with a reason, or record for later. A finding that touches a recorded decision
+   is checked by `decision-checker` before its fix.
+2. **The rewrites:** each one is the smallest change that keeps behaviour, unless a finding is a bug. Files are
+   rewritten one at a time, with the self-test run after each. A text the self-test pins byte for byte (`INSTRUCTION`,
+   `FORCE`, `NAME`, `HEADER`) is not rewritten: its pins and its measured bars belong to D14, D22 and D23.
+3. **Then `simplify`** over the whole 4h diff, as the last pass.
+
+**Checks after 4h,** all of which must pass:
+- the self-test on Windows, and CI on three systems;
+- `claude plugin validate plugin` with no warning;
+- the hooks' smoke (`plugin/test/smoke.mjs`, pinned CLI, Haiku) and setup's smoke (`smoke4b.mjs`), each 3 of 3;
+- the product's line count goes down, or each line it adds is named in the record;
+- every hook's output is unchanged on the self-test's corpus, where 4h did not set out to change it. The self-test's
+  pinned outputs show this.
+
+4e's bars (S7 check 2, S8's acceptance, D18's bench) then run on the 4h code.
+
+### 4, 4h: the reviews and the rewrite (2026-11-23)
+
+- **`ponytail-audit` over `plugin/`,** with every script read in full. 12 findings, no security hole or data loss:
+  - **must fix:** (1) N8: the status report kept entries a status line had ended "stale" forever. `narrowed` still
+    binds, so only `superseded`, `expired` and `done` skip the review-date and source checks. (2) Three patterns for
+    `- id:` lines, in `map.mjs`, `status.mjs` and `dream.mjs`, so labels and the dream could disagree;
+  - **should fix:** `status.mjs` repeated most of `labels()`'s rules; quote extraction and the UTF-16 check were each
+    written three times; the `proposed` and `review` patterns twice; two copies of the inside-the-repo guard with
+    different strictness; four `git` helpers; the unseen-sessions count twice;
+  - **nice to have:** a sort comparator that equals the default, a dead alias, a pass-through `today()` wrapper, and
+    the same environment check written twice.
+- **`code-review` (medium) over `v2.3.0..HEAD`:** 7 findings:
+  - **fixed:** (1) one unreadable map file stopped `mapIds()` and `waiting()` from reading the rest, so a status line
+    could be called "replaced by an id the map does not hold". Each file now has its own `try`. (2) A damaged
+    `pending` record in `state.json` stopped every later dream; `loadState` now checks its shape. (3) A dream that ran
+    past two hours lost its lock, and its proposals, to the next dream. A lock is now never taken over by age; only
+    `abort` releases it, as the skill and the session-start note already say. (4) The dream's `within()` walked past a
+    dangling link; the dream now uses the shared `inRepo()`, which stops there. (5) A proposal could be aimed at
+    `dreams.md` or `README.md`; both names are refused. (7) A missing object misaligned the `git cat-file` parser; a
+    header that is not a blob is now skipped;
+  - **accepted:** (6) killing `finish` between removing its run and writing the state cannot be retried. The order is
+    the devils-advocate review's, so that a retried finish never applies proposals twice or overwrites the first
+    pending record.
+- **The rewrite:** `map.mjs` exports the shared helpers (`git`, `utf16`, `quoteOf`, `idsIn`, `proposedOn`,
+  `reviewOn`, `statusOf`, `replacedBy`, `docReader`, `refind`, `inRepo`, `unseenIn`), and `status.mjs`, `dream.mjs`,
+  `setup.mjs` and `labels()` use them. Each caller keeps its own wording, and the self-test passed after each file.
+  - The self-test's S8 status case now gives the superseded entry a missing quote and a passed review date.
+  - The lock case now expects the refusal, then a run left without its lock.
+  - A mutation check (the `ended` guard switched off, in a scratch copy) failed the N8 case: "Stale: 5".
+- **The line count:** the scripts' code fell by 5 lines (93 removed, 88 added); their comments rose by 13 (15 removed,
+  28 added), mostly on the shared helpers and the seven fixes. `simplify` runs next over the whole diff.
+
+### 4, 4h: the `simplify` pass (2026-11-23)
+
+Four cleanup reviews ran in parallel over the 4h diff: reuse, simplification, efficiency and altitude.
+- **Applied:**
+  - `dataOk` is two `inRepo` calls. One `configDir()` replaces four `CLAUDE_CONFIG_DIR` fallbacks.
+  - One `mapMd()` list and one `textOf()` read replace the nested `try` blocks.
+  - One `refinder(root)` closure replaces `isFile`, `docReader` and `refind`. `isProposed` and `isDue` are inlined.
+  - One `mapIdsOf()` serves the read hook and the status report. It returns `null` when any map file cannot be read,
+    so no id is called missing on a partial read: the altitude review found the per-file `try` only patched that
+    symptom. Status now reads ids from whole files, as the read hook does; before, an id under a heading with no quote
+    counted for one and not the other.
+  - The dream reads ids with `idsIn` everywhere, which drops two more patterns, one of them a hand-escaped regex.
+  - One case-insensitive `topic()` rule serves prepare's K1 line and finish. A `Dreams.md` proposal is dropped as
+    "not a topic file" instead of being filtered out silently.
+  - The dream uses the exported `words()` in place of its own `WORD`. `hook.mjs`'s onboard and status's last commit
+    use the shared helpers. Orphaned and over-claiming comments are fixed.
+  - A regression of 4h is undone: the rewritten `there()` in setup threw on `EACCES` or `ENOTDIR`, for example a file
+    named `.claude`; it has its `try` back.
+- **Tests added:** a `Dreams.md` proposal is dropped and never reaches the log; a `pending` record without its line
+  reads as none.
+- **Skipped, with the reason:**
+  - the efficiency review's notes predate 4h. `labels()` re-reads cited files for each map file in one Bash event, so
+    the cost grows with the square of the file count; status lists transcripts twice; finish reads map files several
+    times. Each costs milliseconds at today's map sizes, the D18 bench passed, and fixing the first would add a
+    parameter. *Upgrade when* a map is large enough to show in the bench;
+  - the `.dream-run` filters, which differ by design;
+  - `sourceOf` and `headingOf`, and the other small repeats, which do not pay for the edit;
+  - one `git worktree list` per prepare instead of two, which touches prepare's logic;
+  - having `labels()` skip ended entries, which would change the hook's output, ruled out by 4h's registration.
+- **The line count, against `c2424e3b`:** code down 11 (129 removed, 118 added); comments up 13 (17 removed, 30
+  added). The added comments carry the shared helpers' contracts and the source of each fix. The product total is
+  1,716 lines, against 1,714 before 4h.
+
+### 4, 4h: the decision-checker's review, and what followed (2026-11-23)
+
+The repo's `decision-checker` ran over the 4h diff after the fixes, not before them as 4h's registration asked. It
+found two breaks:
+- **The lock change broke S7's registered design.** S7 takes over a lock more than two hours old without a restore,
+  because a restore days after a crash would revert what was captured since. D31 locked on S7 passing. Without the
+  takeover, `abort` and its restore were the only way out, and a dream prepared in a worktree removed since would keep
+  the repo locked for good. **Reverted to S7's design.** `code-review`'s finding 3 (a dream still running after two
+  hours loses its run to the next one) is accepted. It carries a `shortcut:` comment that names the limit, and S7's
+  dreams took minutes.
+- **N8 ignored a dream's proposal, and read only the first status line.** A dream writes its status line with
+  `- proposed:`, and that line turned off the checks before review accepted it, against D28 and D30. An entry narrowed,
+  then superseded, stayed stale. **Fixed:** an entry is ended by any non-proposed `superseded`, `expired` or `done`
+  line. The S8 status case now has a narrowed-then-superseded entry, not stale, and an uncommitted dream proposal with a
+  `done` line and a passed review date, still stale. Its expected counts are "Stale: 5" and "Proposed by a dream: 0".
+
+Also from that review:
+- **4h's promises:**
+  - the `agy` round on the hook changes runs now;
+  - the remaining product files (the skills, the command, the agent and project-map templates) were read by hand, with
+    no finding;
+  - the line count is below.
+- **Side effects, accepted:**
+  - a dangling `.md` link in the map, such as an editor's lock link, now withholds the "replaced by" label while it
+    exists. That fails closed;
+  - `idsIn` reads an id followed by `\r`, so a dream's status line now reaches a CRLF map file, as an LF line.
+    Before, such a file's ids went unmatched and the line was dropped.
+- **The line count, against `c2424e3b`:** three comments that only restated their code are gone. The product is
+  1,718 lines, against 1,714. The four added lines are named here: the lock's `shortcut:` comment, which this
+  codebase's rule asks for whenever a limit is known (2 lines), and the N8 comment on a dream's status line (2
+  lines).
+
+### 4, 4h: agy's round on the hook changes (2026-11-23)
+
+The verifier section 4's rules ask for on every hook change. agy (Gemini 4 Argon, plan mode) was given the `map.mjs`
+and `hook.mjs` diff:
+- **Fixed:**
+  - (1) `mapMd()` matched the run folder with `startsWith`, where `labels()` had used `includes('/.dream-run/')`. So a
+    `.dream-run` folder nested inside the map changed what the read hook printed. `mapMd()` now uses `includes`, so
+    the read hook's output is the same as before 4h. `waiting()` and the status report now also skip a nested run
+    folder, which the dream never makes.
+- **Accepted:**
+  - (2) the `pending` shape check changes session start's note for a damaged state file. That is `code-review`'s
+    finding 2, fixed on purpose;
+  - (3) onboard's `git --version` runs in the repo's folder, which exists, and `ls-tree`'s buffer is larger, which
+    only removes a failure;
+  - (4) `inRepo` with a repo at the file-system root. Setup's old `outside()` had the same test, so it predates 4h.
+- **agy found nothing else:** no fail-closed path weakened, no new exception escaping a hook, and the helpers'
+  patterns are byte-identical to the inline code they replaced.
+- **The hash** is now `5bca1aa901d4`. The hooks smoke runs again on it.
+
+### 4, 4h: the checks after 4h (2026-11-23)
+
+- **The self-test** passes on Windows with every new case, and `claude plugin validate plugin` passes with no warning.
+- **Setup's smoke** passed 3 of 3, and **the hooks smoke** 3 of 3, on the code before agy's one-line filter fix.
+- **The hooks smoke on the final hash `5bca1aa901d4`:**
+  - attempt 1 failed. Its first run ended in a Node error whose output was not kept; the other two passed. Rule 2
+    counts that as a failed attempt;
+  - two uncounted re-runs passed;
+  - attempt 2 passed 3 of 3, with every run's output kept.
+
+  The only change since the last clean 3 of 3 was the nested run-folder filter, which no smoke repo exercises. The
+  first run's cause is unknown.
+- **CI** runs on the commit.
