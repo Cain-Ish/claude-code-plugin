@@ -6823,3 +6823,8 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   copy is byte-identical to the tag. Running sessions need `/reload-plugins`.
 - **Next, the user's own test:** in the first field repo, `/reload-plugins`, then `/second-brain:setup`. By check 2,
   it should update the three files and leave the rest of the tree as it is.
+- **For the next release** (a comment edit changes the product hash): `setup.mjs`'s header (line 2) and its N10
+  comment (line 111) still say that setup never overwrites. The code and the skill are right; only these two comments
+  are stale.
+- **Before the user's run,** checked read-only in the first field repo: its three files are tracked with no flag
+  (`H`), clean, and singly linked, so setup's guard lets the update through.
