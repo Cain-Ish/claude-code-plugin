@@ -6543,3 +6543,11 @@ repo.
      name). D2 is followed in at least as many candidate runs as control runs.
    - *Reported:* D2's counts, the documents each run read, and the cost.
 4. `claude plugin validate`, the hooks smoke, and CI on three systems.
+
+### 5: the field counter reads 2.0.1 to 2.4.0's labels (2026-11-23)
+
+- `probes/V2-D17-field/field.mjs`, C5b: the entries a label block names. It now also reads:
+  - 2.0.1's grouped line (`unverified quote, committed: entries 1-3 (captured …), 5`), by entry number, mapped to
+    headings in the plugin's order;
+  - labels that open with a status, a dream's proposal or a passed review date (2.1.0 and later).
+- A self-check on those shapes runs at every load, and a mutation trips it. Probe code only, so no product change.
