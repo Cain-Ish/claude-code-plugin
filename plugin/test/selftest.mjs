@@ -106,8 +106,8 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
-// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M). 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), 'c3e75c22b0ea', 'the product changed: record its hash with a new epoch (06)');
+// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 5d, D22's summary. 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), 'bec25506345f', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -563,19 +563,33 @@ fs.rmSync(path.join(repo, '.project-map', 'bom.md'));
     assert.equal(index(d), gits(d));
   }
 }
-// I2: an index past the 10,000-character cap of one hook output is cut at a directory, and says so
+// I2, and 06 section 5, 5d (D22): an index past the 10,000-character cap of one hook output lists every directory
+// without its file names; past the cap even so, grouped under top folders; only then is it cut at a line. Each says so
 {
+  const names = Array.from({ length: 6 }, (_, j) => `a-rather-long-document-name-for-the-summary-${j}.md`).join(', ');
+  const wide = `${HEADER}\n${Array.from({ length: 150 }, (_, i) => `docs/area-${i}/: ${names}`).join('\n')}\n`;
+  const s = startText(wide);
+  assert.ok(s.mode === 'summary' && s.listed === 150 && s.total === 150 && s.text.length <= CAP && s.text.endsWith(`\n\n${NAME}`), s.mode);
+  assert.ok(s.text.includes(`${HEADER}\ndocs/area-0/ (6 documents)\n`) && s.text.includes('\ndocs/area-149/ (6 documents)\n(File names are left out'));
   const big = `${HEADER}\n${Array.from({ length: 400 }, (_, i) => `packages/package-${i}/: README.md`).join('\n')}\n`;
-  const { text, listed, total } = startText(big);
-  assert.ok(text.length <= CAP && total === 400 && listed > 0 && listed < 400 && text.endsWith(`\n\n${NAME}`));
-  assert.ok(text.includes(`packages/package-${listed - 1}/: README.md\n(${400 - listed} more directories not listed`));
+  const g = startText(big);
+  assert.ok(g.mode === 'grouped' && g.listed === 400 && g.text.length <= CAP && g.text.includes(`${HEADER}\npackages/** (400 directories, 400 documents)\n(File names`), g.mode);
   assert.equal(startText(index(repo)).text, `${INSTRUCTION}\n\n${index(repo)}\n${NAME}`);
-  // the second review's J2: when cut, the map folder's line comes first; J1: one pass, so 10,000 directories are quick
+  // the second review's J2: the map folder's line comes first and whole, in every mode
   const withMap = big.replace(/\n$/, '\n.project-map/: captured.md\n');
-  assert.ok(startText(withMap).text.includes(`${HEADER}\n.project-map/: captured.md\npackages/package-0/: README.md\n`));
-  const huge = `${HEADER}\n${Array.from({ length: 10_000 }, (_, i) => `packages/package-${i}/: README.md`).join('\n')}\n`;
+  assert.ok(startText(withMap).text.includes(`${HEADER}\n.project-map/: captured.md\npackages/** (400 directories`));
+  // the last resort: 10,000 top folders do not fit even grouped, so the list is cut at a line; J1: one pass, so quick
+  const huge = `${HEADER}\n${Array.from({ length: 10_000 }, (_, i) => `package-${i}/: README.md`).join('\n')}\n`;
   const t = performance.now();
-  assert.ok(startText(huge).text.length <= CAP && performance.now() - t < 100, 'the cut takes one pass');
+  const h = startText(huge);
+  assert.ok(h.mode === 'cut' && h.text.length <= CAP && h.listed > 0 && h.listed < 10_000 && performance.now() - t < 100, 'the cut takes one pass');
+  assert.ok(h.text.includes(`package-${h.listed - 1}/ (1 document)\n(${10_000 - h.listed} more directories not listed`));
+  // onboard says which mode applies, on a repo past the cap
+  const large = path.join(tmp, 'd22-large');
+  for (let i = 0; i < 150; i++) for (let j = 0; j < 6; j++) { fs.mkdirSync(path.join(large, 'docs', `area-${i}`), { recursive: true }); fs.writeFileSync(path.join(large, 'docs', `area-${i}`, `a-rather-long-document-name-for-the-summary-${j}.md`), '# d\n'); }
+  spawnSync('git', ['init', '-q'], { cwd: large });
+  spawnSync('git', ['add', '-A'], { cwd: large });
+  assert.match(spawnSync('node', [HOOK, 'onboard'], { encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: large } }).stdout, /^Warning: session start is past the 10,000-character limit of one hook output, so it lists the index's 150 directories without their file names\.$/m);
 }
 // J3: past the cap, the labels are cut at a line and every entry after the last one shown fails closed
 {
