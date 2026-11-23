@@ -1,0 +1,17 @@
+killed   hash match: selftest.mjs:903
+killed   guard on update: selftest.mjs:1004
+killed   write error caught: selftest.mjs:877
+killed   stuck apart from differ: selftest.mjs:1008
+killed   the stuck line: selftest.mjs:1007
+killed   single link: selftest.mjs:1004
+killed   the write: selftest.mjs:1003
+killed   line ending: selftest.mjs:1003
+killed   wrote counts updates: selftest.mjs:1007
+killed   closing line: selftest.mjs:927
+killed   tracked: selftest.mjs:1004
+killed   unchanged: selftest.mjs:1004
+killed   kept excludes updated: selftest.mjs:1007
+killed   ran, not written: selftest.mjs:927
+killed   the diff in the report: selftest.mjs:925
+killed   a listed hash: selftest.mjs:945
+survived 0 of 16

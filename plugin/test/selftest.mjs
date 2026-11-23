@@ -9,6 +9,7 @@ import { spawnSync as spawnRaw } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { prepare, finish, abort, mapReads, PRIVATE } from '../scripts/dream.mjs';
 import { status } from '../scripts/status.mjs';
+import { FILES, sum } from '../scripts/setup.mjs';
 import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue, dreamLeft, loadState, sourcePath } from '../scripts/map.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -106,8 +107,8 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // output byte-identical to 2.2.0 (ee8625f06842, probes/V2-D30-entries/diff.mjs). From S4 on, session start carries
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
-// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '44a8c3454df2', 'the product changed: record its hash with a new epoch (06)');
+// that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
+assert.equal(product.digest('hex').slice(0, 12), '2625c8cd263b', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -917,10 +918,14 @@ ${NAME}` } });
     assert.ok(out.includes(`\nWritten on branch ${branch}.`), out);
     if (name === 'empty') assert.ok(!out.includes('already held') && out.includes('notes in .claude/agent-memory/'), out);
     if (name === 'dirty') assert.ok(out.includes('The tree already held 3 uncommitted changes before setup ran'), out);
-    if (name === 'ownClaude') assert.match(out, /^Differ from this version's templates \(1\), to compare by hand: \.claude\/agents\/decision-checker\.md \([^)]*templates.claude.agents.decision-checker\.md\)$/m, out);
+    if (name === 'ownClaude') assert.match(out, /^Differ from this version's templates, changed in this repo \(1\): \.claude\/agents\/decision-checker\.md \([^)]*templates.claude.agents.decision-checker\.md\)$/m, out);
     // the user's own CLAUDE.md and .gitattributes differ from the templates, and are never listed; nor is a file setup
     // created, on its second run
     else assert.ok(!(out + out2).includes('Differ from'), out + out2);
+    if (name === 'ownClaude') assert.match(out, /^Diff of \.claude\/agents\/decision-checker\.md against this version's template [^\n]*\n@@[^\n]*\n[\s\S]*^-mine$/m, out);
+    // 06, section 6: a run that wrote nothing asks for no review
+    assert.match(out2, /\nRan on branch [^\n]*\nNothing was written\.\n?$/, out2);
+    assert.match(out, /\nNothing is committed: review the new files in the diff, and commit them\.\n?$/, out);
     // the review of 4j: a second run writes nothing, so it has no files to keep apart from the first run's
     assert.ok(!out2.includes('already held'), out2);
   }
@@ -930,6 +935,18 @@ ${NAME}` } });
   const LINE = '.project-map/dreams.md merge=union';
   const w = (r, f, t) => { fs.mkdirSync(path.dirname(path.join(r, f)), { recursive: true }); fs.writeFileSync(path.join(r, f), t); };
   const youClaude = (f) => `For you: ${f} has no team-memory section`;
+  // 06, section 6: the templates earlier releases shipped (test/earlier/<version>/), and this version's
+  const OLD = FILES.filter((row) => row[2]);
+  const RULE = OLD[0];
+  const old = (v, from) => fs.readFileSync(path.join(PLUGIN, 'test', 'earlier', v, from), 'utf8');
+  const now = (from) => fs.readFileSync(path.join(PLUGIN, 'templates', from), 'utf8');
+  // each earlier text's hash is listed for its file, and nothing else is; each template setup may replace is pinned, so
+  // a changed template fails here until its old hash is listed in setup.mjs and its old text kept under test/earlier/
+  assert.deepEqual(OLD.map(([from, , earlier]) => [from, earlier]), OLD.map(([from]) => [from, ['2.3.0', '2.4.0'].map((v) => sum(old(v, from)))]));
+  assert.deepEqual(Object.fromEntries(FILES.filter(([, to]) => to.startsWith('.claude/') || to === '.project-map/README.md').map(([from]) => [from, sum(now(from))])), {
+    'claude/rules/project-map.md': '4bbeddbff188310c', 'claude/skills/map-review/SKILL.md': '7ff1c09c889ebe9c', 'claude/agents/decision-checker.md': 'f0eeade059f64cce',
+    'claude/agents/codebase-guide.md': '26df656f4d0a6b34', 'claude/agents/memory-curator.md': '3f840cf3fd21dcb5', 'project-map/README.md': '15a4bb133893f00e',
+  }, 'a template changed: list its old hash in setup.mjs (FILES), keep its old text under test/earlier/, then pin the new hash here');
   const cases = [
     { name: 'dotClaudeOnly', pre: (r) => w(r, '.claude/CLAUDE.md', '# Mine\n'), want: { '.claude/CLAUDE.md': `# Mine\n\n${SECTION}\n` }, absent: ['CLAUDE.md'], says: 'Added to files that existed (1): .claude/CLAUDE.md (the team-memory section)' },
     { name: 'both', pre: (r) => { w(r, 'CLAUDE.md', '# Root\n'); w(r, '.claude/CLAUDE.md', '# Inner\n'); }, want: { 'CLAUDE.md': `# Root\n\n${SECTION}\n` }, says: 'Added to files that existed (1): CLAUDE.md (the team-memory section)' },
@@ -948,6 +965,25 @@ ${NAME}` } });
     // agy's review of 4b: a flag that hides a local edit from git status must not let setup append unseen
     ...['--skip-worktree', '--assume-unchanged'].map((flag) => ({ name: flag.slice(2), pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r, g) => { g('update-index', flag, 'CLAUDE.md'); fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'); }, want: {}, says: youClaude('CLAUDE.md') })),
     ...(process.platform === 'win32' ? [] : [{ name: 'link', pre: (r) => { w(r, 'real.md', '# Mine\n'); fs.symlinkSync('real.md', path.join(r, 'CLAUDE.md')); }, want: {}, says: youClaude('CLAUDE.md') }]),
+    // 06, section 6 (D29 reopened): a committed, unchanged copy of an earlier release's template takes this version's,
+    // in its own line ending; a copy changed in any way, or not committed, stays as it is and is listed as differing
+    ...['2.3.0', '2.4.0'].map((v) => ({ name: `old${v}`, pre: (r) => OLD.forEach(([from, to]) => w(r, to, old(v, from))), want: Object.fromEntries(OLD.map(([from, to]) => [to, now(from)])), says: [`Updated to this version's templates, as each was an earlier version's, unchanged (3): ${OLD.map(([, to]) => to).join(', ')}`, 'Kept as they were (0): nothing', 'Nothing is committed: review'], not: 'Differ from' })),
+    { name: 'oldDirty', pre: (r) => w(r, RULE[1], `${old('2.3.0', RULE[0])}mine\n`), post: (r) => w(r, RULE[1], old('2.3.0', RULE[0])), want: {}, says: `Not updated, though each is an earlier version's template, since git does not show it committed and unchanged or it cannot be written (1): ${RULE[1]}.`, not: 'Updated to' },
+    { name: 'oldCrlf', pre: (r) => w(r, RULE[1], old('2.3.0', RULE[0]).replace(/\n/g, '\r\n')), want: { [RULE[1]]: now(RULE[0]).replace(/\n/g, '\r\n') }, says: `unchanged (1): ${RULE[1]}` },
+    { name: 'oldUnstaged', pre: (r) => w(r, RULE[1], old('2.3.0', RULE[0])), post: (r) => fs.appendFileSync(path.join(r, RULE[1]), 'mine\n'), want: {}, says: `changed in this repo (1): ${RULE[1]}`, not: 'Updated' },
+    // attempt 2: the report carries the diff, the template's lines marked + and the file's own marked -
+    { name: 'oldEdited', pre: (r) => w(r, RULE[1], `${old('2.3.0', RULE[0])}mine\n`), want: {}, says: [`changed in this repo (1): ${RULE[1]}`, `\nDiff of ${RULE[1]} against this version's template (+ the template's lines, - this file's own):\n@@`, '\n+Before adding an entry, check the table', '\n-mine\n'], not: 'Updated' },
+    // every other file already in place: the update alone is what was written
+    { name: 'oldOnly', pre: (r) => { FILES.forEach(([from, to]) => w(r, to, now(from))); w(r, RULE[1], old('2.3.0', RULE[0])); }, want: { [RULE[1]]: now(RULE[0]) }, says: ['Created (0): nothing', `unchanged (1): ${RULE[1]}`, '\nWritten on branch', 'Nothing is committed: review'] },
+    // the review of section 6: a copy the guard stops, or one that cannot be written, is named apart, not as changed
+    // here; each guard has a case that only it stops
+    ...[
+      ['oldUntracked', () => {}, (r) => w(r, RULE[1], old('2.3.0', RULE[0]))],
+      ['oldStaged', (r) => w(r, RULE[1], `${old('2.3.0', RULE[0])}mine\n`), (r, g) => { w(r, RULE[1], old('2.3.0', RULE[0])); g('add', RULE[1]); }],
+      ['oldSkip', (r) => w(r, RULE[1], old('2.3.0', RULE[0])), (r, g) => g('update-index', '--skip-worktree', RULE[1])],
+      ['oldHardlink', (r) => w(r, RULE[1], old('2.3.0', RULE[0])), (r) => fs.linkSync(path.join(r, RULE[1]), path.join(r, 'twin.md'))],
+      ['oldReadonly', (r) => w(r, RULE[1], old('2.3.0', RULE[0])), (r) => fs.chmodSync(path.join(r, RULE[1]), 0o444)],
+    ].map(([name, pre, post]) => ({ name, pre, post, want: {}, says: `Not updated, though each is an earlier version's template, since git does not show it committed and unchanged or it cannot be written (1): ${RULE[1]}. Once it is, run setup again.`, not: 'Differ from' })),
   ];
   for (const c of cases) {
     const r = path.join(tmp, `setup4b-${c.name}`);
@@ -968,10 +1004,11 @@ ${NAME}` } });
       else assert.equal(mid.get(p), h, `${c.name}: ${p} changed`);
     }
     for (const p of c.absent ?? []) assert.ok(!fs.existsSync(path.join(r, p)), `${c.name}: ${p} was created`);
-    if (c.says) assert.ok(out.includes(c.says), `${c.name}: ${out}`);
+    for (const s of [].concat(c.says ?? [])) assert.ok(out.includes(s), `${c.name}: ${out}`);
     if (c.not) assert.ok(!out.includes(c.not), `${c.name}: ${out}`);
     const after = snapshot(r);
-    setupRun(r);
+    // 06, section 6: a second run writes nothing, and its last line asks for no review
+    assert.match(setupRun(r), /\nNothing was written\.\n?$/, c.name);
     assert.deepEqual(snapshot(r), after, `${c.name}: the second run changed something`);
     assert.equal(gitState(r), state, `${c.name}: setup changed HEAD or the index`);
   }

@@ -104,9 +104,10 @@ the user starts them.
     entry;
   - the agent rate was measured only in the acceptance repo;
   - the index still lists `.claude/agents`, `skills`, `commands` and `output-styles`.
-- **Template text reaches new setups only.** Setup never overwrites a file, so a repo set up before 2.4.0 keeps the
-  old rule, skill, agents and map README. Since 2.4.0 setup's report lists the kept files that differ (N10); the
-  user compares them by hand.
+- **Template text reaches a repo set up earlier only where the repo left it untouched.** Since 2.5.1 (06, section
+  6; D29) setup replaces a kept file whose text is an earlier release's template (listed by hash in `setup.mjs`) when
+  git shows it tracked and unchanged. A file the repo changed is kept and listed (N10), and the setup skill offers the
+  template's new lines.
 - **The session-start index in a large repo** (the field report of 2026-11-23): about 850 documents in 179
   directories listed 71. D22 is reopened for a size budget or a summary mode.
 

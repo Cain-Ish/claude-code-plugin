@@ -39,9 +39,10 @@ one language or stack.
   D15). A project with none starts with an empty map: Claude's own search finds what the code has, and the map
   grows from work (user, 2026-10-22; V2-D21). New knowledge enters as entries in one standard format, in plain files
   the index also lists (V2-D13, D14). Since 2.3.0 (user, 2026-11-20), the first act is setup: it creates Anthropic's
-  layout (`CLAUDE.md`, a scoped rule, a review skill, three project agents, the team memory) and overwrites nothing;
-  to an instruction file or `.gitattributes` that git shows committed and unchanged, it only appends its section or
-  line (V2-D29). Entries are versioned in topic files (V2-D30), and a dream run on demand proposes what was missed (V2-D31).
+  layout (`CLAUDE.md`, a scoped rule, a review skill, three project agents, the team memory). To an instruction file
+  or `.gitattributes` that git shows committed and unchanged, it only appends its section or line; a file that is an
+  earlier release's template, committed and unchanged, it replaces with the current one (2.5.1); nothing else is
+  overwritten (V2-D29). Entries are versioned in topic files (V2-D30), and a dream run on demand proposes what was missed (V2-D31).
 - **Followed, not only shown** (user, 2026-10-20). Claude is held to the rules that bind its task, not merely given
   them; V2-D20 decides how. Only the project's own rules in the map are enforced: general code review stays a
   non-goal.

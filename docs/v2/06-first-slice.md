@@ -6617,3 +6617,198 @@ candidate is product `44a8c3454df2`. As 4e:
 - **CI** on `e35b60ae`: the self-test and the load jobs passed on three systems.
 - **S7's check 2:** `s7-product-a8.json`, passed (5c).
 - **5e passes.** Next: the tag `v2.5.0`, the release, and the pull request to `main`.
+
+### 5: 2.5.0 released (2026-11-23)
+
+- **PR #119 merged into `main`** (`530ab3eb`) after its checks were read: all seven passed. GitHub deleted `v2`
+  again, as the map entry `v2-branch-deleted-on-merge` says, and it was pushed back at once at the same commit,
+  `fbc32ae6`.
+- **The `v2.5.0` release is published.** The two field repos and this repo moved from 2.4.0 to 2.5.0. The installed
+  copy hashes `44a8c3454df2`, the release. Running sessions need `/reload-plugins`.
+- **Open:** nothing from the user's list of 2026-11-23. The talk the user saw is not found in published text (4f),
+  and R4 stays out (D33).
+
+### 5: a field read of 2.3.0 and 2.4.0 in real use (registered 2026-11-23, before it runs)
+
+Map issue step 22, "live tests on 2.3.0". The user's own sessions in the first field repo since the 2.3.0 install
+(2026-11-22) are read, as the field loop of `probes/V2-D17-field/README.md` reads them. Two main sessions qualify; the
+second field repo has none.
+- **Freeze:** copies of the two transcripts, with their subagent folders, in the session's scratch folder. They are
+  never put in the repo.
+- **Scan:** `count.mjs` (`field.mjs` and `field-scope.mjs`), with C5b reading the newer label formats (today's
+  update).
+- **Record:** counts only, here. No quote from a transcript, and no name of the repo.
+- **Triage,** by the loop's rule 6: a defect is fixed under its decision with a check registered first; an
+  observation goes to the ledger; a candidate goes to the map issue.
+- *Not a pass or fail:* D24's bar was 2.0.0's. This read looks for defects and for what real use shows.
+
+### 5: the field read (2026-11-23): no defect
+
+Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compaction 3). Counts only.
+- **C1, arrival:** the plugin's session start arrived in 6 of 6 epochs, and its context was recorded each time. The
+  index listed 10 or 11 directories.
+- **C2, the forced decision:** once per epoch with a human prompt (5 of 5); never on a later prompt, never twice.
+- **C6, capture in real use:** 2 entries written in the main session, both in the format and quoted word for word.
+  None was forbidden data.
+- **C8:** 0 hook errors in either session.
+- **C5b, labels by output:** 9 calls showed map entries, 85 entries in all, and 81 were labelled by the counter's
+  rule. All three calls it flagged were read by hand:
+  - two printed files from Claude Code's own auto-memory folder, which restate some map headings. They are not map
+    reads, and no label was due, so the counter's loose heading match is the false alarm;
+  - one was a real `grep` of the map. Checked against the map as it was then, all 16 entries it showed are
+    labelled. The counter compares each call with the map as it is now, and the file was committed again after the
+    call.
+- **Observations, recorded and not changed:**
+  - **C9:** subagents (20 and 14) never got the index, and made no map entries in 188 repo writes. D14's
+    instruction reaches the main session only, by design;
+  - **field-scope:** (S-b)'s unread-documents bar is missed in 9 of 10 events, as in 17m. D22 settled on (N).
+  - The counter's build label ("alpha.8") is stale for sessions after 2.0.0. Its time-to-build table stops at the
+    GitHub install, and it misreads nothing else.
+- **Triage:** no defect, no new candidate. Step 22 is read as done for 2.3.0 to 2.4.0; the next read waits for
+  sessions on 2.5.0.
+
+### 5: 2.5.0 checked live (2026-11-23, the user's request)
+
+- **GitHub:**
+  - `v2.5.0` is published and marked latest; the tag is on `fbc32ae6`;
+  - `main` (`530ab3eb`) says 2.5.0 in `plugin.json` and `marketplace.json`, and its `plugin/` hashes
+    `44a8c3454df2`, the release.
+- **The user's installs:** the two field repos and this repo are each recorded at 2.5.0, enabled, and pointing at the
+  2.5.0 cache, which hashes `44a8c3454df2`. The marketplace clone is at #119's merge.
+- **A new user's install:** with an isolated config folder, `marketplace add Cain-Ish/claude-code-plugin` and
+  `plugin install` from GitHub got 2.5.0, byte-identical to the release.
+- **A session:** a headless session on the user's current CLI (2.1.330) ran in a scratch repo, with the installed
+  2.5.0 copy:
+  - the plugin was loaded, session start and the prompt hook both exited 0, and the forced decision arrived;
+  - the start text is 2.4.0's narrowed capture wording, and the index listed the repo's documents;
+  - the reply was a success.
+- Sessions already running in the three repos keep their old hooks until `/reload-plugins` or a restart.
+
+## 6: 2.5.1, setup brings a set-up repo up to date (registered 2026-11-23, before the code)
+
+- **What the field showed.** In the first field repo, after `/reload-plugins` on 2.5.0, `/second-brain:setup`
+  created nothing and kept 10 files. Three of them differ from 2.5.0's templates: the map rule, the review skill and
+  the map's README.
+  - Each of the three is byte-identical to 2.3.0's template (sha256, CRLF folded), committed and unchanged.
+  - None of 2.4.0's or 2.5.0's template changes reached the repo, so the user cannot try them there.
+  - The setup skill only says to name the files that differ. The session counted their lines and changed nothing.
+- **The user's word** (2026-11-23): "we need to fix everything and push it to v2 and main branch cause we cannot test
+  it now". Asked how setup should bring a repo up to date, the user chose "Auto-update copies". D29's guardrail
+  "setup never overwrites a file" reopens.
+- **The change:**
+  - `setup.mjs`: each template that setup leaves in the repo for the plugin (the rule, the review skill, the three
+    agents, the map's README) lists the hashes of the texts earlier releases shipped (2.3.0, 2.4.0). A kept file is
+    replaced with this version's template only when both hold:
+    - its text, CRLF folded, hashes to one of them, so it holds nothing of the repo's own;
+    - it passes the guard that appending already uses: a regular, singly linked file inside the repo, not UTF-16,
+      that git tracks under that name with no flag, and that shows unchanged.
+
+    The diff is then the upgrade alone, and `git checkout -- <file>` undoes it. The file keeps its line ending. The
+    report says "Updated to this version's templates (N)".
+  - A file that differs and is no earlier template was changed in the repo. It is kept and listed, as now. The setup
+    skill gains a step: show the user the template's lines that the file lacks, and add them on the user's yes,
+    keeping the file's own lines.
+  - The closing "review the new files in the diff, and commit them" shows only when setup wrote something. The field
+    run printed it with nothing written.
+  - `CLAUDE.md`, the topic files, `dreams.md` and `.gitattributes` stay the user's, and are never replaced.
+- **Checks:**
+  1. *The self-test:*
+     - fixtures, under `test/`: the three changed templates as 2.3.0 and 2.4.0 shipped them. Each fixture's hash is
+       in setup's list for its path. Each current template's hash is pinned, so a template change fails the
+       self-test until the old hash is listed;
+     - 2.3.0 copies, and 2.4.0 copies, committed and clean: each is replaced, equals the template, and is reported
+       as updated. A second run updates and creates nothing, and its last line asks for no review;
+     - kept and listed as differing: a 2.3.0 copy with an uncommitted change; a 2.3.0 copy edited and committed; an
+       untracked 2.3.0 copy;
+     - a CRLF copy keeps CRLF;
+     - a mutation check kills each guard: the hash match, tracked, unchanged, and the write itself.
+  2. *The field shape:* a local clone of the first field repo at its HEAD, in the scratch folder. Setup updates
+     exactly the three files, each equals the candidate's template, `git status` lists only them, and a second run
+     updates nothing. Counts only in this record.
+  3. *The skill, headless* (the candidate copy, Opus 5.5, the user's CLI), 3 runs, in a scratch repo where the
+     README is a 2.3.0 copy with one line added and committed, and the other two files are 2.3.0 copies:
+     - the script updates the two copies, in 3 of 3;
+     - with no yes given, the README is unchanged, and the reply shows its missing lines and asks, in 3 of 3;
+     - each run resumed with "yes": the README holds every line of the template and its own added line, in 3 of 3.
+  4. `claude plugin validate plugin`, and CI on three systems.
+  5. A review of the diff by a fresh Claude agent (agy's quota is out). Each finding is fixed or recorded.
+  - *Not run, and why:* D18's bench, because no hook path changes (`setup.mjs` runs only from the setup skill, and
+    the module grows by a constant); S7, because the dream is untouched; S8, because a new repo's path (create with
+    `wx`) is unchanged and pinned; A1, because the capture text is untouched.
+- **The field counter** (`probes/V2-D17-field/field.mjs`, not the product): its time table stops at alpha.8, so every
+  session after 2.0.0 was named "alpha.8". It now takes the version from the install path when the session shows one
+  (a plugin skill ran), and otherwise says "2.0.0 or later".
+- **Release:** 2.5.1, by 5e's route. Tag it, open a PR to `main`, read its checks before the merge, push `v2` back,
+  publish the release, then move the three installs and check their hash. Setup in the field repo stays the user's own
+  test.
+
+### 6: check 3, attempt 1 (2026-11-23): fails on the skill step
+
+- `probes/V2-D29-setup/upgrade.mjs`, 3 runs, CLI 2.1.331, Opus 5.5. The script updated the two untouched copies in 3
+  of 3, and the edited README was untouched in 3 of 3. The other bars missed in 3 of 3: shown 0, asked 0, merged 0.
+- **Why:** the new step had Claude run `git diff --no-index` against the template in the plugin's install folder.
+  That folder is outside the repo, and Claude Code refused both the diff and a Read of it. So Claude could only ask
+  for the access, and the "yes" granted none. The field session ran in auto mode, which allowed that read; a session
+  that asks for permissions does not.
+- **Attempt 2** (rule 4), registered here before its code. Setup's report itself carries, for each file that differs,
+  its diff against the template (`git diff --no-index`, run by the script, CR at line end ignored, at most 4,000
+  characters per file). Lines marked `+` are the template's. The skill step says to show those and add them on a yes.
+  Claude then reads nothing outside the repo. The bars stay as registered, and the self-test pins the diff in the
+  report.
+
+### 6: the results (2026-11-24): pass on the final build; D29 re-locked after CI
+
+- **Where it ran:** the edits were made in `plugin/` on `v2`'s working tree. No real session runs from this checkout:
+  the installs run GitHub's release since 2026-10-29. Every check ran from a copy of it in the session's scratch
+  folder, and check 3's probe names only the copy's folder name.
+- **Attempts under rule 4, in this reopen:** 2 failed, and the final build is the third.
+  1. Check 3's first skill step (above).
+  2. Check 1's expected outcome for an untracked 2.3.0 copy changed after the review's result: from "listed as
+     differing" to "named apart, with why". Rule 2 counts that as a failed attempt.
+- **Check 1, the self-test,** passes. Product `2625c8cd263b`.
+  - *Fixtures:* the three changed templates of 2.3.0 and 2.4.0, under `plugin/test/earlier/`. Each one's hash is listed
+    in `setup.mjs`, and the six templates setup may replace are pinned.
+  - *Updated:* 2.3.0 copies, and 2.4.0 copies. A CRLF copy keeps CRLF. An update with every other file in place
+    counts as a write.
+  - *Kept and named apart, with why:* untracked, staged, with an uncommitted change, skip-worktree, hard-linked, and
+    read-only copies.
+  - *Kept and listed as changed here, with its diff in the report:* an edited copy.
+  - *A second run* writes nothing, and its last line asks for no review, in every case.
+  - *The mutation check* (`probes/V2-D29-setup/mutate6.mjs`, `results/mutate6.txt`): 16 mutations of the update
+    path, 16 killed.
+- **Check 2, the field shape:** in a local clone of the first field repo, setup updated exactly the three files, and
+  each equals the template. `git status` lists only them. The second run wrote nothing ("Ran on …", "Nothing was
+  written.").
+- **Check 3, attempt 2:** 3 runs, CLI 2.1.331, Opus 5.5. Updated 3, untouched 3, shown 3, asked 3, merged 3, for
+  1.06 USD. It ran on the build before the review's fixes. The final build's report is byte-identical on that repo
+  shape (44 lines), but the review's fix also changed the skill's step 5, so check 3 ran again on the final build
+  (`results/upgrade.json`): updated 3, untouched 3, shown 3, asked 3, merged 3, for 1.12 USD. Pass.
+- **Check 5, the review** (a fresh Claude agent):
+  - It found no way to lose a file's own content or to write outside the repo.
+  - It reproduced the refusals: staged, skip-worktree, a hard link, a junction, a name that differs in case, a
+    submodule, untracked, ignored, a UTF-8 BOM.
+  - It reported five findings:
+    - an untouched copy that the guard stops was labelled "changed in this repo", so the skill would mix old and new
+      lines in it. *Fixed:* such a file is named apart, with why;
+    - a read-only copy stopped setup with an error and no report. *Fixed:* the write error is caught and the file is
+      named;
+    - the skill's diff read a CRLF file as all changed. *Fixed by attempt 2:* the script diffs it, ignoring CR at
+      line end;
+    - a file with mixed line endings is rewritten in its first line's ending. *Recorded:* only template text is
+      affected;
+    - test gaps on the update path. *Closed* by the staged, skip-worktree, hard-link and read-only cases.
+  - Also fixed while checking: a run that wrote nothing said "Written on"; it now says "Ran on".
+- **Check 4:** `claude plugin validate plugin` passes. CI passed on `6072c38e`, the commit that records these results:
+  the self-test and the load check on Linux, macOS and Windows, 6 of 6 jobs.
+- **The decision-checker** (this repo's agent) found no broken guardrail: setup commits nothing, deletes nothing, and
+  replaces only on an earlier release's hash with the guard passing. Its process points are taken: the attempt
+  count, where the build ran, and the re-lock waiting for CI (all above); the mutation script is now in the repo; a
+  second run's last line is asserted in every case; and check 3 runs again on the final build. A partly written file
+  (a write that fails midway) stays tracked and is named "not updated", and `git checkout` restores it.
+- **The counter:** `field.mjs` labels the three latest field sessions "v2.3.0" or "2.0.0 or later", and never
+  "alpha.8".
+- **D29 is re-LOCKED (2026-11-24),** CI having passed. The guardrail now reads: setup commits nothing and deletes no file. It changes a
+  file that exists only in two ways, and only when git shows that file tracked under its name, with no flag, and
+  unchanged:
+  - it appends its section or line to an instruction file or `.gitattributes`;
+  - it replaces a file whose text is a template an earlier release shipped.

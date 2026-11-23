@@ -2,25 +2,30 @@
 // created with 'wx', so a file that exists is never overwritten; nothing is committed. Templates sit under undotted
 // names, so this plugin's own repo never loads them as live rules, agents or a nested CLAUDE.md. Since 06, section 4,
 // 4b (D29 reopened), an instruction file or .gitattributes that lacks setup's section or line gets it appended, but only
-// when git shows that file committed and unchanged.
+// when git shows that file committed and unchanged. Since 06, section 6 (D29 reopened), a kept file whose text is a
+// template an earlier release shipped is replaced with this version's, under the same guard.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { git, inRepo, configDir, utf16 } from './map.mjs';
 
-const FILES = [
+// the third field: the hashes (sum, below) of the texts earlier releases shipped for that file, 2.3.0's then 2.4.0's.
+// A release that changes a template adds its old hash here, and its old text to test/earlier/ (the self-test checks)
+export const FILES = [
   ['CLAUDE.template.md', 'CLAUDE.md'],
-  ['claude/rules/project-map.md', '.claude/rules/project-map.md'],
-  ['claude/skills/map-review/SKILL.md', '.claude/skills/map-review/SKILL.md'],
+  ['claude/rules/project-map.md', '.claude/rules/project-map.md', ['ee1a057e8299bc76', 'a35728b3712e83a5']],
+  ['claude/skills/map-review/SKILL.md', '.claude/skills/map-review/SKILL.md', ['3b63bc2d0cb5baa3', '744cac5ea8919e92']],
   ['claude/agents/decision-checker.md', '.claude/agents/decision-checker.md'],
   ['claude/agents/codebase-guide.md', '.claude/agents/codebase-guide.md'],
   ['claude/agents/memory-curator.md', '.claude/agents/memory-curator.md'],
-  ['project-map/README.md', '.project-map/README.md'],
+  ['project-map/README.md', '.project-map/README.md', ['4a02743e2f4bc9d4', '293b97c319f11bf8']],
   ['project-map/decisions.md', '.project-map/decisions.md'],
   ['project-map/dreams.md', '.project-map/dreams.md'],
   ['gitattributes.txt', '.gitattributes'],
 ];
 const POINTER = '## Team memory';
+export const sum = (text) => crypto.createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex').slice(0, 16);
 
 // a target whose nearest existing folder resolves outside the repo takes no write (inRepo, map.mjs): a link at any
 // depth (.claude, or .claude/skills) could aim it anywhere (/code-review's finding: only the top folder was checked)
@@ -66,13 +71,18 @@ export function setup(root, pluginRoot) {
   const read = (f) => { try { return fs.readFileSync(path.join(root, f), 'utf8'); } catch { return ''; } };
   // --no-optional-locks: a status refresh would rewrite .git/index
   const unchanged = (f) => { const s = git(root, '--no-optional-locks', 'status', '--porcelain', '--', f); return s.status === 0 && s.stdout === ''; };
-  const complete = (f, text, what, ask, blankLine) => {
+  const safe = (f) => {
     const p = path.join(root, f);
     let file = false;
     try { const s = fs.lstatSync(p); file = s.isFile() && s.nlink === 1; } catch {}
     // a UTF-16 file (Windows PowerShell 5.1 writes one) would take UTF-8 bytes it cannot show (the audit, 4k)
-    if (!file || utf16(fs.readFileSync(p)) || !inRepo(root, path.dirname(p)) || git(root, 'ls-files', '-v', '--', f).stdout !== `H ${f}\n` || !unchanged(f)) return forYou.push(`${ask}\n${text}`);
-    const old = fs.readFileSync(p, 'utf8'), eol = /^[^\n]*\r\n/.test(old) ? '\r\n' : '\n';
+    return file && !utf16(fs.readFileSync(p)) && inRepo(root, path.dirname(p)) && git(root, 'ls-files', '-v', '--', f).stdout === `H ${f}\n` && unchanged(f);
+  };
+  const eolOf = (text) => (/^[^\n]*\r\n/.test(text) ? '\r\n' : '\n');
+  const complete = (f, text, what, ask, blankLine) => {
+    if (!safe(f)) return forYou.push(`${ask}\n${text}`);
+    const p = path.join(root, f);
+    const old = fs.readFileSync(p, 'utf8'), eol = eolOf(old);
     fs.appendFileSync(p, `${old && !old.endsWith('\n') ? eol : ''}${blankLine && old.trim() ? eol : ''}${text.split(/\r?\n/).join(eol)}${eol}`);
     added.set(f, what);
   };
@@ -83,21 +93,40 @@ export function setup(root, pluginRoot) {
   if (kept.includes('.gitattributes') && !/^\.project-map\/dreams\.md\s+merge=union\s*$/m.test(read('.gitattributes'))) {
     complete('.gitattributes', '.project-map/dreams.md merge=union', "the dream log's merge line", ".gitattributes lacks the dream log's merge line. Proposed, as its own line:", false);
   }
-  const same = kept.filter((f) => !added.has(f));
+  // 06, section 6 (D29 reopened): a kept file that is an earlier release's template holds nothing of the repo's own,
+  // so it takes this version's, in its own line ending; the diff is the upgrade, and git checkout undoes it
+  // one the guard stops, or that cannot be written (read-only), is named apart: it is no change of the repo's own
+  const updated = [], stuck = [];
+  for (const [from, to, earlier = []] of FILES) {
+    if (!kept.includes(to) || !earlier.includes(sum(read(to)))) continue;
+    if (safe(to)) try { fs.writeFileSync(path.join(root, to), fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8').split(/\r?\n/).join(eolOf(read(to)))); updated.push(to); continue; } catch {}
+    stuck.push(to);
+  }
+  const same = kept.filter((f) => !added.has(f) && !updated.includes(f));
   const out = [`Created (${created.length}): ${created.join(', ') || 'nothing'}`, `Kept as they were (${same.length}): ${same.join(', ') || 'nothing'}`];
+  if (updated.length) out.push(`Updated to this version's templates, as each was an earlier version's, unchanged (${updated.length}): ${updated.join(', ')}`);
+  if (stuck.length) out.push(`Not updated, though each is an earlier version's template, since git does not show it committed and unchanged or it cannot be written (${stuck.length}): ${stuck.join(', ')}. Once it is, run setup again.`);
   if (added.size) out.push(`Added to files that existed (${added.size}): ${[...added].map(([f, what]) => `${f} (${what})`).join(', ')}`);
   if (refused.length) out.push(`Refused, because a folder resolves outside the repo: ${refused.join(', ')}`);
   // N10 (the field report): setup never overwrites, so a newer template reaches a repo only by hand. Only the plugin's
   // own files are compared: the instruction file, the topic files and .gitattributes are the user's
-  const differ = FILES.filter(([from, to]) => kept.includes(to) && (to.startsWith('.claude/') || to === '.project-map/README.md')
+  const differ = FILES.filter(([from, to]) => kept.includes(to) && !stuck.includes(to) && (to.startsWith('.claude/') || to === '.project-map/README.md')
     && read(to).replace(/\r\n/g, '\n') !== fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8').replace(/\r\n/g, '\n'));
-  if (differ.length) out.push(`Differ from this version's templates (${differ.length}), to compare by hand: ${differ.map(([from, to]) => `${to} (${path.join(pluginRoot, 'templates', from)})`).join(', ')}`);
+  if (differ.length) out.push(`Differ from this version's templates, changed in this repo (${differ.length}): ${differ.map(([from, to]) => `${to} (${path.join(pluginRoot, 'templates', from)})`).join(', ')}`);
+  // 06, section 6, attempt 2: the diff comes in the report, since Claude may not read the template outside the repo
+  for (const [from, to] of differ) {
+    const d = git(root, 'diff', '--no-index', '--no-color', '--no-ext-diff', '--ignore-cr-at-eol', '--', to, path.join(pluginRoot, 'templates', from)).stdout ?? '';
+    const at = d.indexOf('\n@@');
+    if (at < 0) continue;
+    const hunks = d.slice(at + 1).trimEnd();
+    out.push(`Diff of ${to} against this version's template (+ the template's lines, - this file's own):\n${hunks.length > 4000 ? `${hunks.slice(0, 4000)}\n(cut at 4,000 characters)` : hunks}`);
+  }
   if (autoMemoryOff(root)) out.push('Warning: auto memory is off here, so the three agents keep no project memory until it is on (/memory).');
   else out.push('The three agents keep their notes in .claude/agent-memory/, made on their first write; review those with the map.');
   out.push(...forYou.map((s) => `For you: ${s}`));
   // a run that wrote nothing has no files of its own to keep apart (the review of 4j)
-  const wrote = created.length || added.size;
-  out.push(`Written on ${branch}.${wrote && before ? ` The tree already held ${before} uncommitted change${before === 1 ? '' : 's'} before setup ran: commit setup's files on their own.` : ''}`);
-  out.push('Nothing is committed: review the new files in the diff, and commit them.');
+  const wrote = created.length || added.size || updated.length;
+  out.push(`${wrote ? 'Written' : 'Ran'} on ${branch}.${wrote && before ? ` The tree already held ${before} uncommitted change${before === 1 ? '' : 's'} before setup ran: commit setup's files on their own.` : ''}`);
+  out.push(wrote ? 'Nothing is committed: review the new files in the diff, and commit them.' : 'Nothing was written.');
   return out.join('\n');
 }

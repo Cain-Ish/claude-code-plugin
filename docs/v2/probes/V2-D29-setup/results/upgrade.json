@@ -1,0 +1,46 @@
+{
+  "plugin": "plugin",
+  "model": "claude-opus-5-5",
+  "results": [
+    {
+      "run": 1,
+      "valid": true,
+      "updated": true,
+      "untouched": true,
+      "shown": true,
+      "asked": true,
+      "merged": true,
+      "usd": 0.4
+    },
+    {
+      "run": 2,
+      "valid": true,
+      "updated": true,
+      "untouched": true,
+      "shown": true,
+      "asked": true,
+      "merged": true,
+      "usd": 0.36
+    },
+    {
+      "run": 3,
+      "valid": true,
+      "updated": true,
+      "untouched": true,
+      "shown": true,
+      "asked": true,
+      "merged": true,
+      "usd": 0.36
+    }
+  ],
+  "summary": {
+    "runs": 3,
+    "valid": 3,
+    "updated": 3,
+    "untouched": 3,
+    "shown": 3,
+    "asked": 3,
+    "merged": 3,
+    "pass": true
+  }
+}
