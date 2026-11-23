@@ -188,11 +188,17 @@ export function tag(r, names = new Map()) {
   }
   return [];
 }
+// K1 (06, section 4, 4g): the map files a tool call read, by Read or by a Bash command naming them, the two routes the
+// read hooks label. shortcut: the path is not anchored to this repo, so another repo's map file of the same name counts;
+// anchor it if sessions here read other repos' maps
+const MAP_FILE = /\.project-map[\\/]([\w.-]+\.md)\b/g;
+export const mapReads = (x) => [...String((x.name === 'Read' ? x.input?.file_path : x.name === 'Bash' ? x.input?.command : '') ?? '').matchAll(MAP_FILE)].map((m) => m[1]);
 // a session's lines from a byte offset, streamed, so a large transcript is never read whole. accept(cwd) sees the
 // first cwd; the stream stops there when it says no
 async function digestFrom(file, start, accept) {
   const lines = [];
   const names = new Map();
+  const reads = new Set();
   let first = null, last = null, cwd = null, dream = false;
   const input = fs.createReadStream(file, { start, encoding: 'utf8' });
   const rl = readline.createInterface({ input, crlfDelay: Infinity });
@@ -201,13 +207,13 @@ async function digestFrom(file, start, accept) {
     if (!r) continue;
     if (cwd === null && typeof r.cwd === 'string') { cwd = r.cwd; if (!accept(cwd)) break; }
     if (r.timestamp) { first ??= r.timestamp; last = r.timestamp; }
-    if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_use') names.set(x.id, x.name);
+    if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_use') { names.set(x.id, x.name); for (const f of mapReads(x)) reads.add(f); }
     // Claude Code records a slash command as a command-name record, not as a typed prompt (/code-review's finding)
     if (r.type === 'user' && typeof r.message?.content === 'string' && r.message.content.includes('<command-name>/second-brain:dream</command-name>')) dream = true;
     lines.push(...tag(r, names));
   }
   input.destroy();
-  return { lines, first, last, cwd, dream };
+  return { lines, first, last, cwd, dream, reads };
 }
 // this repo's transcript folders: the ones session start learned, plus the folders of the root and its worktrees
 function folders(root, dir) {
@@ -325,14 +331,19 @@ export async function prepare(root, data) {
       bytes += Buffer.byteLength(text);
       // its hash, kept outside the repo: finish reads only a digest that nothing changed since (the session can edit the
       // run folder, which is inside the repo)
-      manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10) });
+      manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10), reads: [...dg.reads] });
     }
     // the commit the tracked sources come from; none before the first commit (rev-parse would print "HEAD" itself)
     const pinned = git(root, 'rev-parse', '--verify', '-q', 'HEAD');
     fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: pinned.status === 0 ? pinned.stdout.trim() : '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: today() }, null, 1));
     const digests = manifest.filter((m) => m.digest);
+    // K1: which topic files each session read, and the ones none read (evidence for the user, never a proposal)
+    let topics = [];
+    try { topics = fs.readdirSync(path.join(root, MAP)).filter((f) => f.endsWith('.md') && !['README.md', 'dreams.md'].includes(f)); } catch {}
+    const read = new Set(digests.flatMap((m) => m.reads));
     return [
       `Dream prepared: ${digests.length} session digest(s) in ${RUN}/digests/: ${digests.map((m) => `${m.digest} (${m.first}${m.last && m.last !== m.first ? ` to ${m.last}` : ''})`).join(', ') || 'none'}.`,
+      digests.length ? `Map files these sessions read: ${digests.map((m) => `${m.digest}: ${m.reads.join(', ') || 'none'}`).join('; ')}. Topic files no session read: ${topics.filter((f) => !read.has(f)).join(', ') || 'none'}.` : '',
       left.length ? `${left.length} more session(s) wait for the next dream (the cap is ${MAX_SESSIONS} sessions or ${MAX_BYTES >> 20} MB a run).` : '',
       digests.length ? '' : 'Nothing new to read since the last dream: run finish now to close it.',
       leftover,

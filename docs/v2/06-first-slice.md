@@ -5831,3 +5831,55 @@ first.
   - **For 4e:** `04-architecture.md` still lists N1 to N4 as open. The release notes must say that template text
     (N2, N3) reaches new setups only, because setup never overwrites a template that already exists.
 - **4c, checks 1, 2 and 4:** the self-test passes with every pin, N3's addendum included; `claude plugin validate plugin` passes with no warning (N4 cleared the only one); the hash is `d502b016a0a1`. CI (check 3) runs on this commit.
+
+### 4, 4g: the conference candidates (registered 2026-11-23, before the code)
+
+From [research/2026-11-23-ai-native-devcon.md](research/2026-11-23-ai-native-devcon.md), section 3.
+
+**K3, a grounded and adversarial `decision-checker`: deferred, not built.** In S5 the checker flagged the breaking
+change in 5 of 5 runs, treated a proposal as a proposal in 5 of 5, and wrote outside its folder in 0 of 5. With no
+measured miss, a prompt change could only add risk (PM1). *Reopen if:* a field session or an eval run shows the
+checker passing a change that breaks a recorded decision.
+
+**K2, a self-update line in the capture instruction: waits for the user** (D14's frozen instruction).
+
+**K1, usage evidence in the dream's report: built here.**
+- **The change:**
+  - `dream.mjs`: `digestFrom` already streams every record of a session. It also collects the map files the session
+    read, by a `Read` of `.project-map/<file>.md` or by a Bash command naming one. These are the two routes the read
+    hooks label.
+  - prepare's report gains one line: for each digested session, the map files it read; then the topic files no
+    session read. `README.md` and `dreams.md` are left out, since they are not topic files.
+  - The dream skill's report step gains one sentence:
+    - pass that line on, because a topic file no session read has a title or description that does not lead Claude
+      to it;
+    - when a correction candidate came in a session that had read the relevant entry's file, say so, because the
+      entry's wording did not hold Claude to it.
+  - It is evidence for the user, never a proposal, so D31's provenance rule is not touched. There is no new store, no
+    second pass over the transcripts, and no hook change.
+- **Checks.** All must pass:
+  1. **Self-test, on synthetic transcripts:** a session reads one map file by `Read` (an absolute path, with
+     backslashes as on Windows) and another by `cat` in Bash. A second session reads none. A topic file nobody read
+     is listed as never read. `README.md` and `dreams.md` are not listed. Each session's files are named against its
+     digest.
+  2. **A field read, read-only and not committed:** the same counting, run over a field repo's transcripts. It must
+     name at least one topic file read, and give a never-read list that is not every topic file. The record gives
+     counts only and does not name the repo.
+  3. **CI** on three systems; **the new hash** recorded.
+  4. **At 4e:** the S7 check 2 re-run already planned there covers the skill's changed report step.
+
+### 4, 4c done; 4g, K1's checks 1 and 2 (2026-11-23)
+
+- **4c, check 3, CI on `a680e91`:** passed on all three systems. Step 4c is done (hash `d502b016a0a1`).
+- **K1, check 1, the self-test:** pass. `mapReads` keeps a Bash command's map files and drops a `Grep` and a non-map
+  `Read`. In the dream's synthetic run, session 2 read `decisions.md` by a Windows-path `Read` and `tail.md` by `cat`,
+  and prepare's report names both against that session's digest. `wide.md` is the one topic file no session read, and
+  neither `README.md` nor `dreams.md` is listed.
+- **K1, check 2, the field read:** pass, read-only, counts only. The same counting ran over two field repos'
+  transcripts:
+  - repo A: 15 sessions, 13 of them read the map; 2 topic files, read in 13 and 1 sessions; none never read;
+  - repo B: 11 sessions, 3 read the map; its 1 topic file was read in 3.
+
+  Both maps are small, so "never read" has nothing to show yet. The skew between files (13 against 1) is the
+  signal a user can act on.
+- **The hash** is `7769d957bc6a`. CI (check 3) runs on this commit.

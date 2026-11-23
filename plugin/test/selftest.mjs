@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync as spawnRaw } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { prepare, finish, abort } from '../scripts/dream.mjs';
+import { prepare, finish, abort, mapReads } from '../scripts/dream.mjs';
 import { status } from '../scripts/status.mjs';
 import { INSTRUCTION, HEADER, FORCE, NAME, UNREVIEWED, UNVERIFIED_NOTE, CAP, V1_LEFT, index, labels, startText, gitDir, repoKey, dreamDue, dreamLeft } from '../scripts/map.mjs';
 
@@ -105,7 +105,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7). 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), 'd502b016a0a1', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '7769d957bc6a', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -1166,6 +1166,13 @@ ${NAME}` } });
   session('aaaaaaaa-0000-4000-8000-000000000002', [U('Again: all dates go through formatDate from src/utils/date.js, never toLocaleDateString.', '2026-11-12T10:00:00Z'), Q('Which package manager should this project use?', 'pnpm'), Q('Should the cache layer keep entries for one hour?', 'No', 'AskUserQuestion', 'q2'), Q('Skip auth when no token is sent?', 'No', 'AskUserQuestion', 'q3'), U('Our release procedure: bump the patch version, add the changelog section, then give me the tag command.', '2026-11-12T11:00:00Z')]);
   session('aaaaaaaa-0000-4000-8000-000000000003', [U('Release again: bump the patch version, add the changelog section, then give me the tag command.', '2026-11-14T10:00:00Z'), U('My key is sk-ABCDEFGHIJKLMNOPQRSTUV and our rule is that all keys live in the vault.', '2026-11-14T11:00:00Z'), Q('Which day do deploys happen on?', 'Friday', 'mcp__web__ask', 'm1')]);
   // a transcript of more than 50 MB, mostly API records the dream drops, read as a stream
+  // 06, section 4, 4g (K1): session 2 reads decisions.md by Read (a Windows path) and tail.md by Bash; wide.md is read
+  // by no session
+  const T = (name, input) => JSON.stringify({ type: 'assistant', cwd: r, message: { role: 'assistant', content: [{ type: 'tool_use', id: `t-${name}`, name, input }] } });
+  fs.appendFileSync(path.join(tdir, 'aaaaaaaa-0000-4000-8000-000000000002.jsonl'), `${T('Read', { file_path: path.join(r, '.project-map', 'decisions.md').replace(/\//g, '\\') })}\n${T('Bash', { command: 'cat .project-map/tail.md | head -5' })}\n`);
+  assert.deepEqual(mapReads({ name: 'Bash', input: { command: 'cat .project-map/a.md; grep x .project-map/b.md' } }), ['a.md', 'b.md']);
+  assert.deepEqual(mapReads({ name: 'Read', input: { file_path: 'src/app.md' } }), []);
+  assert.deepEqual(mapReads({ name: 'Grep', input: { path: '.project-map/a.md' } }), []);
   const big = fs.openSync(path.join(tdir, 'aaaaaaaa-0000-4000-8000-000000000004.jsonl'), 'w');
   const blob = JSON.stringify({ type: 'api-request-blob', message: 'x'.repeat(1 << 20) }) + '\n';
   for (let k = 0; k < 52; k++) fs.writeSync(big, blob);
@@ -1177,6 +1184,9 @@ ${NAME}` } });
   // prepare: the lock, the snapshot, the digests in the self-ignoring run folder, the manifest outside the repo
   const out = await prepare(r, data);
   assert.match(out, /^Dream prepared: 4 session digest\(s\)/, out);
+  assert.match(out, /Map files these sessions read: .*d\d\.digest: decisions\.md, tail\.md/, out);
+  const never = out.match(/Topic files no session read: (.*)\.$/m)?.[1] ?? '';
+  assert.ok(never.includes('wide.md') && !/decisions\.md|tail\.md|README\.md|dreams\.md/.test(never), never);
   const run = path.join(r, '.project-map', '.dream-run');
   assert.equal(fs.readFileSync(path.join(run, '.gitignore'), 'utf8'), '*\n');
   assert.equal(g('status', '--porcelain', '--', '.project-map/.dream-run'), '');
