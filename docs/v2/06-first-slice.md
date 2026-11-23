@@ -6322,3 +6322,56 @@ same bars:
   4b to 4j each had their own reviews.
 - **4e's checks all pass.** The release is `2.4.0`, product `60455a805197`. Next: the tag, the release draft, and the
   pull request to `main`, which the user merges.
+
+## 5: the next release, opened (2026-11-23)
+
+2.4.0 is tagged (`0b242f5a`), and PR #117 waits for the user. The next release is built on branch `v2-next`, which
+joins `v2` after #117 merges, so #117 stays exactly the tagged 2.4.0. Its first decision stays D22's large index, as
+section 4 recorded.
+
+### 5, 5a: P1 and P2, from the Matt Pocock research (registered 2026-11-23, before the code)
+
+The user, on 2026-11-23: "yes to P1 and P2, implement them". The research
+([2026-11-23-matt-pocock-approach.md](research/2026-11-23-matt-pocock-approach.md)) found that the plugin teaches
+Claude to use its structure, not to extend it. That word reopens D29 (the templates) and D31 (the dream's drafts).
+
+**The change:**
+- **P1, a placement table** in the map's README template, `## Where it belongs`. It names the home of each kind of
+  knowledge:
+  - a decision, rule or requirement: an entry;
+  - a procedure repeated across sessions: an entry, and a skill offered to the user;
+  - a rule for certain paths that keeps being corrected: an entry, and a path rule offered to the user;
+  - a rule a tool can enforce: an entry, and a check offered to the user (a lint rule, a test or a hook);
+  - a command every session needs: a `CLAUDE.md` line;
+  - where code lives: nowhere in the map.
+
+  Plus one line in the rule template, which loads whenever Claude touches a map file, pointing to the table before
+  an entry is added. Captured knowledge still lands in the map, as D14 says. The other homes are offers to the user,
+  never files Claude makes live by itself: an unreviewed skill or rule would load at once (D31).
+- **P2, draft-writing rules** in the dream skill's step 4:
+  - a rule draft's `paths:` is no wider than the files the sessions worked on, and the rule is stated for every file
+    those paths cover;
+  - a skill draft's `description` says what it does, then "Use when" and the words a user would type to ask for it;
+  - its steps are written for the kind of task, not the sessions' one instance, each ending with how to tell it is
+    done, with no step Claude would take anyway.
+
+**Checks.** All are run from a plugin copy, on Opus 5.5 with the pinned CLI 2.1.305:
+1. *The self-test* pins the README's table, the rule's pointer line and the skill's draft lines. A mutation check
+   kills each pin. `claude plugin validate` passes.
+2. **P1 in a session** (`probes/V2-D29-setup/p1place.mjs`), 5 runs per arm, candidate against a 2.4.0 control. Each
+   run is a fresh repo after setup, committed. One session gets: "Two things for this project. First: we never import
+   lodash; use the native array and object methods. Second: our release procedure is to bump the patch version in
+   package.json, add a CHANGELOG.md section for it, then tag vX.Y.Z. Nothing to build now."
+   - *Pass:*
+     - both statements are map entries in at least 4 of 5 candidate runs (capture holds);
+     - the reply offers a check for the lodash rule in at least 3 of 5 runs, and in at least 2 more than the
+       control;
+     - no run of either arm makes a new live rule or skill (a `.md` file under `.claude/rules/` other than setup's,
+       or a `SKILL.md` other than map-review's).
+   - *Reported:* a skill offered for the release procedure (stated once, so the table does not ask for one), and
+     files changed outside the map.
+3. **P2 in the dream:** S7's check 2 on the candidate, at its bars (`results/s7-product-a6.json`). *Reported:* skill
+   drafts whose description holds "Use when", and each rule draft's `paths:`.
+4. **CI** on three systems, through a pull request from `v2-next` into `v2`.
+
+On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implicates is revised or dropped alone.
