@@ -105,7 +105,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7). 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '2aeaa35744a0', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '96d3d89b4442', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -869,7 +869,7 @@ ${NAME}` } });
   const setupRun = (r) => { const x = spawnSync('node', [HOOK, 'setup'], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '' } }); assert.equal(x.status, 0, x.stderr); return x.stdout; };
   // 06, section 4, 4b: what setup appends to a committed, unchanged instruction file; and HEAD, the index and the
   // commit count, which setup never changes
-  const TPL = fs.readFileSync(path.join(PLUGIN, 'templates', 'CLAUDE.template.md'), 'utf8');
+  const TPL = fs.readFileSync(path.join(PLUGIN, 'templates', 'CLAUDE.template.md'), 'utf8').replace(/\r\n/g, '\n');
   const SECTION = `## Team memory${TPL.split('## Team memory')[1].trimEnd()}`;
   // the index file's bytes too, not only its entries: a status refresh would rewrite it (decision-checker, 4b)
   const gitState = (r) => [...['rev-parse HEAD', 'ls-files -s', 'rev-list --count HEAD'].map((c) => spawnSync('git', c.split(' '), { cwd: r, encoding: 'utf8' }).stdout), fs.existsSync(path.join(r, '.git', 'index')) ? sha(path.join(r, '.git', 'index')) : ''].join('|');
@@ -921,6 +921,8 @@ ${NAME}` } });
     { name: 'crlf', pre: (r) => w(r, 'CLAUDE.md', '# Mine\r\n\r\nRun.\r\n'), want: { 'CLAUDE.md': `# Mine\r\n\r\nRun.\r\n\r\n${SECTION.split('\n').join('\r\n')}\r\n` }, says: 'CLAUDE.md (the team-memory section)' },
     { name: 'unstaged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r) => fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'), want: {}, says: youClaude('CLAUDE.md') },
     { name: 'staged', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), post: (r, g) => { fs.appendFileSync(path.join(r, 'CLAUDE.md'), 'edit\n'); g('add', 'CLAUDE.md'); }, want: {}, says: youClaude('CLAUDE.md') },
+    // agy's review of the final code: a hard link could carry the addition to a file outside the repo
+    { name: 'hardlink', pre: (r) => { w(r, 'real.md', '# Mine\n'); fs.linkSync(path.join(r, 'real.md'), path.join(r, 'CLAUDE.md')); }, want: {}, says: youClaude('CLAUDE.md') },
     { name: 'ignored', pre: (r) => w(r, '.gitignore', 'CLAUDE.md\n'), post: (r) => w(r, 'CLAUDE.md', '# Mine\n'), want: {}, says: youClaude('CLAUDE.md') },
     { name: 'unborn', pre: (r) => w(r, 'CLAUDE.md', '# Mine\n'), noCommit: true, want: {}, says: youClaude('CLAUDE.md') },
     // agy's review of 4b: a flag that hides a local edit from git status must not let setup append unseen

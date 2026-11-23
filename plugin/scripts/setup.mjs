@@ -65,21 +65,22 @@ export function setup(root, pluginRoot) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     try { fs.writeFileSync(target, text, { flag: 'wx' }); created.push(to); } catch (e) { if (e.code !== 'EEXIST') throw e; kept.push(to); }
   }
-  // what an existing file lacks is appended only to a regular file inside the repo that git tracks under that exact
-  // name, with no skip-worktree or assume-unchanged flag (`ls-files -v` says "H"), and shows unchanged (an empty
-  // `git status`), so the addition is its diff's only change; any other file (untracked, ignored, edited, flagged, a
-  // link, no commit yet) stays as it is, and the text goes to the user (06, section 4, 4b; agy's review). The old bytes
-  // stay a prefix; the text takes the file's line ending, after a newline if the file lacks a final one
+  // what an existing file lacks is appended only to a regular, singly linked file inside the repo that git tracks under
+  // that exact name with no skip-worktree or assume-unchanged flag (`ls-files -v` says "H", so untracked and ignored
+  // files fail here) and shows unchanged (an empty `git status`), so the addition is its diff's only change; any other
+  // file stays as it is, and the text goes to the user (06, section 4, 4b; agy's reviews). The old bytes stay a prefix;
+  // the text takes the file's line ending, after a newline if the file lacks a final one
   const read = (f) => { try { return fs.readFileSync(path.join(root, f), 'utf8'); } catch { return ''; } };
   const git = (...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8' });
+  // --no-optional-locks: a status refresh would rewrite .git/index
+  const unchanged = (f) => { const s = git('--no-optional-locks', 'status', '--porcelain', '--', f); return s.status === 0 && s.stdout === ''; };
   const complete = (f, text, what, ask, blankLine) => {
     const p = path.join(root, f);
     let file = false;
-    try { file = fs.lstatSync(p).isFile(); } catch {}
-    const st = git('--no-optional-locks', 'status', '--porcelain', '--ignored', '--', f); // a refresh would rewrite .git/index
-    if (!file || outside(root, p) || st.status !== 0 || st.stdout !== '' || git('ls-files', '-v', '--', f).stdout !== `H ${f}\n`) return forYou.push(`${ask}\n${text}`);
+    try { const s = fs.lstatSync(p); file = s.isFile() && s.nlink === 1; } catch {}
+    if (!file || outside(root, p) || git('ls-files', '-v', '--', f).stdout !== `H ${f}\n` || !unchanged(f)) return forYou.push(`${ask}\n${text}`);
     const old = fs.readFileSync(p, 'utf8'), eol = /^[^\n]*\r\n/.test(old) ? '\r\n' : '\n';
-    fs.appendFileSync(p, `${old && !old.endsWith('\n') ? eol : ''}${blankLine && old.trim() ? eol : ''}${text.split('\n').join(eol)}${eol}`);
+    fs.appendFileSync(p, `${old && !old.endsWith('\n') ? eol : ''}${blankLine && old.trim() ? eol : ''}${text.split(/\r?\n/).join(eol)}${eol}`);
     added.set(f, what);
   };
   if (!['CLAUDE.md', '.claude/CLAUDE.md'].some((f) => read(f).includes(POINTER))) {

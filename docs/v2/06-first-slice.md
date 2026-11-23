@@ -5743,3 +5743,32 @@ N6), and the conference research the user asked for (4f).
   before 4c, and its result is recorded here.
 - **For 4e, so it is not lost:** bump the version in `plugin.json`; the README, `04-architecture.md` and the charter
   still say setup "overwrites nothing" or "never modifies a file that exists", which since D29's re-lock is narrower.
+
+### 4, 4b: agy's review of the final function (2026-11-23)
+
+The review the corrections above asked for. agy (Gemini 4 Argon, plan mode) was given the final append function only.
+- **Fixed:**
+  - (1) **A real bug.** The section's lines were split on `\n` alone. A template with CRLF line endings would leave a
+    stray `\r` in every line: `\r\r\n` in a CRLF file, and CRLF lines in an LF file. The repo's `.gitattributes`
+    forces LF on `*.md`, so a git install never meets such a template, but a zip download or a hand edit could. The
+    split is now `/\r?\n/`.
+    - The self-test could not show the bug, because its expected text came from the same template file. It now
+      normalizes that text.
+    - A one-off run with a CRLF template, in a scratch copy, appended LF only: 0 CR bytes, 8 LF.
+  - (3) **A hard link**, where the file's link count is above 1, could carry the addition to a file outside the repo.
+    Setup now requires a link count of 1, and the self-test gains a `hardlink` shape. That makes 19 shapes, 18 on
+    Windows.
+  - **Shorter:** `--ignored` is dropped, since `ls-files -v` printing `H <name>` already rejects every untracked or
+    ignored file. The git calls now stop at the first failing guard, so a missing file, a link or a file outside the
+    repo starts no `git` process.
+- **Accepted:**
+  - (2) An inherited `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE` would point git at another repository. None of
+    the plugin's git calls strips them, and setup refuses a home folder; recorded as a risk shared with `map.mjs`.
+  - (4) The duplicate check for the merge line misses forms such as `/.project-map/dreams.md merge=union`, so setup
+    may add the line a second time. A duplicate attribute is harmless.
+  - (5) Edits that a clean filter or line-ending normalization hides from `git status` are lost on a later
+    `git checkout`. They differ only in how git normalizes the file.
+  - (6) A read-only tracked file stops setup with an error, which is visible and changes nothing. `read()` follows a
+    link or a FIFO for the heading check, as 2.3.0 did.
+- **The product hash** of this code is `96d3d89b4442`. The smoke runs again on it.
+- **Check 2 on this code:** the smoke passed 3 of 3 (no root `CLAUDE.md`; the heading once; nothing committed).
