@@ -22,7 +22,8 @@ the code does not show. It is plain Markdown, reviewed like code: an entry count
 ## Its life
 
 - **Captured in a session:** it shows in the working-tree diff until someone commits it.
-- **Proposed by a dream:** it carries `- proposed: dream <date>` until `/map-review` accepts it.
+- **Proposed by a dream:** it carries `- proposed: dream <date>` until `/map-review` accepts it, which turns that line
+  into `- origin: dream <date>`.
 - **Time-bound:** it carries `- review: <date>`. Once the date passes, `/map-review` asks whether it still holds.
 - **Replaced, narrowed, expired or done:** it keeps its place, with
   `- status: <kind> <date> by <the new entry's id>: <what still holds>`.

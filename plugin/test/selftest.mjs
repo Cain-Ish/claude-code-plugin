@@ -105,7 +105,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7). 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '96d3d89b4442', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'd502b016a0a1', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -969,6 +969,13 @@ ${NAME}` } });
   assert.ok(fs.readFileSync(path.join(T, 'CLAUDE.md'), 'utf8').split('\n').length < 40);
   assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /^---\npaths:\n {2}- "\.project-map\/\*\*"\n---\n/);
   assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /^disable-model-invocation: true$/m);
+  // 06, section 4, 4c: N2, the rule names the four status kinds and origin, and the README defines origin; N3, review
+  // walks a status report's stale entries; N1, the analyzer has no failure kind; N4, the manifest names an author
+  assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /<superseded\|narrowed\|expired\|done>[\s\S]*- origin: dream <date>/);
+  assert.match(fs.readFileSync(path.join(T, '.project-map/README.md'), 'utf8'), /- origin: dream <date>/);
+  assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /stale entries a `\/second-brain:status` report[\s\S]*It changed: update the quote or the source/);
+  assert.ok(!/^\s*- failure:/m.test(fs.readFileSync(path.join(PLUGIN, 'agents', 'dream-analyzer.md'), 'utf8')));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(PLUGIN, '.claude-plugin', 'plugin.json'), 'utf8')).author?.name, 'Cain-Ish');
   for (const a of ['decision-checker', 'codebase-guide', 'memory-curator']) {
     const txt = fs.readFileSync(path.join(T, '.claude/agents', `${a}.md`), 'utf8');
     assert.match(txt, /^memory: project$/m, a);
@@ -1482,6 +1489,16 @@ ${NAME}` } });
   fs.rmSync(path.join(r, 'plugins'), { recursive: true, force: true });
   const okData = spawnSync('node', [DREAM, 'finish', path.join(cfg, 'plugins', 'data', 'sb')], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } });
   assert.match(okData.stdout, /no dream is running here/, 'a data folder under plugins/data passes the test');
+  // 06, section 4, 4c (N6): prepare's refusals exit 0, so the skill's ! line cannot abort before Claude reads why; a
+  // refused finish (above) keeps exit 1
+  const prep = (d) => spawnSync('node', [DREAM, 'prepare', d], { cwd: r, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: r } });
+  const badPrep = prep(path.join(tmp, 'not-plugin-data'));
+  assert.ok(badPrep.status === 0 && /its data folder must be the plugin's own/.test(badPrep.stdout), badPrep.stdout);
+  const okDir = path.join(cfg, 'plugins', 'data', 'sb');
+  await prepare(r, okDir);
+  const locked = prep(okDir);
+  assert.ok(locked.status === 0 && /another dream is running/.test(locked.stdout), locked.stdout);
+  abort(r, okDir);
   await prepare(r, data);
   // a digest edited after prepare (a forged U line): finish refuses before it changes anything
   const d2 = path.join(r, '.project-map', '.dream-run', 'digests', 'd2.digest');

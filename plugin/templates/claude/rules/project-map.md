@@ -16,9 +16,9 @@ Each decision is one entry in the topic file for its area, in the words used:
 - verified: <YYYY-MM-DD> <how you know it holds>
 ```
 
-- A decision that replaces an older one: keep the older entry and add to it
-  `- status: superseded <YYYY-MM-DD> by <the new entry's id>: <what still holds>`.
+- A decision that replaces, narrows or ends an older one: keep the older entry and add to it
+  `- status: <superseded|narrowed|expired|done> <YYYY-MM-DD> by <the new entry's id>: <what still holds>`.
 - An entry that carries `- proposed: dream <date>` is a dream's proposal. It binds once review accepts it
-  (`/map-review`); until then, treat it as unreviewed.
+  (`/map-review`); until then, treat it as unreviewed. Review turns that line into `- origin: dream <date>`.
 - A decision that holds until a known date gets `- review: <YYYY-MM-DD>`.
 - Entries hold words and repo paths only: session ids, email addresses and absolute paths stay out.

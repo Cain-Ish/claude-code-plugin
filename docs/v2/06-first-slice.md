@@ -5772,3 +5772,62 @@ The review the corrections above asked for. agy (Gemini 4 Argon, plan mode) was 
     link or a FIFO for the heading check, as 2.3.0 did.
 - **The product hash** of this code is `96d3d89b4442`. The smoke runs again on it.
 - **Check 2 on this code:** the smoke passed 3 of 3 (no root `CLAUDE.md`; the heading once; nothing committed).
+
+### 4, 4c: N1 to N4 and N6 (registered 2026-11-23, before the code)
+
+**The changes, each the smallest that settles its item:**
+- **N1:** the analyzer's `failure` kind is deleted (`plugin/agents/dream-analyzer.md`). No proposal type used it, and
+  a proposal must rest on a person's line, so a failure could only reach the map through the person's fix: a
+  `correction`, which the analyzer already has.
+- **N2:** the starter rule (`templates/claude/rules/project-map.md`) names all four status kinds
+  (`superseded|narrowed|expired|done`). The rule and the map's README template each gain one line defining
+  `- origin: dream <date>`.
+- **N3:** `/map-review`'s step 3 (`templates/claude/skills/map-review/SKILL.md`) also walks the stale entries listed by
+  a `/second-brain:status` report in the same session. Its step 1 already uses the dream's report this way.
+- **N4:** `plugin.json` gains `"author": { "name": "Cain-Ish" }`.
+- **N6:** `dream prepare`'s refusals (another dream holds the lock; the data folder fails its test) exit 0 with their
+  message, so that a failed `!` command cannot abort the skill before Claude reads why. Usage errors, and `finish` and
+  `abort`, keep exit 1.
+
+**Checks.** All must pass:
+1. **Self-test pins:**
+   - the analyzer lists no `failure` kind;
+   - the rule names the four kinds and `origin`, and the README defines `origin`;
+   - `/map-review`'s step 3 names the status report;
+   - `plugin.json` has an author;
+   - `prepare` with a bad data folder, and with a fresh lock held, exits 0 with its message;
+   - `finish`'s refusal still exits 1.
+2. **`claude plugin validate plugin`** passes with no warning.
+3. **CI** on three systems.
+4. **The new hash** of `plugin/` is recorded.
+
+N1 changes the analyzer's prompt, and no step here runs a dream. That is checked at 4e: section 3's S8 acceptance check
+runs again before the tag, and its dream-loop item exercises the analyzer. If that item fails there, N1 is reverted
+first.
+
+### 4, 4b check 4 on the final code; 4c's decision-checker review and an addendum (registered 2026-11-23, before its code)
+
+- **4b, CI on `acfef92`** (hash `96d3d89b4442`): `v2.yml` passed on all three systems.
+- **4c, the repo's `decision-checker` agent:** no break. Its points, and what follows from each:
+  - **N6 is wider than its wording.** Every error `prepare` throws now exits 0: the two named refusals, plus the map
+    link, waiting for review, and unexpected errors. In 2.3.0 these all exited 1, so section 3's "every other refusal
+    exits 0" was wrong for two of them. The direction is safe, since the skill stops on "The dream stopped"; recorded.
+  - **The step table promised "the smoke", but 4c's check list has none.** The check list is the later, more specific
+    registration. Running the dream, and an interactive `!` abort, are left to 4e.
+  - **The copy rule:** `plugin/` is edited in place for 4b's reason, which still holds: every install comes from
+    GitHub, not this checkout.
+  - **N1 against D31:** deleting `failure` matches D31's provenance rule. The analyzer's own text already demanded a
+    U or Q line, and a repeated tool failure lives in T and R lines. No trigger fires. But D31's bars were measured
+    with the kind in the prompt, and 4e's fallback re-ran only S8's dream item, which sat at its bar with no margin.
+    **4e therefore re-runs S7 check 2's bars on the product as well.**
+  - **N3 was half-fixed.** `/map-review`'s step 3 can only confirm an entry or end it. A source that changed, a quote
+    no longer found word for word, or a source that cannot be read needs the entry updated, and the step had no route
+    for that. **Addendum, registered here before its code:** step 3 gains a third outcome, "It changed: update the
+    quote or the source to what holds now, and set `- verified:` to today". It is pinned by the self-test like N3's
+    first line.
+  - **N8, recorded for later:** `status.mjs` checks the source of every entry, including one a `- status:` line has
+    already retired. So a retired entry whose quote is gone stays "stale" in every report. It reads only an entry's
+    first status line. Both behaviours are 2.3.0's, outside N3, and go to the next release's list.
+  - **For 4e:** `04-architecture.md` still lists N1 to N4 as open. The release notes must say that template text
+    (N2, N3) reaches new setups only, because setup never overwrites a template that already exists.
+- **4c, checks 1, 2 and 4:** the self-test passes with every pin, N3's addendum included; `claude plugin validate plugin` passes with no warning (N4 cleared the only one); the hash is `d502b016a0a1`. CI (check 3) runs on this commit.

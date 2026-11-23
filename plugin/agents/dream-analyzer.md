@@ -23,7 +23,6 @@ CANDIDATE | <kind> | <digest file>:<line number> | <statement>
   - correction: the user corrects how Claude did something.
   - procedure: steps the user has Claude follow, which will recur.
   - replaced: a person retracts or replaces an earlier decision.
-  - failure: a tool or command that failed the same way more than once.
 - **The line number** points at the U or Q line the candidate rests on; line 1 is the file's first line. Every
   candidate rests on a U or Q line.
 - **statement:** the person's own words from that line, quoted exactly, three words or more (trim a long one with …,

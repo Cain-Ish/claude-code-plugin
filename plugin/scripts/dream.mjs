@@ -589,13 +589,15 @@ export function abort(root, data) {
 if (path.basename(process.argv[1] ?? '') === 'dream.mjs') {
   const [step, data] = process.argv.slice(2);
   const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+  // N6 (06, section 4, 4c): prepare runs from the skill's ! line, and a failed ! command aborts the skill (Claude Code's
+  // docs), so its refusals exit 0 and reach Claude as text; finish and abort, run by Claude, keep exit 1
+  const stop = (why) => { console.log(`The dream stopped: ${why}`); if (step !== 'prepare') process.exitCode = 1; };
   if (!['prepare', 'finish', 'abort'].includes(step) || !data) {
     console.log('usage: node dream.mjs <prepare|finish|abort> <the plugin data folder>; run it as /second-brain:dream');
     process.exitCode = 1;
   } else if (!dataOk(root, data)) {
-    console.log('The dream stopped: its data folder must be the plugin\'s own (under plugins/data), outside the repo. Run it as /second-brain:dream.');
-    process.exitCode = 1;
+    stop('its data folder must be the plugin\'s own (under plugins/data), outside the repo. Run it as /second-brain:dream.');
   } else {
-    try { console.log(step === 'prepare' ? await prepare(root, data) : step === 'finish' ? finish(root, data) : abort(root, data)); } catch (e) { console.log(`The dream stopped: ${e.message}`); process.exitCode = 1; }
+    try { console.log(step === 'prepare' ? await prepare(root, data) : step === 'finish' ? finish(root, data) : abort(root, data)); } catch (e) { stop(e.message); }
   }
 }
