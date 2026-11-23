@@ -6627,3 +6627,17 @@ candidate is product `44a8c3454df2`. As 4e:
   copy hashes `44a8c3454df2`, the release. Running sessions need `/reload-plugins`.
 - **Open:** nothing from the user's list of 2026-11-23. The talk the user saw is not found in published text (4f),
   and R4 stays out (D33).
+
+### 5: a field read of 2.3.0 and 2.4.0 in real use (registered 2026-11-23, before it runs)
+
+Map issue step 22, "live tests on 2.3.0". The user's own sessions in the first field repo since the 2.3.0 install
+(2026-11-22) are read, as the field loop of `probes/V2-D17-field/README.md` reads them. Two main sessions qualify; the
+second field repo has none.
+- **Freeze:** copies of the two transcripts, with their subagent folders, in the session's scratch folder. They are
+  never put in the repo.
+- **Scan:** `count.mjs` (`field.mjs` and `field-scope.mjs`), with C5b reading the newer label formats (today's
+  update).
+- **Record:** counts only, here. No quote from a transcript, and no name of the repo.
+- **Triage,** by the loop's rule 6: a defect is fixed under its decision with a check registered first; an
+  observation goes to the ledger; a candidate goes to the map issue.
+- *Not a pass or fail:* D24's bar was 2.0.0's. This read looks for defects and for what real use shows.
