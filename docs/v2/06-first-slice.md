@@ -6603,3 +6603,17 @@ candidate is product `44a8c3454df2`. As 4e:
   *Pass:* every hook kind's added p95 at most 100 ms, at 1 and 8, with 0 errors.
 - **CI** on three systems; the release notes; the tag `v2.5.0`; and a pull request to `main`, merged once its checks
   are read. `v2` is pushed back after the merge (map entry `v2-branch-deleted-on-merge`).
+
+### 5, 5e: the release checks (2026-11-23): pass
+
+- **S8's acceptance check** (`probes/V2-D29-setup/results/s8-e2e-250.json`): 5 runs, every item 5 of 5. Every run
+  installed 2.5.0 from a clone at `e35b60ae`, byte-identical to the candidate. 11.64 USD.
+- **D18's reference bench** (`probes/V2-D30-entries/results-5e-reference.json`):
+  - *the first window was void:* 8 CPU samples from 10.8% to 21.6%, from the user's own work (an editor and a build
+    script), which was left alone;
+  - *the second window:* CPU 9.3%, empty Node's p95 at 8 at most 53.7 ms;
+  - **every hook within 100 ms, with 0 errors;** the largest is 82.3 ms (bash-other at 8). Against 2.4.0, the
+    builds are within 2 ms of each other, but for session start (+10.7 at 8), whose nudge work the control skips.
+- **CI** on `e35b60ae`: the self-test and the load jobs passed on three systems.
+- **S7's check 2:** `s7-product-a8.json`, passed (5c).
+- **5e passes.** Next: the tag `v2.5.0`, the release, and the pull request to `main`.
