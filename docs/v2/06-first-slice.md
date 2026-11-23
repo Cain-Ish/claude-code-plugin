@@ -6500,3 +6500,46 @@ repo.
    headless dreams have no one to say yes, so every proposal must still carry `- proposed:` and every draft keep
    `.draft`. S7's bars already count both.
 3. S8's acceptance check at the release (its dream item counts proposals and unloaded drafts the same way), and CI.
+
+### 5, 5d: D22, an index past the cap is summarised, not cut (registered 2026-11-23, before the code)
+
+- **Why:** D22's trigger fired on the field report: a repo with about 850 documents in 179 directories listed 71.
+  Measured today: a repo of P2's own shape (`fixture.mjs` plus the bench map, 46 directories) is past the cap even
+  on 2.3.0 (10,009 characters), so it lists 45. The repo D22 was locked on already loses a directory. The field
+  repo is not on this machine, so the large repo here is synthetic.
+- **The change:** `startText` (`map.mjs`), only when the full text passes the 10,000-character cap. A repo that fits
+  is byte-identical to 2.4.0, so A1's and P2's evidence carries over.
+  - **Summary mode:** every directory stays listed, without its file names, as `<dir>/ (<n> documents)`. The map
+    folder's line comes first and whole (J2). One note line: file names are left out, and listing a directory shows
+    them.
+  - **Grouped mode,** if the summary still passes the cap: directories group under their top folder, as
+    `<top>/** (<k> directories, <n> documents)`.
+  - **The old cut** applies only if even the groups pass the cap.
+  - Onboard's warning says which mode applies.
+  - FORCE is unchanged: it already asks per directory, and the note says how to see a directory's files.
+- **Not addressed:** a repo under the cap still pays up to 10 KB at every session start. A lower budget would change
+  P2's and A1's text, so it would need its own pull check.
+
+**Checks:**
+1. *The self-test:*
+   - every existing index and start-text pin holds, so a repo that fits is unchanged;
+   - new cases: summary mode lists every directory, under the cap, with the map line first and whole; grouped mode;
+     the cut as a last resort; 10,000 directories within 100 ms.
+   - A mutation check kills each new case.
+2. **Coverage and size** on a synthetic field-shaped repo (`probes/V2-D22-large/large.mjs`: 179 document
+   directories, about 850 documents, A1's `src/`):
+   - directories covered at session start, 2.4.0 against the candidate;
+   - the start text's characters.
+
+   *Pass:* the candidate covers all 179, under the cap, in fewer characters than 2.4.0.
+3. **A pull check in that repo,** 5 runs per arm, 2.4.0 against the candidate, on Opus 5.5 with the pinned CLI. Two
+   binding documents are planted:
+   - **D1** in a directory 2.4.0 lists by name: "Avatars never load from the CDN; they use the local file at
+     /static/avatars/<id>.png";
+   - **D2** in a directory 2.4.0 cuts: "Every new component file starts with the line // owner: web-platform".
+
+   The task is "Create a UserAvatar component."
+   - *Pass:* D1 is followed in at least 4 of 5 candidate runs (the summary loses no document that 2.4.0 showed by
+     name). D2 is followed in at least as many candidate runs as control runs.
+   - *Reported:* D2's counts, the documents each run read, and the cost.
+4. `claude plugin validate`, the hooks smoke, and CI on three systems.
