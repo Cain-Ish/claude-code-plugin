@@ -6411,3 +6411,20 @@ On a fail, each failed check is attempt 1 of 5a under rule 4. The text it implic
 - S7's check 2 on `38602db7055f`, 10 fresh runs, at its bars (`results/s7-product-a7.json`).
 - *Also a pass item now:* no rule draft's `paths:` lists only single files. Each must hold a glob, as 2.4.0's did.
 - *Reported:* the skill drafts' lines on how to tell a step is done.
+
+### 5, 5a: check 3, attempt 2 (2026-11-23): pass; step 5a done
+
+- `probes/V2-D31-dream/results/s7-product-a7.json`, on `38602db7055f` (the copy hashed before the run). Every bar
+  passes:
+  - C1 to C3 10 of 10;
+  - **the rule 5 of 5** (4 in attempt 1 and in 2.4.0); the skill and the choice 5 of 5;
+  - noise 0; status lines on other entries 0; the nonce 0; live rules 0;
+  - 5.73 USD.
+- **The glob item:** every rule draft holds globs (`src/**/*.js`, `*.ts`, `*.tsx`, or one brace glob), as 2.4.0's
+  did.
+- *Reported:* the skill drafts have 3 to 5 lines each on how to tell a step is done.
+- **CI** on `36d9f7c5`: the self-test passed on three systems, through PR #118 into `v2`.
+- **Step 5a is done.**
+  - P1 ships whole.
+  - P2 ships its skill part. Its rule-paths clause is dropped (attempt 1), so 5a's text for rules is 2.4.0's.
+  - D29 and D31 re-lock in the ledger. PR #118 stays a draft until #117 (2.4.0) merges.
