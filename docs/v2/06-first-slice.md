@@ -7110,3 +7110,26 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
     the latest earlier report.
 - **Bars:** check 0's ceiling rule, with T counted among the baselines. G's bars stay those of check 0 and check 3,
   against the best of T, U and Us. If the floor or a baseline hits the ceiling, the attempt fails.
+
+### 7, 7a: check 0, attempt 2 (2026-11-24): fails; the floor is at the void line, and T and U reach the ceiling
+
+Fixture 2, 2.5.1, Opus 5.5, under the registered protocol. Held-out passes, of 6 each:
+
+| Arm | Passes | Artifact used | Should-not used | What the makers left |
+| --- | --- | --- | --- | --- |
+| Floor (no request, no artifact) | 2 | — | — | — |
+| T (the procedure told, no artifact asked) | 6 | — | — | no artifact in 3 of 3; the map carried the note |
+| U (a maker, no guidelines) | 6 | 6 | 0 of 3 | one live skill in 3 of 3 (one with a counting script) |
+| Us (a maker with `skill-creator`) | 4 | 6 | 0 of 3 | one live skill in 3 of 3 (one with a counting script) |
+
+- **The floor** passed 2 of 6, both on the rate task. With no word of the procedure, Claude wrote a report and a log
+  line in every run: the repo's `reports/` folder and its log show the habit. By the registered rule (2 or more),
+  fixture 2 is void. Failed attempt 2 of 7a's three.
+- **T and U** each reach 6 of 6, so G could not pass "at least 2 more than the best baseline" on this fixture
+  either.
+- **What the two attempts show:**
+  - On a short rule the repo shows, and on a procedure a person states once, Opus 5.5 does the task as the project
+    wants with no artifact made: the map (T) or an unguided skill (U) is enough.
+  - The making steps have shown no need on either task kind (PM1).
+  - Us's two misses were one copy in which both tasks skipped the report and the log while the skill was used. The
+    skill did not hold on that run.
