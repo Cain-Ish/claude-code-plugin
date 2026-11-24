@@ -18,7 +18,8 @@ const MODEL = 'claude-opus-5-5';
 export const REQUEST = 'Make a skill or an agent for this repo that adds a database migration the way this project does it.';
 // --suite 2 (check 0, attempt 2): fixture 2's tasks and grader; the maker's request, or with --tell the T arm's note
 const SUITE2 = process.argv.includes('--suite') && process.argv[process.argv.indexOf('--suite') + 1] === '2';
-const ASK = !SUITE2 ? REQUEST : process.argv.includes('--tell') ? `Note for this repo: ${PROCEDURE}` : `Make a skill or an agent for this repo that does our pricing check: ${PROCEDURE}`;
+const askArg = process.argv.indexOf('--ask');
+const ASK = askArg > 0 ? process.argv[askArg + 1] : !SUITE2 ? REQUEST : process.argv.includes('--tell') ? `Note for this repo: ${PROCEDURE}` : `Make a skill or an agent for this repo that does our pricing check: ${PROCEDURE}`;
 const HELD = SUITE2 ? ['rate', 'round'] : ['phone', 'tags'];
 const SHOULD_NOT = 'rename';
 const PROMPTS = SUITE2 ? TASKS2 : TASKS;

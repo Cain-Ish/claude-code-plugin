@@ -7,7 +7,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const [plugin, work] = process.argv.slice(2).map((p) => path.resolve(p));
-const T = 'scripts/trial.mjs', K = 'skills/trial/SKILL.md', S = 'scripts/setup.mjs';
+const T = 'scripts/trial.mjs', K = 'skills/tailor/SKILL.md', S = 'scripts/setup.mjs';
+const R = 'templates/project-map/README.md', V = 'templates/claude/skills/map-review/SKILL.md';
 const M = [
   ['(i) data folder inside the repo refused', T, 'if (inRepo(root, base)) throw', 'if (false) throw'],
   ['(i) ignored files left out', T, "'-co', '--exclude-standard'", "'-co'"],
@@ -29,9 +30,14 @@ const M = [
   ['(vii) no MCP server', T, "'--strict-mcp-config', ", ''],
   ['(vii) only the listed tools', T, "...(tools.length ? ['--allowedTools', ...tools] : [])", "'--allowedTools', 'Bash'"],
   ['records blind to the arm', T, 'JSON.stringify({ id, case: c.id,', 'JSON.stringify({ id, arm, case: c.id,'],
-  ['listing text at most 400 bytes', K, 'Use before promoting a draft,', `${'x'.repeat(130)} Use before promoting a draft,`],
-  ['Claude may invoke trial', K, 'allowed-tools:', 'disable-model-invocation: true\nallowed-tools:'],
+  ['listing text at most 400 bytes', K, 'description: Makes or tests', `description: ${'x'.repeat(80)} Makes or tests`],
+  ['Claude may invoke tailor', K, 'allowed-tools:', 'disable-model-invocation: true\nallowed-tools:'],
+  ['no gap, nothing made', K, 'With no gap, make nothing', 'With no gap, make a starter'],
+  ['made artifacts are drafts', K, '`.claude/agents/<name>.md.draft`', '`.claude/agents/<name>.md`'],
+  ["the README's agent row", R, '| A task that recurs and needs its own context, tools or notes |', '| A task that recurs |'],
+  ['map-review tests a draft first', V, 'invoke the `second-brain:tailor` skill', 'consider the `second-brain:tailor` skill'],
   ["2.5.1's map-review hash listed", S, ", '7ff1c09c889ebe9c']", ']'],
+  ["2.5.1's README hash listed", S, ", '15a4bb133893f00e']", ']'],
 ];
 const lines = [];
 let survived = 0;

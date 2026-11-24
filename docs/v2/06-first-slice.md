@@ -7221,5 +7221,20 @@ Checks 3 and 4 fall away with the making steps.
     Bars (a) to (d) are dropped as unreachable, since the baselines hit the ceiling. G's held-out passes are recorded,
     with no bar.
   - **Check 4,** no gap, as registered.
+- **Check 5, amended before any run.**
+  - A dream's skill draft cites its evidence as digest lines, `<digest>:<line>`, which hold no user words. So
+    `tailor` cannot write cases from them alone, and by its step 2 it asks the user for examples.
+  - The headless run follows that path, in five turns:
+    1. `/map-review`;
+    2. the user's examples (the two pricing tasks and the rename);
+    3. "yes" to the plan;
+    4. the promotion question, left unanswered;
+    5. "yes".
+  - Bars:
+    - the cases are shown and asked before any trial, in 3 of 3;
+    - the trial's counts come before the promotion question, in 2 or more of 3;
+    - nothing is promoted before the second yes, in 3 of 3;
+    - it is promoted after it, in 3 of 3.
+  - A denied rename into `.claude/` is applied by the harness, as in check 3.
 - **The last attempt covers checks 1, 2, 3(e), 4, 5, 6 and (f).** Check 6 includes 5a's rerun again, since the README
   changes. One failure remains; then D34 is BLOCKED and goes to the user.
