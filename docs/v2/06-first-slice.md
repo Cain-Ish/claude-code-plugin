@@ -7902,8 +7902,11 @@ hook change: those are 8d's and 8e's. The decision-checker read a first draft; i
      skill only a person starts is counted too;
    - **an agent's uses:** its Agent calls;
    - **the sessions** those uses fall in;
-   - **"a typed line after it":** a use followed by a typed line before Claude's next tool call. The report counts it
-     and never calls it a correction. Telling a correction apart needs judgment, which is the analyzers' work in 8d;
+   - **"a typed line after it":** a use followed by a typed line before Claude's next Skill or Agent call. The report
+     counts it and never calls it a correction. Telling a correction apart needs judgment, which is the analyzers'
+     work in 8d.
+     - *Amended before the build:* the first wording ended a use at "Claude's next tool call". A skill's own steps are
+       tool calls, so that would almost never count a skill.
    - **failed tool results, by tool,** in the main session;
    - **subagent runs by type,** from `<session>/subagents/*.meta.json` (`agentType`; "unknown" when it is missing), and
      the failed tool results inside each subagent's own transcript, counted only. No subagent text enters a digest
