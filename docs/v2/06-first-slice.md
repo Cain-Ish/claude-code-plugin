@@ -8345,3 +8345,63 @@ The making steps' guardrails already passed in 7a (3(e)), and are kept.
   - The bars do not change.
 - **Rescored,** every case reads 2 of 2: (a) the change draft, (b) none for `lint-fix`, (c) an agent draft, (d) the
   package rule, (e) no single-package lowercase rule. Nothing was made live, and nothing was committed.
+
+### 8, 8d: the two reviews, taken before the freeze (2026-11-24)
+
+A fresh agent reviewed the diff and ran its own probes; the decision-checker read it against the ledger. No LOCKED line
+is broken. Every finding is fixed below, with a case in `test/dream8d.mjs` and a mutation in `mutate8d.mjs`, or
+recorded.
+
+**Fixed in `dream.mjs`:**
+- **A worktree's session got the wrong package.** Files were made relative to the main root only, so a session in
+  `.claude/worktrees/feat` recorded `.claude/worktrees/feat/packages/api/...`. Each file is now relative to the root of
+  the worktree that holds it, the longest first, and a relative path is taken from the session's own folder.
+- **An inline brace glob was refused.** `paths: ["packages/{api,web}/**"]` was split on the comma inside the braces.
+  The inline list now splits on commas outside quotes and braces.
+- **The name gates used the file name; Claude Code goes by the `name` field.** An agent draft or a change draft whose
+  `name` is not its file's is now refused ("a name that is not its file name"), so a draft cannot pass as, or shadow,
+  another agent.
+- **An empty field passed.** `\s*` crossed the line end, so an empty `tools:` took the next key's value. One `field()`
+  helper now reads a key on its own line, for the agent, change and skill gates. The skill gate is D31's, older than
+  8d; it had the same fault and the same fix.
+- **An agent's change draft needed no `tools`.** It now passes item 1's gate, as registered ("every gate of item 1").
+- **A NUL in a glob crashed finish** after the map was written. The folder check now uses `lstat`: a linked folder, or a
+  name the system cannot hold, counts as lacking. A glob with a backslash is refused too.
+- **Not registered, added (the decision-checker's D33 point):** a change to a file setup makes is refused ("a change to
+  a file setup makes"). Those files are the plugin's: setup updates them by D29, and `map-review` is the review gate
+  itself. `dream.mjs` now imports `FILES` from `setup.mjs`, an import the self-test already allows.
+
+**Fixed in the texts:** the analyzer said "Name the task", but its format has no field for a name; both new kinds now
+point at the U line, with the T line before a correction naming the artifact.
+
+**Fixed in the checks:**
+- `dream8d.mjs`: the link case requires exactly 2 refusals (its old pattern always matched). New cases: a skill a
+  person starts keeps `disable-model-invocation: true` through a change; one cited session that did not use the skill;
+  fewer than 2 sessions; empty fields; names that are not the file's; a file setup makes; private names; an agent's
+  change written; a subagent's read not counted; a worktree's session, from a package folder, with relative paths;
+  brace, YAML-list, NUL, backslash and outside-the-repo globs; the template's promotion line. All 7 cases fail on 8c.
+- `mutate8d.mjs`: 23 mutations added, 48 in all; a dry run against `dream8d.mjs` alone killed 48 of 48.
+- `fixture8d.mjs` (check 3):
+  - "nothing live" now compares the live files' text, so a change draft promoted over its own file would show.
+  - (c) now needs an agent draft for the review task C1 and C2 typed (its text names a review), as (c) is worded,
+    where it took any agent draft. The pilot, rescored, still reads 2 of 2 on every case.
+  - The summary lists each run's count of lowercase rule drafts. (e) can fail only in a run that drafts one: the
+    pilot drafted none in run 1 and one in run 2. The result reports how many counted runs drafted one; the bar stays.
+
+**Added before it runs, check 1b** (`probes/V2-8d-proposals/beside.mjs`, the decision-checker's D31 point): a change
+draft beside a live `SKILL.md` stays inert. Until 8d, `freeName` kept drafts out of live folders. 3 runs where a
+person types `/greet` and 3 where Claude starts it; every run answers from the live file, and no run shows the draft's
+text or names the draft in a tool call. Pass: 6 of 6.
+
+**Recorded, not changed:**
+- **The waiting note** (item 1's limit) is wider than written: `/second-brain:status` uses the same `waiting()` as
+  session start, so it also counts no agent draft. Both stay as they are (D18); the dream's report and `/map-review`
+  name agent drafts.
+- **Touched files also count `MultiEdit` and `NotebookEdit`,** beyond item 3's "Read, Edit and Write". Both are edits.
+- **The README (item 6)** is written when 8d moves into `plugin/`, with 8e's.
+- **D10:** 8d's agent and change code shares files with rule placement. If 8e is BLOCKED, the agent and change blocks
+  in `finish()`, their texts and their cases come out before 2.6.0 ships; rule placement stays.
+- **On 8c,** some cases fail with a TypeError (8c has no `usage.digests`) rather than on their own assertion. That is
+  still a failure on 8c, as registered.
+- **A nit not taken:** touched files sit in both the manifest (the report reads them) and `usage.json` (the analyzers
+  read them).

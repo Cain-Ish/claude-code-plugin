@@ -6,6 +6,10 @@
  "c": 2,
  "d": 2,
  "e": 2,
+ "lowerRules": [
+  0,
+  1
+ ],
  "nothingLive": 2,
  "nothingCommitted": 2,
  "sessionsFailed": 0,

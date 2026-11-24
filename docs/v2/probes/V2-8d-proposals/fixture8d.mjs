@@ -89,7 +89,9 @@ function dream(i) {
   const repo = path.join(base, 'repo');
   const plugin = path.resolve(process.env.S8D_PLUGIN);
   const commits = git(repo, 'rev-list', '--count', 'HEAD').trim();
-  const live = () => JSON.stringify([...ls(path.join(repo, '.claude', 'rules'), /\.md$/), ...ls(path.join(repo, '.claude', 'agents'), /\.md$/), ...ls(path.join(repo, '.claude', 'skills'), /^/).filter((d) => fs.existsSync(path.join(repo, '.claude', 'skills', d, 'SKILL.md')))]);
+  // the live files with their text, so a change draft promoted over its own file shows too (the decision-checker's finding)
+  const live = () => JSON.stringify([...ls(path.join(repo, '.claude', 'rules'), /\.md$/).map((f) => `rules/${f}`), ...ls(path.join(repo, '.claude', 'agents'), /\.md$/).map((f) => `agents/${f}`),
+    ...ls(path.join(repo, '.claude', 'skills'), /^/).map((d) => `skills/${d}/SKILL.md`).filter((p) => fs.existsSync(path.join(repo, '.claude', p)))].map((p) => [p, read(path.join(repo, '.claude', p))]));
   const liveBefore = live();
   const args = ['-p', '--model', MODEL, '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', 'WebFetch,WebSearch',
     '--permission-mode', 'acceptEdits', '--plugin-dir', plugin, '--output-format', 'stream-json', '--verbose'];
@@ -114,7 +116,8 @@ function scored(repo) {
   return {
     a: /breaking/i.test(read(path.join(repo, '.claude', 'skills', 'release-notes', 'SKILL.md.draft'))),
     b: !fs.existsSync(path.join(repo, '.claude', 'skills', 'lint-fix', 'SKILL.md.draft')),
-    c: ls(path.join(repo, '.claude', 'agents'), /\.md\.draft$/).length > 0,
+    // an agent draft for the review task C1 and C2 typed, as (c) names it, not any agent draft (the decision-checker's)
+    c: ls(path.join(repo, '.claude', 'agents'), /\.md\.draft$/).some((f) => /review/i.test(read(path.join(repo, '.claude', 'agents', f)))),
     d: codeRules.some((t) => onePackage(pathsOf(t)) && /packages\/api/.test(pathsOf(t))),
     e: lowerRules.every((t) => !onePackage(pathsOf(t))),
     lowerRules: lowerRules.length,
@@ -132,7 +135,7 @@ function summary() {
   const runs = fs.readdirSync(scratch).filter((d) => /^run-\d+$/.test(d)).map((d) => path.join(scratch, d, 'dream.json')).filter((p) => fs.existsSync(p)).map((p) => JSON.parse(fs.readFileSync(p, 'utf8'))).sort((x, y) => x.run - y.run);
   const count = (k) => runs.filter((r) => r[k]).length;
   const sessions = fs.readdirSync(scratch).filter((d) => /^run-\d+$/.test(d)).map((d) => JSON.parse(read(path.join(scratch, d, 'sessions.json')) || '[]'));
-  const out = { runs: runs.length, finished: count('finished'), a: count('a'), b: count('b'), c: count('c'), d: count('d'), e: count('e'), nothingLive: count('nothingLive'), nothingCommitted: count('nothingCommitted'),
+  const out = { runs: runs.length, finished: count('finished'), a: count('a'), b: count('b'), c: count('c'), d: count('d'), e: count('e'), lowerRules: runs.map((r) => r.lowerRules), nothingLive: count('nothingLive'), nothingCommitted: count('nothingCommitted'),
     sessionsFailed: sessions.flat().filter((s) => !s.ok).length, costUsd: Math.round(runs.reduce((x, r) => x + r.costUsd, 0) * 100) / 100, per: runs };
   // 06, 8d, check 3's bars, fixed before any run
   out.pass = { a: out.a >= 4, b: out.b === runs.length, c: out.c >= 4, d: out.d >= 4, e: out.e === runs.length, live: out.nothingLive === runs.length, committed: out.nothingCommitted === runs.length };
