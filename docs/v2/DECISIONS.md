@@ -5296,3 +5296,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   from section 7 ships. The fix it points to, copies in the system's temporary folder, is recorded, not built.
 - **A fifth attempt, the user's override (2026-11-24):** "Fifth attempt, this fix only". The trial's copies move to the system's
   temporary folder, and a pre-flight runs one trial as shipped before any counted check (06, 7a). A failure ends it.
+- **The fifth attempt failed (2026-11-24; 06, 7a).** The trial runs end to end, and the making guardrails pass 3 of 3. (f)
+  fails: the trial called a good draft "adds nothing" (2 with, 2 without), since its model-graded cases passed runs
+  without the skill far more often than a strict grader did. Check 5's promotion bar fails on the same verdict. D34 stays
+  BLOCKED, and nothing from section 7 ships. The candidate is kept in probes/V2-D34-repo-artifacts/candidate.

@@ -1,0 +1,7 @@
+{
+  "name": "second-brain",
+  "version": "2.6.0",
+  "description": "A project map for Claude Code: sets up the layout Anthropic recommends, keeps the team's decisions in versioned entries labelled until they are committed, dreams over past sessions on demand to propose what the map missed, and makes and tests the repo's own agents and skills.",
+  "author": { "name": "Cain-Ish" },
+  "license": "MIT"
+}

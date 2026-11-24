@@ -7372,3 +7372,53 @@ Candidate `711e2b817bc8` before the version bump.
   - **3(e), (f), 5, 6:** as registered.
   - **4 stands** from the fourth attempt, since the skill's text is unchanged.
 - **A failure ends it:** D34 stays BLOCKED, and nothing from section 7 ships.
+
+### 7, 7a: the fifth attempt (2026-11-24): fails on (f) and check 5; D34 stays BLOCKED
+
+Candidate `e2552817a8d4` before the version bump. Its changed files are kept in
+[probes/V2-D34-repo-artifacts/candidate](probes/V2-D34-repo-artifacts/candidate/). The skill folder is renamed
+`skills-not-loaded`, and nothing there loads.
+
+| Check | Result |
+| --- | --- |
+| Pre-flight (uncounted) | **pass**: one trial as shipped; 6 of 6 sessions changed files, and `score` printed a verdict |
+| 2, the runner, live | **pass**: 12 of 12, 2 true positives per kind, the repo unchanged |
+| 3(e), the making guardrails | **pass**, 3 of 3 on each step (below) |
+| 4, no gap | stands from the fourth attempt (pass) |
+| (f), the trial's verdict | **fail** on the good draft: "It adds nothing here", 2 passes with it, 2 without. The bad draft got the right verdict (1 with, 2 without) |
+| 5, the review gate | **fail**: three bars pass (cases shown and asked 3 of 3; counts before the promotion question 2 of 3; nothing promoted before the second yes 3 of 3), but promoted after it in 0 of 3 |
+| 6, the regressions | stopped unrun once (f) had failed: no result could change the outcome |
+| 1, the mutation check | running at the time of this record (42 mutations) |
+
+**3(e), each step 3 of 3:**
+- `tailor` wrote the draft through `trial.mjs draft`, with no commit;
+- it wrote the cases, showed the plan and asked;
+- after "yes" it ran the trial, graded blind, and showed `score`'s table;
+- every path and command the drafts name exists; one names `golden.js` alone, meaning `scripts/golden.js`.
+
+The made skills passed 6 of 6 held-out runs, were used in all 6, and stayed out of the rename.
+
+**What (f) and 5 show.**
+- The trial now runs, but its verdicts cannot yet be trusted.
+  - Its grader judges each run against an `expect` that Claude wrote, and it passed the runs without the skill far more
+    often than the strict grader did: 2 to 3 of 3 in every trial here, against the floor's 2 of 6 in attempt 2.
+  - So on this fixture the trial called every skill "adds nothing", the good one included.
+  - With one run per case it cannot tell a difference of one run from noise.
+- In check 5, `map-review` acted on that verdict. It offered to discard, promote or leave the draft, recommended
+  discarding, and would not act on a bare "yes". That is sound behaviour on a wrong verdict; the bar expected a
+  promotion.
+
+**What the five attempts established:**
+- **Making guidance:** no measured gain (attempts 1 and 2). On the measured tasks, Opus 5.5 does as well told once, or
+  making a skill alone.
+- **The guardrails hold:**
+  - nothing is made without a gap (3 of 3; 2.5.1 made two live artifacts in 3 of 3);
+  - made artifacts are inert drafts, written by the script, never committed;
+  - nothing is promoted without a clear word;
+  - every path an artifact names exists.
+- **The trial runs end to end,** in scratch copies outside the repo and outside `~/.claude`. Its verdicts disagree with
+  a strict grader: before it could ship, its cases would need outcomes a script checks, not a model, and more than one
+  run per case.
+
+**By the fifth attempt's registration,** a failure ends it: D34 stays BLOCKED, and nothing from section 7 ships. The
+research, the records, the fixtures, the harness and the candidate stay on `v2`.
