@@ -5226,8 +5226,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     flagged skill.
 
 ### V2-D34 — Agents and skills made for one repo
-- **Question:** how does the plugin guide Claude to make an agent, skill, path rule or check for the repo it runs in,
-  and test each one before a person keeps it? Improving them from the repo's sessions is a second question: D35 opens
+- **Question:** how does the plugin guide Claude to make an agent, skill or path rule for the repo it runs in (and
+  offer the other homes: a `CLAUDE.md` line, a check, a hook), and test each one before a person keeps it? Improving them from the repo's sessions is a second question: D35 opens
   with 7b.
 - **Why now:** the user's word of 2026-11-24, after the video of the AI Native DevCon talk: "we need full guidelines
   in plugins so it will be used in other repos to create dedicated and correctly made agents and other skills per

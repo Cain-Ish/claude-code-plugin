@@ -6883,7 +6883,7 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
        - It holds only what Claude cannot infer from the repo.
     4. **Writing,** by `skills/tailor/guidelines.md`, a reference file read on use. It holds Anthropic's rules for
        agents, skills and path rules, re-read at the source on 2026-11-24, as principles rather than a field table.
-       A made agent does one task, with named tools.
+       A made agent does one task, names its tools, and is no persona for a role.
     5. **Cases,** in `.project-map/evals/<name>.json`:
        - three or more, and one where the artifact should not be used;
        - each with a prompt, an outcome a grader can check, and the tools the run may use;
@@ -6892,13 +6892,16 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
          (D31's scan).
     6. **The trial.**
        - Claude first shows the user what `trial.mjs plan` prints: each prompt, its tools, and the permission mode.
-       - It runs `trial.mjs run` only after the user's yes in this session.
+       - On the user's yes, in this session, Claude invokes `tailor` again with `run <name>`. A skill's grant lasts
+         one turn, so the new invocation renews it, and only then is `trial.mjs run` used.
        - Each case runs in a scratch copy of the repo, with the artifact and without it (or with its old version).
          The sessions are nested `claude -p` runs with `--permission-mode acceptEdits`, `--allowedTools` only as the
          case lists, and all hooks off (`disableAllHooks`), alike in both arms.
        - A general subagent grades each outcome against the case, without knowing the arm.
-       - Claude shows the counts: passes with and without, and use, including on the case where it should not be used.
-       - The trial covers skills, agents and path rules.
+       - Claude shows the counts: passes with and without, and, for a skill or an agent, use, including on the case
+         where it should not be used.
+       - The trial covers skills, agents and path rules. A path rule makes no call to detect, so its use is not
+         counted, only its outcomes.
     7. **The result.**
        - A skill, agent or path rule stays a draft (`.draft`, inert by probe 3). Nothing is committed.
        - Agent drafts are not counted in the session-start "waiting for review" line, since `map.mjs` `drafts()`
@@ -6937,8 +6940,8 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   0. *Order (PM1): baselines first.*
      - N, U and Us (check 3) run on 2.5.1 before `tailor` or `trial.mjs` is written.
      - **The ceiling rule** (D17): if the best baseline passes 5 or more of its 6 held-out runs, the fixture measures
-       nothing. It is hardened and the baselines rerun, at most twice, each recorded. That is calibration, not an
-       attempt. A third ceiling ends the making steps: D34 settles on (A) for making.
+       nothing. That is a failed attempt under rule 4, as D17 counts it, and the fixture is hardened and the baselines
+       rerun. If the attempts run out on the ceiling, the making steps end: D34 settles on (A) for making.
      - **G's bars,** recorded before tailor's code:
        - G passes 5 or more of 6;
        - G passes at least 2 more than the best baseline.
@@ -6979,7 +6982,8 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
        - after adding one, `node scripts/check-migrations.js` must print OK.
 
      **The maker's request,** the same in every arm: "Make a skill or an agent for this repo that adds a database
-     migration the way this project does it." In G, the maker run is resumed with "yes" when it asks to run the trial.
+     migration the way this project does it." In every maker arm alike, a run whose reply asks a question is resumed
+     with "yes", at most twice (in G, this is how the trial gets its yes).
 
      **Arms,** each in a fresh scratch copy (Opus 5.5, the user's CLI). Maker runs use
      `--permission-mode bypassPermissions`, so the `.claude/` write guard blocks no arm and G's "nothing live" holds
@@ -7015,7 +7019,8 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
        - the artifact was left as a draft and nothing was committed, in 3 of 3;
        - every backquoted path and `node`/`npm` command it names exists in the fixture, checked by a script, in 3 of
          3;
-       - a made agent names its tools, in 3 of 3;
+       - a made agent names its tools, in 3 of 3, and does one task with no persona for a role, in 3 of 3. A fresh
+         subagent judges the second part against that sentence, and its reason is recorded.
      - (f) the trial agrees with the held-out results. One trial each runs on a good draft (G's first) and on a
        planted bad one (it numbers by highest plus one). The good draft's with-arm passes more cases than its
        without-arm, and the bad draft's does not.
@@ -7033,7 +7038,7 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
      - after it, the draft is promoted, in 3 of 3.
   6. *Regressions:*
      - 5a's check 2 rerun on the candidate (the README table changes): told a rule a tool can enforce, Claude records
-       it and offers a check, in 5 of 5;
+       it and offers a check, in 5 of 5, and no run makes a new live rule or skill, in 5 of 5;
      - D33's (M) handoff (the dream's last step into `map-review`'s text), as 5c checked it, in 3 runs: nothing is
        accepted without the user's yes.
   7. `claude plugin validate plugin`, CI on three systems, a review of the diff by a fresh Claude agent (agy's quota is

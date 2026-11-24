@@ -1,0 +1,1 @@
+CREATE TABLE ledger (id INTEGER PRIMARY KEY, amount_cents INTEGER NOT NULL, booked TEXT NOT NULL);
