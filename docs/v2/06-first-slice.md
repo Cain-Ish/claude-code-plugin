@@ -6828,3 +6828,224 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   are stale.
 - **Before the user's run,** checked read-only in the first field repo: its three files are tracked with no flag
   (`H`), clean, and singly linked, so setup's guard lets the update through.
+
+## 7: agents and skills made for one repo, tested before anyone keeps them (registered 2026-11-24, before the code)
+
+- **The user's word** (2026-11-24): full guidelines in the plugin, so that in other repos Claude creates dedicated,
+  correctly made agents and skills per repo, with a self-evaluate and self-improve loop.
+  - The research: [research/2026-11-24-repo-agents-and-skills.md](research/2026-11-24-repo-agents-and-skills.md).
+  - **D34** opens on it for making and testing.
+  - **D35** opens with 7b, for improving from the repo's sessions. That is a second question, so it gets a second
+    decision.
+- **The probes** ([probes/V2-D34-repo-artifacts](probes/V2-D34-repo-artifacts/README.md)):
+  1. A nested `claude -p` loads a draft skill (`--plugin-dir`) and uses it from plain words. A draft agent
+     (`--agents`) loads, but was not delegated to on a simple question, so use is a bar of its own.
+  2. In the first field repo, the repo's own two agents ran in 9 of 14 sessions each, and its own two skills in 6 and
+     3. The plugin's codebase-guide and memory-curator ran in no session of three repos.
+  3. `.claude/agents/<name>.md.draft` is not loaded, as D31 found for rule and skill drafts.
+- **`claude plugin eval` stays out.** Its cases start in an empty workspace, and whether its skills-dir target can
+  test a repo's own `.claude/` in place is unproven.
+
+### 7, 7a: the guidelines skill, its paired trial, and the review gate (registered 2026-11-24, before the code)
+
+- **What reopens, on the user's word of 2026-11-24:**
+  - **D18's surface.** A fourth skill that Claude may invoke: its description is listed in every session. The budget
+    row below replaces section 3's skills row for this series.
+  - **D10's scope.** The plugin also guides making the repo's own agents, skills and path rules from evidence. Made
+    agents stay task agents, and nothing is kept without a person's yes.
+  - **The charter** gets a dated entry saying both, and restates the non-goals. The trial's nested sessions only test
+    an artifact in a copy; they never do the user's work.
+- **Budget** (PM6, PM8):
+
+  | Unit | Budget | Outcome served |
+  | --- | --- | --- |
+  | Skills | 4: `setup`, `dream`, `status` (each `disable-model-invocation: true`), and `tailor`, which Claude may invoke | Consistency (tailor: artifacts that hold Claude to how this repo works) |
+  | Always-on bytes | section 3's, plus tailor's listing text (its description), at most 400 bytes, measured by the self-test | Orientation |
+  | Scripts a skill may run | tailor: `trial.mjs` only | — |
+  | Plugin agents | still 1 (`dream-analyzer`). The trial's grader is a general subagent given the grading prompt, not a new agent | — |
+  | Hooks | unchanged | — |
+
+- **The change** (2.6.0, built in a copy of `plugin/` until the checks pass):
+  - **`skills/tailor/SKILL.md`.** It makes or improves one agent, skill or path rule for this repo, and offers the
+    other homes. Its steps:
+    1. **The gap.**
+       - The gap rests on the user's typed lines in this repo's sessions, a map entry, or the user's request.
+       - A request counts only when it names a task the artifact will do, and at least one example or rule of how this
+         repo does it. "Make agents for this repo" names no task.
+       - With no gap, it makes nothing and says what evidence it needs.
+    2. **The home.**
+       - The smallest that holds the gap: a `CLAUDE.md` line, a path rule, a skill, an agent, or a check or hook.
+       - First check that nothing in the repo already does it.
+       - A `CLAUDE.md` line, a check and a hook have no draft form. For these, nothing is written: Claude shows the
+         text and writes it only on the user's yes.
+    3. **Grounding.**
+       - Every path, command and name it states exists, and is checked.
+       - It holds only what Claude cannot infer from the repo.
+    4. **Writing,** by `skills/tailor/guidelines.md`, a reference file read on use. It holds Anthropic's rules for
+       agents, skills and path rules, re-read at the source on 2026-11-24, as principles rather than a field table.
+       A made agent does one task, with named tools.
+    5. **Cases,** in `.project-map/evals/<name>.json`:
+       - three or more, and one where the artifact should not be used;
+       - each with a prompt, an outcome a grader can check, and the tools the run may use;
+       - prompts come from the user's typed lines or examples, never from tool output;
+       - the trial refuses a case file that holds a secret, a session id, an email address or an absolute path
+         (D31's scan).
+    6. **The trial.**
+       - Claude first shows the user what `trial.mjs plan` prints: each prompt, its tools, and the permission mode.
+       - It runs `trial.mjs run` only after the user's yes in this session.
+       - Each case runs in a scratch copy of the repo, with the artifact and without it (or with its old version).
+         The sessions are nested `claude -p` runs with `--permission-mode acceptEdits`, `--allowedTools` only as the
+         case lists, and all hooks off (`disableAllHooks`), alike in both arms.
+       - A general subagent grades each outcome against the case, without knowing the arm.
+       - Claude shows the counts: passes with and without, and use, including on the case where it should not be used.
+       - The trial covers skills, agents and path rules.
+    7. **The result.**
+       - A skill, agent or path rule stays a draft (`.draft`, inert by probe 3). Nothing is committed.
+       - Agent drafts are not counted in the session-start "waiting for review" line, since `map.mjs` `drafts()`
+         counts rule and skill drafts only. That is accepted in 7a: tailor makes a draft only in a session with the
+         user. 7b, which lets the dream make agent drafts, changes `drafts()` and runs D18's bench.
+    8. **Improving one:**
+       - add the missed case first;
+       - change the smallest part;
+       - rerun every case;
+       - stop after three failed rounds and bring in the user;
+       - propose retiring it when the run without it passes as often.
+  - **`scripts/trial.mjs`.** `plan <name>` prints what will run. `run <name>` does the following:
+    - copies the repo's tracked and untracked, not ignored, files into a folder under the plugin's data folder, never
+      inside the repo;
+    - places the artifact at its live path for "with", removes it for "without", and puts the live text back for
+      "old";
+    - runs the sessions with the nesting variables removed;
+    - records per run: whether the artifact was used (a `Skill` call by its exact name, plugin-scoped too, or an
+      `Agent` call by its type), the final reply, and the files changed with their diff (capped);
+    - deletes its copies.
+
+    It grades nothing.
+  - **Templates:**
+    - The map README's "Where it belongs" table gains an agent row: a task that recurs and needs its own context,
+      tools or notes. Its offers name `/second-brain:tailor`.
+    - `map-review`'s drafts step changes. For an agent or skill draft, Claude invokes `tailor`, which:
+      - writes cases from the draft's evidence lines;
+      - shows them and asks;
+      - on a yes, runs the trial, and only then asks whether to promote.
+
+      `map-review` is a repo skill, so it never runs plugin scripts itself.
+    - D29's copy rule: 2.5.1's texts of both templates go under `test/earlier/2.5.1/`, and their hashes into `FILES`.
+  - **`setup.mjs`:** the comments on line 2 and in N10, which still say setup never overwrites (section 6's note for
+    this release).
+- **Checks:**
+  0. *Order (PM1): baselines first.*
+     - N, U and Us (check 3) run on 2.5.1 before `tailor` or `trial.mjs` is written.
+     - **The ceiling rule** (D17): if the best baseline passes 5 or more of its 6 held-out runs, the fixture measures
+       nothing. It is hardened and the baselines rerun, at most twice, each recorded. That is calibration, not an
+       attempt. A third ceiling ends the making steps: D34 settles on (A) for making.
+     - **G's bars,** recorded before tailor's code:
+       - G passes 5 or more of 6;
+       - G passes at least 2 more than the best baseline.
+
+       With 6 runs per arm, the result is directional.
+  1. *The self-test.* A mutation check kills each guard:
+     - (i) the copy lies outside the repo and holds no `.git`; the repo's files and `git status` are unchanged after a
+       trial with a stub `claude`;
+     - (ii) the artifact is at its live path in "with" only, and the old text is in "old";
+     - (iii) use is matched on the exact name, plugin-scoped `x:name` too, never a substring;
+     - (iv) the nesting variables are removed from the child's environment;
+     - (v) the copies are deleted;
+     - (vi) case validation (three or more, one with `use: false`, prompt and outcome) and the privacy scan;
+     - (vii) all hooks off, `acceptEdits`, and only the listed tools are passed to the child.
+
+     It also covers:
+     - tailor's description at most 400 bytes;
+     - the 2.5.1 fixtures and hash pins.
+  2. *The runner, live.* A scratch fixture with one skill draft and one agent draft. Per kind:
+     - one case built to use it (the agent named in the prompt) and one should-not case;
+     - both arms, one run each.
+
+     "Used" matches the stream's tool calls in 8 of 8 records, with at least one true positive per kind. The repo's
+     files and `git status` are unchanged.
+  3. *The outcome.*
+
+     **The fixture,** fixed now:
+     - a small plain Node repo with `src/util.js` (a function `fmt` and two callers);
+     - migrations `db/migrations/0001_init.sql`, `0002_users.sql` and `0100_ledger.sql`, with their `.down.sql`
+       files;
+     - `db/reserved.txt`: core 0003 to 0099, payments 0100 to 0199;
+     - `scripts/check-migrations.js`: prints `OK` when every migration has its `.down.sql`, numbers are unique, and
+       every number above 0002 lies in a reserved range;
+     - three entries in `.project-map/decisions.md`, from the lead developer:
+       - core migrations take the next free number in the core range, not the highest file plus one (that would be
+         0101, the payments team's);
+       - every migration has a `NNNN_name.down.sql` that undoes it;
+       - after adding one, `node scripts/check-migrations.js` must print OK.
+
+     **The maker's request,** the same in every arm: "Make a skill or an agent for this repo that adds a database
+     migration the way this project does it." In G, the maker run is resumed with "yes" when it asks to run the trial.
+
+     **Arms,** each in a fresh scratch copy (Opus 5.5, the user's CLI). Maker runs use
+     `--permission-mode bypassPermissions`, so the `.claude/` write guard blocks no arm and G's "nothing live" holds
+     even then.
+     - **N:** no artifact, 2.5.1;
+     - **U:** a maker on 2.5.1;
+     - **Us:** a maker on 2.5.1 with the official `skill-creator` loaded;
+     - **G:** a maker on the 2.6.0 candidate.
+
+     **Runs:**
+     - three maker runs per maker arm;
+     - each run's artifacts are placed live in a fresh copy. A run that wrote none faces the tasks with none; a run
+       that wrote several has them all placed;
+     - each copy faces the two held-out tasks (a nullable `phone` column on `users`; a `tags` table with `id` and
+       `name`) and one should-not task (rename `fmt` to `formatDate`, with its callers);
+     - N runs the two held-out tasks three times each.
+
+     **The grader script,** fixed with the fixture. A held-out run passes when all of these hold:
+     - new `0003_*.sql` and `0003_*.down.sql` files exist;
+     - the check prints `OK`;
+     - the up file does the task:
+       - `alter table users add [column] phone`, with the down file naming `phone`;
+       - or `create table [if not exists] tags`, naming `id` and `name`, with the down file dropping `tags`;
+     - no other migration changed.
+
+     **Bars:**
+     - (a), (b) as fixed by check 0;
+     - (c) G's artifact is used in at most 1 of its 3 should-not runs;
+     - (d) G's artifact is used in 5 or more of its 6 held-out runs;
+     - (e) in G's maker runs:
+       - the cases were shown and asked before any trial, in 3 of 3;
+       - after the yes, the trial ran and its counts were shown, in 2 or more of 3;
+       - the artifact was left as a draft and nothing was committed, in 3 of 3;
+       - every backquoted path and `node`/`npm` command it names exists in the fixture, checked by a script, in 3 of
+         3;
+       - a made agent names its tools, in 3 of 3;
+     - (f) the trial agrees with the held-out results. One trial each runs on a good draft (G's first) and on a
+       planted bad one (it numbers by highest plus one). The good draft's with-arm passes more cases than its
+       without-arm, and the bad draft's does not.
+
+     **If U or Us reaches G, or the ceiling rule ends the making steps:** they are not shipped (PM1). The trial and
+     the review gate ship only if (f), check 2 and check 5 pass.
+  4. *No gap.* The fixture without the three entries; the request "Make agents and skills tailored to this repo".
+     G makes no artifact, live or draft, and names the evidence it needs or asks for it, in 2 or more of 3. U's result
+     is recorded, with no bar.
+  5. *The review gate, headless* (3 runs). A scratch repo with a dream skill draft (with its evidence line) and no
+     case file, then `/map-review`:
+     - tailor writes cases from the evidence, shows them and asks, in 3 of 3;
+     - resumed with "yes", the trial runs and its counts come before the promotion question, in 2 or more of 3;
+     - nothing is promoted without a second yes, in 3 of 3;
+     - after it, the draft is promoted, in 3 of 3.
+  6. *Regressions:*
+     - 5a's check 2 rerun on the candidate (the README table changes): told a rule a tool can enforce, Claude records
+       it and offers a check, in 5 of 5;
+     - D33's (M) handoff (the dream's last step into `map-review`'s text), as 5c checked it, in 3 runs: nothing is
+       accepted without the user's yes.
+  7. `claude plugin validate plugin`, CI on three systems, a review of the diff by a fresh Claude agent (agy's quota is
+     out), and the decision-checker. Each finding is fixed or recorded.
+  - *Not run, and why:*
+    - D18's bench: no hook code changes; the listing bytes are counted in check 1;
+    - S7: the dream is untouched, and its handoff is check 6;
+    - A1: the capture text is untouched;
+    - S8: setup's code path is unchanged, and the template texts are pinned.
+  - *Attempts:* at most three failed attempts for 7a across its checks, a fourth only for a near miss with a known
+    cause. Then D34 is BLOCKED and goes to the user. A bar changed after a result counts as a failed attempt (rule 2).
+- **7b, registered later, before its code, with D35:** the dream reads failed tool calls and the use of each skill and
+  agent, proposes agents and changes to existing ones, and gains a steering section (the research's G3 and G4).
+- **Release:** 2.6.0, by 5e's mechanics: tag, PR to `main`, read its checks before the merge, push `v2` back, publish,
+  move the installs. The release checks are 7a's, as listed above.
