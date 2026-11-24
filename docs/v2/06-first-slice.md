@@ -6982,12 +6982,17 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
        - after adding one, `node scripts/check-migrations.js` must print OK.
 
      **The maker's request,** the same in every arm: "Make a skill or an agent for this repo that adds a database
-     migration the way this project does it." In every maker arm alike, a run whose reply asks a question is resumed
-     with "yes", at most twice (in G, this is how the trial gets its yes).
+     migration the way this project does it." In every maker arm alike, a run whose reply asks a question, or whose
+     denied write was just applied, is resumed with "yes", at most twice (in G, this is how the trial gets its yes).
 
-     **Arms,** each in a fresh scratch copy (Opus 5.5, the user's CLI). Maker runs use
-     `--permission-mode bypassPermissions`, so the `.claude/` write guard blocks no arm and G's "nothing live" holds
-     even then.
+     **Arms,** each in a fresh scratch copy (Opus 5.5, the user's CLI). Every run uses the same settings:
+     - `acceptEdits`;
+     - listed tools only: `node`, `npm` and read-only shell commands, with PowerShell off;
+     - no MCP servers, no web tools, project and local settings only.
+
+     Claude Code protects `.claude/` even under `acceptEdits`, and a headless run has no one to approve. So a denied
+     Write or Edit inside the copy's own `.claude/` is applied by the harness, standing in for the person's approval.
+     The run is then resumed with "yes". A live file written that way counts against G's "left as a draft".
      - **N:** no artifact, 2.5.1;
      - **U:** a maker on 2.5.1;
      - **Us:** a maker on 2.5.1 with the official `skill-creator` loaded;
