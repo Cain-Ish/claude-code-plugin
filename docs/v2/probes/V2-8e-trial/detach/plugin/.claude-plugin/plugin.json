@@ -1,0 +1,1 @@
+{ "name": "sbprobe", "version": "0.0.1", "description": "8e's probe: does a process started from a skill's command line outlive the session?" }
