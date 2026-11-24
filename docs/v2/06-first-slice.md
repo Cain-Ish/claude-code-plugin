@@ -8219,3 +8219,115 @@ word.
 - **One fixture change in the self-test:** the S7 block's repo now holds `src/utils/date.js`. Its sessions name that
   file, and finish now refuses a rule whose `paths:` names a folder the repo lacks. A real repo holds the folder its
   typed lines name.
+
+### 8, 8e: D34 rethought, the trial as a script (registered 2026-11-24, before the code)
+
+**Why, stated plainly.** D34 is BLOCKED after five attempts. The user's word (section 8) reopened it for a rethink one
+level up, and agreed to "self-evaluation with a strict judge: script-checked outcomes, at least 3 runs per case". This
+is a new option, (T): the trial as a script, with a fresh three attempts. It rests on three findings:
+- **The agreed strict judge.** 7a's trial judged with a model, and its verdicts disagreed with a strict grader
+  (D34's "(f) read again").
+- **The case file reached both arms.** That was the copy script's defect, not a model's.
+- **A skill's `!` line is killed after 2 minutes** (research/2026-11-24-final-logic.md). The detach probe
+  (`probes/V2-8e-trial/detach/`) shows that a process started there outlives the session and the limit.
+
+The making steps' guardrails already passed in 7a (3(e)), and are kept.
+
+**The change** (built in a copy of 8d's frozen plugin, 2.6.0):
+1. **A case file per artifact,** `.project-map/evals/<artifact>.json`, which the team writes and commits. Each case
+   has:
+   - a `prompt`. For an agent, the prompt names it: "use the `<name>` agent to …";
+   - the `tools` it may use;
+   - a `check`: the path of a script under `.project-map/evals/checks/`. The script exits 0 for a pass, and runs with
+     the copy as its working folder;
+   - optionally `runs`; the default is 3;
+   - optionally `use: false`, for a case where the artifact should not be used. It must pass in both arms. Every case
+     file holds at least 3 cases, and at least one of them has `use: false`.
+
+   `trial.mjs` refuses a case file in any of these cases:
+   - HEAD does not hold it unchanged (D14);
+   - a tool entry starts with `-`;
+   - a path in it holds `..`;
+   - it is reached through a link;
+   - it has a field it does not know;
+   - the privacy scan matches it.
+2. **One skill, `/second-brain:tailor`,** which only a person starts (`disable-model-invocation`). Its `!` line
+   passes the person's words to `trial.mjs`:
+   - **With no words,** the making steps: the fifth candidate's `tailor`, with its trial parts removed. They write a
+     draft only through `trial.mjs draft`, which refuses a link on its path, the case file's folder, and a live
+     artifact. The skill's grant is `trial.mjs draft` alone, so no model can start a run.
+   - **`show <draft>`** prints the cases, each with its prompt, tools and check, the draft's `allowed-tools` and any
+     `!` lines, and the line to type next. That line carries a hash of the case file and the draft. Nothing runs.
+   - **`run <draft> <hash>`** checks that hash against the files as they are, then starts `trial.mjs` detached and
+     returns. Typing it, after `show` printed the hash in that session, is the person's yes (D34's "shown to the user
+     in that session, after a yes").
+   - This keeps D18's surface at four skills (setup, dream, status, tailor), the fourth on the user's word. A flagged
+     skill is not listed to Claude, so it adds 0 always-on bytes (D12).
+3. **The run.** Each arm, in each run, gets its own copy of HEAD under the system's temp folder:
+   - made by `git archive`, so it has no history;
+   - with `.project-map/evals/` removed;
+   - with the check script copied outside the copy first.
+
+   Each session runs as `claude -p`, with the case's tools only, `--permission-mode acceptEdits`,
+   `--strict-mcp-config`, and `--settings` setting `disableAllHooks`. The fifth candidate's checks on the session's
+   arguments and environment are kept. The copies are deleted after the run.
+   - **A new draft:** "with" has it promoted; "without" has no artifact.
+   - **A change draft:** "with" has the draft in place of the file; "without" has the file as it is.
+   - **A live artifact (retirement):** "with" is as it is; "without" has it removed.
+4. **The verdict, fixed now:**
+   - **"mixed":** any case passes more runs in one arm and another case more in the other. This wins over the totals;
+   - otherwise, by total passes over all cases: **"helps"** when "with" is higher, **"hurts"** when it is lower,
+     **"adds nothing"** when they are equal;
+   - **a `use: false` case** that fails in "with" makes it **"hurts"**, whatever the rest.
+
+   It is written to `.project-map/.trial/<artifact>.json`, inside the repo, git-ignored, and scanned for privacy. It
+   holds the counts, the hashes and the date, and no transcript text.
+5. **`/map-review`'s template** shows a draft's verdict before the promotion question.
+   - A verdict whose hash differs from the draft is called stale.
+   - A draft with no verdict is called untested, and the template names the line to type.
+   - A promoted artifact whose own trial says "adds nothing" or "hurts" is offered for removal. Nothing is removed
+     without the person's yes.
+   - D29's copy rule: the template's 8d text is unreleased, so the 2.5.1 text already listed covers it.
+6. **The README** gains the trial's lines. D31 holds: drafts stay inert, and only a temp copy promotes one. D33
+   holds: a person's yes, and nothing committed.
+
+**Checks:**
+1. **The self-test, on Windows (Node 24 and 20) and in WSL.** For each item, a case is shown failing before its fix,
+   then passes. The baseline is 8d's frozen copy, which has no `trial.mjs`, and the fifth candidate's `trial.mjs` where
+   the check applies to it. The cases:
+   - each refusal of a case file;
+   - `show` runs nothing, and prints the hash and the draft's grant;
+   - `run` refuses a wrong hash;
+   - a copy holds no history, no evals and no check script, and its settings turn hooks off;
+   - each arm's contents for a new draft, a change and a live artifact;
+   - the verdict rule, on a table of counts that covers "mixed" against equal totals;
+   - the verdict file's place and privacy, and stale and untested in the template;
+   - `trial.mjs draft` refuses a link, the evals folder and a live artifact;
+   - the D33 handoff (the dream still offers to review now) is unchanged;
+   - no hook output changes.
+2. **A mutation check** (`probes/V2-8e-trial/mutate8e.mjs`) kills each new guard, on the system its case runs on, and
+   exits non-zero on any mutation it cannot apply.
+3. **A real trial, through the shipped skill** (`claude -p "/second-brain:tailor run …"` after `show`, with the
+   plugin), on a fixture repo in `probes/V2-8e-trial/fixture/`:
+   - **The fixture:** a pricing report task whose procedure is in no file of the repo. Its check script holds the
+     expected outcome. 3 cases, one with `use: false`.
+   - **The two drafts are fixed files now:** `good.SKILL.md` holds the procedure; `bad.SKILL.md` holds wrong steps.
+   - **The pilot runs the "without" arm only,** 2 runs per case. If it passes more than 1 of the 2 runs on any
+     `use: true` case, the fixture is void and rewritten. The bars below never change.
+   - **The bars:** the good draft gets "helps", and the bad one "hurts" or "adds nothing", each in 2 of 2 trials at 3
+     runs per case.
+   - **Before the counted trials,** the detach probe passes once more on Windows and once in WSL, and one pre-flight
+     trial runs exactly as shipped.
+4. **`tailor`'s guardrails:** 3 headless runs each, in 7a's two fixture repos (`probes/V2-D34-repo-artifacts/outcome/
+   fixture` and `fixture2`), checked by a script:
+   - nothing is made without a gap (3 of 3);
+   - drafts only, nothing committed (3 of 3);
+   - every path a draft names exists (3 of 3);
+   - one task per agent draft (3 of 3).
+5. **A review** by a fresh agent and the decision-checker. Each finding is fixed before the freeze, or recorded.
+- **Attempts:** a fresh three for (T) (rule 4). The candidate is hashed and frozen before checks 1 to 4 count.
+- **On a pass:**
+  - D34 locks on (T);
+  - D10's reopened scope and D18's surface re-lock with section 8's release, ending R1's interim;
+  - 8d's agent and change drafts ship with it.
+- **On a block:** D34 stays BLOCKED, and 8d's agent and change drafts do not ship (8d's D10 line).
