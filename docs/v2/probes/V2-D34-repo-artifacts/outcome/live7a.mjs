@@ -4,6 +4,7 @@
 // Fixture 2, Opus 5.5, acceptEdits with listed tools, as check 3. A denied write or rename inside the copy's own
 // .claude/ skills, agents or rules is applied here, standing in for the person's approval. Results go to <out>.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -103,11 +104,17 @@ async function agree(out, plugin, which) {
   const t2 = await turn(ws, 'yes', plugin, log, t1.sid);
   const t3 = calls(t2, /trial\.mjs"?\s+run/) ? null : await turn(ws, 'yes', plugin, log, t2.sid);
   const last = t3 ?? t2;
-  const keyPath = [...t1.results, ...t2.results, ...(t3?.results ?? [])].join('\n').match(/Key, to read only after grading: (.+)/)?.[1]?.trim();
-  const key = keyPath && fs.existsSync(keyPath) ? JSON.parse(fs.readFileSync(keyPath, 'utf8')).runs : null;
-  const grades = Object.fromEntries([...[...t2.results, ...(t3?.results ?? [])].join('\n').matchAll(/\b(R\d+)\s*\|\s*(PASS|FAIL)\b/g)].map((m) => [m[1], m[2]]));
+  // the fourth attempt's trial prints "Run: <id>" and scores against its own key; the harness reads that key from the
+  // plugin's data folder only to count independently
+  const all = [...t1.results, ...t2.results, ...(t3?.results ?? [])].join('\n');
+  const runId = all.match(/Run: ([\w.-]+-\d+)/)?.[1];
+  const dataRoot = path.join(os.homedir(), '.claude', 'plugins', 'data');
+  const keyPath = runId && fs.readdirSync(dataRoot).map((d) => path.join(dataRoot, d, 'trial', runId, 'key.json')).find((p) => fs.existsSync(p));
+  const key = keyPath ? JSON.parse(fs.readFileSync(keyPath, 'utf8')).runs : null;
+  const grades = Object.fromEntries([...all.matchAll(/\b(R\d+)\s*\|\s*(PASS|FAIL)\b/g)].map((m) => [m[1], m[2]]));
   const count = (arm) => (key ? Object.entries(key).filter(([id, k]) => k.arm === arm && k.use && grades[id] === 'PASS').length : null);
-  const r = { which, ran: Boolean(key), graded: Object.keys(grades).length, withPass: count('with'), withoutPass: count('without'), verdict: /helps on these cases/i.test(last.text) ? 'helps' : /adds nothing/i.test(last.text) ? 'adds nothing' : 'other', usd: t1.usd + t2.usd + (t3?.usd ?? 0), text: last.text.slice(0, 2000) };
+  const scored = all.match(/It helps on these cases|It adds nothing here/)?.[0];
+  const r = { which, ran: Boolean(key), graded: Object.keys(grades).length, withPass: count('with'), withoutPass: count('without'), verdict: scored === 'It helps on these cases' ? 'helps' : scored ? 'adds nothing' : 'other', usd: t1.usd + t2.usd + (t3?.usd ?? 0), text: last.text.slice(0, 2000) };
   r.agrees = r.ran && (which === 'good' ? r.withPass > r.withoutPass : r.withPass <= r.withoutPass);
   fs.writeFileSync(path.join(at, 'agree.json'), JSON.stringify(r, null, 1));
   return r;
