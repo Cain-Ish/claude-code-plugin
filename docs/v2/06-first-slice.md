@@ -8733,3 +8733,32 @@ person's Claude Code folder.
 - **`mutate8e.mjs`:** 85 mutations. The dry run against `trial8e.mjs` alone killed 83. The other two are the
   self-test's own checks, killed by the full self-test.
 - **The counted checks run on Windows** (Node 24 and 20), by the user's word on systems.
+
+### 8, 8e: attempt 2 of (T)'s three (2026-11-24): fail, on check 1 under Node 24
+
+The counted self-test passed under Node 20 and failed under Node 24, in case (5), a run end to end. One "without" run
+of `price-a` passed (1 of 3), where the stand-in always fails without the artifact.
+- **The cause is a race, not noise.** The stand-in plays a session that tries to change its judge: it overwrites every
+  check script it finds in the temp folder.
+- Two sessions run at once, so one job's check script, written fresh after its own session, can be overwritten by
+  the other job's session before it runs.
+- The design's claim "no session can change what judges it" was false while two sessions ran at once. The case found
+  it; under Node 20 the timing did not.
+- Checks 2 to 4 were not run: the attempt had failed.
+
+### 8, 8e: attempt 3 of (T)'s three, the last (registered 2026-11-24, before the code)
+
+**The changes, from attempt 2:**
+1. **One session at a time.** No session runs while another job's copy or check exists, so no session can reach
+   another's work or judge. A trial of 18 sessions took about 2 minutes two at a time, so about 4 minutes in line.
+2. **The check script never touches the disk.** Node reads it on stdin (`node --input-type=module -`), with the
+   copy as its working folder and the reduced environment, from the text read at the start (checked on Node 24 and
+   20). It runs alone, as recorded: no sibling imports.
+
+Everything else is attempt 2's.
+
+**The checks:** checks 1 to 4 as registered, all run on attempt 3's frozen copy, on Windows (Node 24 and 20).
+- **Check 1:** case (5) keeps its stand-in that overwrites every check script it can find.
+- **Check 2's** mutations follow the code: the check written to a file before the session, and sessions run two at
+  once, must each be killed.
+- **On a fail,** D34 stays BLOCKED (rule 4), and 8d's agent and change drafts do not ship (8d's D10 line).
