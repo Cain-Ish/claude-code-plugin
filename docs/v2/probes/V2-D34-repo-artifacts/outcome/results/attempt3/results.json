@@ -1,0 +1,442 @@
+{
+ "G": [
+  {
+   "run": "maker-0",
+   "files": [
+    ".claude/skills/pricing-check/count-changed.mjs",
+    ".claude/skills/pricing-check/SKILL.md.draft"
+   ],
+   "drafts": 1,
+   "commits": 0,
+   "turns": 3,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Read",
+    "Bash",
+    "Write",
+    "Write",
+    "Write",
+    "Write",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {
+    "rate": {
+     "pass": true,
+     "used": true
+    },
+    "round": {
+     "pass": true,
+     "used": true
+    },
+    "rename": {
+     "pass": true,
+     "used": false
+    }
+   },
+   "usd": 0.98
+  },
+  {
+   "run": "maker-1",
+   "files": [
+    ".claude/skills/pricing-check/count-changed.mjs",
+    ".claude/skills/pricing-check/SKILL.md.draft"
+   ],
+   "drafts": 1,
+   "commits": 0,
+   "turns": 3,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Read",
+    "Write",
+    "Write",
+    "Write",
+    "Write",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {
+    "rate": {
+     "pass": true,
+     "used": true
+    },
+    "round": {
+     "pass": true,
+     "used": true
+    },
+    "rename": {
+     "pass": true,
+     "used": false
+    }
+   },
+   "usd": 1.02
+  },
+  {
+   "run": "maker-2",
+   "files": [
+    ".claude/skills/pricing-check/compare.mjs",
+    ".claude/skills/pricing-check/SKILL.md.draft"
+   ],
+   "drafts": 1,
+   "commits": 0,
+   "turns": 3,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Read",
+    "Bash",
+    "Write",
+    "Write",
+    "Write",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {
+    "rate": {
+     "pass": true,
+     "used": true
+    },
+    "round": {
+     "pass": true,
+     "used": true
+    },
+    "rename": {
+     "pass": true,
+     "used": false
+    }
+   },
+   "usd": 0.89
+  }
+ ],
+ "nogapG": [
+  {
+   "run": "maker-0",
+   "files": [],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 1,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Read",
+    "Bash"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.27
+  },
+  {
+   "run": "maker-1",
+   "files": [],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 1,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Read"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.16
+  },
+  {
+   "run": "maker-2",
+   "files": [],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 1,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Read"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.15
+  }
+ ],
+ "nogapU": [
+  {
+   "run": "maker-0",
+   "files": [
+    ".claude/agents/migration-reviewer.md",
+    ".claude/skills/new-migration/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "skillCalls": [],
+   "denied": [
+    "Bash",
+    "Bash",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.5
+  },
+  {
+   "run": "maker-1",
+   "files": [
+    ".claude/agents/migration-reviewer.md",
+    ".claude/skills/new-migration/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 3,
+   "skillCalls": [],
+   "denied": [
+    "Bash",
+    "Bash",
+    "Write",
+    "Write",
+    "Bash"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.83
+  },
+  {
+   "run": "maker-2",
+   "files": [
+    ".claude/agents/migration-reviewer.md",
+    ".claude/skills/new-migration/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 3,
+   "skillCalls": [],
+   "denied": [
+    "Bash",
+    "Write",
+    "Write",
+    "Bash"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.8
+  }
+ ],
+ "G-first-invalid": [
+  {
+   "run": "maker-0",
+   "files": [
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 3,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Skill",
+    "Write",
+    "Bash",
+    "Edit"
+   ],
+   "trialCalls": 0,
+   "held": {
+    "rate": {
+     "pass": true,
+     "used": true
+    },
+    "round": {
+     "pass": true,
+     "used": true
+    },
+    "rename": {
+     "pass": true,
+     "used": false
+    }
+   },
+   "usd": 0.96
+  },
+  {
+   "run": "maker-1",
+   "files": [
+    ".claude/skills/pricing-check/check.js",
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Skill",
+    "Write",
+    "Write",
+    "Bash",
+    "Bash",
+    "Bash",
+    "Write",
+    "Write",
+    "Write",
+    "Write",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {
+    "rate": {
+     "pass": true,
+     "used": true
+    },
+    "round": {
+     "pass": true,
+     "used": true
+    },
+    "rename": {
+     "pass": true,
+     "used": false
+    }
+   },
+   "usd": 0.76
+  },
+  {
+   "run": "maker-2",
+   "files": [
+    ".claude/skills/pricing-check/count-changed.js",
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 3,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Skill",
+    "Write",
+    "Bash",
+    "Bash",
+    "Write",
+    "Edit",
+    "Write",
+    "Bash",
+    "Bash",
+    "Bash"
+   ],
+   "trialCalls": 0,
+   "held": {
+    "rate": {
+     "pass": true,
+     "used": true
+    },
+    "round": {
+     "pass": true,
+     "used": true
+    },
+    "rename": {
+     "pass": true,
+     "used": false
+    }
+   },
+   "usd": 1.2
+  }
+ ],
+ "nogapG-first-invalid": [
+  {
+   "run": "maker-0",
+   "files": [
+    ".claude/agents/migration-reviewer.md",
+    ".claude/skills/add-migration/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Skill",
+    "Bash",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.57
+  },
+  {
+   "run": "maker-1",
+   "files": [
+    ".claude/agents/migration-reviewer.md",
+    ".claude/skills/new-migration/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Skill",
+    "Bash",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.6
+  },
+  {
+   "run": "maker-2",
+   "files": [
+    ".claude/agents/migration-reviewer.md",
+    ".claude/skills/new-migration/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "skillCalls": [
+    "second-brain:tailor"
+   ],
+   "denied": [
+    "Skill",
+    "Bash",
+    "Bash",
+    "Write",
+    "Write"
+   ],
+   "trialCalls": 0,
+   "held": {},
+   "usd": 0.53
+  }
+ ],
+ "f-good": {
+  "which": "good",
+  "ran": true,
+  "graded": 0,
+  "withPass": 0,
+  "withoutPass": 0,
+  "verdict": "other",
+  "usd": 0.7231428,
+  "agrees": false
+ },
+ "f-bad": {
+  "which": "bad",
+  "ran": false,
+  "graded": 0,
+  "withPass": null,
+  "withoutPass": null,
+  "verdict": "other",
+  "usd": 0.9033473999999999,
+  "agrees": false
+ }
+}

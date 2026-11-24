@@ -37,7 +37,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4); REOPENED 2026-11-23 (the user's word: P2, draft-writing rules in the dream skill; 06, section 5, 5a); re-LOCKED 2026-11-23 (5a passed at attempt 2: skill drafts say how each step is done; the rule-paths clause dropped after it narrowed a rule to two files) | user + evidence | D14, D18, PM1, PM5 |
 | V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
 | V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d); LOCKED 2026-11-23 on (M) with (A)'s "later" (B and C rejected; 06, section 5, 5c) | user + evidence | D18, D29, D30, D31, D32 |
-| V2-D34 | Agents and skills made for one repo: how does the plugin guide making them, and test each one before a person keeps it? | OPEN 2026-11-24 (the user's word; 06, section 7, 7a) | user + evidence | D10, D18, D29, D30, D31, D33 |
+| V2-D34 | Agents and skills made for one repo: how does the plugin guide making them, and test each one before a person keeps it? | OPEN 2026-11-24 (the user's word; 06, section 7, 7a); BLOCKED 2026-11-24 (7a's last attempt: checks 1, 2 and 4 pass, 3(e) and (f) fail on reads outside the repo and the guarded draft write; the user decides on a fourth attempt) | user + evidence | D10, D18, D29, D30, D31, D33 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -5265,7 +5265,7 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   section 7, checks 0 and 3: the baselines run first, and G must beat the best of them. (S) is out on the research.
 - **Check:** 06, section 7, 7a, registered before code. At most three failed attempts across its checks; then D34
   is BLOCKED and goes to the user.
-- **Status:** OPEN.
+- **Status:** BLOCKED 2026-11-24 (06, 7a, the last attempt).
 - **Check 0, attempts 1 and 2 (2026-11-24; 06, 7a):** both fixtures hit the ceiling.
   - On a short rule the repo shows, the floor (no map, no artifact) passed 6 of 6.
   - On a procedure a person states once:
@@ -5283,3 +5283,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     per agent, and nothing made with no gap.
   - The skill is `tailor` again: it makes or tests an agent, skill or path rule, with `trial.mjs` as its script (06,
     7a).
+- **BLOCKED 2026-11-24** (06, 7a, the last attempt).
+  - Checks 1, 2 and 4 pass: 28 of 28 mutations killed; "used" matched in 12 of 12; nothing made without a gap, in 3 of 3.
+  - 3(e) and (f) fail. The trial ran in 0 of 3 maker runs and gave no verdict on either draft.
+  - The causes: reads outside the repo, of the guidelines and of the records (the class section 6 met); the guarded
+    draft write into `.claude/`; and a test that tried to repair its draft.
+  - A fourth attempt is the user's call: the fixes are known and listed in 06.

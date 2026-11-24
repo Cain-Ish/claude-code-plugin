@@ -37,7 +37,8 @@ function fresh(dir) {
 }
 
 // the tools every run may use without a prompt, alike in every arm; PowerShell is off so shell calls go through Bash
-const ALLOWED = ['Bash(node:*)', 'Bash(npm:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)'];
+// Skill is listed: without it, a headless session under acceptEdits declines a plugin's skill (attempt 3's first G runs)
+const ALLOWED = ['Skill', 'Bash(node:*)', 'Bash(npm:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)'];
 
 // in a maker run, a denied Write or Edit of a skill, agent, rule or command inside the copy's own .claude/ (which
 // Claude Code protects even under acceptEdits) is applied here, standing in for the person who would approve the
@@ -166,6 +167,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await pool(HELD.flatMap((t) => Array.from({ length: runs }, (_, r) => () => { const at = path.join(out, `run-${r}`); fs.mkdirSync(at, { recursive: true }); return held(at, t, o, null); })), j);
   } else {
     const made = await pool(Array.from({ length: makers }, (_, i) => () => maker(out, i, o)), j);
+    if (process.argv.includes('--makers-only')) { console.log(`${arm}: makers done`); process.exit(0); }
     await pool(made.flatMap((m, i) => [...HELD, SHOULD_NOT].map((t) => () => held(path.join(out, `maker-${i}`), t, o, { ...m.artifacts, map: path.join(out, `maker-${i}`, 'ws', '.project-map') }))), j);
   }
   console.log(`${arm}: done`);

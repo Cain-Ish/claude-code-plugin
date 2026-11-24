@@ -1,0 +1,29 @@
+killed   (i) data folder inside the repo refused
+killed   (i) ignored files left out
+killed   (i) a fresh repository, not the repo's .git
+killed   (ii) the artifact placed in "with"
+killed   (ii) the draft file removed
+killed   (ii) nothing at the live path in "without"
+killed   (iii) a skill by exact name
+killed   (iii) an agent by exact type
+killed   (iv) nesting variables removed
+killed   (v) copies deleted
+killed   (vi) three cases
+killed   (vi) a should-not case
+killed   (vi) an outcome per case
+killed   (vi) the privacy scan
+killed   (vi) the three homes
+killed   (vii) acceptEdits
+killed   (vii) hooks off
+killed   (vii) no MCP server
+killed   (vii) only the listed tools
+killed   records blind to the arm
+killed   listing text at most 400 bytes
+killed   Claude may invoke tailor
+killed   no gap, nothing made
+killed   made artifacts are drafts
+killed   the README's agent row
+killed   map-review tests a draft first
+killed   2.5.1's map-review hash listed
+killed   2.5.1's README hash listed
+28 of 28 killed

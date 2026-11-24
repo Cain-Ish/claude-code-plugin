@@ -7238,3 +7238,49 @@ Checks 3 and 4 fall away with the making steps.
   - A denied rename into `.claude/` is applied by the harness, as in check 3.
 - **The last attempt covers checks 1, 2, 3(e), 4, 5, 6 and (f).** Check 6 includes 5a's rerun again, since the README
   changes. One failure remains; then D34 is BLOCKED and goes to the user.
+
+### 7, 7a: the last attempt (2026-11-24): three checks pass, two fail; D34 is BLOCKED
+
+Candidate `036aa02e7778` before the version bump, in a copy of `plugin/`. Counts:
+[probes/V2-D34-repo-artifacts/outcome/results/attempt3](probes/V2-D34-repo-artifacts/outcome/results/attempt3/results.json).
+The Claude Code process crashed once mid-run. The runs are resumable, and every result below comes from a finished
+run.
+
+| Check | Result |
+| --- | --- |
+| 1, the self-test and the mutation check | **pass**: the self-test passes; 28 of 28 mutations killed (`mutate7.txt`) |
+| 2, the runner, live | **pass**: "used" matched the stream in 12 of 12 records, with 2 true positives per kind; the repo was unchanged |
+| 4, no gap | **pass**: the candidate made nothing in 3 of 3 and named the evidence it needed. 2.5.1, with the same request, made a live agent and a live skill in 3 of 3 (recorded, no bar) |
+| 3(e), the making guardrails | **fail**: drafts and no commit in 3 of 3; the trial ran in 0 of 3 |
+| (f), the trial's verdict | **fail**: no verdict on either draft |
+| 5, 6 | not run |
+
+**A harness defect, found and fixed before these results.**
+- The test sessions' tool list lacked `Skill`. Under `acceptEdits`, a headless session then declines a plugin's skill,
+  though it allows the repo's own: `second-brain:tailor` was declined in all 6 first maker runs.
+- The first G and no-gap runs never loaded the candidate, so they are filed as invalid. `Skill` was added for every arm
+  and they were rerun. The counts above are the reruns.
+- The same defect hit attempt 2's Us arm: `skill-creator` was declined there too. Us is 6 of 6 as a result, but it was
+  not a run with `skill-creator`.
+
+**Why 3(e) and (f) failed:**
+1. **A read outside the repo, again.**
+   - The making steps read `${CLAUDE_PLUGIN_ROOT}/skills/tailor/guidelines.md`, and the grader reads the records in the
+     plugin's data folder. A permission-gated session declines both.
+   - Section 6's attempt 1 failed on the same class, and its lesson ("put it in the report") was not applied here.
+2. **The draft write into `.claude/`.** It is guarded, so it needs the person's approval prompt.
+   - The harness applies a denied write only after the turn. Claude does not see that, retries on each "yes", and used
+     up its three turns before the cases.
+   - In a session with a person the prompt comes in the turn, so this loop is the harness's. Dream drafts avoid the
+     guard altogether: `dream.mjs finish` writes them.
+3. **Testing a draft with a missing script.** Claude tried to repair the bad draft before testing it. The skill does
+   not say that a test leaves the artifact as it is.
+
+**The fixes these causes point to,** not built:
+- the guidelines inside `SKILL.md`;
+- the records printed by `trial.mjs` for the grader, not left in a folder outside the repo;
+- the draft written by `trial.mjs` (`draft <path>`), as the dream's finish writes its drafts;
+- one line saying that a test changes nothing in the artifact.
+
+**By rule 4** these were 7a's three attempts, so D34 is BLOCKED and goes to the user. A fourth attempt is allowed only
+for a near miss with a known cause. Whether this is one is the user's call.

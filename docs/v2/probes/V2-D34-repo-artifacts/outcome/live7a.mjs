@@ -13,7 +13,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.join(HERE, 'fixture2');
 const MADE = path.join(HERE, 'results', 'attempt2', 'made');
 const MODEL = 'claude-opus-5-5';
-const ALLOWED = ['Bash(node:*)', 'Bash(npm:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(mv:*)'];
+// Skill is listed: without it, a headless session under acceptEdits declines a plugin's skill (attempt 3's first G runs)
+const ALLOWED = ['Skill', 'Bash(node:*)', 'Bash(npm:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(mv:*)'];
 const DRAFT = '.claude/skills/pricing-check/SKILL.md.draft', LIVE = '.claude/skills/pricing-check/SKILL.md';
 const EXAMPLES = `Examples: "${TASKS2.rate}" and "${TASKS2.round}" It should not be used for: "${TASKS2.rename}"`;
 
