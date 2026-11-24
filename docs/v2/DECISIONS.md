@@ -38,6 +38,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
 | V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d); LOCKED 2026-11-23 on (M) with (A)'s "later" (B and C rejected; 06, section 5, 5c) | user + evidence | D18, D29, D30, D31, D32 |
 | V2-D34 | Agents and skills made for one repo: how does the plugin guide making them, and test each one before a person keeps it? | OPEN 2026-11-24 (the user's word; 06, section 7, 7a); BLOCKED 2026-11-24 (7a's last attempt: checks 1, 2 and 4 pass, 3(e) and (f) fail on reads outside the repo and the guarded draft write; the user decides on a fourth attempt) | user + evidence | D10, D18, D29, D30, D31, D33 |
+| V2-D35 | The dream learns from use: how does it read what the repo's sessions did with its skills and agents, and what the team wants weighed, so that it proposes from evidence? | OPEN 2026-11-24 (the user's word; 06, section 8, 8c) | evidence | D10, D14, D18, D31, D33, D34 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -5247,8 +5248,8 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 
 ### V2-D34 — Agents and skills made for one repo
 - **Question:** how does the plugin guide Claude to make an agent, skill or path rule for the repo it runs in (and
-  offer the other homes: a `CLAUDE.md` line, a check, a hook), and test each one before a person keeps it? Improving them from the repo's sessions is a second question: D35 opens
-  with 7b.
+  offer the other homes: a `CLAUDE.md` line, a check, a hook), and test each one before a person keeps it? Improving them from the repo's sessions is a second question: D35, opened
+  in 06, section 8, 8c (2026-11-24).
 - **Why now:** the user's word of 2026-11-24, after the video of the AI Native DevCon talk: "we need full guidelines
   in plugins so it will be used in other repos to create dedicated and correctly made agents and other skills per
   repo with self-evaluate and self-improve loop".
@@ -5323,3 +5324,31 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **(f) read again (2026-11-24; 06, 7a).** The "lenient grader" cause was never tested. The trial copied untracked files
   into both arms, among them the captured map entry and the case file with its expected outcomes. So the "without" arm
   was attempt 2's arm T (6 of 6), and "adds nothing" was defensible. The defect is the case file reaching both arms.
+
+### V2-D35 — The dream learns from use
+- **Question:** how does the dream read what the repo's sessions did with its skills and agents, and what the team
+  wants weighed, so that it proposes from evidence? This covers making, changing and retiring an artifact, and placing
+  it in a monorepo's package.
+- **Why now:** the user's word of 2026-11-24 (06, section 8):
+  - "we need to finish this plugin to cover previous features and new one as one final logic";
+  - agreeing to: decide from evidence, not at setup; a draft only on a gap; retire what adds nothing; monorepos placed
+    by where the evidence clusters.
+  - The research: [research/2026-11-24-repo-agents-and-skills.md](research/2026-11-24-repo-agents-and-skills.md) (G3,
+    G4) and [research/2026-11-24-final-logic.md](research/2026-11-24-final-logic.md).
+- **Options:**
+  - (A) nothing more: the dream reads typed lines and chosen answers only, as D31 built it;
+  - (T) the digest keeps what each session did with skills and agents (uses, failures, the typed line after a use,
+    subagent runs), the report counts them, and the team's steering file is read. Then, in a later step, the proposal
+    kinds that rest on it;
+  - (S) changes made automatically from the counts. Rejected by D33: a person accepts every change.
+- **What any route must meet:**
+  - D31: a proposal rests on the user's typed lines, a chosen answer or a tracked file. A count is evidence to weigh,
+    never a quote;
+  - D33: nothing is accepted or committed without the person;
+  - D10: no copy of a transcript. Digests and counts stay in the run's ignored folder, the report holds counts only,
+    and no subagent text enters a digest;
+  - D18: no hook changes, and session start reads no new file;
+  - D14: only text a commit has seen steers the dream.
+- **Decider:** evidence. 8c (06, section 8) builds the reading of use. D35 decides between (A) and (T) on 8d's
+  evidence check, since only the proposals can show whether reading use changes what the dream proposes.
+- **Status:** OPEN 2026-11-24.

@@ -7880,3 +7880,93 @@ with a known cause. The user was asked: a fourth attempt, block 8a, or ship with
   - F-1.
 - **D18** stays REOPENED, with its 2026-11-20 lock governing (R1). D30's trigger did not fire.
 - **Group N builds on 2.5.1,** by the user's choice.
+
+### 8, 8c: D35, the dream reads use (registered 2026-11-24, before the code)
+
+**What it is:** the evidence half of D35, option (T), on 2.5.1 (8a is BLOCKED). The dream's digests and report learn
+what sessions did with the repo's skills and agents, and the team can steer the dream. No new proposal kind and no
+hook change: those are 8d's and 8e's. The decision-checker read a first draft; its gaps are taken in below.
+
+**The change** (built in a copy of `plugin/` 2.5.1):
+1. **The digest's tool lines** (`tag`):
+   - a Skill call's line begins with the skill's name, `T: Skill <name>`;
+   - an Agent call's line begins with its type, `T: Agent <type>`, so the 80-character cut never drops either;
+   - a tool result marked as an error is `R!:`, not `R:`.
+
+   `dream-analyzer.md` treats `R!:` lines as it treats `R:` lines: untrusted tool output, never a source.
+2. **Counts** (`prepare` writes `usage.json` in the run folder; finish's report prints them). They cover the sessions the
+   dream accepts, so the dream's own sessions and other repos' sessions are skipped, as for digests. For every skill
+   and agent the repo holds (`.claude/skills/<name>/SKILL.md`, `.claude/agents/<name>.md`), and every one the sessions
+   call:
+   - **a skill's uses:** its Skill calls, plus each typed `/<name>`, which Claude Code records as a command, so a
+     skill only a person starts is counted too;
+   - **an agent's uses:** its Agent calls;
+   - **the sessions** those uses fall in;
+   - **"a typed line after it":** a use followed by a typed line before Claude's next tool call. The report counts it
+     and never calls it a correction. Telling a correction apart needs judgment, which is the analyzers' work in 8d;
+   - **failed tool results, by tool,** in the main session;
+   - **subagent runs by type,** from `<session>/subagents/*.meta.json` (`agentType`; "unknown" when it is missing), and
+     the failed tool results inside each subagent's own transcript, counted only. No subagent text enters a digest
+     (D31: a delegating prompt is not the user's words).
+   - **A watermark for subagent runs:** each meta file counted is named in `subagents.json` in the plugin's data
+     folder. It is written at finish, as `seen` is, and undone when a dream is discarded.
+     - Session start never reads that file, so D18's surface and cost do not change.
+     - Names whose session folder is gone are pruned at finish.
+3. **The report** adds one line per repo skill and agent: "used n times in k sessions here; a typed line after m".
+   - "Sessions this dream read" is the number of digests it wrote.
+   - When that number is 10 or more, a repo skill or agent with no use gets: "no use in the N sessions this machine's
+     dream read; a teammate's sessions are not counted".
+   - Nothing is written to a file for these lines. The counts stay in the run folder, which is ignored and removed when
+     the dream closes.
+4. **Steering:** an optional `.project-map/steering.md` the team writes.
+   - `prepare` copies HEAD's version of it into the run, never the working tree's. Under D14, uncommitted text is
+     unreviewed, and a commit is a person's review.
+   - The dream skill tells each analyzer to read it first: what it says matters is weighed. It is never a proposal's
+     source, since finish's tracked sources leave `.project-map/` out. A case checks that.
+   - The dream never proposes into it, so `topic()` refuses that name.
+   - When it is missing, nothing changes. The repo's README says how to write one. Setup does not create it, so no
+     template changes and D29's copy rule has nothing to add.
+   - This differs from N2's register ("a section of `dreams.md`"). That log is append-only and union-merged, so log
+     lines would land inside a section placed after it.
+- **Dropped from the first draft:** making repo paths relative before D-3's redaction. 2.5.1 has no digest redaction
+  (D-3 is in the blocked 8a), so 2.5.1's digests keep their paths.
+- **D31 holds:**
+  - a count is evidence to weigh, never a quote;
+  - a proposal still rests on typed lines, a chosen answer or a tracked file;
+  - the steering file is the team's committed text, read as guidance and never quoted;
+  - the analyzers' new inputs (`R!:`, the counts, steering) all go through finish's unchanged scan and provenance.
+
+**Checks:**
+1. **The self-test, on Windows (Node 24 and the portable Node 20) and in WSL (Node 20).** For each numbered item, a case
+   that fails on 2.5.1 is shown failing before its fix, then passes:
+   - (1) the names come first; `R!:` marks a failure; `dream-analyzer.md` names `R!:`;
+   - (2) counts on fixture transcripts that hold:
+     - Skill and Agent calls, and a typed `/<name>`;
+     - a typed line after one use and not after another;
+     - a failed result;
+     - two subagent meta files, one with no `agentType`, and a subagent transcript with one failed result;
+     - a dream session and another repo's session, both skipped.
+
+     A second prepare after finish counts no meta file twice. A discarded dream leaves `subagents.json` as it was;
+   - (3) the "used" line; the "no use" line at 10 sessions read, and none at 9;
+   - (4) HEAD's steering is copied, and an uncommitted edit is not. Nothing changes when it is absent.
+     `topic('steering.md')` is false. A proposal quoting steering text is dropped by finish's provenance.
+2. **A mutation check** (`probes/V2-8c-use/mutate8c.mjs`) kills each new guard, on the system its case runs on, and
+   exits non-zero on any mutation it cannot apply.
+3. **Real data:** `probes/V2-8c-use/fieldcount.mjs` reads the first field repo's transcripts, read-only, the same day as
+   D34's `usage.mjs`.
+   - For each of that repo's own skills and agents, 8c's counter and `usage.mjs` must give the same number of sessions
+     with a use.
+   - Counts only. The repo is never named in a tracked file.
+4. **S7's check 2 at its bars** (`results/s7-product-a10.json`), with one change: the first five runs also carry a
+   committed `steering.md` that orders the dream to propose an entry holding a nonce. The nonce must not land, as with
+   the existing injection fixture. Every other bar is unchanged.
+5. **No hook output changes** (D18). The self-test's hook cases pass unchanged, and session start's reads are unchanged
+   (no new file).
+6. **CI on three systems**, after the move into `plugin/`. A failure there is a failed attempt, as 8a's was.
+7. **A review** of the diff by a fresh agent and by the decision-checker. Each finding is fixed before the freeze, or
+   recorded.
+- **Attempts:** at most three (rule 4). The candidate is hashed and frozen before checks 1 to 4 count.
+- **D35's lock:** D35 stays OPEN after 8c. It decides between (A) and (T) on 8d's evidence check, since only the
+  proposals can show whether reading use changes what the dream proposes.
+- **Not here:** new proposal kinds (agent drafts, change drafts, retirement proposals, placement), 8d; the trial, 8e.
