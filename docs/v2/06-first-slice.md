@@ -8724,3 +8724,12 @@ kept):
 **Recorded, not built:** each trial session leaves an empty project folder in Claude Code's data (`memory/` only), one
 per copy. That is Claude Code's own behaviour under `--no-session-persistence`; the trial does not delete inside the
 person's Claude Code folder.
+
+**Attempt 2, built and frozen (2026-11-24):** product `8e5aa3cbbf9d`.
+- **The two changes are in as registered.** One line is simpler than the registration: the margin compares every
+  case, since a case where the artifact should not be used has passed every run in both arms by then. A filter on it
+  could never change a verdict, and its mutation could never be killed.
+- **The new cases** (the margin's table, the stripped and kept variables) fail on attempt 1's frozen copy, and pass.
+- **`mutate8e.mjs`:** 85 mutations. The dry run against `trial8e.mjs` alone killed 83. The other two are the
+  self-test's own checks, killed by the full self-test.
+- **The counted checks run on Windows** (Node 24 and 20), by the user's word on systems.

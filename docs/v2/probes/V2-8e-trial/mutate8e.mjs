@@ -63,12 +63,19 @@ const M = [
   ['(3) no MCP server', TR, "'--strict-mcp-config', ", ''],
   ['(3) acceptEdits stated', TR, "'--permission-mode', 'acceptEdits', ", ''],
   ['(3) one JSON result', TR, "'--output-format', 'json', ", ''],
-  ['(3) the nested-session variables removed', TR, "for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete e[k]; return e;", 'return e;'],
+  // attempt 2: the session unlinked from its starter, login and configuration kept
+  ['(3) the linking variables removed', TR, '.filter(([k]) => !LINKS.test(k))', ''],
+  ['(3) every linking variable removed', TR, 'CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_CODE_(ENTRYPOINT|SESSION_\\w+|BRIDGE_\\w+|CHILD_\\w+|MESSAGING_\\w+)', 'CLAUDECODE|CLAUDE_CODE_(ENTRYPOINT)'],
+  ['(3) login and configuration kept', TR, 'const LINKS = /^(', 'const LINKS = /^(CLAUDE_CONFIG_DIR|CLAUDE_CODE_OAUTH_TOKEN|'],
   // item 4, the verdict
   ['(4) "not judged" on a failed session', TR, 'if (failed || rows.some(', 'if (rows.some('],
   ['(4) "not judged" when the should-not case fails without', TR, " || rows.some((r) => !r.use && r.without < r.runs)) return 'not judged';", ") return 'not judged';"],
   ['(4) a should-not case that fails is "hurts"', TR, "  if (rows.some((r) => !r.use && r.with < r.runs)) return 'hurts';\n", ''],
-  ['(4) "mixed" wins over the totals', TR, "  if (rows.some((r) => r.with > r.without) && rows.some((r) => r.with < r.without)) return 'mixed';\n", ''],
+  // attempt 2: the margin
+  ['(4) the margin is half the runs', TR, 'Math.ceil(r.runs / 2)', '1'],
+  ['(4) the margin rounds up', TR, 'Math.ceil(r.runs / 2)', 'Math.floor(r.runs / 2)'],
+  ['(4) "mixed" when one better and one worse', TR, "better && worse ? 'mixed' : ", ''],
+  ['(4) worse alone is "hurts"', TR, "worse ? 'hurts' : 'adds nothing'", "'adds nothing'"],
   // item 3 and 4, the run
   ['(5) a session counts only a result', TR, "done(!killed && code === 0 && r?.type === 'result' && r.is_error === false);", 'done(true);'],
   ['(5) the check written after the session', TR, '        if (!(await session(copy, c.prompt, c.tools ?? DEFAULT_TOOLS))) { failed++; continue; }\n        if (judged(t.checks[c.check], copy))',
