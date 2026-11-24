@@ -5294,3 +5294,5 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **The fourth attempt failed (2026-11-24; 06, 7a).** Checks 2 and 4 pass. (f) fails: the trial built its copies under
   the plugin's data folder in `~/.claude/`, which Claude Code guards, so no session could edit. D34 stays BLOCKED and nothing
   from section 7 ships. The fix it points to, copies in the system's temporary folder, is recorded, not built.
+- **A fifth attempt, the user's override (2026-11-24):** "Fifth attempt, this fix only". The trial's copies move to the system's
+  temporary folder, and a pre-flight runs one trial as shipped before any counted check (06, 7a). A failure ends it.

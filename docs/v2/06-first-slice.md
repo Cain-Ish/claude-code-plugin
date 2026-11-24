@@ -7347,3 +7347,28 @@ Candidate `711e2b817bc8` before the version bump.
   not change the outcome, and running them would only have spent usage.
 - **By the registration of the fourth attempt,** a failure ends it: D34 stays BLOCKED, and nothing from section 7
   ships.
+
+- **The mutation check on the fourth candidate,** which finished after this record: 40 of 40 killed
+  ([attempt4/mutate7.txt](probes/V2-D34-repo-artifacts/outcome/results/attempt4/mutate7.txt)).
+
+### 7, 7a: a fifth attempt, the user's override (registered 2026-11-24, before its code)
+
+- **The user's answer:** "Fifth attempt, this fix only", against the stop registered for the fourth attempt. It is
+  recorded as the user's decision.
+- **The fix, and nothing else:**
+  - `trial.mjs` builds its copies under the system's temporary folder, and refuses a place inside the repo or inside
+    Claude Code's configuration folder (`~/.claude`, or `CLAUDE_CONFIG_DIR`);
+  - the key and the records stay in the plugin's data folder, which only the script reads.
+
+  The skill's text does not change.
+- **The pre-flight, before any counted check.** One trial on the good draft, exactly as shipped: the candidate loaded
+  as a plugin, `${CLAUDE_PLUGIN_DATA}` as Claude Code sets it, `/second-brain:tailor` in a headless session, and "yes".
+  - It passes when the sessions changed files and `score` printed a verdict.
+  - It is not counted. If it fails, the attempt fails before its checks.
+- **Checks, on the final candidate:**
+  - **1:** the self-test, and a mutation check with one more mutation, copies under the data folder. The self-test
+    runs the trial with `CLAUDE_CONFIG_DIR` set and the data folder inside it, so that mutation is caught.
+  - **2:** the runner, live.
+  - **3(e), (f), 5, 6:** as registered.
+  - **4 stands** from the fourth attempt, since the skill's text is unchanged.
+- **A failure ends it:** D34 stays BLOCKED, and nothing from section 7 ships.
