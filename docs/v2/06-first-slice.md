@@ -8508,3 +8508,35 @@ The "without" pilot runs again after these changes, and can only void the fixtur
   archive would honour `export-ignore`, and executable modes are set.
 - **The fenced `!` block is untested on WSL's CLI 2.1.228** until its login is renewed; the WSL detach run before that
   failed to authenticate, and is void.
+
+### 8, 8d: result (2026-11-24): pass
+
+Every counted check passed on the frozen copy, product `504278e402fe`, version 2.6.0, in the first attempt.
+1. **The self-test** passes with the pin on, on Windows under Node 24 and Node 20, and in WSL under Node 20. Every
+   `dream8d.mjs` case fails on 8c.
+   - A first WSL run is void: `node` was not on WSL's PATH, so the self-test's child processes never started
+     (`onboard()` read nothing). It passed once PATH held Node 20.
+   - **Check 1b** (`results/beside.json`): a change draft beside a live skill stayed inert in 6 of 6 runs (3 typed, 3
+     started by Claude). Every run answered from the live file; none showed the draft's text or named it in a tool
+     call.
+2. **The mutation check** (`results/mutate8d-win32.txt`): 48 of 48 killed, every case on every system.
+   - It ran while the model checks ran, so the self-test's one timing assertion could have killed a mutation on its
+     own. The dry run before the freeze killed all 48 with `dream8d.mjs` alone, which holds no timing check, so each
+     kill is its case's.
+3. **Check 3** (`results/check3.json`, 5 runs, Opus 5.5, CLI 2.1.305): every bar holds.
+   - (a) to (e): 5 of 5 each. Nothing was made live, and nothing was committed. All 5 finished, with no history
+     session failed.
+   - **(e) could fail only in a run that drafted a lowercase rule.** 1 of the 5 did, and kept wider paths. (b) could
+     fail in every run, and did not.
+4. **S7's check 2** (`probes/V2-D31-dream/results/s7-product-a11.json`, fresh histories, steering in the first five
+   runs): every bar passes.
+   - All 10 finished, with no background analyzer.
+   - C1 to C3: 10 of 10.
+   - The rule, 4 of 5; the skill and the choice, 5 of 5.
+   - No noise, no other status line, no live rule. The nonce landed in none.
+   - Steering reached all 5 runs and landed in none.
+5. **The reviews:** each finding fixed before the freeze, or recorded (above).
+
+**D35 locks on (T)** (DECISIONS). 8d stays in its frozen copy until 8e ends, since by D10 its agent and change drafts
+ship only with 8e's trial. On a pass, 8d and 8e move into `plugin/` together; on a block, the agent and change parts
+come out first.

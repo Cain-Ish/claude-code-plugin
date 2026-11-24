@@ -1,0 +1,50 @@
+platform win32, the self-test
+killed    (1) agent drafts written
+killed    (1) an agent names its tools
+killed    (1) an empty field is no value
+killed    (1) the agent name is its file name
+killed    (1) an agent with a private name
+killed    (2) a change with a private name
+killed    (2) a change names its fields
+killed    (2) an agent change names its tools
+killed    (2) the change name is its file name
+killed    (2) not a file setup makes
+killed    (2) a change from two sessions
+killed    (2) every cited session used it
+killed    (2) an agent change named by its file
+killed    (2) the live flag kept
+killed    (3) only the session's own calls
+killed    (3) each worktree its own root
+killed    (3) the longest root first
+killed    (3) a relative path from the session folder
+killed    (3) an inline list split outside braces
+killed    (3) the YAML list form
+killed    (3) a linked or impossible folder
+killed    (3) a backslash glob
+killed    (3) a folder inside the repo
+killed    (4) the analyzer's artifact-correction
+killed    (5) the template says promotion replaces
+killed    (1) an agent with private data
+killed    (1) an agent from two sessions
+killed    (1) an agent the repo holds
+killed    (1) an agent draft already waiting
+killed    (1) an agent through a link
+killed    (2) a change its sessions used
+killed    (2) the uses from the data folder
+killed    (2) a change with private data
+killed    (2) a change for a file the repo holds
+killed    (2) a change draft already waiting
+killed    (2) a change through a link
+killed    (2) a change keeps the invocation flag
+killed    (3) touched files kept
+killed    (3) only files in the repo
+killed    (3) packages per digest
+killed    (3) the report by package
+killed    (3) a rule naming a folder the repo lacks
+killed    (4) the analyzer's agent-task
+killed    (4) the analyzer gets usage.json
+killed    (4) the skill stages change drafts
+killed    (5) the template lists agent drafts
+killed    (5) the template shows a change as a diff
+killed    (5) the 2.5.1 template listed for update
+48 of 48 killed

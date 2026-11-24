@@ -38,7 +38,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
 | V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d); LOCKED 2026-11-23 on (M) with (A)'s "later" (B and C rejected; 06, section 5, 5c) | user + evidence | D18, D29, D30, D31, D32 |
 | V2-D34 | Agents and skills made for one repo: how does the plugin guide making them, and test each one before a person keeps it? | OPEN 2026-11-24 (the user's word; 06, section 7, 7a); BLOCKED 2026-11-24 (7a's last attempt: checks 1, 2 and 4 pass, 3(e) and (f) fail on reads outside the repo and the guarded draft write; the user decides on a fourth attempt) | user + evidence | D10, D18, D29, D30, D31, D33 |
-| V2-D35 | The dream learns from use: how does it read what the repo's sessions did with its skills and agents, and what the team wants weighed, so that it proposes from evidence? | OPEN 2026-11-24 (the user's word; 06, section 8, 8c) | evidence | D10, D14, D18, D31, D33, D34 |
+| V2-D35 | The dream learns from use: how does it read what the repo's sessions did with its skills and agents, and what the team wants weighed, so that it proposes from evidence? | LOCKED 2026-11-24 on (T) (06, section 8, 8d's result) | evidence | D10, D14, D18, D31, D33, D34 |
 
 Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/2026-10-22-phase-gate.md](research/2026-10-22-phase-gate.md)).
 - Every spine decision is LOCKED, or DEFERRED with a trigger (D20's write-time net). D12's `clear` and `resume`
@@ -5351,4 +5351,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - D14: only text a commit has seen steers the dream.
 - **Decider:** evidence. 8c (06, section 8) builds the reading of use. D35 decides between (A) and (T) on 8d's
   evidence check, since only the proposals can show whether reading use changes what the dream proposes.
-- **Status:** OPEN 2026-11-24.
+- **Status:** LOCKED 2026-11-24 on (T), by 8d's result (06, section 8, "8, 8d: result").
+  - **The evidence:** check 3, 5 counted runs on the frozen copy (product `504278e402fe`), Opus 5.5, CLI 2.1.305
+    (`probes/V2-8d-proposals/results/check3.json`):
+    - every bar 5 of 5: the change draft where a skill's use was corrected (a), none where it was not (b), an
+      agent draft for the review task (c), the package rule (d), no single-package rule for a rule stated in both
+      packages (e);
+    - nothing was made live, and nothing was committed.
+  - **Why (A) loses:** it cannot propose any of these kinds.
+  - **What can fail, and did not:** (b) in every run. (e) only in a run that drafted a lowercase rule, which 1 of the
+    5 did (and 1 of the 2 pilot runs).
+  - **How it ships, by D10:** 8d's agent and change drafts ship only with 8e's trial (06, 8d). If 8e is BLOCKED,
+    they come out before 2.6.0 ships, and the rule placement stays.
+  - **Reopens if:** a dream drafts a change or an agent that no session's typed line asked for; or a field repo's
+    package rule lands in a package its sessions did not touch.

@@ -1,0 +1,41 @@
+{
+ "rows": [
+  {
+   "how": "typed",
+   "live": true,
+   "draft": false,
+   "draftNamed": false
+  },
+  {
+   "how": "typed",
+   "live": true,
+   "draft": false,
+   "draftNamed": false
+  },
+  {
+   "how": "typed",
+   "live": true,
+   "draft": false,
+   "draftNamed": false
+  },
+  {
+   "how": "model",
+   "live": true,
+   "draft": false,
+   "draftNamed": false
+  },
+  {
+   "how": "model",
+   "live": true,
+   "draft": false,
+   "draftNamed": false
+  },
+  {
+   "how": "model",
+   "live": true,
+   "draft": false,
+   "draftNamed": false
+  }
+ ],
+ "pass": true
+}
