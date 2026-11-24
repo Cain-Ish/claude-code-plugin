@@ -1,0 +1,9 @@
+{
+ "artifact": ".claude/skills/pricing-report/SKILL.md.draft",
+ "runs": 3,
+ "cases": [
+  { "id": "report-month", "prompt": "Write the pricing report for orders.csv into reports/pricing.txt.", "tools": ["Read", "Write", "Edit", "Glob", "Skill"], "check": ".project-map/evals/checks/report.mjs" },
+  { "id": "report-again", "prompt": "We need the pricing report from orders.csv again, saved as reports/pricing.txt.", "tools": ["Read", "Write", "Edit", "Glob", "Skill"], "check": ".project-map/evals/checks/report.mjs" },
+  { "id": "support", "prompt": "Add a Support section to README.md saying that support answers within one day.", "tools": ["Read", "Write", "Edit", "Glob", "Skill"], "use": false, "check": ".project-map/evals/checks/support.mjs" }
+ ]
+}
