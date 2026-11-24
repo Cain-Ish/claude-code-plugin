@@ -7790,3 +7790,29 @@ self-test, mutation, live, bench, S7. A failure stops the run.
     line and the README's subagent line change.
   - **Otherwise R4 closes.** The field sighting is recorded as unexplained, and nothing changes.
 - **Attempts:** one run of 3. A run that a harness fault makes invalid is rerun and recorded.
+
+### 8, 8b: result (2026-11-24): R4 closes
+
+`probes/V2-D12-channels/results-step0-2.1.331.json`, 3 runs on Haiku with CLI 2.1.331:
+- **PT-sub, Explore:** does not arrive, 0 of 3. The subagent read the file in 3 of 3, and the hook's text was absent from
+  its input stream in all 3.
+- **PT-sub, general-purpose:** does not arrive, 0 of 3, with the same reads and the same absence.
+- **CL and RE:** arrive, 3 of 3.
+
+D12's trigger has not fired. A subagent's Read of a map file still arrives unlabelled, as 04 and the README say. The
+field sighting stays unexplained: it may come from a path step 0 does not take, such as a resumed or forked session.
+
+### 8, 8a: before the model runs (2026-11-24)
+
+- **The digest pre-flight** (`probes/V2-8a-fixes/preflight8a.mjs`, `results/preflight8a.json`). It applies the frozen
+  copy's `digestFrom` and D-3's redaction to S7's 60 history transcripts, read only.
+  - **No typed line changes:** U 0 of 70, Q 0 of 5. The 25 typed lines carrying formatDate, the changelog procedure or
+    pnpm are all intact.
+  - **Tool lines lose their file paths:** T changes in 306 of 380 lines and R in 61 of 375. An absolute path inside a
+    tool call's JSON is one token, so it is redacted whole, and the file inside the repo goes with it. S7's bars rest on
+    typed and chosen lines, so S7 runs.
+  - **The cost is recorded for group N.** A placement by where the evidence clusters (N4) needs those paths, so the repo's
+    own root has to be made relative before redaction.
+- **Check 5's validity:** a run counts only when the session made exactly three Bash calls, with the three registered
+  command strings in order. Any other run is invalid, not failed, and is rerun once. A second invalid run fails the
+  check.

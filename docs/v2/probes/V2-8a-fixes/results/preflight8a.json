@@ -1,0 +1,18 @@
+{
+ "runs": 10,
+ "transcripts": 60,
+ "lines": {
+  "U": 70,
+  "T": 380,
+  "Q": 5,
+  "A": 77,
+  "R": 375
+ },
+ "changed": {
+  "T": 306,
+  "R": 61
+ },
+ "keyLines": 25,
+ "keyLinesChanged": 0,
+ "pass": true
+}
