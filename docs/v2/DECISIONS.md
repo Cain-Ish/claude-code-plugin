@@ -5289,3 +5289,5 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - The causes: reads outside the repo, of the guidelines and of the records (the class section 6 met); the guarded
     draft write into `.claude/`; and a test that tried to repair its draft.
   - A fourth attempt is the user's call: the fixes are known and listed in 06.
+- **A fourth attempt, by the user's word (2026-11-24):** "Fourth attempt". Its fixes and checks are registered in 06, 7a,
+  before the code. A failure ends it with D34 BLOCKED, and nothing from section 7 ships.

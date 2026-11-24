@@ -7284,3 +7284,35 @@ run.
 
 **By rule 4** these were 7a's three attempts, so D34 is BLOCKED and goes to the user. A fourth attempt is allowed only
 for a near miss with a known cause. Whether this is one is the user's call.
+
+### 7, 7a: a fourth attempt, by the user's word (registered 2026-11-24, before its code)
+
+- **The user's answer** to D34's block: "Fourth attempt". Rule 4 allows one only for a near miss with a known cause.
+  Checks 1, 2 and 4 passed, and the two failures trace to the causes above. It is the last.
+- **The fixes, and nothing else:**
+  1. **The guidelines inside `skills/tailor/SKILL.md`,** so that making needs no read outside the repo.
+     `guidelines.md` is removed, and the file stays under 500 lines.
+  2. **The trial prints what the grader needs.**
+     - `trial.mjs run` prints each record (blind; reply capped at 2,000 characters, diff at 6,000). Claude gives them
+       to the grader in its prompt.
+     - `trial.mjs score <run> <data> <grades>` reads the key itself and prints the table. Claude never opens a file in
+       the plugin's data folder, and sees the arms only after grading.
+  3. **The draft is written by the script,** as the dream's `finish` writes its drafts:
+     - Claude writes the artifact to `.project-map/drafts/<name>/`, which is not guarded: `SKILL.md` and any helper
+       files for a skill, `agent.md` for an agent, `rule.md` for a path rule;
+     - `trial.mjs draft <name> <skill|agent|rule>` moves it to `.claude/skills/<name>/SKILL.md.draft` (helpers beside
+       it), `.claude/agents/<name>.md.draft` or `.claude/rules/<name>.md.draft`;
+     - it never overwrites, it refuses a path that resolves outside the repo, and it needs front matter with `name` and
+       `description` (a rule needs `paths`).
+  4. **One line in Testing:** a test changes nothing in the artifact or the repo. It tests the artifact as it is, and
+     what is missing is what the test should show.
+- **Checks, all on the new candidate.** Bars as registered.
+  - **1:** the self-test, and a mutation check that also kills `draft`'s guards (no overwrite, inside the repo, the
+    front matter) and `score`'s join of grades to the key.
+  - **2:** the runner, live, with its harness reading records as `run` prints them.
+  - **3(e):** G's three maker runs.
+  - **4:** no gap, rerun, since the skill text changes.
+  - **5:** the review gate.
+  - **6:** 5a's rerun and D33's handoff.
+  - **(f):** the trial's verdict on the good and the bad draft.
+- **A failure ends it:** D34 stays BLOCKED, and nothing from section 7 ships.
