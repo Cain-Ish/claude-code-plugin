@@ -7880,6 +7880,13 @@ with a known cause. The user was asked: a fourth attempt, block 8a, or ship with
   - F-1.
 - **D18** stays REOPENED, with its 2026-11-20 lock governing (R1). D30's trigger did not fire.
 - **Group N builds on 2.5.1,** by the user's choice.
+- **CI on the restored 2.5.1** (run 45431343162, commit `32292a8e`) failed the same Windows load gate: Bash on a map
+  file added 112.4 ms at 1 session. With the same code, 2.5.1's last green run had measured 82.0 ms.
+  - So the Windows runner's gate swings by about 30 ms, and attempt 3's 102.7 ms is within that noise. H7's failure
+    on Node 20 was real.
+  - D26's Linux job failed on the same push (v1's data folder gained a file during the route) and passed on its
+    rerun.
+  - The block stands, as the user chose it.
 
 ### 8, 8c: D35, the dream reads use (registered 2026-11-24, before the code)
 
@@ -7967,6 +7974,9 @@ hook change: those are 8d's and 8e's. The decision-checker read a first draft; i
 5. **No hook output changes** (D18). The self-test's hook cases pass unchanged, and session start's reads are unchanged
    (no new file).
 6. **CI on three systems**, after the move into `plugin/`. A failure there is a failed attempt, as 8a's was.
+   - *Amended before the build:* the Windows load job measured 2.5.1 at 112.4 ms on one run and 82.0 ms on another, with
+     the same code. 8c changes no hook (check 5), so the load jobs cannot measure it: they are reported, and only the
+     self-test jobs decide this check.
 7. **A review** of the diff by a fresh agent and by the decision-checker. Each finding is fixed before the freeze, or
    recorded.
 - **Attempts:** at most three (rule 4). The candidate is hashed and frozen before checks 1 to 4 count.
