@@ -189,10 +189,14 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   plugins so it will be used in other repos to create dedicated and correctly made agents and other skills per repo
   with self-evaluate and self-improve loop"
   ([research/2026-11-24-repo-agents-and-skills.md](research/2026-11-24-repo-agents-and-skills.md)).
-  - **Making guidance is not added.** In two outcome checks (06, 7a), a procedure told once and kept in the map, and
-    a skill Claude made with no guidelines, each did the held-out tasks in 6 of 6.
-  - **Testing is added, if 7a's last checks pass.** A skill, `trial`, tests one agent, skill or path rule for the
-    repo against a run without it, in a scratch copy. `map-review` runs it before promoting an agent or skill draft.
+  - **Making guidance is added by the user's decision, against the measured result.** In two outcome checks (06,
+    7a), a procedure told once and kept in the map, and a skill Claude made with no guidelines, each did the held-out
+    tasks in 6 of 6. The user chose to ship the making steps anyway.
+  - **What `tailor` does,** if 7a's last checks pass:
+    - it makes or tests one agent, skill or path rule for the repo;
+    - a made artifact starts from a gap and stays a draft;
+    - a test runs it against a run without it, in a scratch copy;
+    - `map-review` runs the test before promoting an agent or skill draft.
   - **Improving from sessions is D35's question.**
 
   The non-goals stand:

@@ -7179,7 +7179,12 @@ is renamed `trial`, since it no longer makes anything.
 
 **The last attempt covers these checks.** At most one failure remains; then D34 is BLOCKED and goes to the user.
 - **1, the self-test,** with guards (i) to (vii). Its listing check reads `trial`'s description, at most 400 bytes.
-- **2, the runner, live,** as registered.
+- **2, the runner, live.** The trial accepts no fewer than three cases, so each kind gets three: two built to use it
+  (the agent named in the prompt) and one should-not. That makes 12 records.
+  - "Used" matches the stream's tool calls in 12 of 12, with at least one true positive per kind.
+  - The repo's files and `git status` are unchanged.
+
+  Amended before any run.
 - **5, the review gate, headless,** as registered, with `trial` in place of `tailor`.
 - **6, the regression:** D33's (M) handoff, in 3 runs. 5a's rerun drops out, since the README does not change.
 - **(f), the trial agrees with the held-out results.** On fixture 2, `trial` runs once on each of two drafts:
@@ -7191,3 +7196,30 @@ is renamed `trial`, since it no longer makes anything.
 - **7:** validate, CI, a fresh-agent review, and the decision-checker.
 
 Checks 3 and 4 fall away with the making steps.
+
+### 7, 7a: the user's word on the scope, and the last attempt re-registered (2026-11-24, before its code)
+
+- **Asked** whether 2.6.0 ships the trial only, the trial with the making guidelines, or nothing, after the two
+  ceilings, the user chose **"Trial plus making guidelines"**. The making steps ship by the user's word, against the
+  measured result: on both fixtures, nothing showed that they help. That is recorded in D34 as the user's decision.
+- **One skill again, `tailor`.** It makes or tests an agent, skill or path rule for this repo, so the budget's four
+  skills hold. It keeps `trial.mjs` as its one script, and its description stays at most 400 bytes.
+  - **Making:** 7a's steps 1 to 4 (the gap, the home, grounding, writing by `skills/tailor/guidelines.md`), then
+    steps 5 to 7 (cases, the trial, a draft).
+  - **Testing:** steps 5 to 7 alone, on a draft or a file the user names.
+  - **The README's placement table** gains the agent row, and its offers name `/second-brain:tailor`, as first
+    registered. D29's copy rule then covers the README too.
+- **The making steps are checked for their guardrails, not their outcome,** since no fixture showed a need:
+  - **Check 3's (e)** on fixture 2. G is three maker runs on the candidate, with the maker's request and the
+    registered protocol:
+    - the cases are shown and asked before any trial, in 3 of 3;
+    - after the yes, the trial runs and its counts are shown, in 2 or more of 3;
+    - the artifact is left as a draft and nothing is committed, in 3 of 3;
+    - every backquoted path and `node`/`npm` command it names exists, in 3 of 3;
+    - a made agent names its tools and does one task, in 3 of 3.
+
+    Bars (a) to (d) are dropped as unreachable, since the baselines hit the ceiling. G's held-out passes are recorded,
+    with no bar.
+  - **Check 4,** no gap, as registered.
+- **The last attempt covers checks 1, 2, 3(e), 4, 5, 6 and (f).** Check 6 includes 5a's rerun again, since the README
+  changes. One failure remains; then D34 is BLOCKED and goes to the user.
