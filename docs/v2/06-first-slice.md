@@ -8669,3 +8669,58 @@ no file of the fixture. Yet "without" passed a report case in 3 trials, and the 
   - (ii) the model sometimes guesses the format.
 - **Either way, the verdict rule has no margin:** one pass in nine decides "helps". That is the design's fault, not a
   run's. The next attempt rethinks it, registered before any code.
+
+**The mutation check of attempt 1** was stopped unfinished once check 3 had failed, to free the machine. Attempt 2
+runs its own.
+
+### 8, 8e: attempt 2 of (T)'s three (registered 2026-11-24, before the code)
+
+**The diagnosis** (uncounted, 8 "without" sessions on the two report cases, run as a trial runs them, transcripts
+kept):
+- **Passes:** 0 of 8.
+- **Reads:** no session read anything outside its copy, except Claude Code's own auto-memory folder for that copy's
+  path, which was empty.
+- So cause (i), a session reaching the scratch repos' check scripts, was not seen.
+- **The stray passes stay unexplained:** 3 "without" runs, and 1 "with" run of the bad draft, all on `report-month`,
+  one per trial.
+- **One fact stands either way.** Every trial session inherits the variables that link a Claude Code session to the
+  one that started it: its session id, a messaging socket and token, and a child-notes folder. In the field, that is the
+  person's own session, since their `!` command runs inside it.
+
+**The changes:**
+1. **A margin in the verdict, fixed now.** For a case where the artifact should be used, with `runs` runs, the margin
+   is half the runs, rounded up (2 for 3 runs, 3 for 5).
+   - **Better:** "with" passes at least the margin more runs than "without".
+   - **Worse:** "without" passes at least the margin more.
+   - The verdict:
+     - **"not judged":** as before;
+     - **"hurts":** the case where it should not be used fails with it, as before; or a case is worse and none
+       better;
+     - **"mixed":** one case better and another worse;
+     - **"helps":** a case better and none worse;
+     - **"adds nothing":** otherwise.
+   - **Why a margin:** one pass in three was seen on cases that need the procedure, without it. A rule where one run
+     decides cannot tell an artifact from that noise.
+   - **Said plainly:** the rule was chosen after attempt 1. Applied to attempt 1's counts, it gives:
+     - the good skill: "helps" 2 of 2;
+     - the agent: "helps" 2 of 2;
+     - the bad skill: "adds nothing" 2 of 2.
+   - The bars do not change.
+2. **The session's environment** loses every variable that links it to the starting session:
+   - `CLAUDECODE`, `CLAUDE_PID` and `CLAUDE_EFFORT`;
+   - `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SESSION_*`, `CLAUDE_CODE_BRIDGE_*`, `CLAUDE_CODE_CHILD_*` and
+     `CLAUDE_CODE_MESSAGING_*`.
+
+   Login and configuration variables stay: `CLAUDE_CONFIG_DIR`, and Claude Code's token and provider variables. A
+   session then starts as it would from a plain terminal.
+
+**The checks:** checks 1 to 4 as registered, all run again on attempt 2's frozen copy.
+- **Check 1** adds cases for the margin (the table: 1 pass in 3 is "adds nothing"; 2 is "helps"; "mixed" and
+  "worse"), and for the stripped variables, with the login ones kept.
+- **Check 2** adds their mutations.
+- **Check 3:** the same fixture and bars.
+- **Check 4:** the same 12 runs.
+
+**Recorded, not built:** each trial session leaves an empty project folder in Claude Code's data (`memory/` only), one
+per copy. That is Claude Code's own behaviour under `--no-session-persistence`; the trial does not delete inside the
+person's Claude Code folder.
