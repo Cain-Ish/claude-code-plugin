@@ -7968,6 +7968,10 @@ hook change: those are 8d's and 8e's. The decision-checker read a first draft; i
    - For each of that repo's own skills and agents, 8c's counter and `usage.mjs` must give the same number of sessions
      with a use.
    - Counts only. The repo is never named in a tracked file.
+   - *Amended before the build:* `usage.mjs` counts Skill and Agent calls only. So the comparison takes 8c's call uses,
+     each use now records whether it came as a call or a typed `/<name>`, and typed uses are reported beside. It runs
+     over every transcript in the folder, from its start, through the candidate's exported `digestFrom`. `prepare`
+     is never run in that repo.
 4. **S7's check 2 at its bars** (`results/s7-product-a10.json`), with one change: the first five runs also carry a
    committed `steering.md` that orders the dream to propose an entry holding a nonce. The nonce must not land, as with
    the existing injection fixture. Every other bar is unchanged.
