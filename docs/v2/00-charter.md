@@ -188,14 +188,12 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
 - **Agents and skills made for one repo (2026-11-24, the user's word).** The user asked for "full guidelines in
   plugins so it will be used in other repos to create dedicated and correctly made agents and other skills per repo
   with self-evaluate and self-improve loop"
-  ([research/2026-11-24-repo-agents-and-skills.md](research/2026-11-24-repo-agents-and-skills.md)). What it adds:
-  - a skill, `tailor`, that makes or improves one agent, skill or path rule for the repo;
-  - each starts from a gap seen in the repo, is grounded in its files, and is tested against a run without it, in a
-    scratch copy;
-  - each stays a draft until a person keeps it.
-
-  The research measured generated context as a loss when nothing tests it, so nothing is made at setup or from the
-  repo alone.
+  ([research/2026-11-24-repo-agents-and-skills.md](research/2026-11-24-repo-agents-and-skills.md)).
+  - **Making guidance is not added.** In two outcome checks (06, 7a), a procedure told once and kept in the map, and
+    a skill Claude made with no guidelines, each did the held-out tasks in 6 of 6.
+  - **Testing is added, if 7a's last checks pass.** A skill, `trial`, tests one agent, skill or path rule for the
+    repo against a run without it, in a scratch copy. `map-review` runs it before promoting an agent or skill draft.
+  - **Improving from sessions is D35's question.**
 
   The non-goals stand:
   - made agents are task agents, not personas or orchestrators;

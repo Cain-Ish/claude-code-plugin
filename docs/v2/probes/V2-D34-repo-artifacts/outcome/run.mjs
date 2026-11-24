@@ -85,9 +85,15 @@ const agentCalls = (tools) => tools.filter((t) => t.name === 'Agent' || t.name =
 const isArtifact = (f) => /^\.claude\/(skills|agents|rules|commands)\//.test(f) || /^CLAUDE\.md$/.test(f) || /^\.claude\/CLAUDE\.md$/.test(f);
 const fm = (text, key) => (text.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1] ?? '').trim();
 
-// the artifacts a maker left: files under .claude/ skills, agents, rules or commands, and an instruction file
+// the artifacts a maker left: files under .claude/ skills, agents, rules or commands, an instruction file, and any
+// new file elsewhere that one of those names by its path (a helper script), since the protocol takes an artifact from
+// wherever the maker wrote it (06, 7a, check 3)
 function artifacts(dir) {
-  const files = [...walk(path.join(dir, '.claude')).map((f) => `.claude/${f}`), ...(fs.existsSync(path.join(dir, 'CLAUDE.md')) ? ['CLAUDE.md'] : [])].filter(isArtifact);
+  const own = [...walk(path.join(dir, '.claude')).map((f) => `.claude/${f}`), ...(fs.existsSync(path.join(dir, 'CLAUDE.md')) ? ['CLAUDE.md'] : [])].filter(isArtifact);
+  const text = own.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  const fixed = new Set(walk(FIXTURE));
+  const named = walk(dir).filter((f) => !f.startsWith('.git/') && !f.startsWith('.claude/') && !f.startsWith('.project-map/') && !fixed.has(f) && text.includes(f));
+  const files = [...own, ...named];
   const skills = [], agents = [];
   for (const f of files) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');

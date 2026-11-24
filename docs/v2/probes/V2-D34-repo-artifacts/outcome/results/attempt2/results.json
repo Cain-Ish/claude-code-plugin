@@ -1,0 +1,524 @@
+{
+ "floor": [
+  {
+   "run": "run-0",
+   "task": "rate",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.199
+  },
+  {
+   "run": "run-0",
+   "task": "round",
+   "pass": false,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": false,
+   "changed": 3,
+   "logOk": false,
+   "usd": 0.192
+  },
+  {
+   "run": "run-1",
+   "task": "rate",
+   "pass": false,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": false,
+   "changed": 6,
+   "logOk": false,
+   "usd": 0.192
+  },
+  {
+   "run": "run-1",
+   "task": "round",
+   "pass": false,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": false,
+   "changed": 3,
+   "logOk": false,
+   "usd": 0.207
+  },
+  {
+   "run": "run-2",
+   "task": "rate",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.215
+  },
+  {
+   "run": "run-2",
+   "task": "round",
+   "pass": false,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": false,
+   "changed": 3,
+   "logOk": false,
+   "usd": 0.253
+  }
+ ],
+ "T": [
+  {
+   "run": "maker-0",
+   "task": "rate",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.21
+  },
+  {
+   "run": "maker-0",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.148
+  },
+  {
+   "run": "maker-0",
+   "task": "round",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.232
+  },
+  {
+   "run": "maker-0",
+   "maker": true,
+   "files": [],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 1,
+   "usd": 0.119
+  },
+  {
+   "run": "maker-1",
+   "task": "rate",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.193
+  },
+  {
+   "run": "maker-1",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.114
+  },
+  {
+   "run": "maker-1",
+   "task": "round",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.241
+  },
+  {
+   "run": "maker-1",
+   "maker": true,
+   "files": [],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 1,
+   "usd": 0.119
+  },
+  {
+   "run": "maker-2",
+   "task": "rate",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.195
+  },
+  {
+   "run": "maker-2",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.148
+  },
+  {
+   "run": "maker-2",
+   "task": "round",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.244
+  },
+  {
+   "run": "maker-2",
+   "maker": true,
+   "files": [],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 1,
+   "usd": 0.137
+  }
+ ],
+ "U": [
+  {
+   "run": "maker-0",
+   "task": "rate",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.207
+  },
+  {
+   "run": "maker-0",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.161
+  },
+  {
+   "run": "maker-0",
+   "task": "round",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.254
+  },
+  {
+   "run": "maker-0",
+   "maker": true,
+   "files": [
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "usd": 0.571
+  },
+  {
+   "run": "maker-1",
+   "task": "rate",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.187
+  },
+  {
+   "run": "maker-1",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.12
+  },
+  {
+   "run": "maker-1",
+   "task": "round",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.198
+  },
+  {
+   "run": "maker-1",
+   "maker": true,
+   "files": [
+    ".claude/skills/pricing-check/count-changed.mjs",
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "usd": 0.552
+  },
+  {
+   "run": "maker-2",
+   "task": "rate",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.206
+  },
+  {
+   "run": "maker-2",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.186
+  },
+  {
+   "run": "maker-2",
+   "task": "round",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.234
+  },
+  {
+   "run": "maker-2",
+   "maker": true,
+   "files": [
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "usd": 0.426
+  }
+ ],
+ "Us": [
+  {
+   "run": "maker-0",
+   "task": "rate",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.23
+  },
+  {
+   "run": "maker-0",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.158
+  },
+  {
+   "run": "maker-0",
+   "task": "round",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.272
+  },
+  {
+   "run": "maker-0",
+   "maker": true,
+   "files": [
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "usd": 0.542
+  },
+  {
+   "run": "maker-1",
+   "task": "rate",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.193
+  },
+  {
+   "run": "maker-1",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.141
+  },
+  {
+   "run": "maker-1",
+   "task": "round",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.197
+  },
+  {
+   "run": "maker-1",
+   "maker": true,
+   "files": [
+    ".claude/skills/pricing-check/SKILL.md",
+    "scripts/pricing-check.js"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 2,
+   "usd": 0.756,
+   "harnessFix": "scripts/pricing-check.js carried (named by the skill), 2026-11-24"
+  },
+  {
+   "run": "maker-2",
+   "task": "rate",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 6,
+   "logOk": true,
+   "usd": 0.182
+  },
+  {
+   "run": "maker-2",
+   "task": "rename",
+   "pass": true,
+   "used": false,
+   "skillCalls": [],
+   "agentCalls": [],
+   "usd": 0.158
+  },
+  {
+   "run": "maker-2",
+   "task": "round",
+   "pass": true,
+   "used": true,
+   "skillCalls": [
+    "pricing-check"
+   ],
+   "agentCalls": [],
+   "change": true,
+   "reportOk": true,
+   "changed": 3,
+   "logOk": true,
+   "usd": 0.238
+  },
+  {
+   "run": "maker-2",
+   "maker": true,
+   "files": [
+    ".claude/skills/pricing-check/count-changed.js",
+    ".claude/skills/pricing-check/SKILL.md"
+   ],
+   "drafts": 0,
+   "commits": 0,
+   "turns": 3,
+   "usd": 0.953
+  }
+ ]
+}

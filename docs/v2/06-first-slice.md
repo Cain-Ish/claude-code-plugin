@@ -7133,3 +7133,61 @@ Fixture 2, 2.5.1, Opus 5.5, under the registered protocol. Held-out passes, of 6
   - The making steps have shown no need on either task kind (PM1).
   - Us's two misses were one copy in which both tasks skipped the report and the log while the skill was used. The
     skill did not hold on that run.
+
+### 7, 7a: attempt 2 read again; the making steps end; the last attempt registered (2026-11-24, before its code)
+
+**Us, corrected.**
+- The harness broke the registered protocol, "the artifact is taken from wherever the maker wrote it". One Us maker's
+  skill calls `node scripts/pricing-check.js`, a script it wrote outside `.claude/`. The runner carried only `.claude/`
+  and `CLAUDE.md`, so both held-out runs failed on a missing module.
+- The runner now also carries any new file an artifact names. That maker's three held-out runs, rerun, pass both tasks
+  with the skill used, and the should-not run leaves it unused. Us is 6 of 6.
+- The first runs are kept in scratch. Counts and the made skills:
+  [probes/V2-D34-repo-artifacts/outcome/results/attempt2](probes/V2-D34-repo-artifacts/outcome/results/attempt2/results.json).
+  The made skills are filed under `dot-claude/`, so they never load.
+
+**Cost.**
+- A held-out run cost the same in every arm, about $0.21.
+- Making the skill cost about four times as much as telling Claude: $1.55 for U's three makers and $2.25 for Us's,
+  against $0.38 for T's.
+- T's three copies each hold the procedure in `.project-map/pricing.md`.
+
+**The making steps end, by choice after two ceilings.**
+- On both fixtures, a told procedure kept in the map (T) and a skill made with no guidelines (U, Us) reach 6 of 6.
+  G could not beat that by 2 on any fixture where the baselines pass.
+- A third fixture chosen after these results would be fitted to them.
+- So D34 settles on (A) for making: no making guidance ships, and the README's placement table stays as it is.
+- This is a choice on the evidence, recorded as such. The ceiling rule did not run out.
+
+**What can still ship: the trial and the review gate.** In the field, `map-review` promotes a dream's skill draft with
+no test, and Us's first run shows how a good-looking skill fails: it named a script the repo did not hold. The skill
+is renamed `trial`, since it no longer makes anything.
+- **`skills/trial/SKILL.md`,** which Claude may invoke (the budget row above, with `trial` in place of `tailor`). It
+  tests one agent, skill or path rule for this repo against a run without it: a draft, or a file the user names. Its
+  steps are 7a's steps 5 to 7:
+  - cases in `.project-map/evals/<name>.json`, from the user's typed lines, the draft's evidence lines, or the user's
+    examples, with D31's scan;
+  - `trial.mjs plan` shown, then the user's yes, then `run <name>` on a new invocation;
+  - a blind grader subagent judges each run;
+  - Claude shows the counts.
+
+  It promotes nothing. Improving an artifact from what the trial finds is D35's question.
+- **`scripts/trial.mjs`,** as registered. It also carries any new file the artifact names by its path.
+- **`map-review`'s drafts step:** for an agent or skill draft, Claude invokes `trial` first, and asks whether to
+  promote only after the counts. D29's copy rule applies to this one template.
+- **`setup.mjs`'s** two stale comments, as registered.
+
+**The last attempt covers these checks.** At most one failure remains; then D34 is BLOCKED and goes to the user.
+- **1, the self-test,** with guards (i) to (vii). Its listing check reads `trial`'s description, at most 400 bytes.
+- **2, the runner, live,** as registered.
+- **5, the review gate, headless,** as registered, with `trial` in place of `tailor`.
+- **6, the regression:** D33's (M) handoff, in 3 runs. 5a's rerun drops out, since the README does not change.
+- **(f), the trial agrees with the held-out results.** On fixture 2, `trial` runs once on each of two drafts:
+  - **good:** U's first maker's skill, which passed 2 of 2 held-out runs;
+  - **bad:** Us's second maker's skill without its script, which passed 0 of 2.
+
+  The good draft's with-arm passes more cases than its without-arm, and the bad draft's does not. The cases are the
+  ones `trial` writes from the procedure as the user's example, shown and accepted in the run.
+- **7:** validate, CI, a fresh-agent review, and the decision-checker.
+
+Checks 3 and 4 fall away with the making steps.
