@@ -7440,3 +7440,109 @@ elsewhere.
 - The trial has a real defect: the case file, with its expected outcomes, reaches both arms.
 
 D34 stays BLOCKED, as registered. Its rethink is the user's next request (section 8).
+
+## 8: one final logic, the user's word (opened 2026-11-24)
+
+- **The user's word** (2026-11-24): use all the installed plugins and agents to verify the entry ideas and the
+  implemented code, fix the gaps and issues, improve the code or rethink the approach and implement it, make new
+  research if needed, think about what the plugin exposes on the machine and what it keeps in the repo, and audit the
+  final code. Then: "we need to finish this plugin to cover previous features and new one as one final logic", agreeing
+  to the list given that day:
+  - decide from evidence, not at setup;
+  - make a draft only on a gap, and retire what adds nothing;
+  - self-evaluation with a strict judge;
+  - monorepos placed by where the evidence clusters.
+- **What reopens:** D34 (BLOCKED) is rethought under rule 4, one level up, and D35 opens for improving from sessions.
+  Each fix group below is registered before its code.
+
+### 8: the verification round (2026-11-24): the findings register
+
+Six independent read-only reviews, each given the code and the ledger and not the author's conclusions:
+- the decision-checker (guardrails against checks);
+- a whole-plugin audit (the ponytail-audit lens);
+- a security review;
+- Claude Code's platform facts (claude-code-guide);
+- the charter's ideas against the records;
+- the plugin's footprint, measured in isolation (`probes/V2-D34-repo-artifacts/footprint/`).
+
+"Ran" means the reviewer reproduced it, "read" that it was traced in the code. Each accepted finding gets a failing
+self-test case before its fix. Findings marked "read" are reproduced first, on Linux in WSL where the case needs it.
+
+**Group H, the hook path** (checked together: self-test, the paired CI bench, D18's bench):
+
+| Id | Finding | Shown | Triage |
+| --- | --- | --- | --- |
+| H1 | The Bash handler labels commands that never name the map. Claude Code's `if` filter is best effort, so any command with `$()`, backticks or `$VAR` starts it; the handler never checks the command. Reproduced: `echo $(echo sub-bg)` got every map file's labels | ran | Reproduce, then read 2o's record and D14's lock first: 2m to 2o leaned on the filter for a reason. Count it in field transcripts before linking it to the noise complaint |
+| H2 | The Read hook starts Node for every Read, about 80 ms each; an `if: Read(**/.project-map/**)` filter would skip the rest | read | An optimisation, and D18's bar already passes. A glob that misses Windows paths would silently drop D14's label. Only with a live probe on all paths; otherwise drop |
+| H3 | The Bash handler follows a link in `.project-map/` out of the repo, walking and reading the target tree; headings from outside reach Claude's context | ran (junction) | Accept |
+| H4 | Map files are read with no type or size check: a link to an endless file stalls every session start; a FIFO blocks the index (the Bash handler already skips FIFOs) | read | Reproduce in WSL, then accept: one reader that takes only regular files under a size cap |
+| H5 | The quote re-find is quadratic: 800 words against 390 KB took 3.7 s, on every Read | ran | Try a linear search first. A cap would change D16's label on large real documents |
+| H6 | Map file names reach label lines unsanitised (the index replaces control characters) | read | Accept: reuse `safe()` |
+| H7 | On Windows, a repo's `git.exe` runs in place of git when the scripts start from a plain shell (Claude Code sets `NoDefaultCurrentDirectoryInExePath` itself) | ran | Accept: set it at the top of `map.mjs` |
+
+**Group D, the dream** (checked together: self-test, S7's product run):
+
+| Id | Finding | Shown | Triage |
+| --- | --- | --- | --- |
+| D-1 | A proposed topic named `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` is written in `.project-map/`, where Claude Code loads it as instructions before review; the `when:` line has no length cap | read (platform behaviour from the docs) | Accept |
+| D-2 | The private-data filter misses Stripe (`sk_live_`), SendGrid (`SG.`), Hugging Face (`hf_`), Slack webhooks, credentials in URLs and bearer tokens | ran | Accept the key shapes, each with a must-pass fixture. `~/` and "token is …" would drop real proposals (this repo's own entries name `~/.claude`), so they are left out |
+| D-3 | The digests in the repo's ignored `.dream-run/` hold unfiltered transcript text; an abandoned dream leaves them there | read | Accept: redact the filter's matches when digests are written; S7's product run again |
+| D-4 | Two prepares can both take over a stale lock | read | Accept: take over by rename |
+| D-5 | Finish joins every committed blob into one string, which throws past about 512 MB (binaries included), with the lock held | read | Accept: per-file search, binaries skipped |
+| D-6 | A transcript that grows during prepare is read past the size recorded, so the next dream reads those lines again | read | Accept: bound the stream at the recorded size |
+
+**Group F, the footprint:**
+
+| Id | Finding | Shown | Triage |
+| --- | --- | --- | --- |
+| F-1 | The self-test leaves a marker in the real temp folder on every run (about 370 here) | ran | Accept: it removes its own markers |
+| F-2 | The product leaves one empty marker per session that ends before a typed prompt (7 real ones in 4 days) | ran | Drop: pruning would cost a hook a directory scan |
+| F-3 | State in the data folder (`dirs.log`, `state.json`, `undone/`) is never pruned | ran | Drop: about 3 KB in the real install. The data folder goes on uninstall |
+
+**Group R, the records** (no product code):
+- **R1:** D10 and D18 were to re-lock on 7a, which is BLOCKED. Record which lock governs 2.5.1 before any hook fix cites D18.
+- **R2:** D04's trigger (v2's own map format is ready) fired, unrecorded.
+- **R3:** D15 still says setup never overwrites; D29 and the code say otherwise.
+- **R4:** D12 may have fired: a subagent's Read got the read hook's labels once, against P1's 0 of 3. Run a registered 3-run probe on the current CLI before any document changes.
+- **R5:** `04-architecture.md` is stale on D22 and on its status line.
+- **R6:** the README is stale:
+  - the naming line is 304 B, not 212 B;
+  - the CLI range of the live checks;
+  - "78.8 ms" was S6's candidate; 2.3.0 measured 62.7 ms and 2.5.0 82.3 ms;
+  - "file changes" should be "pairs";
+  - the uninstall claim rests on the docs only.
+- **R7:** D26's workflow does not run when the README changes.
+- **R8:** guarantees with no standing check:
+  - "no hook writes to the map": add a self-test that compares the repo before and after the hooks;
+  - memory-curator "changes no committed claim";
+  - "nothing is accepted without your answer".
+
+  Name their one-time runs, or mark them as direction.
+
+**Group N, the agreed features:**
+- **N1, D35, telemetry:** the dream reads failed tool calls by kind, each skill's and agent's use, and the corrections
+  that follow a use.
+  - Subagent transcripts (separate files, `<session>/subagents/agent-<id>.jsonl`) are read for counts only, never as
+    quote evidence: a delegating prompt is not the user's words (D31).
+- **N2, D35, steering:** a section of `.project-map/dreams.md` the team writes, read by the analyzers.
+- **N3, D35, proposals:** agent drafts, and proposed changes to existing skills and agents, each from 2 or more
+  sessions; retirement suggested for one unused across N sessions.
+- **N4, D35, monorepos:** a rule or skill draft is placed in the package's own `.claude/` when its evidence clusters
+  there. Claude Code loads a subfolder's skills and rules when Claude works on its files (skills and memory docs).
+- **N5, D34 rethought, the trial:**
+  - the copies leave out `.project-map/evals/` and the drafts' staging folder;
+  - a case may carry a `check` command whose exit code decides the outcome (the strict judge), with 3 runs per case by
+    default;
+  - the security findings in `trial.mjs` are fixed: a tool entry starting with `-` reaches the child as a flag; an
+    artifact path may hold `..`; `draft` follows a staged link and copies sibling files live; `score`'s argument
+    carries grader text.
+- **N6, D34:** `tailor`'s making steps, kept by the user's word.
+
+**Group M, the measurement debts, for the final build:**
+- A1 (last run before 2.3.0);
+- S8's acceptance check (2.5.1 changed setup);
+- D16's seeded drift probe (the labels changed since it ran);
+- D14's capture-injection probe (the instruction changed since it ran).
+
+**Order:** R1 first, then group H, D, F (shippable on its own, as a fix release, if the features stall), then N, then
+M and the final audit by reviewers who have not seen this register.

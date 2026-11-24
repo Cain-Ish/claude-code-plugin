@@ -220,6 +220,9 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - "code reviewer" and "transcript archive" stay non-goals. The trial's grader judges only a trial's outcomes, and the trial keeps no transcript.
 
   Re-locks on 7a's result.
+- **Which lock governs meanwhile (2026-11-24; 06, section 8, R1).** 7a is BLOCKED and nothing from it shipped, so the
+  re-lock of 2026-11-20 governs the shipped 2.5.1: three project agents and one plugin agent, all task agents.
+  Section 8 re-locks D10 on the result of D34's rethink.
 
 ### V2-D11 — Home of a repo's knowledge
 - **Options:** (a) in the repo, committed and shared by the team through review; (b) in the repo but git-excluded
@@ -2324,6 +2327,12 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - **The trial's boundary.** A trial runs only cases shown to the user in that session, after a yes. Its nested sessions run with all hooks off, `acceptEdits`, and only the tools the case lists. This holds to the line above: "a map entry is never turned into a command the plugin runs".
 
   What stands: hooks call no model and no network, and no hook code changes in 7a. Re-locks on 7a's result.
+- **Which lock governs meanwhile (2026-11-24; 06, section 8, R1).** 7a is BLOCKED and nothing from it shipped, so the
+  re-lock of 2026-11-20 governs the shipped 2.5.1:
+  - 4 hook events, 3 skills, 1 plugin agent and 1 command, each skill granted only its own script;
+  - hooks within 100 ms.
+
+  The hook fixes of section 8, group H, are held to that budget. Section 8 re-locks D18 on its own result.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
