@@ -56,7 +56,8 @@ function turn(dir, prompt, plugin, log, resume) {
   });
 }
 const calls = (t, re) => t.tools.some((x) => x.name === 'Bash' && re.test(String(x.input?.command ?? '')));
-const asks = (text) => /\?/.test(text.trim().split(/\n\s*\n/).pop() ?? '');
+// a reply asks when a question mark ends a sentence anywhere in it, bold or not
+const asks = (text) => /\?(\*\*|_)?(\s|$)/.test(text);
 
 function repo(dir, plugin, draft) {
   fs.rmSync(dir, { recursive: true, force: true });

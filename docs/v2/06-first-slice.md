@@ -7316,3 +7316,34 @@ for a near miss with a known cause. Whether this is one is the user's call.
   - **6:** 5a's rerun and D33's handoff.
   - **(f):** the trial's verdict on the good and the bad draft.
 - **A failure ends it:** D34 stays BLOCKED, and nothing from section 7 ships.
+
+### 7, 7a: the fourth attempt (2026-11-24): fails on (f); D34 stays BLOCKED
+
+Candidate `711e2b817bc8` before the version bump.
+
+| Check | Result |
+| --- | --- |
+| 2, the runner, live | **pass**: 12 of 12 records match the stream, 2 true positives per kind, the repo unchanged |
+| 4, no gap | **pass**: nothing made in 3 of 3, each naming the missing task |
+| 3(e), the making guardrails | **partial**: in 3 of 3, the draft was written by `trial.mjs draft` (inert, no commit), the cases were written, and `plan` was shown and asked; the run after the yes was stopped, see below |
+| (f), the trial's verdict | **fail**: on both drafts the trial ran its 6 sessions, and no edit was possible in any of them |
+| 1, the mutation check | running at the time of this record (40 mutations) |
+| 5, 6 | not run |
+
+- **Why (f) failed.**
+  - The trial builds its scratch copies under `${CLAUDE_PLUGIN_DATA}`, which lies under `~/.claude/`. Claude Code
+    guards everything there, so every edit in every nested session was refused, in both arms.
+  - Each session's diff came back empty. Claude saw this, and in both runs declined to grade a result that would read
+    "adds nothing". That was a fair call, but the procedure got no verdict.
+  - Check 2 missed it because its harness passed a scratch data folder, not the plugin's own.
+- **The fix it points to:** the copies go under the system's temporary folder, which is outside the repo and outside
+  `~/.claude/`. Only the copies move; the key and the records stay in the data folder, which only the script reads.
+  The fix is not built.
+- **Harness defects found on the way,** fixed and recorded; neither moved a bar:
+  - the question test read only a reply's last paragraph, and missed "**Should I run the test?**" that came before a
+    paragraph on hooks. It now finds a question mark that ends a sentence anywhere;
+  - a finished maker whose reply asked is resumed from its own stream.
+- **The resumed makers were stopped.** Their trials would have built copies in the same guarded folder, so they could
+  not change the outcome, and running them would only have spent usage.
+- **By the registration of the fourth attempt,** a failure ends it: D34 stays BLOCKED, and nothing from section 7
+  ships.

@@ -81,7 +81,9 @@ function session(dir, prompt, plugins, log, resume, maker = false) {
   });
 }
 
-const asks = (text) => /\?/.test(text.trim().split(/\n\s*\n/).pop() ?? '');
+// a reply asks when a question mark ends a sentence anywhere in it, bold or not (attempt 4: the question came before a
+// last paragraph on hooks, and the earlier last-paragraph test missed it)
+const asks = (text) => /\?(\*\*|_)?(\s|$)/.test(text);
 const skillCalls = (tools) => tools.filter((t) => t.name === 'Skill').map((t) => String(t.input?.skill ?? ''));
 const agentCalls = (tools) => tools.filter((t) => t.name === 'Agent' || t.name === 'Task').map((t) => String(t.input?.subagent_type ?? ''));
 const isArtifact = (f) => /^\.claude\/(skills|agents|rules|commands)\//.test(f) || /^CLAUDE\.md$/.test(f) || /^\.claude\/CLAUDE\.md$/.test(f);
@@ -108,15 +110,36 @@ function artifacts(dir) {
   return { files, skills, agents };
 }
 
+// the turns of a maker's stream, one per result record
+function fromLog(log) {
+  const turns = [{ tools: [] }];
+  for (const l of fs.readFileSync(log, 'utf8').split('\n')) {
+    let r;
+    try { r = JSON.parse(l); } catch { continue; }
+    if (r.type === 'assistant') turns.at(-1).tools.push(...(r.message?.content ?? []).filter((x) => x.type === 'tool_use').map((x) => ({ name: x.name, input: x.input })));
+    if (r.type === 'result') {
+      Object.assign(turns.at(-1), { ok: r.subtype === 'success' && !r.is_error, text: String(r.result ?? ''), sid: r.session_id ?? null, usd: r.total_cost_usd ?? 0, denied: (r.permission_denials ?? []).length, applied: 0 });
+      turns.push({ tools: [] });
+    }
+  }
+  return turns.slice(0, -1);
+}
+
 async function maker(out, i, o) {
   const at = path.join(out, `maker-${i}`);
-  if (fs.existsSync(path.join(at, 'maker.json'))) return JSON.parse(fs.readFileSync(path.join(at, 'maker.json'), 'utf8'));
-  fs.mkdirSync(at, { recursive: true });
   const ws = path.join(at, 'ws');
-  fresh(ws);
   const log = path.join(at, 'maker.jsonl');
-  fs.rmSync(log, { force: true });
-  const turns = [await session(ws, ASK, o.plugins, log, null, true)];
+  let turns;
+  if (fs.existsSync(path.join(at, 'maker.json'))) {
+    // a finished maker whose last reply asks is resumed from its own stream, so the protocol's resume still happens
+    turns = fromLog(log);
+    if (!(asks(turns.at(-1).text) && turns.length < 3 && turns.at(-1).sid)) return JSON.parse(fs.readFileSync(path.join(at, 'maker.json'), 'utf8'));
+  } else {
+    fs.mkdirSync(at, { recursive: true });
+    fresh(ws);
+    fs.rmSync(log, { force: true });
+    turns = [await session(ws, ASK, o.plugins, log, null, true)];
+  }
   // resumed with "yes" when the reply asks, or when a write it was denied has just been applied, at most twice
   while ((asks(turns.at(-1).text) || turns.at(-1).applied) && turns.length < 3 && turns.at(-1).sid) turns.push(await session(ws, 'yes', o.plugins, log, turns.at(-1).sid, true));
   const a = artifacts(ws);

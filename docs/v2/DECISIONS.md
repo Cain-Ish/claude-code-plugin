@@ -5291,3 +5291,6 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - A fourth attempt is the user's call: the fixes are known and listed in 06.
 - **A fourth attempt, by the user's word (2026-11-24):** "Fourth attempt". Its fixes and checks are registered in 06, 7a,
   before the code. A failure ends it with D34 BLOCKED, and nothing from section 7 ships.
+- **The fourth attempt failed (2026-11-24; 06, 7a).** Checks 2 and 4 pass. (f) fails: the trial built its copies under
+  the plugin's data folder in `~/.claude/`, which Claude Code guards, so no session could edit. D34 stays BLOCKED and nothing
+  from section 7 ships. The fix it points to, copies in the system's temporary folder, is recorded, not built.
