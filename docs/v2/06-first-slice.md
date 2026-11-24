@@ -7987,3 +7987,15 @@ hook change: those are 8d's and 8e's. The decision-checker read a first draft; i
 - **D35's lock:** D35 stays OPEN after 8c. It decides between (A) and (T) on 8d's evidence check, since only the
   proposals can show whether reading use changes what the dream proposes.
 - **Not here:** new proposal kinds (agent drafts, change drafts, retirement proposals, placement), 8d; the trial, 8e.
+
+### 8: the user's word on CI (2026-11-24)
+
+- **The user's word:** "Drop ci tests and focus on deliver rest".
+- **What changes:** CI is no longer a check anywhere in section 8.
+  - 8c's check 6 is dropped, before any of 8c's counted checks ran.
+  - Later steps register no CI check.
+- **What stays:**
+  - the workflows themselves, since `main`'s ruleset requires the self-test jobs. They run on each push and are
+    reported, not waited on;
+  - the local checks: the self-test on Windows and in WSL, the mutation checks, the real-data check, S7's model runs
+    and the reviews.
