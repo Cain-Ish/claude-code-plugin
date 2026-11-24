@@ -8540,3 +8540,59 @@ Every counted check passed on the frozen copy, product `504278e402fe`, version 2
 **D35 locks on (T)** (DECISIONS). 8d stays in its frozen copy until 8e ends, since by D10 its agent and change drafts
 ship only with 8e's trial. On a pass, 8d and 8e move into `plugin/` together; on a block, the agent and change parts
 come out first.
+
+### 8, 8e: the amended build and its pilots (2026-11-24, before the freeze)
+
+**The build follows the amendment above.**
+- **`trial.mjs`, rewritten to items 1 to 7:**
+  - the words on stdin, and a run only from the typed `! node … run` line;
+  - one commit for every copy;
+  - limited tools and project settings;
+  - "not judged";
+  - check scripts written fresh after each session;
+  - blob ids;
+  - the verdict written only after any link at its path is removed.
+- **Two lines are simpler than the amendment's wording:**
+  - **The hash** covers the commit, the artifact and the files beside a skill draft. The commit already holds the case
+    file and the check scripts, both required unchanged since. A separate hash of them could never differ, and its
+    mutations could not be killed.
+  - **A copy's commits** turn hooks off through a hooks folder that does not exist, so `--no-verify` was dropped.
+- **The template's pin moved** (`6d3e35da1c6033c9`). Its 8d and 8e texts are both unreleased, so the 2.5.1 text
+  already listed covers setup's update (D29).
+- **The diff against 8d's frozen copy touches no hook file** (`hooks.json`, `hook.mjs`, `map.mjs`), and the
+  self-test's hook cases pass unchanged: no hook output changes (check 1's last case).
+- **`test/trial8e.mjs`:** 9 cases, each fixed point of the amendment with its own assertion. They include a commit
+  holding a backslash, a colon and a `.git` path (built with `git mktree`), a hostile global git config (signing with a
+  missing program, and failing hooks), and a check that sees no stand-in variable.
+- **`mutate8e.mjs`:** 80 mutations.
+  - The dry run against `trial8e.mjs` alone first left four alive. Two are the self-test's own checks (the exact
+    grant, and no code loaded at run time), and the full self-test kills both.
+  - Two were weak cases, now fixed:
+    - a tree's `.git/` files landed inside the copy's `.git`, and no case looked there. A committed `.git/config` could
+      set a filter or `fsmonitor` that runs on `git add`;
+    - the empty-field case matched "tools" in the draft's own name `emptytools`.
+- **Platform facts on CLI 2.1.331** (the version on PATH):
+  - `--tools Read Agent Skill` gives exactly those tools;
+  - `--setting-sources`, `--no-session-persistence` and `--strict-mcp-config` are accepted.
+
+**Check 3's "without" pilot, again** (`results/check3-pilot2.json`, both case files, 2 runs per case):
+- the report cases passed 0 of 2 for the skill's cases and for the agent's;
+- the support case passed 2 of 2 for each;
+- no session failed under the new flags.
+
+The fixture holds for both trials.
+
+**Check 4's pilot** (`results/check4-pilot1.json`, one run per request, uncounted):
+- **The pricing request (fixture2)** left a skill draft, its script beside it, a case file and four checks, all in
+  their places, and nothing committed.
+- **Neither request without a gap** made anything.
+- **The migration request (fixture) made nothing.** A rerun of the same request made a sound skill draft. It found a
+  real trap: the migration check accepts a number in another team's range.
+  - The first run likely took the guideline "leave it out when the map already says it" over the table's "a
+    procedure of several steps is a skill": the fixture's map holds the migration rules.
+  - **The product text now says so:** "A recorded rule is not a procedure. When the map holds a task's rules but doing
+    it takes several steps in a set order, or a step that must be exact, the procedure is the gap, and its home is a
+    skill that follows those rules."
+  - `guard8e.mjs` now keeps each session's reply in the scratch folder (never in `results/`), so an empty run can be
+    read.
+  - The bars do not change. The pilot runs once more on this text (`check4-pilot.json`).

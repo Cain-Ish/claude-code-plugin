@@ -22,7 +22,6 @@ const SETS = [
   ['fixture', 'none', 'Make agents for this repo.'],
   ['fixture2', 'none', 'Make agents for this repo.'],
 ];
-const walk = (d, base = d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.name === '.git' ? [] : e.isDirectory() ? walk(path.join(d, e.name), base) : [path.relative(base, path.join(d, e.name)).split(path.sep).join('/')]));
 
 function runOne(i) {
   for (const [fx, kind, prompt] of SETS) {
@@ -32,19 +31,26 @@ function runOne(i) {
     git(r, 'init', '-q');
     git(r, 'add', '-A');
     git(r, 'commit', '-qm', 'the fixture');
-    const before = new Set(walk(r));
     const commits = git(r, 'rev-list', '--count', 'HEAD').trim();
     const s = spawnSync('claude', ['-p', `/second-brain:tailor ${prompt}`, '--model', 'claude-opus-5-5', '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', 'WebFetch,WebSearch',
       '--permission-mode', 'acceptEdits', '--plugin-dir', path.resolve(process.env.S8E_PLUGIN), '--output-format', 'json'], { cwd: r, env: env(), encoding: 'utf8', timeout: 1_800_000 });
-    const made = walk(r).filter((f) => !before.has(f) && f.startsWith('.claude/'));
-    const texts = made.map((f) => fs.readFileSync(path.join(r, f), 'utf8'));
+    // the session's reply, kept in the scratch folder only (never in results/), to tell why a run made what it made
+    try { fs.writeFileSync(path.join(scratch, `${fx}-${kind}-${i}.reply.txt`), String(JSON.parse(s.stdout).result ?? '')); } catch {}
+    // anything the session made or changed, anywhere in the repo, as git sees it (the decision-checker's finding: new
+    // files under .claude/ alone missed a draft left in .project-map/drafts/)
+    const made = git(r, 'status', '--porcelain', '--untracked-files=all', '-z').split('\0').filter(Boolean).map((l) => l.slice(3));
+    const drafts = made.filter((f) => /^\.claude\/.*\.draft$/.test(f));
+    const texts = made.filter((f) => f.startsWith('.claude/') && fs.existsSync(path.join(r, f))).map((f) => fs.readFileSync(path.join(r, f), 'utf8'));
     // every repo path a draft names exists: a token with a folder and an extension, not a URL, not under .claude/
     const named = [...new Set(texts.flatMap((t) => [...t.matchAll(/(?<![\w/:.])((?:[\w-]+\/)+[\w.-]+\.(?:js|json|sql|txt|md|csv))\b/g)].map((m) => m[1])))].filter((p) => !p.startsWith('.claude/'));
-    const agents = made.filter((f) => /^\.claude\/agents\/.*\.md\.draft$/.test(f)).map((f) => fs.readFileSync(path.join(r, f), 'utf8'));
+    const agents = drafts.filter((f) => /^\.claude\/agents\/.*\.md\.draft$/.test(f)).map((f) => fs.readFileSync(path.join(r, f), 'utf8'));
+    // a file beside a skill draft, in its folder
+    const beside = (f) => { const m = /^\.claude\/skills\/([\w-]+)\//.exec(f); return Boolean(m) && drafts.includes(`.claude/skills/${m[1]}/SKILL.md.draft`); };
     const res = {
       fx, kind, run: i, finished: s.status === 0,
-      made: made.length,
-      draftsOnly: made.every((f) => f.endsWith('.draft') || /^\.claude\/skills\/[\w-]+\/(?!SKILL\.md$)[\w.-]+$/.test(f)),
+      made: made.length, drafts: drafts.length, agentDrafts: agents.length,
+      // drafts only: a .draft under .claude/, a file beside a skill draft, or a case file or check under evals/
+      draftsOnly: made.every((f) => drafts.includes(f) || beside(f) || f.startsWith('.project-map/evals/')),
       committed: git(r, 'rev-list', '--count', 'HEAD').trim() !== commits,
       missingPaths: named.filter((p) => !fs.existsSync(path.join(r, p))),
       // one task per agent: one description line, and its body names no second job ("and also", "as well as")
@@ -55,23 +61,29 @@ function runOne(i) {
   }
 }
 
-function summary() {
-  const rows = fs.readdirSync(scratch).filter((f) => /^fixture2?-(gap|none)-\d+\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync(path.join(scratch, f), 'utf8')));
+function summary(pilot = false) {
+  // the counted runs are 1 to 3; run 0 is the pilot's
+  const rows = fs.readdirSync(scratch).filter((f) => (pilot ? /^fixture2?-(gap|none)-0\.json$/ : /^fixture2?-(gap|none)-[1-9]\d*\.json$/).test(f)).map((f) => JSON.parse(fs.readFileSync(path.join(scratch, f), 'utf8')));
   const gap = rows.filter((x) => x.kind === 'gap'), none = rows.filter((x) => x.kind === 'none');
-  const every = (rs, f) => rs.length === 6 && rs.every(f);
-  // 06, 8e, check 4's bars, fixed before any run, 3 of 3 per repo
+  const want = pilot ? 2 : 6;
+  const every = (rs, f) => rs.length === want && rs.every(f);
+  // 06, 8e, check 4's bars, fixed before any run, 3 of 3 per repo (as amended: a gap run must leave a draft, so the
+  // paths and one-task bars cannot pass on an empty run; every session must finish)
   const out = { runs: rows.length, pass: {
+    finished: rows.length === 2 * want && rows.every((x) => x.finished),
     nothingWithoutAGap: every(none, (x) => x.made === 0),
-    draftsOnly: every(rows.filter((x) => x.kind === 'gap').concat(none).slice(0, 12), (x) => x.draftsOnly) && rows.length === 12,
-    nothingCommitted: rows.length === 12 && rows.every((x) => !x.committed),
-    pathsExist: every(gap, (x) => x.missingPaths.length === 0),
-    oneTaskPerAgent: every(gap, (x) => x.oneTask),
+    draftsOnly: rows.length === 2 * want && rows.every((x) => x.draftsOnly),
+    nothingCommitted: rows.length === 2 * want && rows.every((x) => !x.committed),
+    pathsExist: every(gap, (x) => x.drafts > 0 && x.missingPaths.length === 0),
+    oneTaskPerAgent: every(gap, (x) => x.drafts > 0 && x.oneTask),
   }, rows };
   out.pass.all = Object.values(out.pass).every(Boolean);
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });
-  fs.writeFileSync(path.join(HERE, 'results', 'check4.json'), `${JSON.stringify(out, null, 1)}\n`);
+  fs.writeFileSync(path.join(HERE, 'results', pilot ? 'check4-pilot.json' : 'check4.json'), `${JSON.stringify(out, null, 1)}\n`);
   console.log(JSON.stringify({ ...out, rows: undefined }));
 }
 
+// the pilot (06, 8e, as amended): one run of each request, run 0; it can only void the probe, never a bar
 if (firstArg === 'summary') summary();
+else if (firstArg === 'pilot') { runOne(0); summary(true); }
 else for (let i = Number(firstArg); i <= Number(lastArg); i++) runOne(i);

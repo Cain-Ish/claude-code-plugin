@@ -1,0 +1,58 @@
+{
+ "runs": 4,
+ "note": "pilot, one run per request, uncounted; fixture-gap made nothing in this run",
+ "rows": [
+  {
+   "fx": "fixture",
+   "kind": "gap",
+   "run": 0,
+   "finished": true,
+   "made": 0,
+   "drafts": 0,
+   "agentDrafts": 0,
+   "draftsOnly": true,
+   "committed": false,
+   "missingPaths": [],
+   "oneTask": true
+  },
+  {
+   "fx": "fixture2",
+   "kind": "gap",
+   "run": 0,
+   "finished": true,
+   "made": 7,
+   "drafts": 1,
+   "agentDrafts": 0,
+   "draftsOnly": true,
+   "committed": false,
+   "missingPaths": [],
+   "oneTask": true
+  },
+  {
+   "fx": "fixture",
+   "kind": "none",
+   "run": 0,
+   "finished": true,
+   "made": 0,
+   "drafts": 0,
+   "agentDrafts": 0,
+   "draftsOnly": true,
+   "committed": false,
+   "missingPaths": [],
+   "oneTask": true
+  },
+  {
+   "fx": "fixture2",
+   "kind": "none",
+   "run": 0,
+   "finished": true,
+   "made": 0,
+   "drafts": 0,
+   "agentDrafts": 0,
+   "draftsOnly": true,
+   "committed": false,
+   "missingPaths": [],
+   "oneTask": true
+  }
+ ]
+}

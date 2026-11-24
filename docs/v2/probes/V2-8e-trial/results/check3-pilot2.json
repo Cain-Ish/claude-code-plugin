@@ -1,0 +1,12 @@
+{
+ "without": {
+  "pricing-report/report-month": 0,
+  "pricing-report/report-again": 0,
+  "pricing-report/support": 2,
+  "pricing-reporter/report-month": 0,
+  "pricing-reporter/report-again": 0,
+  "pricing-reporter/support": 2
+ },
+ "failedSessions": 0,
+ "void": false
+}

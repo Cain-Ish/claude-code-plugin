@@ -1,0 +1,9 @@
+{
+ "artifact": ".claude/agents/pricing-reporter.md.draft",
+ "runs": 3,
+ "cases": [
+  { "id": "report-month", "prompt": "Use the pricing-reporter agent to write the pricing report for orders.csv into reports/pricing.txt.", "tools": ["Read", "Write", "Edit", "Glob", "Agent"], "check": ".project-map/evals/checks/report.mjs" },
+  { "id": "report-again", "prompt": "Have the pricing-reporter agent write the pricing report from orders.csv again, saved as reports/pricing.txt.", "tools": ["Read", "Write", "Edit", "Glob", "Agent"], "check": ".project-map/evals/checks/report.mjs" },
+  { "id": "support", "prompt": "Add a Support section to README.md saying that support answers within one day.", "tools": ["Read", "Write", "Edit", "Glob", "Agent"], "use": false, "check": ".project-map/evals/checks/support.mjs" }
+ ]
+}
