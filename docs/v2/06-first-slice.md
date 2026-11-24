@@ -8427,3 +8427,84 @@ fails, and the case that needs no skill passes.
 - **8d's review fixes** are carried into 8e's build (`dream.mjs`, the analyzer, `dream8d.mjs`); both case files pass.
 - **D18's surface:** four skills (setup, dream, status, tailor), every one flagged, so none is listed and none adds
   listing bytes (D12); one script more, which no hook reaches.
+
+### 8, 8e: amended after the two reviews, before the freeze (2026-11-24)
+
+A fresh agent and the decision-checker reviewed the build. No LOCKED line is broken, but D34's boundary did not hold as
+built, and several registered parts were missing. Two probes settled the design (scratch, uncounted, CLI 2.1.331, the
+version on PATH that the product runs):
+- **The grant.** With only `draft` granted, the `!` line is refused ("Shell command permission check failed"). A `!`
+  line and a model's own Bash call see the same environment, so nothing tells them apart. As built, inside a
+  person-started `tailor` turn the model could type `cli show`, then `cli run` with the hash: no person needed to see
+  anything. The residual-risk line in the record above understated this.
+- **The words.** `$ARGUMENTS` reaches the shell unescaped. An apostrophe breaks the `!` line, and `<…>` or `>` redirects;
+  check 4's own pricing request holds `<YYYY-MM-DD>`. A fenced `!` block with a quoted heredoc passed an apostrophe,
+  `<…>`, `>`, `$(…)` and quotes verbatim on stdin, wrote no file, and matched a `cli:*` grant.
+
+**The amendments, each with a case in `test/trial8e.mjs` and a mutation in `mutate8e.mjs`:**
+1. **Item 2, the yes.** The `!` block passes the person's words on stdin. `cli` only shows a trial or hands over to the
+   making steps; it never starts one.
+   - `show` prints a command for the person to type with Claude Code's own `!` prefix:
+     `! node "<the script's path>" run <name> <hash>`. Typing it is the yes.
+   - A model that tries the same command needs a Bash permission, which is a person's yes. Only a permission mode or an
+     allow rule that already approves that command lets a model start a run; that is the person's setting.
+   - The grant is `cli:*` and `draft:*`.
+2. **Item 2, what `show` prints:** the artifact's whole front matter (any key, list form too), every line with a `!`
+   command, the files beside a skill draft, and each check script's full text. The person approves what runs.
+3. **Item 1, the case file:**
+   - `runs` from 3 to 5, as agreed ("at least 3 runs per case");
+   - a prompt that starts with `-` is refused;
+   - every case lists the tool its kind needs (`Skill` for a skill, `Agent` or `Task` for an agent), since tools are now
+     limited and an arm without that tool cannot differ;
+   - a file counts as committed and unchanged when git says so (`git diff --quiet`), so `core.autocrlf` no longer
+     refuses every case file on Windows.
+4. **Item 3, the run:**
+   - The commit is resolved once. The hash covers it, the case file, the artifact, the files beside a skill draft, and
+     each check script; every copy comes from that commit.
+   - "With" adds the files beside a skill draft. "Without" of a new skill draft has no skill folder; of a change, the
+     file as the commit holds it.
+   - Each copy has its own temp folder, and its commits turn off signing and hooks. Each commit message is the same,
+     so no copy names its arm.
+   - Each session also gets `--tools` (the case's tool names), `--setting-sources project,local`,
+     `--no-session-persistence` and `--output-format json`. A session whose result record is missing or `is_error`, or
+     which ran past 15 minutes, failed.
+   - The check script is written fresh to its own temp folder after the session, from the text read at the start, and
+     runs with a reduced environment.
+   - The run sits in `try`/`finally`, so every temp folder is deleted.
+5. **Item 4, the verdict:**
+   - **"Not judged"** when any session or copy failed, or a `use: false` case failed in "without" (item 1 says it must
+     pass in both arms). It gives the counts, and offers nothing.
+   - Otherwise the rule is as registered.
+   - The verdict file holds git's blob ids of the artifact and the case file, so `/map-review` can tell a stale one
+     with `git hash-object`.
+   - The file is privacy-scanned (registered, and missing), and written after any file or link at its path is removed.
+6. **Item 5:** `/map-review` compares those blob ids, and shows "not judged" with its reason, never with a removal offer.
+7. **Agents (the decision-checker's first finding, open since the draft):** check 3 adds an agent trial on the same
+   fixture.
+   - `good-agent.md` holds the procedure as an agent, and `pricing-reporter.json`'s cases name it ("use the
+     pricing-reporter agent to …").
+   - The bar: "helps" in 2 of 2 trials.
+   - A pass ships 8d's agent drafts on evidence that a trial can judge an agent.
+
+**Check 4's script (`guard8e.mjs`), fixed before it runs:**
+- `draftsOnly` gave `every()` 12 rows where it needed 6, so it could never pass.
+- "Made" is now any change in the repo by `git status`, not new files under `.claude/` only.
+- "Drafts only" means every change is one of: a `.draft` under `.claude/`; a file beside a skill draft; or a case file
+  or check under `.project-map/evals/`.
+- The paths bar and the one-task bar now need a draft on each run with a gap, so an empty run no longer passes them.
+- "Finished" is scored.
+- **A check-4 pilot runs first,** one run per request: it can only void the probe, never a bar.
+
+**Check 3 follows item 1:** `show` through the shipped skill, then the printed command, as the person would type it.
+The "without" pilot runs again after these changes, and can only void the fixture.
+
+**Recorded, not built:**
+- **The trial is not a sandbox.** A session that lists `Bash` can reach other folders on disk, including other copies.
+  A case lists `Bash` only when it needs it, and `show` prints the tools.
+- **npm's `claude.cmd` shim** cannot be started without a shell. Such sessions fail, and the trial is "not judged".
+- **A check script runs alone,** with no sibling imports.
+- **The self-test's stand-in variable** (`SECOND_BRAIN_TRIAL_CLAUDE`) ships.
+- **Copies come from `ls-tree` and `cat-file`,** not `git archive`. That keeps every file the commit holds, where
+  archive would honour `export-ignore`, and executable modes are set.
+- **The fenced `!` block is untested on WSL's CLI 2.1.228** until its login is renewed; the WSL detach run before that
+  failed to authenticate, and is void.
