@@ -96,21 +96,35 @@ function dream(i) {
   const r = spawnSync(CLAUDE, args, { cwd: repo, input: '/second-brain:dream', encoding: 'utf8', env: env(), timeout: 3_600_000, maxBuffer: 256 << 20 });
   const ev = parse(r.stdout ?? '');
   const res = ev.find((e) => e.type === 'result') ?? {};
-  const rules = ls(path.join(repo, '.claude', 'rules'), /\.md\.draft$/).map((f) => read(path.join(repo, '.claude', 'rules', f)));
-  const codeRules = rules.filter((t) => /numeric code|code field/i.test(t));
-  const lowerRules = rules.filter((t) => /lowercase/i.test(t));
   const s = {
     run: i, finished: ev.some((e) => e.type === 'user' && JSON.stringify(e.message?.content ?? '').includes('Dream finished')), costUsd: Math.round((res.total_cost_usd ?? 0) * 100) / 100,
+    ...scored(repo),
+    nothingLive: live() === liveBefore,
+    nothingCommitted: git(repo, 'rev-list', '--count', 'HEAD').trim() === commits,
+  };
+  put(path.join(base, 'dream.json'), JSON.stringify(s, null, 1));
+  console.log(`run ${i}: ${JSON.stringify(s)}`);
+}
+// what the dream left, as the bars read it. The pilot found the first match too literal: drafts write
+// "numeric `code` field", with backticks, so the words may be parted by any non-word run
+function scored(repo) {
+  const rules = ls(path.join(repo, '.claude', 'rules'), /\.md\.draft$/).map((f) => read(path.join(repo, '.claude', 'rules', f)));
+  const codeRules = rules.filter((t) => /numeric\W+code|code\W+field/i.test(t));
+  const lowerRules = rules.filter((t) => /lowercase/i.test(t));
+  return {
     a: /breaking/i.test(read(path.join(repo, '.claude', 'skills', 'release-notes', 'SKILL.md.draft'))),
     b: !fs.existsSync(path.join(repo, '.claude', 'skills', 'lint-fix', 'SKILL.md.draft')),
     c: ls(path.join(repo, '.claude', 'agents'), /\.md\.draft$/).length > 0,
     d: codeRules.some((t) => onePackage(pathsOf(t)) && /packages\/api/.test(pathsOf(t))),
     e: lowerRules.every((t) => !onePackage(pathsOf(t))),
     lowerRules: lowerRules.length,
-    nothingLive: live() === liveBefore,
-    nothingCommitted: git(repo, 'rev-list', '--count', 'HEAD').trim() === commits,
   };
-  put(path.join(base, 'dream.json'), JSON.stringify(s, null, 1));
+}
+// scores a finished run again from what it left (a scorer fix after the pilot), keeping its run facts
+function rescore(i) {
+  const f = path.join(scratch, `run-${i}`, 'dream.json');
+  const s = { ...JSON.parse(read(f)), ...scored(path.join(scratch, `run-${i}`, 'repo')) };
+  put(f, JSON.stringify(s, null, 1));
   console.log(`run ${i}: ${JSON.stringify(s)}`);
 }
 
@@ -131,5 +145,6 @@ function summary() {
 const first = Number(firstArg), last = Number(lastArg);
 if (mode === 'histories') for (let i = first; i <= last; i++) histories(i);
 else if (mode === 'dream') for (let i = first; i <= last; i++) dream(i);
+else if (mode === 'rescore') for (let i = first; i <= last; i++) rescore(i);
 else if (mode === 'summary') summary();
 else throw new Error('usage: node fixture8d.mjs <scratch> histories|dream <first> <last>, or summary');

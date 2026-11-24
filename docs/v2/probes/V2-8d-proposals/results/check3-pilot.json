@@ -1,0 +1,51 @@
+{
+ "runs": 2,
+ "finished": 2,
+ "a": 2,
+ "b": 2,
+ "c": 2,
+ "d": 2,
+ "e": 2,
+ "nothingLive": 2,
+ "nothingCommitted": 2,
+ "sessionsFailed": 0,
+ "costUsd": 1.87,
+ "per": [
+  {
+   "run": 1,
+   "finished": true,
+   "costUsd": 0.99,
+   "a": true,
+   "b": true,
+   "c": true,
+   "d": true,
+   "e": true,
+   "lowerRules": 0,
+   "nothingLive": true,
+   "nothingCommitted": true
+  },
+  {
+   "run": 2,
+   "finished": true,
+   "costUsd": 0.88,
+   "a": true,
+   "b": true,
+   "c": true,
+   "d": true,
+   "e": true,
+   "lowerRules": 1,
+   "nothingLive": true,
+   "nothingCommitted": true
+  }
+ ],
+ "pass": {
+  "a": false,
+  "b": true,
+  "c": false,
+  "d": false,
+  "e": true,
+  "live": true,
+  "committed": true,
+  "all": false
+ }
+}

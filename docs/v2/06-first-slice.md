@@ -8331,3 +8331,17 @@ The making steps' guardrails already passed in 7a (3(e)), and are kept.
   - D10's reopened scope and D18's surface re-lock with section 8's release, ending R1's interim;
   - 8d's agent and change drafts ship with it.
 - **On a block:** D34 stays BLOCKED, and 8d's agent and change drafts do not ship (8d's D10 line).
+
+### 8, 8d: the pilot (2026-11-24, uncounted)
+
+`probes/V2-8d-proposals/results/check3-pilot.json`: 2 runs on the unfrozen build.
+- **The fixture happens as written.** Every history session finished, and the typed `/release-notes` and `/lint-fix`
+  were recorded as command records.
+- **The scorer had a defect, now fixed.** (d)'s match looked for "numeric code" or "code field", and the drafts write
+  "numeric `code` field", with backticks. Both runs drafted `api-errors-numeric-code` with
+  `paths: ["packages/api/**"]`.
+  - The match now allows any non-word run between the words.
+  - A `rescore` mode scores a finished run again from what it left.
+  - The bars do not change.
+- **Rescored,** every case reads 2 of 2: (a) the change draft, (b) none for `lint-fix`, (c) an agent draft, (d) the
+  package rule, (e) no single-package lowercase rule. Nothing was made live, and nothing was committed.
