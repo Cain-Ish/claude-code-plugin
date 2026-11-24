@@ -7422,3 +7422,21 @@ The made skills passed 6 of 6 held-out runs, were used in all 6, and stayed out 
 
 **By the fifth attempt's registration,** a failure ends it: D34 stays BLOCKED, and nothing from section 7 ships. The
 research, the records, the fixtures, the harness and the candidate stay on `v2`.
+
+### 7, 7a: the fifth attempt's (f) read again (2026-11-24): the "without" arm was not clean
+
+The record above says the trial's grader was lenient. That cause was never tested, and the trial's repos point
+elsewhere.
+- `trial.mjs` copies every untracked, not-ignored file, and removes only the artifact itself.
+- When (f) ran on the good draft, the repo held `.project-map/pricing.md` (the procedure, captured as a map entry in
+  that session) and `.project-map/evals/pricing-check.json` (the cases, with every `expect`). The makers' repos held
+  the same.
+- So each "without" copy had the map entry, which made it attempt 2's arm T (6 of 6), and it had the expected
+  outcomes, which a session could read.
+
+**The corrected reading:**
+- "It adds nothing here" was a defensible verdict against a repo whose map already holds the procedure.
+- (f) measured it against the floor (no knowledge), which was the wrong yardstick.
+- The trial has a real defect: the case file, with its expected outcomes, reaches both arms.
+
+D34 stays BLOCKED, as registered. Its rethink is the user's next request (section 8).

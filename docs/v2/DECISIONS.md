@@ -5300,3 +5300,6 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   fails: the trial called a good draft "adds nothing" (2 with, 2 without), since its model-graded cases passed runs
   without the skill far more often than a strict grader did. Check 5's promotion bar fails on the same verdict. D34 stays
   BLOCKED, and nothing from section 7 ships. The candidate is kept in probes/V2-D34-repo-artifacts/candidate.
+- **(f) read again (2026-11-24; 06, 7a).** The "lenient grader" cause was never tested. The trial copied untracked files
+  into both arms, among them the captured map entry and the case file with its expected outcomes. So the "without" arm
+  was attempt 2's arm T (6 of 6), and "adds nothing" was defensible. The defect is the case file reaching both arms.
