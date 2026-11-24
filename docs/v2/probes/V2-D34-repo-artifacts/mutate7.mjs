@@ -29,6 +29,8 @@ const M = [
   ['(vii) hooks off', T, 'disableAllHooks: true', 'disableAllHooks: false'],
   ['(vii) no MCP server', T, "'--strict-mcp-config', ", ''],
   ['(vii) only the listed tools', T, "...(tools.length ? ['--allowedTools', ...tools] : [])", "'--allowedTools', 'Bash'"],
+  ['copies in the temporary folder', T, "fs.mkdtempSync(path.join(os.tmpdir(), 'second-brain-trial-'))", "fs.mkdtempSync(path.join(path.resolve(data), 'c-'))"],
+  ["the configuration folder's guard", T, ' || within(configDir(), copies))', ')'],
   ['records blind to the arm', T, 'const rec = { id, case: c.id,', 'const rec = { id, arm, case: c.id,'],
   ['draft: never overwrites', T, 'if (fs.existsSync(path.join(root, to))) throw', 'if (false) throw'],
   ['draft: inside the repo', T, 'if (!inRepo(root, path.join(root, to))) throw', 'if (false) throw'],
