@@ -108,7 +108,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '2625c8cd263b', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'b9777170a9b6', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -1811,6 +1811,12 @@ ${NAME}` } });
     assert.match(dg, /Refused, because a folder resolves outside the repo: .*\.claude\/rules\/project-map\.md/);
     assert.ok(!fs.existsSync(nowhere), 'nothing is made through a dangling link');
   }
+}
+
+// 06, section 8, 8c (D35): the dream reads use (dream8c.mjs, which also runs on its own)
+{
+  const d8 = spawnRaw('node', [path.join(PLUGIN, 'test', 'dream8c.mjs')], { encoding: 'utf8', timeout: 600_000 });
+  assert.equal(d8.status, 0, d8.stdout + d8.stderr);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

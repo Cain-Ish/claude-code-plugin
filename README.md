@@ -15,7 +15,7 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.5.1`, built on branch `v2`.
+**Status:** `2.6.0` in progress on branch `v2` (the dream reads use and steering); the last release is `2.5.1`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
@@ -125,6 +125,19 @@ locks: no hook blocks a write.
   - new entries, each marked `- proposed: dream <date>`;
   - rules and skills as `*.md.draft` files, which Claude Code never loads until `/map-review` promotes them;
   - one counts-only line in `.project-map/dreams.md`.
+
+  Since 2.6.0 its report also counts what the sessions did:
+  - each of the repo's own skills and agents: how often it was used, and how often a typed line followed a use;
+  - failed tool calls;
+  - subagent runs.
+
+  When the dream read 10 or more sessions, it names any of your skills or agents that none of them used. It counts
+  only this machine's sessions, so a teammate may still use them.
+
+  To steer the dream, commit a `.project-map/steering.md` that says what matters in this repo, such as "weigh
+  decisions about pricing over style". The analyzers read it first. Only the committed text counts, it is never
+  quoted as a source, and the dream never writes to it. Like any file in the map folder, it is listed in each
+  session's index; with front matter, its description shows there too.
 
   Since 2.5.0 it then asks whether to review the proposals now. On a yes, Claude walks them with you in the same
   session, as `/map-review` does; nothing is accepted without your answer (checked in 10 headless dreams, 06, 5c). `/map-review`'s last step offers to commit

@@ -14,10 +14,12 @@ running or stopped, ask whether one is still running in another session; if none
 above with `abort` in place of `prepare`, then tell them to run `/second-brain:dream` again.
 
 1. **Analyze.** For each digest above, use the Agent tool with subagent_type `second-brain:dream-analyzer`, giving it
-   the digest's path. Send up to 4 Agent calls in one message with `run_in_background` false, and wait for their
+   the digest's path, and the steering file's path when the report above names one. Send up to 4 Agent calls in one
+   message with `run_in_background` false, and wait for their
    results before you send the next ones. Do every step, finish included, in this one turn: the permission this skill
    gives the finish command ends with the turn. Done when every digest has its candidates.
-2. **Read the map:** every `.md` file in `.project-map/`, outside `.dream-run/`.
+2. **Read the map:** every `.md` file in `.project-map/`, outside `.dream-run/`, except `steering.md`: the analyzers
+   had its committed text, and its working copy may hold edits no one reviewed.
 3. **Decide the proposals:**
    - **A new entry** is any of:
      - a decision or rule a person stated for this project;

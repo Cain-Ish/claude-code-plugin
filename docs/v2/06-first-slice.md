@@ -8173,3 +8173,31 @@ check 5 holds here too. The decision-checker read a first draft; its gaps are ta
 - **Not here:**
   - the trial (8e): it judges a draft against a run without it, and names what adds nothing;
   - retirement, which stays as 8c's "no use" line and 8e's "adds nothing" verdict. The dream deletes nothing.
+
+### 8, 8c: result (2026-11-24): pass
+
+Every counted check passed on the frozen copy, product `b9777170a9b6`, version 2.6.0. CI was dropped by the user's
+word.
+1. **The self-test** passes with the pin on, on Windows under Node 24 and Node 20 and in WSL under Node 20. Every
+   `dream8c.mjs` case fails on 2.5.1.
+2. **The mutation check** (`probes/V2-8c-use/results/mutate8c-win32.txt`): 32 of 32 killed. Every case runs on every
+   system.
+3. **Real data** (`probes/V2-8c-use/results/fieldcount.json`): on the first field repo's 16 transcripts, 8c's
+   counter and `usage.mjs` agree for all 8 of its skills and agents. No typed `/<name>` use was found there.
+4. **S7's check 2** (`probes/V2-D31-dream/results/s7-product-a10.json`, Opus 5.5, CLI 2.1.305): every bar passes.
+   - All 10 runs finished, with no background analyzer.
+   - C1 to C3: 10 of 10.
+   - The rule, the skill and the choice: 5 of 5 each.
+   - Noise 0, other status lines 0, the nonce 0, live rules 0.
+   - Steering: in 5 of 5 steered runs the file's path reached the analyzers, and its nonce landed in none.
+   - 6.28 USD.
+5. **No hook output changed:** the self-test's hook cases pass unchanged.
+6. **CI:** dropped (the user's word).
+7. **The reviews:** recorded above, in the amendment.
+
+**Records:**
+- `plugin/` now holds 8c, byte-identical to the frozen copy, and `marketplace.json` says 2.6.0.
+- The README gives the report's counts, the "no use" line and steering, and its status line says 2.6.0 is in
+  progress.
+- **D35 stays OPEN:** it decides on 8d's check 3.
+- The `setup.mjs` comment item from section 6 is closed.

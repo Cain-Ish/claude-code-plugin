@@ -19,7 +19,7 @@ const MAX_BYTES = 5 << 20;
 const STALE_LOCK_MS = 2 * 3600e3;
 const enc = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
 const real = (p) => fs.realpathSync.native(p);
-const topic = (f) => f.endsWith('.md') && !['readme.md', 'dreams.md'].includes(f.toLowerCase());
+export const topic = (f) => f.endsWith('.md') && !['readme.md', 'dreams.md', 'steering.md'].includes(f.toLowerCase());
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 
@@ -160,13 +160,15 @@ export function tag(r, names = new Map()) {
     return c.filter((x) => x?.type === 'tool_result').flatMap((x) => {
       const a = r.toolUseResult?.answers;
       if (names.get(x.tool_use_id) === 'AskUserQuestion' && a && typeof a === 'object' && !Array.isArray(a)) return Object.entries(a).map(([q, v]) => `Q: ${one(q, 300)} = ${one(v, 300)}`);
-      return [`R: ${one(textOf(x.content) || x.content, 300)}`];
+      // 8c (D35): a failed result is marked, so a dream can see what went wrong
+      return [`R${x.is_error ? '!' : ''}: ${one(textOf(x.content) || x.content, 300)}`];
     });
   }
   if (r.type === 'assistant' && !r.isSidechain) {
     return (r.message?.content ?? []).flatMap((x) => {
       if (x?.type === 'text') return [`A: ${one(x.text, 600)}`];
-      if (x?.type === 'tool_use') return [`T: ${x.name} ${one(JSON.stringify(x.input), 80)}`];
+      // 8c (D35): a skill's name and an agent's type come first, so the input's 80-character cut never drops them
+      if (x?.type === 'tool_use') { const k = used(x)?.name; return [`T: ${x.name}${k ? ` ${one(k, 80)}` : ''} ${one(JSON.stringify(x.input), 80)}`]; }
       return [];
     });
   }
@@ -177,27 +179,71 @@ export function tag(r, names = new Map()) {
 // anchor it if sessions here read other repos' maps
 const MAP_FILE = /\.project-map[\\/]([\w.-]+\.md)\b/g;
 export const mapReads = (x) => [...String((x.name === 'Read' ? x.input?.file_path : x.name === 'Bash' ? x.input?.command : '') ?? '').matchAll(MAP_FILE)].map((m) => m[1]);
+// 8c (D35): a tool call that uses a skill or an agent, as { kind, name } (an older Skill call names it as command)
+const used = (x) => { const s = x?.name === 'Skill' && (x.input?.skill ?? x.input?.command); return s ? { kind: 'skill', name: String(s) }
+  : /^(Agent|Task)$/.test(x?.name) && x.input?.subagent_type ? { kind: 'agent', name: String(x.input.subagent_type) } : null; };
 // a session's lines from a byte offset, streamed, so a large transcript is never read whole. accept(cwd) sees the
-// first cwd; the stream stops there when it says no
-async function digestFrom(file, start, accept) {
+// first cwd; the stream stops there when it says no. 8c (D35): also its uses of skills and agents, each marked when a
+// typed line follows it before the next use, and its failed tool results by tool. A typed /<name> is a use only when
+// `skills` holds the name or it is a plugin's (plugin:skill); a built-in such as /compact is neither a use nor an end
+export async function digestFrom(file, start, accept, skills = new Set()) {
   const lines = [];
   const names = new Map();
   const reads = new Set();
+  const uses = [], fails = {};
+  let open = [];
   let first = null, last = null, cwd = null, dream = false;
   const input = fs.createReadStream(file, { start, encoding: 'utf8' });
   const rl = readline.createInterface({ input, crlfDelay: Infinity });
+  // Claude's Skill or Agent call ends the uses still open; a person's typed /<name> is added beside them
+  const use = (u, ends) => { const e = { ...u, after: false }; open = ends ? [e] : [...open, e]; uses.push(e); };
+  const agentCalls = new Set();
   for await (const l of rl) {
     const r = parse(l);
     if (!r) continue;
     if (cwd === null && typeof r.cwd === 'string') { cwd = r.cwd; if (!accept(cwd)) break; }
     if (r.timestamp) { first ??= r.timestamp; last = r.timestamp; }
-    if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_use') { names.set(x.id, x.name); for (const f of mapReads(x)) reads.add(f); }
+    if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_use') { names.set(x.id, x.name); for (const f of mapReads(x)) reads.add(f); const u = !r.isSidechain && used(x); if (u) { use({ ...u, via: 'call' }, true); if (u.kind === 'agent') agentCalls.add(x.id); } }
     // Claude Code records a slash command as a command-name record, not as a typed prompt (/code-review's finding)
-    if (r.type === 'user' && typeof r.message?.content === 'string' && r.message.content.includes('<command-name>/second-brain:dream</command-name>')) dream = true;
-    lines.push(...tag(r, names));
+    const cmd = r.type === 'user' && typeof r.message?.content === 'string' ? /<command-name>\/([^<\s]+)<\/command-name>/.exec(r.message.content)?.[1] : null;
+    if (cmd === 'second-brain:dream') dream = true;
+    else if (cmd && (skills.has(cmd) || cmd.includes(':'))) use({ kind: 'skill', name: cmd, via: 'typed' }, false);
+    if (r.type === 'user' && !r.isSidechain && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_result' && x.is_error) { const t = names.get(x.tool_use_id) ?? 'unknown'; fails[t] = (fails[t] ?? 0) + 1; }
+    const t = tag(r, names);
+    if (t.some((x) => x.startsWith('U: '))) { for (const u of open) u.after = true; open = []; }
+    lines.push(...t);
   }
   input.destroy();
-  return { lines, first, last, cwd, dream, reads };
+  return { lines, first, last, cwd, dream, reads, uses, fails, agentCalls };
+}
+// 8c (D35): a session's subagent runs by type, from Claude Code's meta files beside its transcript, and the failed tool
+// results in each run's own transcript, counted only (no subagent text enters a digest). A run counts when its
+// toolUseId names an Agent call in the part of the session this dream read, or when the run that started it counts; so
+// runs follow the session's read offset, and go back with it when a dream is discarded. A run with no agentType is
+// "unknown"; one that names no call (Claude Code 2.1.331 records one in nearly every meta file) is not counted
+async function subagentRuns(transcript, calls) {
+  const d = path.join(transcript.replace(/\.jsonl$/, ''), 'subagents');
+  const runs = [];
+  let files = [];
+  try { files = fs.readdirSync(d).filter((f) => f.endsWith('.meta.json')).sort(); } catch { return runs; }
+  const meta = new Map(files.map((f) => { try { return [f.slice(0, -'.meta.json'.length).replace(/^agent-/, ''), JSON.parse(fs.readFileSync(path.join(d, f), 'utf8')) ?? {}]; } catch { return [f, {}]; } }));
+  const counted = new Set();
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [id, m] of meta) if (!counted.has(id) && ((typeof m.toolUseId === 'string' && calls.has(m.toolUseId)) || counted.has(m.parentAgentId))) { counted.add(id); grew = true; }
+  }
+  for (const id of [...counted].sort()) {
+    const m = meta.get(id);
+    const type = typeof m.agentType === 'string' && m.agentType ? m.agentType : 'unknown';
+    const p = path.join(d, `agent-${id}.meta.json`);
+    let failed = 0;
+    try {
+      const rl = readline.createInterface({ input: fs.createReadStream(p.replace(/\.meta\.json$/, '.jsonl'), 'utf8'), crlfDelay: Infinity });
+      for await (const l of rl) { const r = parse(l); if (r?.type === 'user' && Array.isArray(r.message?.content)) failed += r.message.content.filter((x) => x?.type === 'tool_result' && x.is_error).length; }
+    } catch {}
+    runs.push({ meta: p, type, failed });
+  }
+  return runs;
 }
 // the root and its worktrees, by real path; a worktree whose folder was deleted but never pruned is still listed by git
 const worktrees = (root) => [root, ...git(root, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9))]
@@ -294,6 +340,14 @@ export async function prepare(root, data) {
     const manifest = [];
     let bytes = 0;
     const left = [];
+    // 8c (D35): what the read sessions did with skills and agents, and their subagent runs; keyed by names from
+    // transcripts, so the counters have no prototype (a skill named "constructor" or "__proto__" is only a name)
+    const bag = () => Object.create(null);
+    const usage = { sessions: 0, skill: bag(), agent: bag(), failed: bag(), subagents: bag() };
+    // the repo's own skills and agents, each reported even when no session used it
+    const own = (d, re) => { try { return fs.readdirSync(path.join(root, '.claude', d), { withFileTypes: true }).flatMap((e) => re(e)); } catch { return []; } };
+    usage.ownSkills = own('skills', (e) => (e.isDirectory() && fs.existsSync(path.join(root, '.claude', 'skills', e.name, 'SKILL.md')) ? [e.name] : []));
+    usage.ownAgents = own('agents', (e) => (e.isFile() && e.name.endsWith('.md') ? [e.name.slice(0, -3)] : []));
     for (const c of candidates) {
       if (manifest.filter((m) => m.digest).length >= MAX_SESSIONS || bytes >= MAX_BYTES) { left.push(c.f); continue; }
       let kind = 'none';
@@ -301,13 +355,19 @@ export async function prepare(root, data) {
         kind = owner(cwd);
         if (kind === 'gone' && known.has(c.d)) kind = 'ours';
         return kind === 'ours';
-      });
+      }, new Set(usage.ownSkills));
       // a session of another repo, whose folder name this repo's prefix also matches: seen, and never read again
       if (kind === 'foreign') { manifest.push({ f: c.f, end: c.size, skipped: 'another repo' }); continue; }
       if (kind === 'gone') { manifest.push({ f: c.f, end: c.size, skipped: 'its folder is gone' }); continue; }
       if (kind === 'none') { manifest.push({ f: c.f, end: c.size, skipped: 'no working folder recorded' }); continue; }
       // a session that ran a dream is never read, now or later: its turns are the dream's own work and its review
       if (dg.dream || dg.lines.some((l) => /^U: \/second-brain:dream(\s|$)/.test(l))) { manifest.push({ f: c.f, end: Number.MAX_SAFE_INTEGER, skipped: 'the dream itself' }); continue; }
+      // 8c (D35): use is counted for every session of this repo the dream reads, before a session with nothing typed is
+      // skipped, so a skill a person only starts with /<name> is counted too
+      for (const u of dg.uses) { const e = (usage[u.kind][u.name] ??= { uses: 0, sessions: 0, after: 0 }); e.uses++; if (u.after) e.after++; }
+      for (const k of new Set(dg.uses.map((u) => `${u.kind}\0${u.name}`))) { const [kind, n] = k.split('\0'); usage[kind][n].sessions++; }
+      for (const [t, n] of Object.entries(dg.fails)) usage.failed[t] = (usage.failed[t] ?? 0) + n;
+      for (const s of await subagentRuns(c.p, dg.agentCalls)) { const e = (usage.subagents[s.type] ??= { runs: 0, failed: 0 }); e.runs++; e.failed += s.failed; }
       if (!dg.lines.some((l) => /^(U|Q): /.test(l))) { manifest.push({ f: c.f, end: c.size, skipped: 'nothing typed' }); continue; }
       const name = `d${manifest.filter((m) => m.digest).length + 1}.digest`;
       const text = `${dg.lines.join('\n')}\n`;
@@ -316,10 +376,16 @@ export async function prepare(root, data) {
       // its hash, kept outside the repo: finish reads only a digest that nothing changed since (the session can edit the
       // run folder, which is inside the repo)
       manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10), reads: [...dg.reads] });
+      usage.sessions++;
     }
+    fs.writeFileSync(path.join(run, 'usage.json'), JSON.stringify(usage, null, 1));
+    // 8c (D35): the team's steering, as HEAD holds it (under D14 an uncommitted edit is unreviewed); guidance for the
+    // analyzers, never a source
+    const steer = git(root, 'show', `HEAD:./${MAP}/steering.md`);
+    if (steer.status === 0) fs.writeFileSync(path.join(run, 'steering.md'), steer.stdout);
     // the commit the tracked sources come from; none before the first commit (rev-parse would print "HEAD" itself)
     const pinned = git(root, 'rev-parse', '--verify', '-q', 'HEAD');
-    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: pinned.status === 0 ? pinned.stdout.trim() : '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: localDate() }, null, 1));
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ root: real(root), head: pinned.status === 0 ? pinned.stdout.trim() : '', watched: list, links: linked, settings: settingsNow(root), manifest, left: left.length, date: localDate(), usage }, null, 1));
     const digests = manifest.filter((m) => m.digest);
     // K1: which topic files each session read, and the ones none read (evidence for the user, never a proposal)
     let topics = [];
@@ -330,6 +396,7 @@ export async function prepare(root, data) {
       digests.length ? `Map files these sessions read: ${digests.map((m) => `${m.digest}: ${m.reads.join(', ') || 'none'}`).join('; ')}. Topic files no session read: ${topics.filter((f) => !read.has(f)).join(', ') || 'none'}.` : '',
       left.length ? `${left.length} more session(s) wait for the next dream (the cap is ${MAX_SESSIONS} sessions or ${MAX_BYTES >> 20} MB a run).` : '',
       digests.length ? '' : 'Nothing new to read since the last dream: run finish now to close it.',
+      steer.status === 0 ? `Steering: ${RUN}/steering.md, the team's word on what matters here, as HEAD holds it. Give its path to each analyzer with its digest.` : '',
       leftover,
     ].filter(Boolean).join('\n');
   } catch (e) { unlock(dir); throw e; }
@@ -473,7 +540,7 @@ export function finish(root, data) {
     if (!/^[\w.-]+$/.test(id) || !s || PRIVATE.test(raw)) { drop('malformed status line'); continue; }
     if (!ids.has(s[3])) { drop('status naming an unknown id'); continue; }
     const sline = `- status: ${s[1]} ${s[2]} by ${s[3]}: ${s[4].slice(0, 200)}`;
-    const file = mapFiles(root).find((p) => !utf16At(path.join(root, p)) && idsIn(fs.readFileSync(path.join(root, p), 'utf8')).includes(id));
+    const file = mapFiles(root).find((p) => topic(path.basename(p)) && !utf16At(path.join(root, p)) && idsIn(fs.readFileSync(path.join(root, p), 'utf8')).includes(id));
     if (!file) { drop('status for an unknown id'); continue; }
     if (!inside(root, path.join(root, file))) { drop('a link on its path'); continue; }
     const t = fs.readFileSync(path.join(root, file), 'utf8');
@@ -554,11 +621,32 @@ export function finish(root, data) {
   fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(st, null, 1));
   unlock(dir);
   const drops = Object.entries(dropped).map(([k, v]) => `${v} ${k}`).join(', ');
-  return [`Dream finished: ${line.slice(2)}.`,
+  return [`Dream finished: ${line.slice(2)}.`, ...usageLines(job.usage),
     strays.length ? `Undone, because they changed during the dream (only its proposals reach the repo): ${strays.join(', ')}.${undone ? ` What they replaced is saved in ${undone}; copy back anything that was not the dream's.` : ''}` : '',
     settings.length ? `Changed during the dream and left as they are: ${settings.join(', ')}. An "always allow" you gave lands there; check the rest, hooks above all.` : '',
     drops ? `Dropped: ${drops}.` : '', written.length ? `Written (uncommitted): ${[...new Set(written)].join(', ')}.` : 'Nothing written.',
     `Next: ${reviewStep(root)} to accept or reject the proposals and promote drafts; then commit.`].filter(Boolean).join('\n');
+}
+
+// 8c (D35): the report's lines on use: one per skill and agent the repo holds, then failures and subagent runs. Counts
+// only, from this machine's sessions; "no use" needs 10 sessions read
+export function usageLines(u) {
+  if (!u) return [];
+  const n = u.sessions;
+  // names come from transcripts and meta files: no control character can start a line of its own, and none runs long
+  const safe = (s) => String(s).replace(/[\x00-\x1f\x7f]/g, '?').slice(0, 80);
+  const line = (kind, name) => {
+    const e = Object.hasOwn(u[kind], name) ? u[kind][name] : null;
+    if (e) return `${kind === 'skill' ? 'Skill' : 'Agent'} ${safe(name)}: used ${e.uses} time${e.uses === 1 ? '' : 's'} in ${e.sessions} session${e.sessions === 1 ? '' : 's'} here; a typed line after ${e.after}.`;
+    return n >= 10 ? `${kind === 'skill' ? 'Skill' : 'Agent'} ${safe(name)}: no use in the ${n} sessions this machine's dream read; a teammate's sessions are not counted.` : '';
+  };
+  const list = (o, f) => Object.entries(o).map(([k, v]) => f(safe(k), v)).join(', ');
+  return [
+    ...(u.ownSkills ?? []).map((s) => line('skill', s)),
+    ...(u.ownAgents ?? []).map((a) => line('agent', a)),
+    Object.keys(u.failed).length ? `Failed tool results in these sessions: ${list(u.failed, (t, v) => `${t} ${v}`)}.` : '',
+    Object.keys(u.subagents).length ? `Subagent runs: ${list(u.subagents, (t, v) => `${t} ${v.runs}${v.failed ? ` (${v.failed} failed tool result${v.failed === 1 ? '' : 's'})` : ''}`)}.` : '',
+  ].filter(Boolean);
 }
 
 // ---------- abort: the snapshot back, the lock released, the watermark untouched ----------

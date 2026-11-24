@@ -1,0 +1,34 @@
+platform win32, the self-test
+killed    (1) the name first
+killed    (1) R! for a failure
+killed    (1) an older Skill call names its skill as command
+killed    (1) Agent's older name, Task
+killed    (1) the analyzer names R!
+killed    (1) the analyzer reads steering first
+killed    (2) uses counted
+killed    (2) a sidechain call is no use
+killed    (2) a typed /<name> counted
+killed    (2) a built-in command is no use
+killed    (2) a typed use leaves the open ones open
+killed    (2) a typed line after a use
+killed    (2) a call ends the open uses
+killed    (2) failed results by tool
+killed    (2) a sidechain failure is not the session's
+killed    (2) use counted before the nothing-typed skip
+killed    (2) subagent runs read
+killed    (2) a run counts by its Agent call
+killed    (2) a run counts through the run that started it
+killed    (2) "unknown" with no agentType
+killed    (2) failures inside a subagent run
+killed    (2) counters with no prototype
+killed    (3) the "used" line
+killed    (3) "no use" needs 10 sessions
+killed    (3) the repo's own skills listed
+killed    (3) the repo's own agents listed
+killed    (3) names made safe
+killed    (4) steering from HEAD
+killed    (4) the steering line in the report
+killed    (4) topic refuses steering.md
+killed    (4) a status line only in a topic file
+killed    (4) the skill skips steering.md in its map read
+32 of 32 killed
