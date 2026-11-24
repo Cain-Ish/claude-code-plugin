@@ -8621,3 +8621,24 @@ first of (T)'s three fresh attempts.
 - **Checks 1, 2 and 4 run now.**
 - **Check 3's counted trials wait for the WSL detach probe**, registered to pass before them. WSL's CLI needs a new
   login, which only the user can do. Its pre-flight trial runs now.
+
+### 8: the user's word on systems (2026-11-24)
+
+> Skip Linux for now and focus on windows and mac only.
+
+- **Linux is skipped for now.**
+  - Check 3's precondition, "the detach probe passes … once in WSL", is dropped by this word. That WSL run was void:
+    its CLI login had expired.
+  - The WSL self-test runs already recorded (8d's and 8e's check 1 passed) stay as evidence, and no further Linux run
+    is required.
+  - CI's Linux job still runs on each push that changes `plugin/`. It is informative only.
+- **macOS:** no Mac is at hand here. macOS evidence comes from CI's macOS job on the push that moves 8d and 8e into
+  `plugin/`, as 8c's push passed there (run 45443149362). That job runs the self-test, which holds every case of
+  checks 1, including 8e's detached run through the stand-in.
+  - The real trial's detached process is probed on Windows only (`results/detach-win32.json`). On macOS it rests on
+    Node's `detached` spawn, which CI's run of case (5) exercises with the stand-in, not with `claude`.
+- **8e's pre-flight trial** ran exactly as shipped on the frozen copy:
+  - `show` went through the skill, and the person's line was run as typed;
+  - the verdict was "helps": the report cases passed 3 of 3 with the draft against 1 of 3 and 0 of 3 without, and the
+    support case 3 of 3 in both arms;
+  - no session failed. The counted trials start now.
