@@ -7388,7 +7388,7 @@ Candidate `e2552817a8d4` before the version bump. Its changed files are kept in
 | (f), the trial's verdict | **fail** on the good draft: "It adds nothing here", 2 passes with it, 2 without. The bad draft got the right verdict (1 with, 2 without) |
 | 5, the review gate | **fail**: three bars pass (cases shown and asked 3 of 3; counts before the promotion question 2 of 3; nothing promoted before the second yes 3 of 3), but promoted after it in 0 of 3 |
 | 6, the regressions | stopped unrun once (f) had failed: no result could change the outcome |
-| 1, the self-test and the mutation check | **pass**: the self-test passes; 42 of 42 mutations killed ([attempt5/mutate7.txt](probes/V2-D34-repo-artifacts/outcome/results/attempt5/mutate7.txt)) |
+| 1, the self-test and the mutation check | **pass**: the self-test passes; the run killed 41 of 42 ([attempt5/mutate7.txt](probes/V2-D34-repo-artifacts/outcome/results/attempt5/mutate7.txt)). The 42nd, "(v) copies deleted", never applied, since the fifth fix had changed its line. Rerun alone on the new line, it is killed: the self-test fails on "the copies are deleted" |
 
 **3(e), each step 3 of 3:**
 - `tailor` wrote the draft through `trial.mjs draft`, with no commit;

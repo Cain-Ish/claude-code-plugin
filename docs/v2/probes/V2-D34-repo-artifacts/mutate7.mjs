@@ -19,7 +19,7 @@ const M = [
   ['(iii) a skill by exact name', T, ".split(':').pop() === name", '.includes(name)'],
   ['(iii) an agent by exact type', T, "String(t.input?.subagent_type ?? '') === name", "String(t.input?.subagent_type ?? '').startsWith(name)"],
   ['(iv) nesting variables removed', T, "for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete e[k];", ''],
-  ['(v) copies deleted', T, "fs.rmSync(copy, { recursive: true, force: true }); // (v)\n    }\n  }));\n  fs.rmSync(path.join(base, 'copies'), { recursive: true, force: true });", '}\n  }));'],
+  ['(v) copies deleted', T, "fs.rmSync(copy, { recursive: true, force: true }); // (v)\n    }\n  }));\n  fs.rmSync(copies, { recursive: true, force: true });", '}\n  }));'],
   ['(vi) three cases', T, 'cases.length < 3', 'cases.length < 2'],
   ['(vi) a should-not case', T, '!cases.some((c) => c?.use === false)', 'false'],
   ['(vi) an outcome per case', T, "if (typeof c?.expect !== 'string' || !c.expect.trim())", 'if (false)'],
