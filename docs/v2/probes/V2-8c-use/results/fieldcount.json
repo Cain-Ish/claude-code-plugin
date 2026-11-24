@@ -1,0 +1,56 @@
+{
+ "date": "2026-11-24",
+ "transcripts": 16,
+ "artifacts": 8,
+ "rows": [
+  {
+   "artifact": "skill 1",
+   "usageMjs": 3,
+   "eightC": 3,
+   "typedBeside": 0
+  },
+  {
+   "artifact": "skill 2",
+   "usageMjs": 0,
+   "eightC": 0,
+   "typedBeside": 0
+  },
+  {
+   "artifact": "skill 3",
+   "usageMjs": 6,
+   "eightC": 6,
+   "typedBeside": 0
+  },
+  {
+   "artifact": "agent 4",
+   "usageMjs": 9,
+   "eightC": 9,
+   "typedBeside": null
+  },
+  {
+   "artifact": "agent 5",
+   "usageMjs": 9,
+   "eightC": 9,
+   "typedBeside": null
+  },
+  {
+   "artifact": "agent 6",
+   "usageMjs": 0,
+   "eightC": 0,
+   "typedBeside": null
+  },
+  {
+   "artifact": "agent 7",
+   "usageMjs": 2,
+   "eightC": 2,
+   "typedBeside": null
+  },
+  {
+   "artifact": "agent 8",
+   "usageMjs": 0,
+   "eightC": 0,
+   "typedBeside": null
+  }
+ ],
+ "pass": true
+}

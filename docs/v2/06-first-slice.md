@@ -8052,3 +8052,124 @@ The decision-checker and a fresh agent reviewed the first build. These changes c
 - **2.5.1's D-6 still applies:** a transcript that grows during prepare is read past the size recorded. Its next dream
   may count those uses again.
 - **A `steering.md` with front matter** shows in session start's catalog like any topic file.
+
+### 8, 8d: D35, proposals that rest on use (registered 2026-11-24, before the code)
+
+**What it is:** the proposal half of D35, option (T), built on 8c. The dream can now propose:
+- an agent;
+- a change to one of the repo's own skills or agents;
+- a path rule placed in a monorepo's package.
+
+Each is an inert draft until `/map-review`, and nothing is committed (D31, D33). No hook changes (D18), so 8c's
+check 5 holds here too. The decision-checker read a first draft; its gaps are taken in below.
+
+**How 8d ships, by D10.**
+- Dream-made agents, and changes to the repo's own artifacts, fall in D10's reopened scope. That scope asks for an
+  artifact tested against a run without it, which is 8e's trial.
+- So 8d ships only with 8e, in section 8's release (2.6.0). If 8e is BLOCKED, 8d's agent and change drafts do not
+  ship. Its rule placement may, since a rule draft is D31's, as before.
+
+**The change** (built in a copy of 8c's frozen plugin, 2.6.0):
+1. **Agent drafts.**
+   - The organizer stages `proposals/agents/<name>.md`, with front matter `name`, `description` and `tools`.
+   - Finish writes it as `.claude/agents/<name>.md.draft` (`wx`, never over a file), through every gate a skill
+     draft passes:
+     - the privacy scan;
+     - the link check;
+     - `evidence()`: 2 or more sessions, each cited at a U or Q line;
+     - a name that is not an agent the repo holds.
+   - An agent draft is never loaded (D34, probe 3).
+   - **Recorded limit:** session start's waiting note counts rule and skill drafts only, so an agent draft is named in
+     the dream's report and found by `/map-review`, not by the waiting note. Changing that is a hook change (D18).
+2. **Change drafts** for a skill or agent the repo holds.
+   - The organizer stages `proposals/change/skills/<name>/SKILL.md` or `proposals/change/agents/<name>.md`, holding the
+     whole new text.
+   - Finish writes it beside the file as `SKILL.md.draft` or `<name>.md.draft`. It passes every gate of item 1, and
+     two more:
+     - **used:** each session the evidence cites used that skill or agent, by the per-digest uses kept in the run
+       record in the data folder (the session cannot edit it);
+     - **in place:** the file exists, and no draft waits beside it.
+   - A skill's change draft keeps the current file's `disable-model-invocation` value as it is. A new skill draft is
+     forced to `true` (D31), but a change must not turn a skill the person chose to let Claude start into one only a
+     person starts.
+3. **Placement of a path rule.**
+   - **Per digest:** the files each session touched (Read, Edit and Write paths inside the repo, relative to its root)
+     are kept in the run record. The analyzers and the organizer get them in the run folder.
+   - **The report** gives counts per package only, never file names.
+   - **A package** is the nearest folder below the root that holds `package.json`, `pyproject.toml`, `Cargo.toml`,
+     `go.mod`, `pom.xml` or `build.gradle`.
+   - **When every session the evidence cites touched files in one package only,** the organizer gives the rule draft
+     `paths: <package>/**`. Finish checks that each `paths:` glob's fixed prefix is a folder the repo holds.
+   - **Rules only.** A skill draft is forced to `disable-model-invocation: true`, and a flagged skill is not listed, so
+     `paths:` gates nothing on a skill (D12).
+   - **This differs from N4's register** ("a package's own `.claude/`"). A path rule at the root loads on a matching
+     read (D12), like one in the package. A nested draft would need a hook change to be counted, or a template change
+     and a probe that it stays inert.
+   - **5a dropped narrowing a rule's paths from its touched files,** when it cut a rule down to two files. So placement
+     takes only a whole package, and a rule whose sessions touched two packages keeps its wider paths.
+4. **The analyzers** also get each digest's counts and touched files, beside its digest, as evidence to weigh.
+   - A candidate still rests on a U or Q line.
+   - Two new kinds:
+     - `agent-task`: a recurring task a person hands over or does by hand, which one agent could hold;
+     - `artifact-correction`: a person corrects the outcome of a skill or agent use.
+5. **`/map-review`'s template** lists agent drafts and change drafts.
+   - A change draft is shown as a diff against the file beside it. Promoting it replaces that file.
+   - D29's copy rule: the template's 2.5.1 text goes into `test/earlier/2.5.1/`, and its hash into `FILES`. The
+     self-test's per-file earlier-version cases cover it.
+6. **The README** says what the dream can now propose. The version stays 2.6.0, section 8's release.
+
+**D31 holds:**
+- every new draft is inert until a person promotes it;
+- each rests on typed or chosen lines in 2 or more sessions;
+- every new kind passes the privacy scan and the link check;
+- the counts, touched files and steering are evidence to weigh, never a quote.
+
+**Checks:**
+1. **The self-test, on Windows (Node 24 and 20) and in WSL.** For each item, a case that fails on 8c's frozen copy is
+   shown failing before its fix, then passes:
+   - an agent draft written; one refused:
+     - with fewer than 2 sessions;
+     - with a name the repo holds;
+     - with private data;
+     - with a link on its path;
+   - a change draft written beside its file, keeping the file's `disable-model-invocation`; one refused:
+     - when the cited sessions never used that artifact;
+     - when a draft already waits;
+     - when the file is missing;
+     - for private data;
+     - for a link;
+   - a change draft refused when the run folder's copy of the uses was edited, since finish reads the data folder's;
+   - touched files kept per digest and repo-relative, none outside the repo, and the report's counts per package;
+   - a `paths:` prefix the repo lacks, refused;
+   - the analyzer's two new kinds, and the template's diff and promotion text;
+   - the template's 2.5.1 hash in `FILES`.
+2. **A mutation check** (`probes/V2-8d-proposals/mutate8d.mjs`) kills each new guard, on the system its case runs on,
+   and exits non-zero on any mutation it cannot apply.
+3. **A model check on one fixture** (`probes/V2-8d-proposals/`), 5 counted runs on the frozen copy with Opus 5.5 and
+   the pinned CLI. The fixture's sessions:
+   - (a) a repo skill used in two sessions, each followed by the same typed correction: a change draft for it is
+     expected;
+   - (b) a second repo skill used in two sessions with no correction: no change draft for it;
+   - (c) the same review task typed by hand in two sessions: an agent draft is expected;
+   - (d) in a two-package repo, a rule stated twice while editing one package's files: a rule draft with
+     `paths: <that package>/**` is expected;
+   - (e) a rule stated twice while editing files in both packages: no single-package `paths:`.
+
+   **The bars, fixed now:**
+   - (a) in at least 4 of 5 runs;
+   - (b) in 5 of 5;
+   - (c) in at least 4 of 5;
+   - (d) in at least 4 of 5;
+   - (e) in 5 of 5;
+   - nothing made live, and nothing committed, in 5 of 5.
+
+   **The pilot** (2 uncounted runs) can only void the fixture, never a bar. When a session of the fixture fails to
+   happen as written, the fixture is rewritten and the pilot runs again.
+4. **S7's check 2 at its bars,** steering included.
+5. **A review** by a fresh agent and the decision-checker. Each finding is fixed before the freeze, or recorded.
+- **Attempts:** at most three (rule 4). The candidate is hashed and frozen before checks 1 to 4 count.
+- **D35 locks** on (T) if check 3 passes. Option (A) cannot propose any of these kinds, so the question is whether
+  (T)'s proposals are right, which bars (b) and (e) can fail. Otherwise it stays OPEN.
+- **Not here:**
+  - the trial (8e): it judges a draft against a run without it, and names what adds nothing;
+  - retirement, which stays as 8c's "no use" line and 8e's "adds nothing" verdict. The dream deletes nothing.
