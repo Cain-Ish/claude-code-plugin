@@ -7999,3 +7999,56 @@ hook change: those are 8d's and 8e's. The decision-checker read a first draft; i
     reported, not waited on;
   - the local checks: the self-test on Windows and in WSL, the mutation checks, the real-data check, S7's model runs
     and the reviews.
+
+### 8, 8c: amended after the two reviews, before the freeze (2026-11-24)
+
+The decision-checker and a fresh agent reviewed the first build. These changes come before any counted check.
+
+**Redesigned: subagent runs follow the sessions' read offsets.**
+- A meta file carries `toolUseId`, the Agent call that started the run. Locally that holds in 1,562 of 1,565 files,
+  and most of the rest name a parent run.
+- A run now counts when its `toolUseId` names an Agent call in the part of the session this dream read, or when the
+  run that started it counts.
+- So runs go back with the sessions when a dream is discarded, and a session read in two dreams counts each run once.
+- Item 2's watermark file (`subagents.json`), its rollback, its pruning and its write-order risk are gone. A run that
+  names no call is not counted.
+- The review found that the watermark counted runs from parts of a session the dream never read.
+
+**Fixed, each with a case and a mutation:**
+- **A typed command** counts as a skill use only when it names one of the repo's skills or a plugin's
+  (`plugin:skill`). A built-in such as `/compact` is neither a use nor an end.
+- **A person's typed use leaves Claude's open uses open.** Only Claude's next Skill or Agent call ends them, as the
+  amended item 2 says.
+- **Use is counted before a session with nothing typed is skipped,** so a skill a person only starts with `/<name>`
+  counts, as item 2 promised.
+- **Records in the main transcript marked as a subagent's** (`isSidechain`) are neither uses nor the session's
+  failures.
+- **An older Skill call that names its skill as `command`** counts, as D34's `usage.mjs` reads it.
+- **Names in the report** pass through a filter for control characters and are cut to 80 characters, so an agent's type
+  cannot add a line of its own.
+- **The counters have no prototype,** so a skill named `constructor` is only a name.
+- **A status line** is written only into a topic file, never into `steering.md`, `README.md` or `dreams.md`. The last
+  two were open before 8c.
+- **The dream skill's own read of the map** skips the working copy of `steering.md`. The analyzers had its committed
+  text.
+- **The subagent meta files are read in sorted order,** so counts do not depend on the system's directory order.
+- **`setup.mjs`'s two stale comments** (section 6's carried item) say what setup does. Comments only.
+
+**Records:**
+- **The counts are also kept** in the run record in the plugin's data folder. Finish prints from there, since the
+  session can edit the run folder in the repo. A stale run's record moves to `undone/` with them.
+- **The analyzers do not get the counts in 8c.** They go to the report, and 8d gives them to the analyzers. The "D31
+  holds" line is read that way.
+- **The README** (repo root, outside `plugin/`) gets its steering and counting paragraphs with the move into
+  `plugin/`. It also says that `steering.md` is listed in the session's index like any map file.
+- **Check 4** also records whether each steered run passed the steering file's path to an analyzer (`steerReached`).
+  The bar: 5 of 5.
+
+**Carried, not fixed:**
+- **Boundary counts:**
+  - a use at the end of the part read loses its typed line after;
+  - a failed result whose call came before the offset counts as "unknown";
+  - an Agent call with no `subagent_type` is not counted (5 of 1,721 locally).
+- **2.5.1's D-6 still applies:** a transcript that grows during prepare is read past the size recorded. Its next dream
+  may count those uses again.
+- **A `steering.md` with front matter** shows in session start's catalog like any topic file.
