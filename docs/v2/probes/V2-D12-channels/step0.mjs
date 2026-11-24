@@ -103,5 +103,5 @@ for (let run = 1; run <= RUNS; run++) {
 const verdict = (rows, key) => { const n = rows.filter((r) => r[key]).length; return n === rows.length ? 'arrives' : n === 0 ? 'does not arrive' : 'unreliable'; };
 results.verdicts = { CL: verdict(results.cells.CL, 'arrived'), RE: verdict(results.cells.RE, 'arrived'),
   'PT-sub:Explore': verdict(results.cells['PT-sub:Explore'], 'inSubagent'), 'PT-sub:general-purpose': verdict(results.cells['PT-sub:general-purpose'], 'inSubagent') };
-fs.writeFileSync(path.join(HERE, 'results-step0.json'), `${JSON.stringify(results, null, 1)}\n`);
+fs.writeFileSync(path.join(HERE, process.env.STEP0_RESULT ?? 'results-step0.json'), `${JSON.stringify(results, null, 1)}\n`);
 console.log(JSON.stringify(results.verdicts));

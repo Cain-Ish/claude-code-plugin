@@ -7771,3 +7771,22 @@ self-test, mutation, live, bench, S7. A failure stops the run.
 - **D16 note:** check 1(b).
 - **D30:** its trigger did not fire. The labels changed only in delivery (H1, H3, H4), not in their fields.
 - **The rewritten 2o assertion:** H3's registered change.
+
+### 8, 8b: R4, D12's subagent cell on the current CLI (registered 2026-11-24, before the run)
+
+- **Why:** R4. A field transcript showed a subagent's Read carrying the read hook's labels once. D12's step 0 recorded
+  that cell as "does not arrive" for general-purpose and "unreliable" (1 of 3) for Explore, on an older CLI.
+- **The run:** `probes/V2-D12-channels/step0.mjs`, unchanged except that `STEP0_RESULT` names its result file.
+  - 3 runs on Haiku, on the installed CLI 2.1.331, into `results-step0-2.1.331.json`.
+  - Its CL and RE cells run too, and are reported.
+- **Pass rule, D12's own, per cell:**
+  - 3 of 3 runs quote the nonce: it arrives;
+  - 0 of 3: it does not arrive;
+  - 1 or 2: unreliable, which counts as not arriving.
+
+  The hook's text in the subagent's input stream (`rawInSubagentInput`) is reported beside it.
+- **Consequence:**
+  - **If either subagent cell arrives,** D12's trigger has fired. It gets a dated note, and 04's "Unlabelled reads"
+    line and the README's subagent line change.
+  - **Otherwise R4 closes.** The field sighting is recorded as unexplained, and nothing changes.
+- **Attempts:** one run of 3. A run that a harness fault makes invalid is rerun and recorded.
