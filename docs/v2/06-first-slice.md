@@ -8405,3 +8405,25 @@ text or names the draft in a tool call. Pass: 6 of 6.
   still a failure on 8c, as registered.
 - **A nit not taken:** touched files sit in both the manifest (the report reads them) and `usage.json` (the analyzers
   read them).
+
+### 8, 8e: the pilot, and the build before its reviews (2026-11-24)
+
+**The pilot** (`probes/V2-8e-trial/results/check3-pilot.json`, the "without" arm only, 2 runs per case): both report
+cases passed 0 of 2, and the `use: false` case 2 of 2. The fixture is not void: without the procedure, the task
+fails, and the case that needs no skill passes.
+
+**The build, against the registration:**
+- **The grant was wider than item 2 says.** It was `trial.mjs":*`, which also let a model start `exec`. It is now
+  `trial.mjs" cli:*` and `trial.mjs" draft:*`: the `!` line needs `cli`, and the making steps need `draft`. A real
+  session through the shipped skill printed the run line under the narrowed grant. The self-test checks the exact
+  grant, and a mutation that widens it is killed.
+- **Residual risk, recorded:** inside a person-started `tailor` turn, the `cli` grant still lets the model type
+  `cli run <name> <hash>` itself after `show` printed the hash. The skill's text forbids it ("Never run `trial.mjs show`,
+  `run` or `exec` yourself"). A model cannot reach the trial outside that turn: the skill is flagged, so it is not
+  listed, and no hook or other script names `trial.mjs` (the self-test checks both).
+- **Words after `/second-brain:tailor`** other than `show` and `run` are a request to make something: the making steps
+  take over and nothing runs. Before, any other word was refused, which check 4's requests would have hit. A case and a
+  mutation cover it.
+- **8d's review fixes** are carried into 8e's build (`dream.mjs`, the analyzer, `dream8d.mjs`); both case files pass.
+- **D18's surface:** four skills (setup, dream, status, tailor), every one flagged, so none is listed and none adds
+  listing bytes (D12); one script more, which no hook reaches.

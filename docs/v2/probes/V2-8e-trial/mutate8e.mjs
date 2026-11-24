@@ -40,6 +40,10 @@ const M = [
   ['(6) a draft never over a file', TR, "    if (fs.existsSync(path.join(root, to)) || fs.existsSync(path.join(root, to.replace(/\\.draft$/, '')))) throw new Error(`${to} or its live file exists; nothing is overwritten`);\n", ''],
   ['(6) a draft never through a link', TR, "if (!fs.lstatSync(src, { throwIfNoEntry: false })?.isDirectory() || !inRepo(root, src))", 'if (false)'],
   ['(7) tailor only a person starts', TL, 'disable-model-invocation: true\n', ''],
+  // added before the freeze: the narrowed grant (the self-test's check, so a MUT_FAST dry run cannot kill it), and
+  // other words as a request to make
+  ['(7) tailor grants cli and draft only', TL, 'trial.mjs" cli:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" draft:*)', 'trial.mjs":*)'],
+  ['(2) other words ask to make', TR, "      else console.log('Tailor: make or improve", "      else if (what) throw new Error('unknown');\n      else console.log('Tailor: make or improve"],
   ['(7) tailor never runs the trial itself', TL, 'Never run `trial.mjs show`, `run` or `exec` yourself', 'You may run trial.mjs'],
   ['(7) map-review calls a changed draft stale', MR, 'call it stale', 'note it'],
   ['(7) map-review removes only on a yes', MR, 'Remove it only on', 'Remove it on'],
