@@ -15,7 +15,7 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.5.1`, built on branch `v2`.
+**Status:** `2.5.2`, built on branch `v2`. The last release is `2.5.1`.
 - It has been tested in live Claude Code sessions on Windows only.
 - On macOS and Linux, only its self-test has run, in CI.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
@@ -100,9 +100,10 @@ locks: no hook blocks a write.
     (2.3.0).
 
   When the hook cannot see all of a command's output (a command run in the background, or output past Claude Code's
-  limit, which it saves to a file), it gives every map file's labels. Reads by subagents, map text met through the
-  Grep tool or PowerShell, and the output of a Bash command that does not name the folder are not labelled: see Known
-  issues.
+  limit, which it saves to a file), it gives every map file's labels. A command that does not name the folder can
+  still start the hook, when it holds `$()`, backticks or a variable. Since 2.5.2 such a command gets labels only for
+  the entries its output shows, and none when its output cannot be seen. Reads by subagents, map text met through the
+  Grep tool or PowerShell, and other commands that do not name the folder are not labelled: see Known issues.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from:
   - each one once per session (2.2.0);
   - never one whose status line says it no longer holds.
@@ -463,8 +464,9 @@ Then remove them in this order:
   and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds. alpha.8 gives every uncommitted entry's
   label on each Bash command that names the folder, whatever the command printed. Still unlabelled: the output of a
   command that does not name the folder, even when it prints map entries (`git diff` or `git show` from the root, `rg`
-  or `grep -r` over the repo, a script that builds the path at run time). The labels follow the map as it is after
-  the command, so these also get none:
+  or `grep -r` over the repo, a script that builds the path at run time). The exception, since 2.5.2, is a command
+  holding `$()`, backticks or a variable: it gets the labels of the entries its output shows. The labels follow the
+  map as it is after the command, so these also get none:
   - a command that reads entries and then removes or reverts them (`rm`, `git checkout`, `git stash`);
   - entries that are only in git's index or a stash (`git show :…`, `git diff --cached`, `git show stash@{0}:…`);
   - map files whose name does not end in `.md`, as for the Read hook;
@@ -474,8 +476,10 @@ Then remove them in this order:
   - a path whose letter case differs from `.project-map` on a case-insensitive file system, if the hook's `if` filter
     compares case.
 
-  A link from the map folder to a large folder slows every Bash command that names the map, since the hook walks
-  what the link leads to.
+  A link from the map folder to a large folder inside the repo slows every Bash command that names the map, since the
+  hook walks what the link leads to. Since 2.5.2 a link out of the repo is never followed, and neither is a map folder
+  that is itself such a link: the labels say they could not be computed. A map file over 4 MB, or one that is not a
+  regular file, gets the same line.
 - **A committed entry's labels** ("unverified quote", "not found") come with a Bash command only when its output shows
   the entry, and can be missing when the output is reshaped: shown in part (a line cut short or wrapped, `grep -o`,
   colour codes), in an encoded form (`cat -A` or `cat -v` of non-ASCII text or tabs, `od`, JSON escapes), with its

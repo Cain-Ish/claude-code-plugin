@@ -1,0 +1,81 @@
+{
+ "calls": 200,
+ "cores": 32,
+ "session-start@1": {
+  "emptyP95": 34,
+  "controlAdded": 34.6,
+  "candidateAdded": 40.2,
+  "errors": 0
+ },
+ "prompt@1": {
+  "emptyP95": 34.1,
+  "controlAdded": 10.9,
+  "candidateAdded": 10.3,
+  "errors": 0
+ },
+ "read-other@1": {
+  "emptyP95": 33.9,
+  "controlAdded": 10.7,
+  "candidateAdded": 10.3,
+  "errors": 0
+ },
+ "read-map@1": {
+  "emptyP95": 34.2,
+  "controlAdded": 40.3,
+  "candidateAdded": 40,
+  "errors": 0
+ },
+ "bash-map@1": {
+  "emptyP95": 34.7,
+  "controlAdded": 39.7,
+  "candidateAdded": 39.9,
+  "errors": 0
+ },
+ "bash-other@1": {
+  "emptyP95": 34.6,
+  "controlAdded": 40.2,
+  "candidateAdded": 29.1,
+  "errors": 0
+ },
+ "session-start@8": {
+  "emptyP95": 51.8,
+  "controlAdded": 50.6,
+  "candidateAdded": 62.6,
+  "errors": 0
+ },
+ "prompt@8": {
+  "emptyP95": 50.5,
+  "controlAdded": 22.1,
+  "candidateAdded": 17.9,
+  "errors": 0
+ },
+ "read-other@8": {
+  "emptyP95": 50.8,
+  "controlAdded": 21.7,
+  "candidateAdded": 16.1,
+  "errors": 0
+ },
+ "read-map@8": {
+  "emptyP95": 53.2,
+  "controlAdded": 63,
+  "candidateAdded": 61.7,
+  "errors": 0
+ },
+ "bash-map@8": {
+  "emptyP95": 51.6,
+  "controlAdded": 64.1,
+  "candidateAdded": 64,
+  "errors": 0
+ },
+ "bash-other@8": {
+  "emptyP95": 52.5,
+  "controlAdded": 63.1,
+  "candidateAdded": 51.8,
+  "errors": 0
+ },
+ "control": "2.5.1 (2625c8cd263b)",
+ "candidate": "frozen 2.5.2 (15a7ee92a153), with the data folder and 300 unseen transcripts",
+ "cpuBeforePct": 5.8,
+ "maxCandidateAdded": 64,
+ "pass": true
+}

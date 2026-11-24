@@ -1,0 +1,37 @@
+platform win32, the self-test
+killed    H1 an unnamed command whose output cannot be seen
+killed    H1 only the entries the output shows
+killed    H1 "names" not narrower than the filter
+killed    H1 a backslash-newline
+killed    H1 its own header
+killed    H1 a UTF-16 print shows all
+killed    H1 a folder not listed fails closed
+killed    H3 a link out of the repo
+killed    H3 the map folder linked out
+killed    H4 regular files only
+killed    H4 the size cap
+not here  H4 inside the repo (posix)
+not here  H4 session start lists no special file (posix)
+killed    H5 the scan budget
+killed    H5 the linear search
+not here  H6 a safe name in labels (posix)
+not here  H6 a safe name in fail-closed lines (posix)
+killed    H7 no git.exe from the repo
+killed    D-1 instruction file names
+killed    D-1 the when line cap
+killed    D-2 sk_ and rk_ keys
+killed    D-2 SendGrid keys
+killed    D-2 Hugging Face keys
+killed    D-2 Slack webhooks
+killed    D-2 credentials in a URL
+killed    D-2 bearer tokens
+killed    D-3 digests redacted
+killed    D-3 to the end of a token
+killed    D-3 a key to the end of its line
+killed    D-3 a quoted [private] is private
+killed    D-4 the takeover by rename
+killed    D-5 binaries skipped
+killed    D-6 the bounded read
+killed    D-6 the call site
+killed    F-1 the self-test removes its markers
+31 of 31 killed here (4 for the other system)

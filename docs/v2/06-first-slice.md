@@ -7816,3 +7816,41 @@ field sighting stays unexplained: it may come from a path step 0 does not take, 
 - **Check 5's validity:** a run counts only when the session made exactly three Bash calls, with the three registered
   command strings in order. Any other run is invalid, not failed, and is rerun once. A second invalid run fails the
   check.
+
+### 8, 8a: attempt 3's result (2026-11-24): pass
+
+All checks ran on the frozen copy, product `15a7ee92a153`, version 2.5.2, in the registered order.
+1. **The self-test passes** on Windows and in WSL, with the pin on.
+   - Each `fix8a.mjs` case had been shown failing on 2.5.1 or on `cand8`. In WSL, 2.5.1 fails 18 cases.
+   - (b) `results/equivalence8.json`: 0 differences in 3,804 seeded quotes over 67 documents, for the candidate and for
+     the linear search alone.
+2. **The mutation check kills every mutation on its system:**
+   - `results/mutate8-win32.txt`: 31 of 31, H7 included;
+   - `results/mutate8-linux.txt`: 34 of 34, the FIFO, device, control-character and file-link cases included.
+3. **D18's bench passes** (`results/bench8a.json`): 200 calls per hook at 1 and at 8 concurrent, CPU at 5.8% before,
+   on the 32-thread machine. The worst added p95 is 64.0 ms (Bash on a map file at 8), against 100 ms, with no
+   errors.
+   - Session start costs 6 to 12 ms more than 2.5.1, since only the candidate gets the data folder and its 300 unseen
+     transcripts.
+   - A command that does not name the map now costs about 11 ms less.
+   - CI on three systems runs after the move into `plugin/`.
+4. **S7's check 2 passes** (`probes/V2-D31-dream/results/s7-product-a9.json`, Opus 5.5, CLI 2.1.305). Every bar
+   passes:
+   - all 10 runs finished, in one turn each, with no background analyzer;
+   - C1 to C3: 10 of 10;
+   - the rule, the skill and the choice: 5 of 5 each;
+   - noise 0, other status lines 0, the nonce 0, live rules 0;
+   - 5.65 USD.
+5. **H1 live passes** (`results/live8a.json`, a valid run on CLI 2.1.331):
+   - `echo $(date +%Y)` got no map labels;
+   - `cat .project-map/decisions.md` got the uncommitted entry's label;
+   - the unnamed command that printed the entry got that entry's label, and not the committed one's.
+6. **The reviews** are recorded above.
+
+**Records:**
+- The D14 and D16 notes are in the ledger.
+- D30's trigger did not fire.
+- D18 stays REOPENED until section 8's final release, with its 2026-11-20 lock governing (R1).
+- The move into `plugin/` is byte-identical to the frozen copy (hash `15a7ee92a153`). `marketplace.json` says 2.5.2.
+- The README's status line and its three passages on Bash labelling and links say what 2.5.2 does.
+- 2.5.2 is not released: by the registration, it ships on its own only if group N stalls, on the user's word.

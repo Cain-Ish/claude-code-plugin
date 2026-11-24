@@ -878,6 +878,17 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     map quoted none of the style guide's rules, against all 6 in the same-day control.
   - INSTRUCTION is `105cdd6d3d4a`, 1,794 bytes. *Reopen if:* the triggers above; or a field session repeats, in a
     later session, a correction the user gave with its reason, while the map lacks it.
+- *Note, 2026-11-24, not a reopen (06, section 8, 8a, H1):*
+  - **What changed.** A Bash command that does not name the map folder, but which Claude Code's `if` filter still lets
+    start the hook (`$()`, backticks or a variable), gets labels only for the entries its output shows. It gets none
+    when its output cannot be seen.
+  - **Why.** In the first field repo such commands carried 235 label deliveries, against 148 for commands that named
+    the map.
+  - **What still holds.**
+    - A command that names the map keeps (S): every uncommitted entry's label. "Names" is tested at least as widely
+      as the filter.
+    - Commands that do not name the folder stay inside this record's accepted risk.
+    - H1 ends 2.3.0's "more text, never fewer labels" (06, 2o) for those commands only.
 
 ### V2-D15 — Onboarding (bootstrap)
 - **Question (widened 2026-10-20 by the user):** the plugin's entry point. On install, how does it turn a project's
@@ -1674,6 +1685,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - *Note, 2026-11-23, not a reopen (06, section 5, 5b):* a path inside a URL was taken as the source's file, so a URL
   source read "not found word for word" for ever. A URL now names no repo file, and its entry reads as an unverified
   quote, like any source that is no file here. The re-find itself is unchanged.
+- *Note, 2026-11-24, not a reopen (06, section 8, 8a, H5):*
+  - **What changed.** The re-find was quadratic when one word repeats (800 words against 390 KB took 3.7 s). It now
+    runs the old scan within a budget of 200,000 word comparisons. Past that budget it uses a linear search over the
+    document's words, computed once per document.
+  - **The exception it makes.** Past the budget, a document is split into words whole, against the re-lock's line "no
+    file is tokenized whole".
+  - **The answers are unchanged:** `probes/V2-8a-fixes/equivalence8.mjs` found 0 differences from 2.5.1 in 3,804
+    seeded quotes, both for 2.5.2 and for the linear search alone.
 
 ### V2-D17 — Measurement
 - **Question:** the acceptance scenario, the arms (no memory between sessions; Claude Code's auto memory; v2), the
