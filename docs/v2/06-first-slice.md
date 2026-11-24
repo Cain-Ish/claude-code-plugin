@@ -8596,3 +8596,28 @@ The fixture holds for both trials.
   - `guard8e.mjs` now keeps each session's reply in the scratch folder (never in `results/`), so an empty run can be
     read.
   - The bars do not change. The pilot runs once more on this text (`check4-pilot.json`).
+
+**Check 4's second and third pilots** (`results/check4-pilot2.json`, `check4-pilot.json`, one run per request):
+- **The second pilot** found two probe defects and one product gap.
+  - **Probe: the path match** read `.project-map/decisions.md` as a missing `map/decisions.md`. A token may now start
+    with a dot and follow a dash.
+  - **Probe: "drafts only"** did not admit a map topic file. The pricing request states a rule, and the plugin's own
+    capture (D14) recorded it as an entry, which the commit reviews. A topic file under `.project-map/` is now
+    admitted and counted on its own (`mapEntries`). `README.md` and `dreams.md` are not.
+  - **Product: the pricing run stopped before its draft step.** An unrelated `node scripts/golden.js` was refused for
+    want of approval, and the model took that to mean every `node` command needs approval. So it left its files in
+    `.project-map/drafts/` and guessed the draft's path in its case file.
+    - The skill now says the `draft` command is granted to it, to run even when other commands wait for approval.
+    - It also names the three draft paths.
+- **The third pilot,** on the fixed probe and text, met every bar:
+  - both gap requests left a skill draft, a script beside it, a case file and four checks;
+  - the pricing request also left one map entry;
+  - neither request without a gap made anything, and nothing was committed.
+- **Both case files the making steps wrote** pass the trial's own validation: 3 runs, 4 cases, the right artifact.
+- **The bars do not change.** The pilots can only void the probe, as 8d's pilot did with its scorer.
+
+**Frozen 2026-11-24:** product `ce0daccd8a5d`, version 2.6.0 (8d's frozen copy plus 8e), the self-test pin set. The
+first of (T)'s three fresh attempts.
+- **Checks 1, 2 and 4 run now.**
+- **Check 3's counted trials wait for the WSL detach probe**, registered to pass before them. WSL's CLI needs a new
+  login, which only the user can do. Its pre-flight trial runs now.

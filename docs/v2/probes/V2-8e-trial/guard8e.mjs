@@ -42,15 +42,18 @@ function runOne(i) {
     const drafts = made.filter((f) => /^\.claude\/.*\.draft$/.test(f));
     const texts = made.filter((f) => f.startsWith('.claude/') && fs.existsSync(path.join(r, f))).map((f) => fs.readFileSync(path.join(r, f), 'utf8'));
     // every repo path a draft names exists: a token with a folder and an extension, not a URL, not under .claude/
-    const named = [...new Set(texts.flatMap((t) => [...t.matchAll(/(?<![\w/:.])((?:[\w-]+\/)+[\w.-]+\.(?:js|json|sql|txt|md|csv))\b/g)].map((m) => m[1])))].filter((p) => !p.startsWith('.claude/'));
+    // (the second pilot: a folder such as .project-map was read as "map/…", so a dot and a dash now start a token too)
+    const named = [...new Set(texts.flatMap((t) => [...t.matchAll(/(?<![\w/:.-])((?:\.?[\w-]+\/)+[\w.-]+\.(?:js|mjs|json|sql|txt|md|csv))\b/g)].map((m) => m[1])))].filter((p) => !p.startsWith('.claude/'));
     const agents = drafts.filter((f) => /^\.claude\/agents\/.*\.md\.draft$/.test(f)).map((f) => fs.readFileSync(path.join(r, f), 'utf8'));
+    const mapTopic = (f) => /^\.project-map\/[\w-]+\.md$/.test(f) && !['.project-map/README.md', '.project-map/dreams.md'].includes(f);
     // a file beside a skill draft, in its folder
     const beside = (f) => { const m = /^\.claude\/skills\/([\w-]+)\//.exec(f); return Boolean(m) && drafts.includes(`.claude/skills/${m[1]}/SKILL.md.draft`); };
     const res = {
       fx, kind, run: i, finished: s.status === 0,
-      made: made.length, drafts: drafts.length, agentDrafts: agents.length,
-      // drafts only: a .draft under .claude/, a file beside a skill draft, or a case file or check under evals/
-      draftsOnly: made.every((f) => drafts.includes(f) || beside(f) || f.startsWith('.project-map/evals/')),
+      made: made.length, drafts: drafts.length, agentDrafts: agents.length, mapEntries: made.filter(mapTopic).length,
+      // drafts only: a .draft under .claude/, a file beside a skill draft, a case file or check under evals/, or a map
+      // topic file, which is the plugin's own capture of a stated rule (D14), reviewed in the commit (the second pilot)
+      draftsOnly: made.every((f) => drafts.includes(f) || beside(f) || f.startsWith('.project-map/evals/') || mapTopic(f)),
       committed: git(r, 'rev-list', '--count', 'HEAD').trim() !== commits,
       missingPaths: named.filter((p) => !fs.existsSync(path.join(r, p))),
       // one task per agent: one description line, and its body names no second job ("and also", "as well as")

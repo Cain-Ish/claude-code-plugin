@@ -1,0 +1,68 @@
+{
+ "runs": 4,
+ "pass": {
+  "finished": true,
+  "nothingWithoutAGap": true,
+  "draftsOnly": false,
+  "nothingCommitted": true,
+  "pathsExist": false,
+  "oneTaskPerAgent": false,
+  "all": false
+ },
+ "rows": [
+  {
+   "fx": "fixture",
+   "kind": "gap",
+   "run": 0,
+   "finished": true,
+   "made": 7,
+   "drafts": 1,
+   "agentDrafts": 0,
+   "draftsOnly": true,
+   "committed": false,
+   "missingPaths": [
+    "map/decisions.md"
+   ],
+   "oneTask": true
+  },
+  {
+   "fx": "fixture",
+   "kind": "none",
+   "run": 0,
+   "finished": true,
+   "made": 0,
+   "drafts": 0,
+   "agentDrafts": 0,
+   "draftsOnly": true,
+   "committed": false,
+   "missingPaths": [],
+   "oneTask": true
+  },
+  {
+   "fx": "fixture2",
+   "kind": "gap",
+   "run": 0,
+   "finished": true,
+   "made": 8,
+   "drafts": 0,
+   "agentDrafts": 0,
+   "draftsOnly": false,
+   "committed": false,
+   "missingPaths": [],
+   "oneTask": true
+  },
+  {
+   "fx": "fixture2",
+   "kind": "none",
+   "run": 0,
+   "finished": true,
+   "made": 0,
+   "drafts": 0,
+   "agentDrafts": 0,
+   "draftsOnly": true,
+   "committed": false,
+   "missingPaths": [],
+   "oneTask": true
+  }
+ ]
+}
