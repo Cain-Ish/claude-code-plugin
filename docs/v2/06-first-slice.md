@@ -7546,3 +7546,80 @@ self-test case before its fix. Findings marked "read" are reproduced first, on L
 
 **Order:** R1 first, then group H, D, F (shippable on its own, as a fix release, if the features stall), then N, then
 M and the final audit by reviewers who have not seen this register.
+
+### 8, 8a: the fix release, 2.5.2 (registered 2026-11-24, before the code)
+
+**H1 counted first** (read-only; the local transcripts of two repos). PostToolUse map labels that reached Claude after a
+Bash command:
+
+| Repo | Command named the map | Command did not name it (the `if` filter let it through) |
+| --- | --- | --- |
+| The first field repo (4,781 Bash calls) | 148 | 235 (about 1.4 M characters of attachment records) |
+| This repo (3,816 Bash calls) | 10 | 65 |
+
+Most of the labels Claude saw after Bash came from commands that never named the map. 2.3.0's record took that leak as
+"more text, never fewer labels". The counts show it is most of the text.
+
+**The change** (built in a copy of `plugin/`; D14, D16, D18 and D31 hold as locked, and none of their guardrails
+changes):
+- **H1.** A Bash command whose text does not name `.project-map` gets labels only for the entries its output shows,
+  committed or not, by 2n's rule. When its output cannot be seen (a background command, or output saved to a file), it
+  gets nothing.
+  - A command that names the folder keeps 2o's rule: every uncommitted entry, plus the committed ones its output shows.
+  - The change to D14's delivery goes to the decision-checker before the build.
+- **H3.** The Bash handler follows no link whose target lies outside the repo.
+- **H4.** One reader for map files: a regular file (directly or through a link inside the repo) under 4 MB, or nothing.
+  It is used by the index, the waiting note and the labels. A special file is skipped by session start, as the Bash
+  handler already does. A file over the cap is labelled "cannot read; check it".
+- **H5.** The re-find matches the quote's words as a sequence against the document's words (KMP), with the words
+  computed once per document. Same results, linear time.
+- **H6.** Map file names in label lines pass through the index's `safe()`.
+- **H7.** `map.mjs` sets `NoDefaultCurrentDirectoryInExePath`, so on Windows a repo's own `git.exe` never runs.
+- **D-1.** A proposal's topic file cannot be named `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` (any case), and a
+  `when:` line over 200 characters drops the entry.
+- **D-2.** The private-data filter adds these shapes:
+  - `sk_`/`rk_` keys (live and test);
+  - SendGrid `SG.…`;
+  - `hf_…`;
+  - Slack webhook URLs;
+  - credentials inside a URL (`://user:pass@`);
+  - `bearer <16 or more characters>`.
+
+  `~/` and "token is …" are not added, since real proposals name `~/.claude`.
+- **D-3.** Digests are written with the filter's matches replaced by `[private]`.
+- **D-4.** A stale lock is taken over by renaming it to a unique name, then checking that the renamed lock is still
+  stale; otherwise it is renamed back and the dream refuses.
+- **D-5.** Finish searches the committed files one by one, skips any with a NUL byte, and never joins them.
+- **D-6.** Prepare reads each transcript only up to the size it recorded.
+- **F-1.** The self-test removes the markers it makes in the temp folder.
+- **The records**, docs only:
+  - R2: D04's trigger;
+  - R3: a narrowing note on D15;
+  - R5: `04-architecture.md`'s status and D22 lines;
+  - R6: the README's stale numbers;
+  - R7: D26's path filter also covers `README.md`;
+  - R8: the one-time runs named as the checks of their guarantees.
+- **Version 2.5.2.** No template changes, so D29's copy rule has nothing to add.
+- **Not in 8a:** H2 (the Read hook's `if`), F-2, F-3, R4 (a probe of its own, 8b) and group N.
+
+**Checks:**
+1. **The self-test.** For each finding, a case that fails on 2.5.1 is written and shown failing before its fix, then
+   passes. FIFO and `/dev/zero` cases run on Linux and macOS (CI) and in WSL. There are three more cases:
+   - H1's naming command is unchanged;
+   - the existing D16 labels are unchanged on A1's maps (the self-test's label cases);
+   - no hook changes a file in the repo: the self-test compares the repo before and after each hook event (R8).
+2. **A mutation check** (`mutate8.mjs`) kills each new guard, and exits non-zero on any mutation it cannot apply.
+3. **CI** on three systems, and D18's paired bench: at most 100 ms added p95, old against new in one job.
+4. **S7's check 2 on the candidate,** at its registered bars (the dream changed in D-1 to D-6).
+5. **H1 live:** one `claude -p` session on the candidate with an uncommitted entry:
+   - `echo $(date)` gets no map labels;
+   - `cat .project-map/<file>` gets them;
+   - a non-naming command whose output prints an entry gets that entry's label.
+6. **A review** of the diff by a fresh Claude agent and by the decision-checker; each finding fixed or recorded.
+- *Attempts:* at most three failed attempts for 8a (rule 4).
+- *Not run, and why:*
+  - A1 and S8: no capture or setup text changes, and the labels on A1's maps are pinned by check 1;
+  - D16's seeded probe: the re-find's results are the same, by check 1's cases.
+
+  These measurement debts (group M) run at section 8's final release.
+- **Release:** 2.5.2 ships on its own if group N stalls, by 5e's mechanics, on the user's word.
