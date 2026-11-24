@@ -1,0 +1,18 @@
+{
+ "documents": 67,
+ "quotes": 3804,
+ "found": 1940,
+ "differences": {
+  "candidate": 0,
+  "linearOnly": 0
+ },
+ "kinds": {
+  "found": 945,
+  "changed": 945,
+  "dropped": 945,
+  "ellipsis": 945,
+  "run": 12,
+  "run-miss": 12
+ },
+ "pass": true
+}

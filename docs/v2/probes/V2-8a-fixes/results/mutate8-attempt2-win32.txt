@@ -1,0 +1,24 @@
+SURVIVED H1 a command that does not name the map
+killed   H1 only the entries the output shows
+killed   H1 "names" not narrower than the filter
+killed   H1 its own header
+killed   H3 a link out of the repo
+killed   H4 regular files only
+killed   H4 the size cap
+SURVIVED H4 inside the repo
+SURVIVED H4 session start lists no special file
+killed   H5 the scan budget
+SURVIVED H6 a safe name in labels
+SURVIVED H6 a safe name in fail-closed lines
+killed   H7 no git.exe from the repo
+killed   D-1 instruction file names
+killed   D-1 the when line cap
+killed   D-2 sk_ and rk_ keys
+killed   D-2 SendGrid keys
+killed   D-2 Hugging Face keys
+killed   D-2 Slack webhooks
+killed   D-2 bearer tokens
+killed   D-3 digests redacted
+killed   D-5 binaries skipped
+killed   D-6 the bounded read
+18 of 23 killed; 5 survived or could not be applied

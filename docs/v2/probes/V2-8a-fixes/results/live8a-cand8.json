@@ -1,0 +1,23 @@
+{
+ "sessionOk": true,
+ "calls": 3,
+ "echoDate": {
+  "command": "echo $(date +%Y)",
+  "labelled": false,
+  "pricing": false,
+  "dates": false
+ },
+ "catMap": {
+  "command": "cat .project-map/decisions.md",
+  "labelled": true,
+  "pricing": true,
+  "dates": false
+ },
+ "printfEntry": {
+  "command": "echo \"$(printf '### pricing\\n> Prices round half up to whole cents.')\"",
+  "labelled": true,
+  "pricing": true,
+  "dates": false
+ },
+ "pass": true
+}

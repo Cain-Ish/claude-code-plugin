@@ -7623,3 +7623,151 @@ changes):
 
   These measurement debts (group M) run at section 8's final release.
 - **Release:** 2.5.2 ships on its own if group N stalls, by 5e's mechanics, on the user's word.
+
+### 8, 8a: attempts 1 and 2 failed; attempt 3 registered (2026-11-24, before its checks)
+
+**Attempt 1 failed (check 1).** The first H3 build skipped a link out of the repo. That failed open: 2o's self-test case
+(entries behind a folder linked out of the repo are labelled) failed. H3 now fails closed instead. A linked folder
+fails the whole folder, and a linked file its own labels. That case now expects the fail-closed line (the self-test's
+"8a (H3)" comment).
+
+**Attempt 2 failed (check 2,** `probes/V2-8a-fixes/results/mutate8-attempt2-win32.txt`, on `cand8`): 18 of 23 killed on
+Windows.
+- H1's early exit survived. It was redundant then.
+- H4's in-repo check survived: no case linked a single map file out of the repo.
+- H4's special-file skip and both H6 names survived. Their cases need POSIX and never ran on Windows.
+
+The H1 live check on `cand8` passed (`results/live8a-cand8.json`). It stands only as evidence; check 5 runs again on
+attempt 3.
+
+**Check 6, the two reviews of `cand8`:**
+- **The decision-checker:**
+  - D16's re-lock says "no file is tokenized whole", and H5's fallback does tokenize one; this needs a note and
+    evidence.
+  - Check 1 had no case for D-4, for F-1, or for H3's single linked file.
+  - `setup.mjs`'s two stale comments (section 6's carried item) belong in this release.
+  - The records must say:
+    - the D14 note;
+    - when D18 re-locks;
+    - that D30's trigger did not fire;
+    - each deviation from the registration.
+  - R8 has to be checked after each hook event.
+- **A fresh agent, reproduced on `cand8`:**
+  - **D-3 regressed against 2.5.1.** The redaction left a secret's tail: a webhook's path, a key body, a path after
+    `/home/`. A proposal quoting a redacted line word for word passed finish.
+  - **H1 lost labels in two cases:**
+    - a UTF-16 map file printed raw by a command that does not name the map;
+    - a map folder that cannot be listed, while the output shows an entry.
+  - **H3 missed the map folder itself** being a link out of the repo. The folder was walked, and the names of the
+    files in the outside tree reached Claude.
+  - **A backslash-newline** inside the folder's name stopped a command counting as naming it.
+  - **`digestFrom` threw** when the recorded size was at or before its start. `prepare` never passes one, since it
+    queues only a transcript that grew, so `cand9` only drops `cand8`'s needless `Math.max`.
+
+**Attempt 3, `cand9`**, changes `cand8` as follows. Each change has a case, shown failing on `cand8` or 2.5.1 before the
+freeze:
+- **H1:**
+  - the early exit stays, and is load-bearing again;
+  - "names" also drops a backslash-newline;
+  - when no output can be matched (a UTF-16 file printed raw), every entry is picked;
+  - a map folder that cannot be listed fails closed for any command whose output can be seen.
+- **H3:** `under()` never walks the map folder when the folder itself resolves outside the repo. Every caller then fails
+  closed or lists nothing. `/second-brain:status` says "The status report stopped" with the reason.
+- **H5:** a document's words are kept for its next stretch (a one-entry cache), so they are computed once per document.
+- **D-3:** each match is redacted to the end of its token, and a key's header to the end of its line. A proposal
+  holding `[private]` is private text, so finish drops it.
+- **`setup.mjs`'s two comments** now say what setup does.
+- **New cases:**
+  - H1: UTF-16 printed raw, a folder not listed, a backslash-newline;
+  - H3: a single file link (POSIX), the map folder linked out;
+  - H4: a FIFO is not named in the index;
+  - H5: a quote found only past the budget;
+  - H6: a fail-closed line's name (POSIX);
+  - D-2: credentials in a URL, on an IP host (the earlier fixture matched the e-mail pattern);
+  - D-3 and D-6 through `prepare`;
+  - D-4, deterministic: the lock is replaced between `prepare`'s check and its takeover;
+  - D-3: a quoted `[private]` (self-test);
+  - F-1: the self-test asserts its own markers are gone;
+  - R8: the repo is compared after each event.
+
+**Deviations from the registration,** disclosed before attempt 3's checks run:
+- **H3** fails closed, not skips (attempt 1).
+- **H4:** a map file that cannot be read gets the whole-file fail-closed line, not "cannot read; check it". That label
+  is for a cited source; D18 fails a map file's own read closed.
+- **H5:** 2.5.1's scan runs first, within a budget of 200,000 word comparisons, and the linear search only past it. Past
+  the budget a document is split into words whole, against D16's re-lock line "no file is tokenized whole". This is a
+  D16 note, not a reopen. Its evidence is check 1(b).
+- **H1, for a command that does not name the map:** a map file whose labels fail gets its fail-closed line, and a folder
+  that cannot be listed fails closed, rather than nothing. Both arise only in a broken state: a link out of the repo,
+  a file over 4 MB, or an unreadable folder.
+- **D-3** redacts to the end of a token, beyond "the filter's matches".
+- **D-4** is checked deterministically, not by a race.
+
+**Recorded, not fixed** (accepted; each named for section 8's final audit):
+- **D-4:** three prepares at once can still both hold the lock. A third can create one while another has renamed a
+  fresh lock away. It needs three dreams started within microseconds on a lock two hours stale.
+- **Length caps:**
+  - a `- review:` line has no length cap;
+  - an entry may hold several `when:` lines of 200 characters.
+- **`status.mjs`** reads map files with no type or size check: a FIFO in the map stops `/second-brain:status`.
+- **URL credentials** with an empty user (`redis://:pw@host`) are not private.
+- **D-6:**
+  - a transcript record that straddles the recorded size is read by neither dream;
+  - the call site has its own case, through `prepare`.
+- **A cost, not a label:** for a command that does not name the map, `labels()` still runs `git show` per map file when
+  the output shows nothing.
+- **From the review of the `cand8` to `cand9` delta,** which found no fail-open path and no caller of `under()` that
+  crashes:
+  - **D-3:** a secret's tail that holds a space survives redaction. Example: `C:\Users\John Smith\...` keeps
+    `Smith\...`, and a quote of that tail passes finish. 2.5.1's finish had the same limit.
+  - **D-3:** a URL password with a `/` keeps its user and part of the password. This predates 8a.
+  - **The `[private]` check:**
+    - it catches only the bracketed word, so a quote that drops the brackets passes (no secret is left to quote);
+    - "Fields marked [Private]" is dropped as private.
+  - **Noise in broken states only:**
+    - with the map folder linked out, every command with visible output that does not name the map gets the folder's
+      fail-closed line. Check 5's `echo $(date)` holds only while the folder can be listed;
+    - a NUL in such a command's output labels every entry of every UTF-16 map file.
+  - **`status.mjs`:**
+    - with the map folder linked out, the report is one line, "The status report stopped: the map folder is a link
+      out of the repo";
+    - before 8a too, a map file linked out of the repo has its headings printed in the stale lines (`textOf`).
+  - **H5's word cache has no case.** It changes time, not answers.
+
+**How attempt 3's checks count.** The frozen copy of `cand9` is hashed first; every check runs on that hash. Order:
+self-test, mutation, live, bench, S7. A failure stops the run.
+1. **The self-test** passes on Windows and in WSL (pin off in the copy). Every `fix8a.mjs` case passes there, on the
+   systems it runs on.
+   - (b) `probes/V2-8a-fixes/equivalence8.mjs` on the frozen copy: 0 differences from 2.5.1, both for the candidate and
+     for the candidate with its budget at 0 (the linear search alone).
+   - A dry run on `cand9` gave 0 of 3,804 seeded quotes, 24 of them runs of one word.
+2. **`mutate8.mjs`** on Windows and in WSL, 35 mutations, each tagged with the systems where its killing case runs.
+   - Every mutation is killed on its system: `results/mutate8-win32.txt` and `results/mutate8-linux.txt`.
+   - A MISSING mutation fails the check.
+   - Dry runs are allowed before the freeze and are never a result: `MUT_FAST`, `fix8a.mjs` alone; `MUT_ONLY`, the
+     chosen mutations.
+   - On `cand9`, before the last review, every mutation was red-green:
+     - the fast runs killed 31 of 35 in WSL and 28 of 32 on Windows, H7 included;
+     - the 4 they missed (the `when:` cap, a quoted `[private]`, binaries, F-1) have their cases only in the
+       self-test, and the self-test killed all 4.
+   - The review then removed one guard ("D-6 nothing past the start") and its mutation.
+3. **CI** on three systems, after the move into `plugin/`.
+   - D18's bench: `probes/V2-D30-entries/pairbench.mjs`, with 2.5.1 as the control, run alone on the reference
+     machine, CPU at most 10% sampled first, at 1 and at 8 concurrent.
+   - Pass: at most 100 ms of added p95 per hook (D18's 2026-11-20 lock, R1).
+   - D18 stays REOPENED until section 8's final release.
+4. **S7's check 2:** `s1.mjs product` on the frozen copy, at its registered bars, into `results/s7-product-a9.json`.
+   The history sessions ran plugin-free on 2026-11-24, in the same scratch folder.
+5. **H1 live:** `live8a.mjs` on the frozen copy, into `results/live8a.json`. The Bash grant is the tool's name alone:
+   `cand8`'s first run named commands, and the CLI refused the nested ones, so none ran.
+6. **The reviews** are done above: the two on `cand8`, and a fresh agent's on the `cand8` to `cand9` delta. Every
+   finding is fixed in `cand9` or recorded here.
+- **The self-test's pin** is set to the frozen copy's product hash, so check 1 runs with the pin on.
+- **The frozen copy:** product `15a7ee92a153`, version 2.5.2. 2.5.1 was `2625c8cd263b`, by the same hash.
+
+**Records with the result:**
+- **D14 note:** H1 ends 2.3.0's "more text, never fewer labels" (06, 2o) for commands the `if` filter lets through
+  without naming the map. They stay inside D14's accepted risk, "a command that does not name the map folder".
+- **D16 note:** check 1(b).
+- **D30:** its trigger did not fire. The labels changed only in delivery (H1, H3, H4), not in their fields.
+- **The rewritten 2o assertion:** H3's registered change.
