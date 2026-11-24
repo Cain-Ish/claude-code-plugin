@@ -8642,3 +8642,30 @@ first of (T)'s three fresh attempts.
   - the verdict was "helps": the report cases passed 3 of 3 with the draft against 1 of 3 and 0 of 3 without, and the
     support case 3 of 3 in both arms;
   - no session failed. The counted trials start now.
+
+### 8, 8e: attempt 1 of (T)'s three (2026-11-24): fail, on check 3's bad-draft bar
+
+Counted on the frozen copy, product `ce0daccd8a5d`:
+1. **The self-test** passes with the pin on, on Windows under Node 24 and Node 20, and in WSL under Node 20 (run before
+   the user's word on Linux).
+2. **The mutation check:** running when this was written; its result is added below.
+3. **Check 3** (`probes/V2-8e-trial/results/check3.json`, CLI 2.1.331, 6 trials, each 18 sessions):
+   - the good skill: "helps" 2 of 2 (the report cases 3 of 3 with it, 0 or 1 of 3 without). **Passes.**
+   - the good agent: "helps" 2 of 2 (3 of 3 with it, 0 or 1 of 3 without). **Passes.**
+   - the bad skill: "helps" once, then "adds nothing". **Fails** the bar (2 of 2 "hurts" or "adds nothing").
+   - In the trial that said "helps", one "with" run of one report case passed (1 against 0), and the totals rule turned
+     one pass in nine into "helps". No session failed in any trial, and every show line was typed and started.
+4. **Check 4** (`results/check4.json`, 12 runs): every bar, 3 of 3 per repo.
+   - Each gap run left one skill draft, a script beside it, a case file and its checks.
+   - The pricing request also left the plugin's own map entry. No path was missing.
+   - Each run without a gap made nothing, and nothing was committed.
+
+**What the failure shows.** A pass should need the procedure: 8% VAT, half-up rounding, the order and the format are in
+no file of the fixture. Yet "without" passed a report case in 3 trials, and the bad draft once.
+- Two causes are open, and a diagnosis (uncounted, transcripts kept) is reading what those sessions read:
+  - (i) the copies sit in the system temp folder, and in this test so do the scratch repos, whose check scripts
+    encode the expected report. A session that searches beyond its copy could find one; this is the recorded "not a
+    sandbox";
+  - (ii) the model sometimes guesses the format.
+- **Either way, the verdict rule has no margin:** one pass in nine decides "helps". That is the design's fault, not a
+  run's. The next attempt rethinks it, registered before any code.

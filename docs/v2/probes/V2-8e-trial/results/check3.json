@@ -1,0 +1,214 @@
+{
+ "good": [
+  "helps",
+  "helps"
+ ],
+ "bad": [
+  "helps",
+  "adds nothing"
+ ],
+ "agent": [
+  "helps",
+  "helps"
+ ],
+ "rows": [
+  {
+   "draft": "agent",
+   "n": "1",
+   "lineShown": true,
+   "started": true,
+   "minutes": 2,
+   "verdict": "helps",
+   "failed": 0,
+   "cases": [
+    {
+     "id": "report-month",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "report-again",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "support",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ]
+  },
+  {
+   "draft": "agent",
+   "n": "2",
+   "lineShown": true,
+   "started": true,
+   "minutes": 2,
+   "verdict": "helps",
+   "failed": 0,
+   "cases": [
+    {
+     "id": "report-month",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 1
+    },
+    {
+     "id": "report-again",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "support",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ]
+  },
+  {
+   "draft": "bad",
+   "n": "1",
+   "lineShown": true,
+   "started": true,
+   "minutes": 2,
+   "verdict": "helps",
+   "failed": 0,
+   "cases": [
+    {
+     "id": "report-month",
+     "use": true,
+     "runs": 3,
+     "with": 1,
+     "without": 0
+    },
+    {
+     "id": "report-again",
+     "use": true,
+     "runs": 3,
+     "with": 0,
+     "without": 0
+    },
+    {
+     "id": "support",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ]
+  },
+  {
+   "draft": "bad",
+   "n": "2",
+   "lineShown": true,
+   "started": true,
+   "minutes": 2,
+   "verdict": "adds nothing",
+   "failed": 0,
+   "cases": [
+    {
+     "id": "report-month",
+     "use": true,
+     "runs": 3,
+     "with": 0,
+     "without": 0
+    },
+    {
+     "id": "report-again",
+     "use": true,
+     "runs": 3,
+     "with": 0,
+     "without": 0
+    },
+    {
+     "id": "support",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ]
+  },
+  {
+   "draft": "good",
+   "n": "1",
+   "lineShown": true,
+   "started": true,
+   "minutes": 2,
+   "verdict": "helps",
+   "failed": 0,
+   "cases": [
+    {
+     "id": "report-month",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "report-again",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "support",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ]
+  },
+  {
+   "draft": "good",
+   "n": "2",
+   "lineShown": true,
+   "started": true,
+   "minutes": 2,
+   "verdict": "helps",
+   "failed": 0,
+   "cases": [
+    {
+     "id": "report-month",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 1
+    },
+    {
+     "id": "report-again",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "support",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ]
+  }
+ ],
+ "pass": {
+  "good": true,
+  "bad": false,
+  "agent": true,
+  "all": false
+ }
+}
