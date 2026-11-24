@@ -1,7 +1,7 @@
 # v2 architecture
 
-**Status:** 2.3.0, built only from locked decisions ([DECISIONS.md](DECISIONS.md), every decision LOCKED as of
-2026-11-22). Rewritten for the redesign onto Anthropic's layout (06, section 3; D29-D32). The 2.2.0 page is in git
+**Status:** written for 2.3.0; the plugin is now 2.5.1, with 2.5.2 in 06, section 8 ([DECISIONS.md](DECISIONS.md):
+D10 and D18 reopened on 2026-11-24, with their 2026-11-20 locks governing 2.5.1; D34 BLOCKED). Rewritten for the redesign onto Anthropic's layout (06, section 3; D29-D32). The 2.2.0 page is in git
 history. One page by design (charter, definition of done item 3).
 
 ## What runs
@@ -109,7 +109,8 @@ the user starts them.
   git shows it tracked and unchanged. A file the repo changed is kept and listed (N10), and the setup skill offers the
   template's new lines.
 - **The session-start index in a large repo** (the field report of 2026-11-23): about 850 documents in 179
-  directories listed 71. D22 is reopened for a size budget or a summary mode.
+  directories listed 71. D22 was reopened for a size budget or a summary mode, and re-locked on the cut on
+  2026-11-23: a summary mode found a cut document in 3 of 5 runs against 5 of 5, and was reverted (06, 5d).
 
 ## Not v2
 

@@ -34,7 +34,8 @@ locks: no hook blocks a write.
   - Three project agents with `memory: project`:
     - `decision-checker` checks a change or plan against the recorded decisions;
     - `codebase-guide` answers where-is and how-do-we questions;
-    - `memory-curator` flags due and duplicate entries, and changes no committed claim.
+    - `memory-curator` flags due and duplicate entries, and changes no committed claim (checked once: S8, 0 of 5 runs
+      wrote outside its folder).
   - `.project-map/README.md`, a first topic file `decisions.md`, the dream log `dreams.md`, and a `.gitattributes`
     line that merges the log. The README's table "Where it belongs" (2.5.0) tells Claude the home of each
     kind of knowledge. A rule a tool can enforce, a repeated procedure, or a rule for certain paths still becomes an
@@ -126,7 +127,7 @@ locks: no hook blocks a write.
   - one counts-only line in `.project-map/dreams.md`.
 
   Since 2.5.0 it then asks whether to review the proposals now. On a yes, Claude walks them with you in the same
-  session, as `/map-review` does; nothing is accepted without your answer. `/map-review`'s last step offers to commit
+  session, as `/map-review` does; nothing is accepted without your answer (checked in 10 headless dreams, 06, 5c). `/map-review`'s last step offers to commit
   only the files the review changed, so other work on the branch stays out of that commit.
 
   Anything else that changed during the dream, under `.project-map/`, in Claude's instruction folders, `CLAUDE.md` or
@@ -181,7 +182,7 @@ to Claude.
   and a five-lens adversarial review. Each finding was fixed, with a self-test case that fails without the fix, or is
   listed under Known issues.
 - *Hooks:* with 300 unseen transcripts on disk, every hook added at most 78.8 ms at 1 and at 8 sessions at once on
-  the 32-thread machine. CI's gate now includes that work.
+  the 32-thread machine (S6's candidate build; 2.3.0's own release bench peaked at 62.7 ms, and 2.5.0's at 82.3 ms). CI's gate now includes that work.
 - *What 2.3.0 changes for a 2.2.0 repo:*
   - session start's capture instruction grew from 1,349 to 1,765 bytes;
   - the labels on 2.2.0-shaped entries are byte-identical;
@@ -243,7 +244,7 @@ had delivered the rule before the write in 64 of 92 cases, and Claude's reads pr
 **In the owner's own sessions** (the release's field check, alpha.5 to alpha.8, one repo, CLI 2.1.318 to 2.1.322):
 every session start carried the index, and the forced decision came on each first typed prompt and was answered per
 directory. Claude wrote 16 map entries, none invented and none with private data. Every map entry printed through Bash
-on alpha.8 was labelled. At 44 of 52 file changes, the rule that applied had reached Claude first, delivered by
+on alpha.8 was labelled. In 44 of 52 pairs of a file change and the rule for it, the rule had reached Claude first, delivered by
 Claude Code. No hook error. Subagents never saw the index: 42 of 96 wrote files.
 
 **Where it helped:**
@@ -274,7 +275,7 @@ sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field
 
 ## Requirements
 
-- Claude Code: the evals ran on 2.1.305, and live checks on Windows on 2.1.305 to 2.1.319.
+- Claude Code: the evals ran on 2.1.305, and live checks on Windows on 2.1.305 to 2.1.331.
 - Node 20 or later.
 - git. Outside a git repo the index is empty.
 - On Windows, Git Bash: the session-start hook runs through bash, as Claude Code itself needs on Windows.
@@ -425,8 +426,9 @@ Then remove them in this order:
   - On the small runners at 8 at once, the heavier hooks are over that budget. On a 3- or 4-core machine that runs
     many sessions at once, expect each session start and map read to take a few tenths of a second.
   - 2.3.0, in pooled pairs against a build without its session-start changes, with 300 unseen transcripts on disk:
-    every hook added at most 78.8 ms at 1 and at 8 sessions at once, on the 32-thread machine.
-- *Context, always on:* 1,794 B (the capture instruction, since 2.4.0; 1,765 B in 2.3.0) and 212 B per session plus the index (2 to 6
+    every hook added at most 78.8 ms at 1 and at 8 sessions at once, on the 32-thread machine (S6's candidate
+    build; 2.3.0's own release bench peaked at 62.7 ms, and 2.5.0's at 82.3 ms).
+- *Context, always on:* 1,794 B (the capture instruction, since 2.4.0; 1,765 B in 2.3.0) and 304 B per session plus the index (2 to 6
   KB in the tested repos), and 227 B for each forced decision. Each read of a map file, through the Read tool or
   Bash, adds that file's labels. The skills (setup, dream, status, map-review) are never listed, so they cost no
   context until you run one. Each of the three project agents adds its one-line description to Claude's list of
@@ -560,7 +562,8 @@ claude plugin marketplace remove second-brain --scope project
 - For a `--scope local` install, use `--scope local` in both commands.
 - Your `.project-map/` files stay, and so does everything setup created (`CLAUDE.md`, the rule, the review skill, the
   agents). They are plain files: keep them, or delete them.
-- Claude Code deletes the plugin's data folder (the dream's state and `undone/`) when you uninstall.
+- Claude Code deletes the plugin's data folder (the dream's state and `undone/`) when you uninstall it from the last
+  scope it is installed at (Claude Code's documentation; not tested here).
 - `.claude/settings.json` is left with empty `enabledPlugins` and `extraKnownMarketplaces` entries.
 - Claude Code removes its cached copy of the plugin after 14 days.
 

@@ -5,7 +5,7 @@ name: v2-d26
 on:
   push:
     branches: [v2]
-    paths: ['.github/workflows/v2-d26.yml', 'docs/v2/probes/V2-D26-leftovers/**']
+    paths: ['.github/workflows/v2-d26.yml', 'docs/v2/probes/V2-D26-leftovers/**', 'README.md']
   workflow_dispatch:
 permissions:
   contents: read

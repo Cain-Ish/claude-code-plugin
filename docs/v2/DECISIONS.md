@@ -124,6 +124,13 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
 - **Check:** the files are tracked on `origin/v2` and a fresh clone of `v2` contains them. **Result:** pass
   (fresh shallow clone of `v2` at `b6ee109`, 2026-10-19, lists every `docs/v2/` file).
 - **Reopen if:** v2's own map format is ready (D13); then this repo's v2 knowledge moves into it.
+- **The trigger fired, and is settled (recorded 2026-11-24; 06, section 8, R2).**
+  - The map format has been ready since 2.3.0, and this repo has run its own setup since 2026-11-23.
+  - The repo's instructions (`.claude/CLAUDE.md`, from that setup) settle where things go:
+    - v2's decisions stay only in this ledger;
+    - `.project-map/` holds the repo's other working rules, such as release steps, and points to the ledger
+      rather than copying it.
+  - D04 stands.
 
 ### V2-D05 — Version numbering
 - **Choice:** v2 plugin versions start at `2.0.0-alpha.1`, tagged `v2.0.0-alpha.N`. The old tags `v1.4.0`, `v2.11.0`
@@ -1296,6 +1303,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     - D20 decides its checks must be written at onboarding.
 - **REOPENED 2026-11-20 by the user's decision of 2026-11-20** (the redesign onto Anthropic's layout: setup, versioned memory, an on-demand dream; [research/2026-11-20-anthropic-memory-and-dreaming.md](research/2026-11-20-anthropic-memory-and-dreaming.md), 06's section 3). What changes here: onboarding no longer only builds the index. A setup command creates Anthropic's layout in the repo (D29). Re-locks when S5 passes.
 - **Re-LOCKED 2026-11-20** (06, section 3, S5 and S8). Onboarding is setup: it creates Anthropic's layout from `plugin/templates/` and never overwrites a file (S5: five repo shapes, every existing file's hash unchanged; S8 item 1: 5 of 5, a second setup creating nothing). *Reopen if:* the triggers above.
+- **Narrowed by D29 (recorded 2026-11-24; 06, section 8, R3).** "Never overwrites a file" no longer holds as written.
+  Since 2.4.0, setup appends its section or line to a tracked, unchanged instruction file or `.gitattributes`. Since
+  2.5.1, it replaces a file whose text is an earlier release's template. D29 holds these guardrails; what still holds
+  here is that onboarding is setup.
 
 ### V2-D16 — Freshness
 - **Question:** claims carry anchors (path, symbol, test); a deterministic check (git and regex, no model) flags
