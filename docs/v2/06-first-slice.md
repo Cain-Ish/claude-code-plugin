@@ -7059,3 +7059,54 @@ Two main sessions of the first field repo, 6 epochs (startup 2, resume 1, compac
   agent, proposes agents and changes to existing ones, and gains a steering section (the research's G3 and G4).
 - **Release:** 2.6.0, by 5e's mechanics: tag, PR to `main`, read its checks before the merge, push `v2` back, publish,
   move the installs. The release checks are 7a's, as listed above.
+
+### 7, 7a: check 0, attempt 1 (2026-11-24): fails on the ceiling; the fixture gives the practice away
+
+- **N, counted:** 6 of 6 held-out runs passed (both tasks, three runs each), on 2.5.1 with the three map entries and
+  no artifact. Every run read `.project-map/decisions.md`. By the ceiling rule this is a failed attempt (rule 4, D17):
+  one of 7a's three.
+- **A floor run, read after the result** (diagnostic only; no bar moves): the same repo with no map entries and no
+  artifact also passed 6 of 6. The repo gives the practice away: `db/reserved.txt` lists the core range first, every
+  migration already has its `.down.sql`, and the check script prints its rules. So the result does not show that the
+  map carried the rules. It shows that a short rule the repo makes visible needs no artifact.
+- **Harness:** the stand-in for the person's approval now applies only to skills, agents, rules and commands, in
+  maker runs only, never to a settings file.
+
+### 7, 7a: check 0, attempt 2, registered (2026-11-24, before its runs)
+
+- **The task kind,** from the first field repo's four own artifacts (kinds only): three are checks run after a change
+  to one area, of several steps (a UI check, a board check, a walk through the built app), and one reads the
+  project's sources before it implements domain logic. Fixture 2 takes the first kind: a procedure no single map line
+  and no file in the repo states.
+- **Fixture 2** (`outcome/fixture2`), fixed now:
+  - the fixture's `src/util.js` and its callers;
+  - `src/pricing/discount.js` (a loyalty discount of 5%, truncated to whole cents);
+  - `scripts/golden.js`, which prints one line per case in `fixtures/pricing-cases.json`;
+  - `reports/pricing-2026-11-01.txt`, an earlier output;
+  - `PRICING-LOG.md`, with two earlier lines.
+
+  No file says when to run the report or what to log.
+- **The procedure,** given in the request: after any change under `src/pricing/`:
+  1. run `node scripts/golden.js` and save its output to `reports/pricing-<YYYY-MM-DD>.txt`;
+  2. add a line to `PRICING-LOG.md` with the date, what changed, and how many golden cases changed since the last
+     report.
+- **Arms** (protocol as in check 3; `.project-map/` is carried from the maker's copy into each held-out copy, in every
+  arm, since 2.5.1's capture may keep what the request says):
+  - **Floor:** no request, no artifact. If it passes 2 or more of its 6, the procedure is inferable and the fixture
+    is void: a failed attempt.
+  - **T (tell), on 2.5.1:** "Note for this repo:" and the procedure, with no artifact asked for. Three runs, each
+    followed by the held-out tasks.
+  - **U, Us, G:** the maker's request: "Make a skill or an agent for this repo that does our pricing check:" and the
+    procedure.
+- **Held-out tasks:**
+  - change the loyalty discount from 5% to 7%;
+  - round discounts half up to whole cents, instead of truncating.
+
+  The should-not task is the rename, as in check 3.
+- **The grader** (`outcome/grade2.mjs`), fixed now. A held-out run passes when all of these hold:
+  - the code change is made;
+  - `reports/pricing-<today>.txt` equals what `scripts/golden.js` prints after the change;
+  - `PRICING-LOG.md` gained exactly one line, holding today's date and the number of cases whose line differs from
+    the latest earlier report.
+- **Bars:** check 0's ceiling rule, with T counted among the baselines. G's bars stay those of check 0 and check 3,
+  against the best of T, U and Us. If the floor or a baseline hits the ceiling, the attempt fails.

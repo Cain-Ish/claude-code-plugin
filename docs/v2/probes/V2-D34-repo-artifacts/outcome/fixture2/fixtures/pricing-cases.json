@@ -1,0 +1,10 @@
+[
+  { "id": 1, "totalCents": 10000, "loyal": true },
+  { "id": 2, "totalCents": 1010, "loyal": true },
+  { "id": 3, "totalCents": 2030, "loyal": true },
+  { "id": 4, "totalCents": 999, "loyal": true },
+  { "id": 5, "totalCents": 4000, "loyal": true },
+  { "id": 6, "totalCents": 1222, "loyal": true },
+  { "id": 7, "totalCents": 5000, "loyal": false },
+  { "id": 8, "totalCents": 0, "loyal": true }
+]

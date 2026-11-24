@@ -7,12 +7,21 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { grade, TASKS } from './grade.mjs';
+import { grade2, TASKS2, PROCEDURE } from './grade2.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.join(HERE, 'fixture');
+// --fixture <dir> runs another fixture (a floor without the map entries, a hardened one); the default is ./fixture
+const fixtureArg = process.argv.indexOf('--fixture');
+const FIXTURE = fixtureArg > 0 ? path.resolve(process.argv[fixtureArg + 1]) : path.join(HERE, 'fixture');
 const CLAUDE = process.env.D17_CLAUDE ?? 'claude';
 const MODEL = 'claude-opus-5-5';
 export const REQUEST = 'Make a skill or an agent for this repo that adds a database migration the way this project does it.';
+// --suite 2 (check 0, attempt 2): fixture 2's tasks and grader; the maker's request, or with --tell the T arm's note
+const SUITE2 = process.argv.includes('--suite') && process.argv[process.argv.indexOf('--suite') + 1] === '2';
+const ASK = !SUITE2 ? REQUEST : process.argv.includes('--tell') ? `Note for this repo: ${PROCEDURE}` : `Make a skill or an agent for this repo that does our pricing check: ${PROCEDURE}`;
+const HELD = SUITE2 ? ['rate', 'round'] : ['phone', 'tags'];
+const SHOULD_NOT = 'rename';
+const PROMPTS = SUITE2 ? TASKS2 : TASKS;
 
 const env = () => { const e = { ...process.env, MSYS_NO_PATHCONV: '1' }; for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) delete e[k]; return e; };
 const git = (cwd, ...a) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd, encoding: 'utf8' }); if (r.status) throw new Error(r.stderr); return r.stdout; };
@@ -29,15 +38,16 @@ function fresh(dir) {
 // the tools every run may use without a prompt, alike in every arm; PowerShell is off so shell calls go through Bash
 const ALLOWED = ['Bash(node:*)', 'Bash(npm:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)'];
 
-// a denied Write or Edit inside the copy's own .claude/ (which Claude Code protects even under acceptEdits) is
-// applied here, standing in for the person who would approve the prompt; nothing outside that folder is touched
+// in a maker run, a denied Write or Edit of a skill, agent, rule or command inside the copy's own .claude/ (which
+// Claude Code protects even under acceptEdits) is applied here, standing in for the person who would approve the
+// prompt. Settings files and everything outside those four folders are never touched
 function approve(dir, denials) {
-  const root = path.resolve(dir, '.claude') + path.sep;
+  const roots = ['skills', 'agents', 'rules', 'commands'].map((d) => path.resolve(dir, '.claude', d) + path.sep);
   let n = 0;
   for (const d of denials ?? []) {
     const i = d.tool_input ?? {};
     const f = path.resolve(dir, String(i.file_path ?? ''));
-    if (!f.startsWith(root)) continue;
+    if (!roots.some((r) => f.startsWith(r))) continue;
     if (d.tool_name === 'Write' && typeof i.content === 'string') { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, i.content); n++; }
     if (d.tool_name === 'Edit' && fs.existsSync(f) && typeof i.old_string === 'string') {
       const t = fs.readFileSync(f, 'utf8');
@@ -48,7 +58,7 @@ function approve(dir, denials) {
 }
 
 // one claude -p turn; the stream is kept beside the result
-function session(dir, prompt, plugins, log, resume) {
+function session(dir, prompt, plugins, log, resume, maker = false) {
   const args = ['-p', prompt, '--model', MODEL, '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', 'WebFetch,WebSearch,PowerShell',
     '--permission-mode', 'acceptEdits', '--allowedTools', ...ALLOWED, '--output-format', 'stream-json', '--verbose', ...plugins.flatMap((p) => ['--plugin-dir', p]), ...(resume ? ['--resume', resume] : [])];
   return new Promise((done) => {
@@ -63,7 +73,7 @@ function session(dir, prompt, plugins, log, resume) {
       const recs = out.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
       const res = recs.find((r) => r.type === 'result') ?? {};
       const tools = recs.filter((r) => r.type === 'assistant').flatMap((r) => (r.message?.content ?? []).filter((x) => x.type === 'tool_use').map((x) => ({ name: x.name, input: x.input })));
-      const applied = approve(dir, res.permission_denials);
+      const applied = maker ? approve(dir, res.permission_denials) : 0;
       done({ ok: res.subtype === 'success' && !res.is_error, text: String(res.result ?? ''), sid: res.session_id ?? null, usd: res.total_cost_usd ?? 0, tools, applied, denied: (res.permission_denials ?? []).length });
     });
   });
@@ -98,9 +108,9 @@ async function maker(out, i, o) {
   fresh(ws);
   const log = path.join(at, 'maker.jsonl');
   fs.rmSync(log, { force: true });
-  const turns = [await session(ws, REQUEST, o.plugins, log)];
+  const turns = [await session(ws, ASK, o.plugins, log, null, true)];
   // resumed with "yes" when the reply asks, or when a write it was denied has just been applied, at most twice
-  while ((asks(turns.at(-1).text) || turns.at(-1).applied) && turns.length < 3 && turns.at(-1).sid) turns.push(await session(ws, 'yes', o.plugins, log, turns.at(-1).sid));
+  while ((asks(turns.at(-1).text) || turns.at(-1).applied) && turns.length < 3 && turns.at(-1).sid) turns.push(await session(ws, 'yes', o.plugins, log, turns.at(-1).sid, true));
   const a = artifacts(ws);
   fs.mkdirSync(path.join(at, 'artifacts'), { recursive: true });
   for (const f of a.files) { fs.mkdirSync(path.dirname(path.join(at, 'artifacts', f)), { recursive: true }); fs.copyFileSync(path.join(ws, f), path.join(at, 'artifacts', f)); }
@@ -122,13 +132,15 @@ async function held(at, task, o, made) {
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
   const ws = path.join(at, `ws-${task}`);
   fresh(ws);
+  // suite 2 carries the maker copy's .project-map/ too, in every arm, since capture may keep what the request said
+  if (SUITE2 && made?.map && fs.existsSync(made.map)) fs.cpSync(made.map, path.join(ws, '.project-map'), { recursive: true });
   if (made) for (const f of made.files) { const to = path.join(ws, f.replace(/\.draft$/, '')); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(path.join(at, 'artifacts', f), to); }
   const log = path.join(at, `held-${task}.jsonl`);
   fs.rmSync(log, { force: true });
-  const s = await session(ws, TASKS[task], o.held, log);
+  const s = await session(ws, PROMPTS[task], o.held, log);
   const sk = skillCalls(s.tools), ag = agentCalls(s.tools);
   const used = Boolean(made) && (sk.some((n) => made.skills.includes(n.split(':').pop())) || ag.some((n) => made.agents.includes(n)));
-  const r = { task, ok: s.ok, used, skillCalls: sk, agentCalls: ag, usd: s.usd, text: s.text.slice(0, 1500), ...grade(ws, FIXTURE, task) };
+  const r = { task, ok: s.ok, used, skillCalls: sk, agentCalls: ag, usd: s.usd, text: s.text.slice(0, 1500), ...(SUITE2 ? await grade2(ws, FIXTURE, task) : grade(ws, FIXTURE, task)) };
   fs.writeFileSync(file, JSON.stringify(r, null, 1));
   return r;
 }
@@ -144,10 +156,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const out = path.join(path.resolve(outArg), arm);
   fs.mkdirSync(out, { recursive: true });
   if (makers === 0) {
-    await pool(['phone', 'tags'].flatMap((t) => Array.from({ length: runs }, (_, r) => () => { const at = path.join(out, `run-${r}`); fs.mkdirSync(at, { recursive: true }); return held(at, t, o, null); })), j);
+    await pool(HELD.flatMap((t) => Array.from({ length: runs }, (_, r) => () => { const at = path.join(out, `run-${r}`); fs.mkdirSync(at, { recursive: true }); return held(at, t, o, null); })), j);
   } else {
     const made = await pool(Array.from({ length: makers }, (_, i) => () => maker(out, i, o)), j);
-    await pool(made.flatMap((m, i) => ['phone', 'tags', 'rename'].map((t) => () => held(path.join(out, `maker-${i}`), t, o, m.artifacts.files.length ? m.artifacts : null))), j);
+    await pool(made.flatMap((m, i) => [...HELD, SHOULD_NOT].map((t) => () => held(path.join(out, `maker-${i}`), t, o, { ...m.artifacts, map: path.join(out, `maker-${i}`, 'ws', '.project-map') }))), j);
   }
   console.log(`${arm}: done`);
 }
