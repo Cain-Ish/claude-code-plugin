@@ -19,9 +19,7 @@ const MAX_BYTES = 5 << 20;
 const STALE_LOCK_MS = 2 * 3600e3;
 const enc = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
 const real = (p) => fs.realpathSync.native(p);
-// D-1 (06, 8a): Claude Code loads a folder's CLAUDE.md, CLAUDE.local.md or AGENTS.md as instructions when Claude reads a
-// file there, so a proposal never makes one in the map folder
-export const topic = (f) => f.endsWith('.md') && !['readme.md', 'dreams.md', 'claude.md', 'claude.local.md', 'agents.md'].includes(f.toLowerCase());
+const topic = (f) => f.endsWith('.md') && !['readme.md', 'dreams.md'].includes(f.toLowerCase());
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 
@@ -136,12 +134,7 @@ function lock(dir, root) {
   fs.mkdirSync(dir, { recursive: true });
   try { fs.writeFileSync(f, real(root), { flag: 'wx' }); return; } catch (e) { if (e.code !== 'EEXIST') throw e; }
   if (Date.now() - fs.statSync(f).mtimeMs < STALE_LOCK_MS) throw new Error('another dream is running in this repo (or one stopped less than two hours ago: run abort)');
-  // D-4 (06, 8a): the stale lock is taken by renaming it away, which only one prepare can do; when what it renamed is
-  // fresh (another prepare took the lock in between), it goes back and this one refuses
-  const away = `${f}.${process.pid}.${Date.now()}`;
-  try { fs.renameSync(f, away); } catch { throw new Error('another dream is running in this repo'); }
-  if (Date.now() - fs.statSync(away).mtimeMs < STALE_LOCK_MS) { try { fs.renameSync(away, f); } catch {} throw new Error('another dream is running in this repo'); }
-  fs.rmSync(away, { force: true });
+  fs.rmSync(f, { force: true });
   try { fs.writeFileSync(f, real(root), { flag: 'wx' }); } catch { throw new Error('another dream is running in this repo'); }
 }
 const unlock = (dir) => fs.rmSync(path.join(dir, 'dream.lock'), { force: true });
@@ -186,13 +179,12 @@ const MAP_FILE = /\.project-map[\\/]([\w.-]+\.md)\b/g;
 export const mapReads = (x) => [...String((x.name === 'Read' ? x.input?.file_path : x.name === 'Bash' ? x.input?.command : '') ?? '').matchAll(MAP_FILE)].map((m) => m[1]);
 // a session's lines from a byte offset, streamed, so a large transcript is never read whole. accept(cwd) sees the
 // first cwd; the stream stops there when it says no
-// D-6 (06, 8a): read only up to the size prepare recorded, so a session that grows meanwhile is read from there next time
-export async function digestFrom(file, start, accept, end = Infinity) {
+async function digestFrom(file, start, accept) {
   const lines = [];
   const names = new Map();
   const reads = new Set();
   let first = null, last = null, cwd = null, dream = false;
-  const input = fs.createReadStream(file, { start, ...(end !== Infinity && { end: end - 1 }), encoding: 'utf8' });
+  const input = fs.createReadStream(file, { start, encoding: 'utf8' });
   const rl = readline.createInterface({ input, crlfDelay: Infinity });
   for await (const l of rl) {
     const r = parse(l);
@@ -309,7 +301,7 @@ export async function prepare(root, data) {
         kind = owner(cwd);
         if (kind === 'gone' && known.has(c.d)) kind = 'ours';
         return kind === 'ours';
-      }, c.size);
+      });
       // a session of another repo, whose folder name this repo's prefix also matches: seen, and never read again
       if (kind === 'foreign') { manifest.push({ f: c.f, end: c.size, skipped: 'another repo' }); continue; }
       if (kind === 'gone') { manifest.push({ f: c.f, end: c.size, skipped: 'its folder is gone' }); continue; }
@@ -318,7 +310,7 @@ export async function prepare(root, data) {
       if (dg.dream || dg.lines.some((l) => /^U: \/second-brain:dream(\s|$)/.test(l))) { manifest.push({ f: c.f, end: Number.MAX_SAFE_INTEGER, skipped: 'the dream itself' }); continue; }
       if (!dg.lines.some((l) => /^(U|Q): /.test(l))) { manifest.push({ f: c.f, end: c.size, skipped: 'nothing typed' }); continue; }
       const name = `d${manifest.filter((m) => m.digest).length + 1}.digest`;
-      const text = `${dg.lines.map(redact).join('\n')}\n`;
+      const text = `${dg.lines.join('\n')}\n`;
       fs.writeFileSync(path.join(run, 'digests', name), text);
       bytes += Buffer.byteLength(text);
       // its hash, kept outside the repo: finish reads only a digest that nothing changed since (the session can edit the
@@ -346,12 +338,7 @@ export async function prepare(root, data) {
 // ---------- finish: validate, apply, log ----------
 // email addresses (with a letter TLD, so react@18.3.1 is not one: the audit, 4k); drive, UNC and home-like absolute paths; UUIDs (session ids); common key shapes. A word character
 // such as "_" before an id or a key does not hide it
-export const PRIVATE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?![\w-])|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:[sr]k[-_][a-z0-9_-]{10,}|sg\.[a-z0-9_-]{16,}\.[a-z0-9_-]{16,}|hf_[a-z0-9]{30,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key|hooks\.slack\.com\/services\/|:\/\/[^\s/:@]+:[^\s/@]+@|bearer\s+[a-z0-9._~+/=-]{16,}|\[private\]/i;
-// D-3 (06, 8a): the digests are written with private text replaced before any analyzer reads them: each match to the
-// end of its token (a webhook's or a path's tail), and a key's header to the end of its line (the key body). A
-// proposal that quotes "[private]" is private text itself, so finish drops it
-const PRIVATE_ALL = new RegExp(`(?:${PRIVATE.source})\\S*`, 'gi');
-const redact = (l) => l.replace(/begin [a-z ]*private key.*/i, '[private]').replace(PRIVATE_ALL, '[private]');
+export const PRIVATE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?![\w-])|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
 const front = (t) => /^---\n([\s\S]*?)\n---\n/.exec(t.replace(/\r/g, ''));
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
 // every ellipsis-separated segment of a proposed quote has 3 or more words, so none goes unchecked (the read hook's
@@ -410,16 +397,14 @@ export function finish(root, data) {
     return words(asked).length >= 3 && answers.some((a) => a.answer && picked === a.answer && foundIn(asked, a.question));
   };
   // a tracked file's text as HEAD holds it: an uncommitted edit, or a tracked link to an ignored file, is no source.
-  // D-5 (06, 8a): each file's text apart, never joined (a join past about 512 MB throws, with the lock held), and a
-  // file holding a NUL byte is binary and skipped. shortcut: blobs over 2 MB are skipped and the rest are read at
-  // once; stream them if a repo's text outgrows memory
+  // shortcut: blobs over 2 MB are skipped and the rest are read at once; stream them if a repo's text outgrows memory
   let repoText = null;
   const headText = () => {
     // a repo with no commit at prepare has no tracked source: HEAD at finish would count commits made during the dream
-    if (!job.head) return [];
+    if (!job.head) return '';
     const tree = spawnSync('git', ['ls-tree', '-r', '-l', '-z', job.head], { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20 }).stdout ?? '';
     const oids = tree.split('\0').map((l) => /^(\d+) blob ([0-9a-f]+) +(\d+)\t(.*)$/s.exec(l)).filter((m) => m && m[1] !== '120000' && Number(m[3]) <= 2 << 20 && !m[4].startsWith(`${MAP}/`)).map((m) => m[2]);
-    if (!oids.length) return [];
+    if (!oids.length) return '';
     const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: `${oids.join('\n')}\n`, maxBuffer: 1 << 30 }).stdout ?? Buffer.alloc(0);
     const parts = [];
     // "<oid> blob <size>\n<bytes>\n" per blob; a missing object is "<oid> missing\n", with no body (/code-review)
@@ -428,13 +413,12 @@ export function finish(root, data) {
       if (nl < 0) break;
       const [, type, size] = out.toString('latin1', i, nl).split(' ');
       if (type !== 'blob') { i = nl + 1; continue; }
-      const body = out.subarray(nl + 1, nl + 1 + Number(size));
-      if (!body.includes(0)) parts.push(body.toString('utf8').toLowerCase());
+      parts.push(out.toString('utf8', nl + 1, nl + 1 + Number(size)));
       i = nl + 1 + Number(size) + 1;
     }
-    return parts;
+    return parts.join('\n').toLowerCase();
   };
-  const inTracked = (q) => { repoText ??= headText(); return repoText.some((t) => foundIn(q, t)); };
+  const inTracked = (q) => { repoText ??= headText(); return foundIn(q, repoText); };
   const date = localDate();
   const n = { entries: 0, status: 0, rules: 0, skills: 0 };
   const dropped = {};
@@ -461,8 +445,6 @@ export function finish(root, data) {
       if (wide) { drop('a UTF-16 map file'); continue; }
       // the privacy scan reads the entry whole, before tidy cuts its lines, and again once its id is made from its heading
       if (PRIVATE.test(b)) { drop('private data'); continue; }
-      // D-1 (06, 8a): the when line is free text the model writes, so it is held to 200 characters
-      if (/^- when:.{201,}$/m.test(b)) { drop('a when line over 200 characters'); continue; }
       b = tidy(b);
       const q = quoteOf(b);
       if (!q.trim() || !provable(q) || !(foundIn(q, userText) || chosen(q) || inTracked(q))) { drop('no typed or tracked source'); continue; }

@@ -6,21 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-// H7 (06, 8a): on Windows, a git.exe sitting in the repo never runs in place of git. Claude Code sets this for its own
-// process; a script started from a plain shell would not have it
-process.env.NoDefaultCurrentDirectoryInExePath = '1';
-
 export const MAP = '.project-map';
-// H6 (06, 8a): a control character in a name is printed as ?, so a path cannot add a line or break one (06, 2i)
-export const safeName = (s) => String(s).replace(/[\x00-\x1f\x7f]/g, '?');
-// H4 (06, 8a): a map file is read only as a regular file under 4 MB, directly or through a link that stays in the repo.
-// A FIFO, a device, a link out of the repo or a huge file reads as null, so no hook blocks or reads outside the repo
-const MAP_CAP = 4 << 20;
-export const readMapFile = (root, f) => {
-  const p = path.join(root, f);
-  const st = fs.statSync(p, { throwIfNoEntry: false });
-  return st?.isFile() && st.size <= MAP_CAP && inRepo(root, p) ? fs.readFileSync(p) : null;
-};
 
 // D14's capture instruction, frozen: its sha256 is in the ledger. 06, section 3, S4: new entries go to topic files
 // with front matter, and carry id and verified lines; a review line where a decision is time-bound; status lines
@@ -124,24 +110,13 @@ export function inRepo(root, p) {
 // the files under the map folder, as repo paths in git's order; a symlink counts as a file, as git lists it. Given
 // `seen`, the real paths of folders already walked (the Bash handler, 06 2o): regular files only, directly or through
 // a link, since Claude can read entries through a link and a FIFO would block the read; each folder once
-export const under = (root, d, seen) => {
-  // 8a's review: the map folder itself linked out of the repo is never walked, so no name from outside is listed and a
-  // link to / never stalls session start; each caller fails closed, lists nothing, or (status) stops with the reason
-  if (d === MAP && !inRepo(root, path.join(root, MAP))) throw new Error('the map folder is a link out of the repo');
-  return walk(root, d, seen);
-};
-const walk = (root, d, seen) => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap((e) => {
+export const under = (root, d, seen) => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap((e) => {
   const p = `${d}/${e.name}`;
-  // H4 (06, 8a): no FIFO, socket or device is listed, as the Bash handler already skips them
-  if (!seen) return e.isDirectory() ? under(root, p) : e.isFile() || e.isSymbolicLink() ? [p] : [];
+  if (!seen) return e.isDirectory() ? under(root, p) : [p];
   // a link whose target is gone shows nothing to `cat`, so it is skipped (Emacs leaves one per unsaved buffer); one
   // whose own name cannot be reached (decoded with U+FFFD) throws here, and the folder fails closed (2o attempt 5)
   const st = e.isSymbolicLink() ? fs.statSync(path.join(root, p), { throwIfNoEntry: false }) : e;
   if (!st) { fs.lstatSync(path.join(root, p)); return []; }
-  // H3 (06, 8a): a link whose target lies outside the repo is never walked or read, so nothing outside reaches Claude
-  // through the map's labels. It fails closed instead (D14): a linked folder fails the whole folder, and a linked file
-  // is listed, so its own read fails closed (readMapFile reads nothing outside the repo)
-  if (e.isSymbolicLink() && !inRepo(root, path.join(root, p))) { if (st.isDirectory()) throw new Error('a link out of the repo'); return [p]; }
   if (!st.isDirectory()) return st.isFile() ? [p] : [];
   const real = fs.realpathSync(path.join(root, p));
   if (seen.has(real)) return [];
@@ -151,7 +126,7 @@ const walk = (root, d, seen) => fs.readdirSync(path.join(root, d), { withFileTyp
 export const mapMd = (root) => under(root, MAP).filter((p) => p.endsWith('.md') && !p.includes('/.dream-run/'));
 // the ids the map's files hold; null when a file cannot be listed or read, so no id is called missing on a partial read
 // (06, section 4, 4h: the altitude review)
-export const mapIdsOf = (root) => { try { return new Set(mapMd(root).flatMap((f) => { const b = readMapFile(root, f); if (!b) throw new Error('unreadable'); return idsIn(decode(b)); })); } catch { return null; } };
+export const mapIdsOf = (root) => { try { return new Set(mapMd(root).flatMap((f) => idsIn(decode(fs.readFileSync(path.join(root, f)))))); } catch { return null; } };
 
 // The git folder a repo's worktrees share, found with no git call (D18). `root` is the repo's top level, as toplevel()
 // gives it: a .git file (a linked worktree, a submodule) names the git folder, whose commondir names the shared one.
@@ -214,7 +189,8 @@ export function index(root) {
     if (!byDir.has(d)) byDir.set(d, []);
     byDir.get(d).push(p.slice(i + 1));
   }
-  const safe = safeName;
+  // a control character in a committed name is printed as ?, so a path cannot add a line or break one (06, 2i)
+  const safe = (s) => s.replace(/[\x00-\x1f\x7f]/g, '?');
   if (byDir.has(MAP)) byDir.set(MAP, catalog(root, byDir.get(MAP)));
   return byDir.size ? `${HEADER}\n${[...byDir].map(([d, f]) => `${safe(d)}/: ${f.map(safe).join(', ')}`).join('\n')}\n` : '';
 }
@@ -229,7 +205,7 @@ function catalog(root, files) {
   let any = false;
   const parts = files.map((f) => {
     let t;
-    try { const b = readMapFile(root, `${MAP}/${f}`); if (!b) return f; t = decode(b); } catch { return f; }
+    try { t = decode(fs.readFileSync(path.join(root, MAP, f))); } catch { return f; }
     const fm = FRONT.exec(t);
     const desc = fm && /^name:[ \t]*\S/m.test(fm[1]) ? /^description:[ \t]*(\S.*?)[ \t]*\r?$/m.exec(fm[1])?.[1] : null;
     if (!desc) return f;
@@ -275,7 +251,7 @@ function drafts(root) {
 // the user's line on what waits for review: proposed entries and drafts (a reminder; the drafts are never loaded)
 export function waiting(root) {
   let proposed = 0;
-  try { for (const f of mapMd(root)) { const b = readMapFile(root, f); if (b) proposed += entries(decode(b)).filter(proposedOn).length; } } catch {}
+  try { for (const f of mapMd(root)) proposed += entries(textOf(root, f)).filter(proposedOn).length; } catch {}
   const d = drafts(root).length;
   if (!proposed && !d) return '';
   const parts = [proposed ? `${proposed} proposed ${proposed === 1 ? 'entry' : 'entries'}` : '', d ? `${d} draft${d === 1 ? '' : 's'}` : ''].filter(Boolean);
@@ -379,32 +355,14 @@ const startsWord = (low, i) => {
   const lo = low.charCodeAt(i - 1), hi = low.charCodeAt(i - 2);
   return !WORD_CHAR.test(lo >= 0xdc00 && lo < 0xe000 && hi >= 0xd800 && hi < 0xdc00 ? low.slice(i - 2, i) : low[i - 1]);
 };
-// The scan above, with a budget of word comparisons: H5 (06, 8a) found it quadratic when one word repeats (800 words
-// against 390 KB: 3.7 s per Read). Past the budget, null, and the stretch is found as a run of the text's words in
-// linear time (KMP), the text split into words once and kept for the next stretch. Same results; ordinary texts keep
-// the fast scan
-const SCAN_BUDGET = 200_000;
-let lastLow, lastWords;
-const wordsOf = (low) => (low === lastLow ? lastWords : (lastWords = words((lastLow = low))));
-const scan = (w, low) => {
-  let work = 0;
+const holds = (w, low) => {
   for (let i = low.indexOf(w[0]); i >= 0; i = low.indexOf(w[0], i + 1)) {
     if (!startsWord(low, i)) continue;
     WORD.lastIndex = i;
-    let k = 0;
-    while (k < w.length && WORD.exec(low)?.[0] === w[k]) k++;
-    if (k === w.length) return true;
-    if ((work += k + 1) > SCAN_BUDGET) return null;
+    if (w.every((t) => WORD.exec(low)?.[0] === t)) return true;
   }
   return false;
 };
-const run = (w, t) => {
-  const f = [0];
-  for (let i = 1, k = 0; i < w.length; i++) { while (k && w[i] !== w[k]) k = f[k - 1]; if (w[i] === w[k]) k++; f[i] = k; }
-  for (let i = 0, k = 0; i < t.length; i++) { while (k && t[i] !== w[k]) k = f[k - 1]; if (t[i] === w[k]) k++; if (k === w.length) return true; }
-  return false;
-};
-const holds = (w, low) => scan(w, low) ?? run(w, wordsOf(low));
 export const foundIn = (quote, low) => quote.split(/…|\.\.\./).map(words).filter((w) => w.length >= 3).every((w) => holds(w, low));
 // the first path an entry's source names (it has a '/' or a document extension, so "Node.js" is not one); the source
 // is text Claude wrote, so only relative paths inside the repo count. 06, 2q: none when that path lies inside
@@ -451,13 +409,10 @@ export const refinder = (root) => {
 // reshaped output shows cannot be told (2n's three rounds); and the committed entries it shows, by 2n's rule.
 // shortcut: one git call per map file on each Bash command that names the folder; batch them (git cat-file --batch)
 // if a map ever holds more than a handful of files
-// H1 (06, 8a): shownOnly, for a Bash command that does not name the map folder, picks only the entries its output shows,
-// committed or not
-export function labels(root, file, output, shownOnly = false) {
+export function labels(root, file, output) {
   let bytes;
   // a missing file has nothing to label; any other failure throws, and the read hook labels the file as a whole
-  try { bytes = readMapFile(root, file); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
-  if (bytes === null) { if (!fs.existsSync(path.join(root, file))) return ''; throw new Error('not a regular file under 4 MB inside the repo'); }
+  try { bytes = fs.readFileSync(path.join(root, file)); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
   // a UTF-16 file printed raw loses its non-ASCII text in the decode, so an output holding a NUL shows all of it
   if (output?.includes('\0') && utf16(bytes)) output = undefined;
   const all = entries(decode(bytes));
@@ -465,8 +420,7 @@ export function labels(root, file, output, shownOnly = false) {
   const head = spawnSync('git', ['show', `HEAD:./${file}`], { cwd: root, maxBuffer: 64 << 20 });
   const held = new Set(head.status === 0 ? entries(decode(head.stdout)) : []);
   const seen = output === undefined ? null : shown(all, output);
-  // with no output to match (a UTF-16 file printed raw shows all of it), every entry is picked
-  const picked = all.map((b, i) => !seen || seen[i] || (!shownOnly && !held.has(b)));
+  const picked = all.map((b, i) => !seen || !held.has(b) || seen[i]);
   const refind = refinder(root);
   // 06, section 3, S3 (D30): the ids every map file holds, read only when a status line names one
   let ids;
@@ -514,7 +468,7 @@ export function labels(root, file, output, shownOnly = false) {
   if (!out.length) return '';
   // the note follows the list: before it, Claude paraphrased the labels (06, 2n attempt 3's smoke)
   const note = (ls) => (ls.some((l) => l.includes('unverified quote')) ? `${UNVERIFIED_NOTE}\n` : '');
-  const top = `[project map] Labels on the entries of ${safeName(file)}${output === undefined ? '' : shownOnly ? ' this output shows' : ' not yet committed, and on those this output shows'}, in file order:\n`;
+  const top = `[project map] Labels on the entries of ${file}${output === undefined ? '' : ' not yet committed, and on those this output shows'}, in file order:\n`;
   // grouped only when the whole text fits; past the cap the output is 2.0.0's (06, 2p attempt 2)
   const solo = new Set(plain.map((p) => p.line));
   const short = grouped ? [grouped, ...out.filter((l) => !solo.has(l))] : out;

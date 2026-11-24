@@ -1,7 +1,6 @@
 // 06, section 3, S5 (V2-D29): setup copies plugin/templates/ into a repo, Anthropic's layout for Claude. Each file is
-// created with 'wx' when missing; a file that exists changes only as the two notes below allow; nothing is committed.
-// Templates sit under undotted names, so this plugin's own repo never loads them as live rules, agents or a nested
-// CLAUDE.md. Since 06, section 4,
+// created with 'wx', so a file that exists is never overwritten; nothing is committed. Templates sit under undotted
+// names, so this plugin's own repo never loads them as live rules, agents or a nested CLAUDE.md. Since 06, section 4,
 // 4b (D29 reopened), an instruction file or .gitattributes that lacks setup's section or line gets it appended, but only
 // when git shows that file committed and unchanged. Since 06, section 6 (D29 reopened), a kept file whose text is a
 // template an earlier release shipped is replaced with this version's, under the same guard.
@@ -109,8 +108,8 @@ export function setup(root, pluginRoot) {
   if (stuck.length) out.push(`Not updated, though each is an earlier version's template, since git does not show it committed and unchanged or it cannot be written (${stuck.length}): ${stuck.join(', ')}. Once it is, run setup again.`);
   if (added.size) out.push(`Added to files that existed (${added.size}): ${[...added].map(([f, what]) => `${f} (${what})`).join(', ')}`);
   if (refused.length) out.push(`Refused, because a folder resolves outside the repo: ${refused.join(', ')}`);
-  // N10 (the field report): a kept file the repo changed is not replaced, so its newer template reaches it only by
-  // hand. Only the plugin's own files are compared: the instruction file, the topic files and .gitattributes are the user's
+  // N10 (the field report): setup never overwrites, so a newer template reaches a repo only by hand. Only the plugin's
+  // own files are compared: the instruction file, the topic files and .gitattributes are the user's
   const differ = FILES.filter(([from, to]) => kept.includes(to) && !stuck.includes(to) && (to.startsWith('.claude/') || to === '.project-map/README.md')
     && read(to).replace(/\r\n/g, '\n') !== fs.readFileSync(path.join(pluginRoot, 'templates', from), 'utf8').replace(/\r\n/g, '\n'));
   if (differ.length) out.push(`Differ from this version's templates, changed in this repo (${differ.length}): ${differ.map(([from, to]) => `${to} (${path.join(pluginRoot, 'templates', from)})`).join(', ')}`);

@@ -1,0 +1,116 @@
+// One process per hook event (V2-D18): node hook.mjs <session-start|prompt|read|bash|bash-failure|onboard|setup>
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { MAP, CAP, git, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft, safeName } from './map.mjs';
+import { setup } from './setup.mjs';
+
+// note: a line for the user, not for Claude's context (V2-D27)
+const emit = (ev, text, note) => { if (text || note) process.stdout.write(JSON.stringify({ ...(note && { systemMessage: note }), hookSpecificOutput: { hookEventName: ev, additionalContext: text } })); };
+const which = process.argv[2];
+// N5 (06, section 4, 4a): on macOS, readFileSync(0) on a socket stdin blocked for good in 13 of 600 probe calls; a
+// readSync loop over the same input, 0 of 1,200. So the input is read in chunks until a read returns 0
+const readInput = () => {
+  const b = Buffer.alloc(65536), parts = [];
+  for (let k; (k = fs.readSync(0, b, 0, b.length, null)) > 0;) parts.push(Buffer.from(b.subarray(0, k)));
+  return Buffer.concat(parts).toString('utf8');
+};
+const input = ['onboard', 'setup'].includes(which) ? {} : JSON.parse(readInput());
+const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
+// fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
+const closed = (file, why = 'could not be computed') => `[project map] The labels for ${safeName(file)} ${why}: treat every entry in it as unreviewed and unverified.\n`;
+const labelled = (file, output, shownOnly) => { try { return labels(root, file, output, shownOnly); } catch { return closed(file); } };
+
+if (which === 'session-start') {
+  const idx = index(root);
+  // the marker only serves the forced decision: a missing or read-only TEMP must not cost the rest (D18, 2g)
+  if (idx) try { openEpoch(input.session_id); } catch {}
+  // v1's statusline and timer shims outlive an update to v2 (V2-D26)
+  const brain = process.env.BRAIN_DIR || path.join(os.homedir(), '.second-brain');
+  const v1 = ['buddy-statusline.sh', 'sb-extract-drain.sh'].some((f) => fs.existsSync(path.join(brain, 'bin', f)));
+  // 06, section 3, S6 (D32): what waits for review, and whether a dream is due, for the user only, at a session's
+  // start or after /clear; any failure here costs the rest nothing
+  const notes = v1 ? [V1_LEFT] : [];
+  if (idx !== null && ['startup', 'clear'].includes(input.source)) {
+    try { const w = waiting(root); if (w) notes.push(w); } catch {}
+    const data = process.env.CLAUDE_PLUGIN_DATA;
+    if (data) {
+      try { const d = dreamDue(root, data, input.transcript_path); if (d) notes.push(d); } catch {}
+      try { const l = dreamLeft(root, data); if (l) notes.push(l); } catch {}
+    }
+  }
+  emit('SessionStart', startText(idx).text, notes.length ? notes.join('\n') : undefined);
+} else if (which === 'prompt') {
+  // the hook also fires on a background subagent's report and another session's message: the force waits for a typed
+  // prompt (06, 2i). shortcut: matched on the wrappers transcripts record; another form spends the force as before
+  if (!/^\s*(Another Claude session sent a message:|<(task-notification|cross-session-message|agent-message)[\s>])/.test(input.prompt ?? '')) emit('UserPromptSubmit', takeForce(input.session_id));
+} else if (which === 'read') {
+  const file = rel(root, input.tool_input?.file_path);
+  if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
+} else if (which === 'bash' || which === 'bash-failure') {
+  // a Bash command that names the map folder gets every uncommitted entry's labels, and those of the committed entries
+  // its output shows (D14, 06 2o): the output is every string in tool_response (stdout, stderr), or the failure's
+  // error text. The if field starts this handler only for a command that names the folder, best effort: one with $(),
+  // backticks or a variable starts it too, and gets the H1 rule below. A plain `git diff` from the root never starts
+  // it, so it stays unlabelled (04's accepted risk)
+  const ev = which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure';
+  const strings = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
+  const got = strings(which === 'bash' ? input.tool_response : input.error);
+  // the hook sees only part of what Claude can reach when a background command's output comes later, or Claude Code
+  // cut the output and saved it to a file (2n, attempt 2): then every map file's labels, as a Read of each gives them.
+  // A long string is the guard should those fields be renamed
+  const part = ['backgroundTaskId', 'persistedOutputPath'].some((k) => input.tool_response?.[k]) || got.some((s) => s.length >= 25_000);
+  const output = part || /characters truncated/.test(got.join('\n')) ? undefined : got.join('\n').replace(/\r/g, '');
+  // H1 (06, 8a): Claude Code's if field is best effort, so a command with $(), backticks or a variable starts this
+  // handler though it never names the map (in the field: 235 label deliveries after such commands, against 148 after
+  // commands that named it). Such a command gets labels only for the entries its output shows, and nothing when its
+  // output cannot be seen
+  // "names" is never narrower than the if field's own match (the decision-checker on 8a): letter case, quotes and
+  // backslashes (and a backslash-newline) are set aside, so ".project-"map, .project\-map and .Project-Map name it too
+  const named = String(input.tool_input?.command ?? '').toLowerCase().replace(/\\\r?\n/g, '').replace(/["'`\\]/g, '').includes(MAP);
+  if (!named && output === undefined) process.exit(0);
+  // the map's .md files, in git's order, through links to folders, each folder once; when the folder exists, any error
+  // listing it fails closed as a whole (2o attempt 2: a subfolder that cannot be opened also throws ENOENT)
+  let files;
+  try { files = under(root, MAP, new Set([fs.realpathSync(path.join(root, MAP))])).filter((f) => f.endsWith('.md')).sort(); } catch (e) { files = e.code === 'ENOENT' && !fs.existsSync(path.join(root, MAP)) ? [] : null; }
+  // a listed file that cannot be read fails closed too: labels() reads ENOENT as "no file", and a name that is not
+  // valid UTF-8 is listed with U+FFFD, which no read finds (2o attempt 3). A name listed twice (two names decoded
+  // alike) cannot tell which file a read reaches, so it fails closed (attempt 4)
+  const twice = new Set((files ?? []).filter((f, i) => i && files[i - 1] === f));
+  if (files) files = [...new Set(files)];
+  const walked = (f) => { if (twice.has(f)) return closed(f); const t = labelled(f, output, !named); return t || fs.existsSync(path.join(root, f)) ? t : closed(f); };
+  // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
+  // line for all when those alone would not fit (D18, J3; 06 2m). A folder that cannot be listed fails closed for any
+  // command whose output can be seen, since that output may show its entries (8a's review)
+  const texts = files === null ? [[`${MAP}/`, closed(`${MAP}/`)]] : files.map((f) => [f, walked(f)]).filter(([, t]) => t);
+  if (!named && !texts.length) process.exit(0);
+  const rest = (k) => texts.slice(k).map(([f]) => closed(f, 'are not shown')).join('');
+  let out = '';
+  let k = 0;
+  for (; k < texts.length && out.length + texts[k][1].length + rest(k + 1).length <= CAP; k++) out += texts[k][1];
+  const tail = out.length + rest(k).length <= CAP ? rest(k)
+    : `[project map] The labels for the ${texts.length - k} map files this command read are not shown: treat every entry in them as unreviewed and unverified.\n`;
+  // a command that exits non-zero comes as PostToolUseFailure, with the same text (06 2m)
+  emit(ev, got.length ? out + tail
+    : '[project map] The output of this command could not be read, so the map entries it showed are not labelled: treat every map entry it showed as unreviewed and unverified.\n');
+} else if (which === 'setup') {
+  // 06, section 3, S5 (D29): the templates sit beside scripts/, in the plugin this file runs from
+  console.log(setup(root, path.resolve(path.dirname(process.argv[1]), '..')));
+} else if (which === 'onboard') {
+  const gitVersion = git(root, '--version').stdout?.trim();
+  const idx = index(root);
+  const fit = startText(idx);
+  const mapDir = path.join(root, MAP);
+  const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')) : [];
+  // 06, 2q: a map file HEAD lacks keeps its entries labelled unreviewed until it is committed
+  const tracked = git(root, 'ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', MAP).stdout?.split('\0') ?? [];
+  const loose = mapFiles.filter((f) => !tracked.includes(`${MAP}/${f}`)).length;
+  console.log([
+    `Node ${process.version}${Number(process.versions.node.split('.')[0]) < 20 ? ': the project map needs Node 20 or later' : ''}`,
+    gitVersion ?? 'git not found: the project map needs git',
+    idx === null ? 'Not a git repository: the index lists the files git tracks, so it is empty here.'
+      : `Index: ${fit.total ? idx.split('\n').slice(1, -1).reduce((n, l) => n + l.replace(/, \d+ (?:due|proposed)\b/g, '').split(', ').length, 0) : 0} documents in ${fit.total} directories, ${Buffer.byteLength(idx)} bytes at session start.`,
+    ...(fit.listed < fit.total ? [`Warning: session start is past the 10,000-character limit of one hook output, so it lists ${fit.listed} of the index's ${fit.total} directories.`] : []),
+    `Map: ${mapFiles.length} file(s) in ${MAP}/${loose ? `; ${loose} not committed, so their entries stay labelled "unreviewed" until they are` : ''}.`,
+  ].join('\n'));
+}

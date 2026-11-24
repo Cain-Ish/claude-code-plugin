@@ -7817,9 +7817,10 @@ field sighting stays unexplained: it may come from a path step 0 does not take, 
   command strings in order. Any other run is invalid, not failed, and is rerun once. A second invalid run fails the
   check.
 
-### 8, 8a: attempt 3's result (2026-11-24): pass
+### 8, 8a: attempt 3's result (2026-11-24): CI failed on Windows; 8a BLOCKED by the user's word
 
-All checks ran on the frozen copy, product `15a7ee92a153`, version 2.5.2, in the registered order.
+The local checks ran on the frozen copy, product `15a7ee92a153`, version 2.5.2, in the registered order, and all
+passed. CI then failed on its Windows runner (below).
 1. **The self-test passes** on Windows and in WSL, with the pin on.
    - Each `fix8a.mjs` case had been shown failing on 2.5.1 or on `cand8`. In WSL, 2.5.1 fails 18 cases.
    - (b) `results/equivalence8.json`: 0 differences in 3,804 seeded quotes over 67 documents, for the candidate and for
@@ -7833,7 +7834,17 @@ All checks ran on the frozen copy, product `15a7ee92a153`, version 2.5.2, in the
    - Session start costs 6 to 12 ms more than 2.5.1, since only the candidate gets the data folder and its 300 unseen
      transcripts.
    - A command that does not name the map now costs about 11 ms less.
-   - CI on three systems runs after the move into `plugin/`.
+   - **CI on three systems failed on Windows** (run 45428527737, commit `6239074b`, after the move into `plugin/`).
+     macOS and Linux passed both jobs.
+     - **The self-test failed at H7.** On CI's Node 20, the repo's planted `git.exe` ran in place of git.
+       - Reproduced locally: with `NoDefaultCurrentDirectoryInExePath` set, Node 20.18.1 still runs a `git.exe` in the
+         working folder, and Node 24.19.0 runs the real git.
+       - So H7's fix works only on newer Node, and the plugin supports Node 20. This is a known cause, with a known
+         remedy: on Windows, run git by its full path.
+     - **The load gate failed:** a map-file Read added 102.7 ms of p95 at 1 session, against 100 ms.
+       - 2.5.1's last green Windows run measured 81.6 ms.
+       - The paired local bench showed no difference (40.0 against 40.3 ms), and a single CI sample cannot tell the
+         runner's noise from a cost.
 4. **S7's check 2 passes** (`probes/V2-D31-dream/results/s7-product-a9.json`, Opus 5.5, CLI 2.1.305). Every bar
    passes:
    - all 10 runs finished, in one turn each, with no background analyzer;
@@ -7847,10 +7858,25 @@ All checks ran on the frozen copy, product `15a7ee92a153`, version 2.5.2, in the
    - the unnamed command that printed the entry got that entry's label, and not the committed one's.
 6. **The reviews** are recorded above.
 
-**Records:**
-- The D14 and D16 notes are in the ledger.
-- D30's trigger did not fire.
-- D18 stays REOPENED until section 8's final release, with its 2026-11-20 lock governing (R1).
-- The move into `plugin/` is byte-identical to the frozen copy (hash `15a7ee92a153`). `marketplace.json` says 2.5.2.
-- The README's status line and its three passages on Bash labelling and links say what 2.5.2 does.
-- 2.5.2 is not released: by the registration, it ships on its own only if group N stalls, on the user's word.
+**The block.** This was 8a's third failed attempt, which by rule 4 stops it. A fourth is allowed only for a near miss
+with a known cause. The user was asked: a fourth attempt, block 8a, or ship without H7. **The user's word
+(2026-11-24): "Block 8a".**
+- **`plugin/` is back to 2.5.1** (the tag's files, product `2625c8cd263b`), and so is `marketplace.json`.
+- **2.5.2's code is kept** in `probes/V2-8a-fixes/candidate/`: the changed scripts, `fix8a.mjs`, the self-test and
+  `plugin.json`.
+- **Undone, since nothing of 8a ships:**
+  - the ledger's D14 and D16 notes;
+  - the README's status line and its three passages on Bash labelling and links.
+- **Kept:** 8a's doc records (R2 to R8, which hold for 2.5.1), 8b's result, and every result file.
+- **What 2.5.1 keeps open, from the findings register.** Each fix exists in the probes and passed every local check, so a
+  later step can register any of them again, as new attempts:
+  - H1: commands that do not name the map get every label;
+  - H3: links out of the repo are followed;
+  - H4: a FIFO or device stalls session start;
+  - H5: the quadratic re-find;
+  - H6: control characters in names;
+  - H7: a repo's `git.exe`, which needs the full-path remedy;
+  - D-1 to D-6;
+  - F-1.
+- **D18** stays REOPENED, with its 2026-11-20 lock governing (R1). D30's trigger did not fire.
+- **Group N builds on 2.5.1,** by the user's choice.
