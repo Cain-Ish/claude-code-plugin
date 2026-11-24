@@ -36,7 +36,9 @@ const result = {
   catMap: rows.find((x) => x.command.startsWith('cat .project-map')),
   printfEntry: rows.find((x) => x.command.includes('printf')),
 };
-result.pass = Boolean(result.echoDate && !result.echoDate.labelled && result.catMap?.pricing && result.printfEntry?.pricing && !result.printfEntry?.dates);
+// 06, 8a: a run counts only with exactly the three registered commands, in order; otherwise it is invalid, not failed
+result.valid = rows.length === 3 && rows.every((x, i) => x.command === CMDS[i]);
+result.pass = result.valid && Boolean(result.echoDate && !result.echoDate.labelled && result.catMap?.pricing && result.printfEntry?.pricing && !result.printfEntry?.dates);
 fs.mkdirSync(path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'results'), { recursive: true });
 fs.writeFileSync(path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'results', 'live8a.json'), `${JSON.stringify(result, null, 1)}\n`);
 console.log(JSON.stringify(result, null, 1));
