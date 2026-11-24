@@ -8201,3 +8201,21 @@ word.
   progress.
 - **D35 stays OPEN:** it decides on 8d's check 3.
 - The `setup.mjs` comment item from section 6 is closed.
+
+### 8, 8d: the probes, before any counted run (2026-11-24)
+
+- **`probes/V2-8d-proposals/fixture8d.mjs`:** check 3's fixture, its history sessions and the scorer.
+  - The repo holds two packages (`packages/api`, `packages/web`), `docs/api-conventions.md`, and two repo skills,
+    `release-notes` and `lint-fix`.
+  - The sessions:
+    - A1 and A2: `/release-notes`, then the same correction;
+    - B1 and B2: `/lint-fix`, then thanks;
+    - C1 and C2: the same review task typed by hand;
+    - D1 and D2: a rule stated while editing `packages/api`;
+    - E1 and E2: a rule stated while editing both packages.
+  - The bars are 8d's check 3, as registered.
+  - 2 uncounted pilot runs come first. They can void the fixture, never a bar.
+- **`probes/V2-8d-proposals/mutate8d.mjs`:** 25 mutations. A dry run on the unfrozen build killed 25 of 25.
+- **One fixture change in the self-test:** the S7 block's repo now holds `src/utils/date.js`. Its sessions name that
+  file, and finish now refuses a rule whose `paths:` names a folder the repo lacks. A real repo holds the folder its
+  typed lines name.
