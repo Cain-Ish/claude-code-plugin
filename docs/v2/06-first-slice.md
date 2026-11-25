@@ -9993,3 +9993,25 @@ at once. Two findings so far:
   `CLAUDE_PLUGIN_ROOT` is the live copy in the scratchpad, not the cache, so the earlier note that the install made
   its own copy and nothing ran from that folder was wrong. The live folder changes only at a live release. The field
   installs use a git marketplace, which is copied into the cache.
+
+**The live test: `/map-review` on the trial's verdict (2026-11-25).** It found no proposals and no due entries, and one
+draft, `work-status`. It read the trial: "adds nothing", with state 2 with and 1 without, left and released 2 with and
+3 without, where-label 3 and 3, of 3 runs each. Both blobs matched and no session failed. The person discarded the draft.
+- L-16 (map-review's discard, into 8l): discard deletes only the draft. The committed case file
+  `.project-map/evals/work-status.json` and its four checks stay, naming an artifact that is gone. The discard step
+  should say what becomes of them: delete them with the draft, or keep them for a new draft at the same path.
+
+**The live trial on live.1, its result (2026-11-25):** "adds nothing", with no session failed. Once the prompts let a
+plain session try ("…if this repo has one; otherwise do it yourself"), it answered status questions as well as the
+agent did, or better. So the first trial's "helps" came from prompts that named the agent: L-2, now seen. Tailor had
+said beforehand that this is the outcome that should retire the agent.
+- **8i seen live:** one trial ran at a time. No trial project folder was left (70 before, 70 after), and no copy
+  stayed. The temp folder's 127 `second-brain-trial-*` folders are mutation runs' leftovers, by design for two
+  mutations; they are cleaned when no test runs.
+- **L-15** (later; `trial.mjs` and map-review): the trial judges correctness only. Tailor claimed the agent's value
+  was keeping reads of a 9,000-line plan out of the main session's context, and the trial cannot show that. It could
+  record each arm's tokens and cost from the session's JSON, beside the counts.
+- **The map at work:** in the discard turn, the review session followed the map entry `findings-go-into-the-plan` on
+  its own and wrote L-16 into this file. A rule captured from the user steered a fresh session.
+- **The evidence kept:** the discarded draft, its last verdict, and its case file and checks move to
+  `probes/V2-live-test/work-status/`. That answers L-16 for this draft by hand.

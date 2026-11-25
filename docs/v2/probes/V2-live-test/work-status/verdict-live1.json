@@ -1,0 +1,40 @@
+{
+ "artifact": ".claude/agents/work-status.md.draft",
+ "kind": "agent",
+ "hash": "c81e18795391",
+ "artifactBlob": "e5d300a67ac312b6a27ed081f510ca48c1a52b5c",
+ "casesBlob": "9258986033426cbcfe13f3e2ce91487d06671fc7",
+ "date": "2026-11-25",
+ "failed": 0,
+ "cases": [
+  {
+   "id": "state",
+   "use": true,
+   "runs": 3,
+   "with": 2,
+   "without": 1
+  },
+  {
+   "id": "left",
+   "use": true,
+   "runs": 3,
+   "with": 2,
+   "without": 3
+  },
+  {
+   "id": "released",
+   "use": true,
+   "runs": 3,
+   "with": 2,
+   "without": 3
+  },
+  {
+   "id": "where-label",
+   "use": false,
+   "runs": 3,
+   "with": 3,
+   "without": 3
+  }
+ ],
+ "verdict": "adds nothing"
+}
