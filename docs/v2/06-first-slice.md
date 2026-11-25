@@ -9408,3 +9408,38 @@ wait for one batched step, after the user's word on C-4 and P-3.
 4. A fresh review of the merged diff, and the decision-checker against D31, D34 and D35.
 - **Attempts:** three per step (rule 4). Neither step changes `hook.mjs` or `map.mjs`, so D18's bench runs once, after
   the last hook change in this section.
+
+### 8: the live test of tailor and its trial (2026-11-25), on the user's word
+
+> Use our plug-in to create dedicated skills that we can use as lamps makut introduced. It will be our live test.
+
+Run in this repo, on the installed live build (`38fbf0dd76ed`, whose `trial.mjs` and tailor equal `b977771fc513`'s),
+headless, with the user's settings loaded; the agent acted as the person, on the user's word.
+1. **The survey** (20 turns): a broad request. Tailor read the code, `.claude/`, the map, the ledger and the user's 15
+   sessions here, then named two gaps with evidence and counts: a `work-status` agent (the user asked where the work
+   stands 11 times in 5 sessions, and findings were lost between sessions), and a `release` skill (the release order
+   is written down nowhere, and `v2` was deleted on three merges). It gave seven things it would not make, with
+   reasons, and six other findings (T-1 to T-6 in the register). It made nothing, and asked.
+2. **The pick** (36 turns): the `work-status` agent first. Tailor wrote the draft and four cases, but its grant to
+   `trial.mjs draft` had ended with the survey's turn, so it could not move the draft (C-6, now observed). The person
+   ran `draft`, the check scripts' own test (13 of 13), and committed the cases.
+3. **`show`** (1 turn) printed the plan and the run line. The model's relay to the person left out the four check
+   scripts and said they were "shown above", which was false (L-1).
+4. **The trial** (24 sessions, none failed): verdict **helps**.
+   - `state`: with 3, without 0. `released`: with 3, without 0.
+   - `left`: with 0, without 0.
+   - `where-label` (should not be used): with 3, without 3.
+
+**What the live test found, into the register:**
+- L-1: `show` reaches the person only through the model's relay, which can drop what the person must see. It adds to
+  C-1 and C-2.
+- L-2: every should-use case's prompt names the agent ("Use the work-status agent…"). The "without" arm then has no
+  such agent, so its 0 of 3 may come from the prompt, not from the agent's value. Tailor's guidelines should keep the
+  artifact's name out of a case's prompt, or the trial should flag it. Until a case without the name is run, "helps"
+  here may be inflated.
+- L-3: `left` failed in both arms. The agent's list of open items misses part of what the check asks: 8a's open fixes,
+  group M and the audit. Improve it, or the check, before promotion.
+- L-5: in a headless run, the drafting turn reached for Bash (`sed`, `awk`, `grep`) and was refused 8 times; the
+  survey, none. Interactively each would ask the person. Tailor's text could steer to the Read and Grep tools.
+- The `work-status` draft waits in `.claude/agents/work-status.md.draft`. Promotion waits for L-2 and L-3, by the
+  person in `/map-review`.
