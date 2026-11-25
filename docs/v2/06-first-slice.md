@@ -9950,3 +9950,11 @@ copied each step's files over `b977771fc513`.
   is the macOS evidence for 8j's Windows-only reasoning (J-5); its result is recorded next.
 - **Live:** this build goes on the live install as `2.6.0-live.1`, its version set in the live copy only.
 - **8k's base** is this commit. The other session builds 8k, 8m and 8l from it.
+
+**`2.6.0-live.1` (2026-11-25):** the live install now holds `plugin/` at `88e323d58cca`; only the version line in the
+live copy differs. The update recopied the cache, and the cache matches `plugin/` except `plugin.json`. Sessions that
+were open keep the old build until `/reload-plugins`. Live, in headless sessions:
+- **8h's live observation:** a compound command run in the background, naming no map file, got no labels. The control,
+  a read that shows one entry, got that entry's label and nothing more.
+- **C-2:** `/second-brain:tailor show work-status` printed the agent's whole text, the four check scripts and the run
+  line. The model relayed all of it, unchanged, so L-1's drop did not recur here.
