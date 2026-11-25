@@ -194,7 +194,8 @@ const empty = path.join(tmp, 'no-git-here');
 fs.mkdirSync(empty);
 for (const [why, extra, says, pre] of [
   ['git not found', { PATH: empty }, 'git was not found on PATH'],
-  ['an untrusted folder', { GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' }, "git does not trust this folder (another user owns it; see git's safe.directory)"],
+  // no system or global config, so a runner's safe.directory (CI's macOS and Linux) cannot trust the folder
+  ['an untrusted folder', { GIT_TEST_ASSUME_DIFFERENT_OWNER: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: path.join(empty, 'none') }, "git does not trust this folder (another user owns it; see git's safe.directory)"],
   ['a broken index', {}, "git could not list this repository's files", (r) => fs.writeFileSync(path.join(r, '.git', 'index'), 'not an index')],
 ]) {
   await tryCheck(`Q-8 a repo where git cannot run: ${why}`, () => {
