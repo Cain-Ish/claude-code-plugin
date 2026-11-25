@@ -9786,3 +9786,107 @@ would. What it found:
   blobs ("current"), and showed the counts. It named `left`'s 0 of 3 in both arms as the weak spot, then asked
   whether to promote or discard. It cannot see L-2 (the prompts name the agent), so "helps" stands unqualified there:
   8l's fix. The draft waits.
+
+### 8, 8k, 8l, 8m and 8n: amended on the user's word and the audit (2026-11-25), before their code
+
+**The user's word (2026-11-25):**
+> i see we have diable-model-invocation in our plugin so claude cannot use commands like dream byself so it lock the
+> automation. we need to make it, and other skills and commands, usable by claude too
+
+Asked once, the user also chose:
+- Claude is told when a dream is due;
+- the dream's skill drafts are no longer user-only;
+- `main` holds the product only (A5-2, settled).
+
+The ledger reopens D03, D18, D31, D32 and D33, and each re-locks on its step's result. The charter has the change.
+
+**Probed before registering** (CLI 2.1.332; a temp repo; a copy with `status` unflagged; headless):
+- Claude called the Skill tool for `second-brain:status` on its own.
+- That call needs a permission:
+  - without a rule it was denied, with the message "add the allow rule `Skill(second-brain:status)`";
+  - with the rule in local settings, the skill's `!` command ran under the skill's own grant, and the report came
+    back.
+- A hook sees `CLAUDE_CODE_ENTRYPOINT=sdk-cli` in a headless session.
+
+**The audit** (ponytail, run on `plugin/` at `e856fafb` with the register left out). Six of its cases were proved in
+temp repos (1 to 4, 7 and 8); the rest come from reading the code and the docs. Placed below by the file that owns
+each one.
+
+**8l gains** (the user's word: the skills' text, and a line at session start). 8l is now the last hook change, so
+D18's bench runs after it:
+1. **The flag goes.** `disable-model-invocation` is removed from `dream`, `setup`, `status`, `tailor` and the
+   map-review template. The template's old hash joins setup's list (D29).
+2. **Each description says when Claude starts it:**
+   - dream: when told one is due, after the person's current task, saying so first; or when asked;
+   - setup: when the layout is missing, or a kept file is an earlier release's template (L-11), after asking;
+   - status: when asked how current the memory is;
+   - tailor: when asked to make or test an agent, skill or path rule;
+   - map-review: when proposals or drafts wait and the person agrees to review.
+3. **The due line:** in a session whose entry point is not `sdk-cli`, session start's added context gains one line
+   saying a dream is due. It sits inside `startText`'s 10,000 characters, so a repo at the cap keeps its cut index
+   and the line. The person's line stays.
+4. **Permissions:** the README says that each skill's first start by Claude asks for permission once, and how to allow
+   the skills in advance.
+5. **Audit 6:** onboard's grant covers only `hook.mjs onboard`, and setup's only `hook.mjs setup`. The self-test's
+   pinned grants follow.
+6. **Audit 2, the text half:** map-review's reject step replaces a committed proposal's `proposed` line with the status
+   line, rather than keeping both.
+7. **Audit 5:** for a skill that keeps the flag (one a person wrote), the should-use prompt of its cases starts with
+   `/<name>`, and `validate()` checks for that instead of refusing it.
+
+- **Checks added to 8l's:**
+  - (a) unit cases:
+    - the due line is there with entry point `cli` and absent with `sdk-cli`;
+    - the cap holds with the line added.
+  - (b) headless counted runs, with each skill allowed: a request in plain words starts `status`, and the dream's
+    prepare, 3 of 3 each;
+  - (c) D33's bar earned again: in 10 dreams that Claude starts, nothing is accepted without the person's yes;
+  - (d) the always-on cost from `claude plugin details`, before and after, recorded against D18;
+  - (e) the live test (the other session): an interactive session with a dream due, a dream Claude starts itself, and
+    a dream skill draft in `/map-review`.
+
+**8m gains:**
+1. **The user's word:** finish no longer adds `disable-model-invocation` to a skill draft. This lands with J-1.
+2. **Q-6, the Skill tool form:** a `Skill` call to `second-brain:dream` also marks the session as the dream itself.
+   Today only a typed command record does (`dream.mjs:232`).
+3. **Audit 1, a branch switch:** today `prepare` drops a reviewed dream's state when HEAD lacks its log line (proved: a
+   dream committed on `feat`, then `main` checked out, lost `seen` and its record). Now a dream counts as kept when the
+   tip of any local branch, or the working tree, holds the line.
+4. **Audit 3:** a new skill draft is dropped, as agents are, when its folder already holds a live skill or a draft, or
+   when its `name` is not its folder's. `freeName` goes, with the `-2` folder (R-d's retry case too).
+5. **Audit 4:** `evidence()` accepts the digest's folder before `dN.digest:L`, as the candidates' parser does, with one
+   pattern shared by both (proved: such evidence dropped every draft).
+6. **Audit 8:** a candidate whose file name is already taken is skipped, so one session never counts as two (proved:
+   a `dirs.log` spelling in another letter case).
+7. **Small:** a status line's `by <id>` follows finish's rename of a clashing new id.
+
+**8k gains:**
+1. **Audit 2, the code half:** `proposedOn` returns nothing for an entry that has a `by review:` status line. Waiting,
+   status and the labels then stop counting a rejected proposal, including those 2.3.0 to 2.5.1 wrote (proved: one
+   such entry counted as waiting in all three).
+2. **Audit 7:** the trial's `committed()` compares `git rev-parse <commit>:<rel>` with `git hash-object`. `git diff`
+   rewrote the index and took `index.lock` (proved).
+3. **Small:** the trial copy's path no longer stops at a tab.
+
+Each gained item gets a case that fails on its base and a mutation, as its step registers.
+
+**8n, the product on `main`** (registered now, built at the release stop; the user's "main = product only"). This
+replaces A5-1's move.
+- The release copies onto `main` only these:
+  - `plugin/` without `test/`;
+  - `.claude-plugin/`;
+  - the README and the LICENSE;
+  - the CI that runs on `main`.
+- The docs stay on `v2` (D04).
+- **Checks:**
+  1. `main`'s tree equals an allowlist, with no `test/` under `plugin/`.
+  2. In a throwaway config, an install of the old `main` that updates to the new one ends with only the product in
+     its clone. If it does not, the README says how to add the marketplace again.
+  3. `claude plugin validate`, and `claude plugin details` on a fresh install from the new `main`.
+  4. `main`'s required checks point at jobs that run there. That is the user's GitHub setting.
+- Re-locks D03.
+
+**Later, from the audit:**
+- `state.seen` keeps transcripts that Claude Code's cleanup has deleted.
+- Unverified: whether `CLAUDE_PROJECT_DIR` still names the main checkout in a session moved into a linked worktree. If
+  so, Reads of that worktree's map files get no labels.

@@ -205,3 +205,17 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   - nothing is promoted or committed without a person.
 
   Plan and checks: 06, section 7. Decisions: D34; D10 and D18 reopened.
+- **Claude may start the plugin's skills (2026-11-25, the user's word).** "claude cannot use commands like dream byself
+  so it lock the automation. we need to make it, and other skills and commands, usable by claude too."
+  - **What changes:**
+    - The dream no longer runs only when typed: Claude starts it when told one is due, after the person's current
+      task, or when asked.
+    - The other skills (setup, status, tailor, map-review) are Claude's to start too.
+    - The dream's skill drafts are no longer user-only.
+    - An install downloads only the product, not the whole repo (the user's "do not expose all repo"; D03).
+  - **The non-goals stand:**
+    - a dream runs in a session, in view;
+    - it leaves a reviewable diff, and its proposals count only after review;
+    - it keeps no transcript copy.
+
+  Plan and checks: 06, section 8, 8l, 8m and 8n. Decisions: D31, D32 and D33 reopened, D18 and D03 reopened.

@@ -9,7 +9,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | --- | --- | --- | --- | --- |
 | V2-D01 | How are decisions made, checked and tracked? | LOCKED 2026-10-19 | user | — |
 | V2-D02 | Where is v1 cut? | LOCKED 2026-10-19 | user | — |
-| V2-D03 | Which branches carry v1 and v2? | LOCKED 2026-10-19 | user | D02 |
+| V2-D03 | Which branches carry v1 and v2? | LOCKED 2026-10-19; REOPENED 2026-11-25 (the user's word: `main` holds the product only; 06, section 8, 8n) | user | D02 |
 | V2-D04 | Where do v2 planning decisions and research live? | LOCKED 2026-10-19 | evidence | D03 |
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
@@ -21,7 +21,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D15 | Onboarding: how does the plugin turn a repo's existing rules into the map, or map a repo that has none? | LOCKED 2026-10-21 (run 4, after a block); REOPENED and re-LOCKED 2026-10-22 (onboarding builds the index only; the conversion was ruled out by count); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (onboarding is setup: Anthropic's layout, created and never overwritten (S5; S8 item 1, 5 of 5)) | evidence | D13 |
 | V2-D16 | How does the map stay fresh? | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (the re-find moves to reading a map file; repair is re-capture); REOPENED 2026-10-25 (unverifiable entries: every captured entry, build step 2a); re-LOCKED 2026-10-25 (re-find at read time in the file a source names; not found claims no change); REOPENED 2026-10-26 (release step 2g: the read hook adds 133 to 148 ms p95 at 8 concurrent on P2, with a map citing its 30 largest documents; D18's bar is 100); re-LOCKED 2026-10-26 (the same labels, found without tokenizing whole files: byte-identical in 123 comparisons; the map read 83 to 86 ms on P2); its trigger "the capture instruction changes" fired 2026-11-18, re-LOCKED unchanged on 06 2s's checks; REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the re-find unchanged; `verified`, `review` and `proposed` add states (S3, S4)); its trigger "the capture instruction changes" fired 2026-11-23, re-LOCKED unchanged on 06 4i's check 2 | evidence | D13 |
 | V2-D17 | How is value measured (eval tasks, arms, thresholds)? | LOCKED 2026-10-20 | evidence + user | D10 |
-| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled); re-LOCKED 2026-10-27 (labels cut fail-closed at the cap, UTF-16 decoded; 2g attempt 5 passed at da81530cb1c3); REOPENED 2026-10-27 (2h: session start added 113.7 ms at 1 session on the Windows runner); re-LOCKED unchanged 2026-10-27 (old and new paired within one job: at most 0.8 ms of cost on any runner; the 113.7 was one run's tail); REOPENED 2026-10-27 (2h attempt 3: the map read at 101.6 ms at 8 concurrent on a loaded reference machine; the reference state is the user's question); re-LOCKED 2026-10-27 (the user's answer: the reference state is a CPU sample of at most 10% and empty Node's p95 at most 100 ms at 8 concurrent); REOPENED 2026-11-07 (2m's bench: the published alpha.6's map read at 106.8 ms in one valid pair; a second window decides); re-LOCKED unchanged 2026-11-07 (the second window: both builds at most 66.8 ms); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the surface is 4 hook events, 3 skills, 1 plugin agent and 1 command, each with its own script grant; hooks within 100 ms (S6 bench; CI gate now with the nudge)); REOPENED 2026-11-24 (the user's word: a fourth skill that Claude may invoke, tailor; its budget row and boundary in 06, section 7, 7a) | evidence | D12, D13, 02-v1-postmortem.md |
+| V2-D18 | What runs where (runtime, hooks, MCP) and what is the surface budget? | LOCKED 2026-10-22; REOPENED 2026-10-27 (its trigger: on GitHub's hosted Windows runner, session start and the map read add 145.5 and 147 ms p95 at 8 concurrent; an empty Node there is at about 142 ms); re-LOCKED 2026-10-27 on the user's two-part budget (at most 100 ms at 1 session on every machine, in CI; at 8 concurrent on the reference machine, before each release); REOPENED 2026-10-27 (the release review: an uncommitted entry arrives unlabelled from a subdirectory start, an unreadable source, or a byte-order mark); re-LOCKED 2026-10-27 (fail-closed labels, the git toplevel as root, the hook cap's guard; 2g attempt 3 passed at a84a31665af3); REOPENED 2026-10-27 (the second review: labels past the cap, and a UTF-16 map file, reach Claude unlabelled); re-LOCKED 2026-10-27 (labels cut fail-closed at the cap, UTF-16 decoded; 2g attempt 5 passed at da81530cb1c3); REOPENED 2026-10-27 (2h: session start added 113.7 ms at 1 session on the Windows runner); re-LOCKED unchanged 2026-10-27 (old and new paired within one job: at most 0.8 ms of cost on any runner; the 113.7 was one run's tail); REOPENED 2026-10-27 (2h attempt 3: the map read at 101.6 ms at 8 concurrent on a loaded reference machine; the reference state is the user's question); re-LOCKED 2026-10-27 (the user's answer: the reference state is a CPU sample of at most 10% and empty Node's p95 at most 100 ms at 8 concurrent); REOPENED 2026-11-07 (2m's bench: the published alpha.6's map read at 106.8 ms in one valid pair; a second window decides); re-LOCKED unchanged 2026-11-07 (the second window: both builds at most 66.8 ms); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the surface is 4 hook events, 3 skills, 1 plugin agent and 1 command, each with its own script grant; hooks within 100 ms (S6 bench; CI gate now with the nudge)); REOPENED 2026-11-24 (the user's word: a fourth skill that Claude may invoke, tailor; its budget row and boundary in 06, section 7, 7a); REOPENED 2026-11-25 (the user's word: every plugin skill model-invocable, and session start tells Claude when a dream is due; 06, section 8, 8l) | evidence | D12, D13, 02-v1-postmortem.md |
 | V2-D19 | How is value measured at scale: a large repo with big documents, where context fills quickly? | LOCKED 2026-10-22 | user + evidence | D10, D17 |
 | V2-D20 | By what mechanism does v2 make Claude follow the knowledge that binds a task, once delivered? (Finding it: D22, D18) | LOCKED 2026-10-21; REOPENED and re-LOCKED 2026-10-22 (stage 3: prompt-time rules held across a compaction on Opus); net DEFERRED 2026-10-22 (no tested source writes the checks; the fed-back check works when it is right); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the net is decision-checker, used for a decision check in 5 of 5 (S8 item 5, attempt 2)) | evidence | D12, D17 |
 | V2-D21 | How does v2 know what exists in a repo (its inventory) without a per-language parser? | LOCKED 2026-10-22 (the user's answers, after a block at attempt 2); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (the inventory aid is codebase-guide's navigation notes (S5: fewer tool calls in 4 of 5)) | evidence + user | D10, D13 |
@@ -34,9 +34,9 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | V2-D28 | How does a captured entry stop binding once a later decision replaces, narrows or ends it? | OPEN 2026-11-18; LOCKED 2026-11-18 on (LIN), by the user's delegation: the labels read a status line (06 2r), the instruction asks for it and the naming line skips an ended entry (2s); REOPENED 2026-11-20 (the user's redesign, 06's section 3); re-LOCKED 2026-11-20 (status lines name ids; a dream's status line is proposed until review (S3, S7, S8)) | user | D13, D14, D16, D23 |
 | V2-D29 | Setup: what does the plugin create in a new or existing repo, and with which guardrails? | OPEN 2026-11-20 (the user's choices recorded; S5 checks them); LOCKED 2026-11-20 (setup passed S5 and the acceptance check (layout 5 of 5, aware 5 of 5)); REOPENED 2026-11-23 (the user's goal after a live test: setup run once sets everything up; N7; 06, section 4, step 4b); re-LOCKED 2026-11-23 (4b passed: setup appends only to tracked, unchanged files); REOPENED 2026-11-23 (the user's word: P1, a placement table in the map's README template; 06, section 5, 5a); re-LOCKED 2026-11-23 (5a passed: a check offered for a tool-enforceable rule in 5 of 5 against 0, capture 5 of 5, no live file made); REOPENED 2026-11-23 (the user's word: setup updates untouched copies of earlier templates; 06, section 6); re-LOCKED 2026-11-24 (section 6 passed: the field shape's three files updated, the skill 3 of 3 on the final build, the third attempt; CI on three systems) | user + evidence | D10, D11, D15 |
 | V2-D30 | Versioned entries: how does the map record versions, and tell stale memory from current? | OPEN 2026-11-20 (S3, S4 and S6 check it); LOCKED 2026-11-20 (versioned entries passed S3, S4 and S6, and the status report shows staleness (S8)) | user + evidence | D13, D16, D28 |
-| V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4); REOPENED 2026-11-23 (the user's word: P2, draft-writing rules in the dream skill; 06, section 5, 5a); re-LOCKED 2026-11-23 (5a passed at attempt 2: skill drafts say how each step is done; the rule-paths clause dropped after it narrowed a rule to two files) | user + evidence | D14, D18, PM1, PM5 |
-| V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)) | user + evidence | D18, D31 |
-| V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d); LOCKED 2026-11-23 on (M) with (A)'s "later" (B and C rejected; 06, section 5, 5c) | user + evidence | D18, D29, D30, D31, D32 |
+| V2-D31 | The dream: how does an on-demand run over past sessions improve the map without becoming v1's injection? | OPEN 2026-11-20 (S1 decides whether it is built; S7 checks the product); LOCKED 2026-11-20 (S7 passed: check 2 at attempt 2, checks 1, 3 and 4); REOPENED 2026-11-23 (the user's word: P2, draft-writing rules in the dream skill; 06, section 5, 5a); re-LOCKED 2026-11-23 (5a passed at attempt 2: skill drafts say how each step is done; the rule-paths clause dropped after it narrowed a rule to two files); REOPENED 2026-11-25 (the user's word: Claude may start a dream itself, and the dream's skill drafts are no longer forced user-only; 06, section 8, 8l and 8m) | user + evidence | D14, D18, PM1, PM5 |
+| V2-D32 | Dream tracking: how does the plugin know when the last dream ran, when memory changed, and when a dream is due? | OPEN 2026-11-20 (S6 and S8 check it); LOCKED 2026-11-20 (the nudge reached the user only in 5 of 5 (S8 item 7), and the status report shows the last dream and the sessions since (S8)); REOPENED 2026-11-25 (the user's word: the due nudge also reaches Claude, in interactive sessions; 06, section 8, 8l) | user + evidence | D18, D31 |
+| V2-D33 | What runs without the user after setup: starting a dream, and accepting what it proposes? | OPEN 2026-11-23 (the user's goal after a live test; 06, section 4, step 4d); LOCKED 2026-11-23 on (M) with (A)'s "later" (B and C rejected; 06, section 5, 5c); REOPENED 2026-11-25 (the user's word: Claude may start the dream and the plugin's other skills itself; 06, section 8, 8l) | user + evidence | D18, D29, D30, D31, D32 |
 | V2-D34 | Agents and skills made for one repo: how does the plugin guide making them, and test each one before a person keeps it? | LOCKED 2026-11-25 on (T), the trial as a script (06, section 8, 8e, attempt 4 on the user's word); before it BLOCKED 2026-11-24 (06, 7a) | user + evidence | D10, D18, D29, D30, D31, D33 |
 | V2-D35 | The dream learns from use: how does it read what the repo's sessions did with its skills and agents, and what the team wants weighed, so that it proposes from evidence? | LOCKED 2026-11-24 on (T) (06, section 8, 8d's result) | evidence | D10, D14, D18, D31, D33, D34 |
 
@@ -114,6 +114,15 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   URL).
 - **Check:** user answer (2026-10-19). Branches `v1` and `v2` exist on GitHub. **Result:** pass.
 - **Reopen if:** the marketplace needs to serve v1 and v2 side by side.
+- **REOPENED 2026-11-25, on the user's word:** "make sure that we do not expose all repo as plugin just required to
+  work code". Asked once, the user chose "main = product only".
+  - **Why:** every marketplace install clones all of `main` (measured with CLI 2.1.332: 449 files, 390 of them under
+    `docs/v2`).
+  - **What changes:** from the next release, `main` holds only the product: `plugin/` without its tests, the
+    marketplace manifest, the README, the LICENSE and the CI that runs there. A release copies the product onto `main`
+    rather than merging `v2`.
+  - **What stands:** the docs stay on `v2` (D04), and D25's name and in-place reach hold.
+  - **Check:** 06, section 8, 8n. D03 re-locks on 8n's result.
 
 ### V2-D04 — Home of v2 planning knowledge
 - **Choice:** everything about v2 (charter, process, decisions, research, probes) lives on branch `v2` under
@@ -2345,6 +2354,20 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   - hooks within 100 ms.
 
   The hook fixes of section 8, group H, are held to that budget. Section 8 re-locks D18 on its own result.
+- **REOPENED 2026-11-25, on the user's word:** "we need to make it, and other skills and commands, usable by claude
+  too". Asked once, the user also chose that Claude is told when a dream is due (D32, D33).
+  - **The skills:** every plugin skill loses `disable-model-invocation`. So each description is listed in every
+    session; 8l measures the always-on cost with `claude plugin details`.
+  - **Session start:** it adds one line to Claude's context when a dream is due. The line fits inside the
+    10,000-character cap, and headless sessions do not get it.
+  - **Probed before the change** (CLI 2.1.332, headless, a copy with `status` unflagged):
+    - Claude called the Skill tool itself.
+    - That call needs a permission, `Skill(second-brain:<name>)`. In an interactive session that is one prompt, and
+      without the rule a headless call is denied.
+    - With the rule, the skill's `!` command ran under its own grant.
+    - A hook sees `CLAUDE_CODE_ENTRYPOINT=sdk-cli` in a headless session.
+  - **What stands:** hooks call no model and no network, and the budget is 100 ms.
+  - **Re-locks on 8l's result.** 8l is now the last hook change, so the bench runs after it.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
@@ -5176,6 +5199,16 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   no wider than the files the sessions worked on" narrowed the date rule to the two files the sessions touched, so it
   was dropped. On the final text, S7's bars pass, with the rule 5 of 5 and every rule draft on globs.
   *Reopen if:* the triggers above.
+- **REOPENED 2026-11-25, on the user's word** (D33's reopen):
+  - **What changes:**
+    - Claude may start a dream itself.
+    - A skill draft the dream makes is no longer forced user-only: finish stops adding `disable-model-invocation`,
+      which it has added since 8d.
+    - A dream started through the Skill tool has no typed command line, so 8m also marks that form as the dream
+      itself.
+  - **What stands:** a dream leaves a reviewable diff, its proposals count only after review, and it keeps no
+    transcript copy.
+  - Re-locks on 8m's and 8l's results.
 
 ### V2-D32 — Dream tracking and the due nudge
 - **Question:** how does the plugin know when the last dream ran, when memory last changed, and when a dream is due,
@@ -5198,6 +5231,14 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
 - **Status:** OPEN.
 - **S6 passed (2026-11-20).** The nudge and the waiting-review line reach the user only, on `startup` and `clear`. The thresholds are the user's. Session start's only write is one `dirs.log` line. Added p95 at most 78.8 ms with 300 unseen transcripts. D32 stays OPEN until S8's status report passes.
 - **LOCKED 2026-11-20** (06, section 3, S6 and S8). The nudge reached the user only, in 5 of 5 acceptance runs (S8 item 7), and the status report shows the last dream and the sessions since (S8). *Reopen if:* the nudge reaches Claude's context, or session start leaves D18's 100 ms (the design above).
+- **REOPENED 2026-11-25, on the user's word.** The user asked that Claude be told when a dream is due, which is this
+  decision's own trigger, now intended.
+  - **In an interactive session:** session start's added context says that a dream is due. Claude starts the dream
+    after the person's current task, and says so first. The person's line stays.
+  - **A headless session** (entry point `sdk-cli`) gets no due line.
+  - **The check inverts S8's item 7:** the line reaches Claude in an interactive session, and does not reach it in a
+    headless one (06, section 8, 8l).
+  - Re-locks on 8l's result.
 
 ### V2-D33 — What runs without the user after setup
 - **Question:** after setup, which of the plugin's upkeep runs without the user: starting a dream, and accepting what
@@ -5254,6 +5295,25 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
     desktop app.
   - *Reopen if:* a dream's proposal is accepted without the user's yes, or Claude Code lets a scheduled task run a
     flagged skill.
+- **REOPENED 2026-11-25, on the user's word:** "i see we have diable-model-invocation in our plugin so claude cannot
+  use commands like dream byself so it lock the automation. we need to make it, and other skills and commands, usable
+  by claude too". Asked once, the user also chose that Claude is told when a dream is due (D32), and that the dream's
+  skill drafts are no longer user-only (D31).
+  - **A new option, (I):**
+    - Claude invokes the dream skill itself, when told one is due, after the person's current task, or when asked.
+    - Its proposals count only after review, so (C) stays rejected.
+    - The plugin's other skills become model-invocable too: setup, status, tailor and map-review.
+  - **(I) against the faults that rejected (B):**
+    - it starts after a task, not after a session's first reply;
+    - headless sessions get no due line;
+    - it runs in the working session, in view, as (M) does.
+  - **What stands:** the cost, about a session's usage per dream.
+  - **The check (06, section 8, 8l, registered before the code):**
+    - with each skill allowed, a request in plain words starts the skill;
+    - "nothing accepted without the person's yes" is earned again in dreams that Claude starts, with map-review
+      invocable;
+    - the live test runs a session in which a dream is due.
+  - Re-locks on 8l's result.
 
 ### V2-D34 — Agents and skills made for one repo
 - **Question:** how does the plugin guide Claude to make an agent, skill or path rule for the repo it runs in (and
