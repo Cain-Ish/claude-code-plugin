@@ -9067,3 +9067,30 @@ self-tests passed with the pin off before the freezes.
   outside `plugin/` (a directory marketplace `second-brain-live` that wraps it unchanged, rehearsed in an isolated
   config, where its cached copy hashed `38fbf0dd76ed`). Then the steps for the second session. CI's macOS job runs on
   this push. Then group M, the final audit, and a stop before `main`.
+
+### 8, 8g: a worktree's files by their real path (registered 2026-11-25, before the code)
+
+**Found:** CI's run on the move's push (`2e57af4f`, run 45594903637) failed the self-test on macOS and Windows, one
+case each: `dream8d` (3), globs and worktrees. Linux and the load jobs passed. So the macOS evidence the user's word
+on systems asked for is not yet in hand.
+
+**The cause:** `prepare` places each file a session touched under the root of the worktree that holds it. The worktree
+roots come from git, by their real paths. The file's path is spelled from the folder the transcript recorded, which is
+not resolved. On the runners the temp folder has two spellings (macOS `/var` is a link to `/private/var`; Windows
+runners use an 8.3 short name), so the worktree's root never matched, and the main root's spelling did. The worktree
+session's files were counted as `.claude/worktrees/feat/…`. Reproduced here with the temp folder behind a junction.
+A user whose repo sits under a link or a short name meets the same thing: package counts and the rule paths drawn from
+them name the wrong folders.
+
+**The change:** before matching, a file's folder is resolved through the real path of its nearest folder that still
+exists. The test's worktree session spells its folder through a link to the repo, so the case fails on any machine,
+not only on CI's runners.
+
+**The checks:**
+1. The self-test passes on Windows, Node 24 and 20, with the temp folder as it is and behind a junction. The new
+   spelling fails on the current `plugin/` and passes on the copy.
+2. 8d's mutation list, its (3) entries, is still killed on the copy (`MUT_ONLY`), plus one new mutation: the real-path
+   step removed.
+3. CI's macOS job passes on the push that moves 8g into `plugin/`. That run is the macOS evidence.
+4. The review is the final audit's, which reads the whole of 2.6.0.
+- **Attempts:** three (rule 4). Built in a copy of `plugin/`.
