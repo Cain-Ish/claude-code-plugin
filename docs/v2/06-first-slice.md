@@ -8827,3 +8827,21 @@ K2 (tested in 4i, not shipped) and K3 (deferred in 4g, reopens on a measured mis
 **The live test** (the user's word): once 8e and 8f pass, the frozen build is installed in this repo's local scope,
 from a copy outside `plugin/`, never from the checkout (an install pointed at the checkout runs it live). The second
 session gets the steps: `/reload-plugins`, then the dream, `/map-review` and `/second-brain:tailor`.
+
+**8f, amended before its code is frozen (2026-11-25): a field failure of 2.5.1, found while this repo's dream ran.**
+- **What happened:**
+  - `finish` wrote every proposal and the log line, then `fs.rmSync` of `.project-map/.dream-run/` threw. On Windows a
+    folder cannot be deleted while a program has it as its working folder, and the building session's background
+    watcher did.
+  - So the data folder's run record, `state.json` (the read-up-to mark) and the lock were all left as they were. The
+    next dream would have reported a dream "running, or stopped".
+  - The session that ran the dream was sent the recovery: remove the half-written draft's folder, then retry `finish`.
+- **The cause in the code:** the repo's run folder was removed before the state and the lock, though only the data
+  folder's run record must go first (a retry trusts it).
+- **Change 4:** `finish` removes the data folder's run record, writes the state, releases the lock, and only then
+  removes `.project-map/.dream-run/`. When the system refuses that, the dream is still finished, and its report says to
+  delete the folder once nothing holds it. `prepare` already clears a leftover run folder.
+- **Check 1 adds a case, on Windows:** a child process holds `.dream-run` as its working folder through `finish`. The
+  dream finishes, the lock is gone, `state.json` is written, and the report names the folder. On macOS a folder can be
+  deleted while it is a working folder, so the failure cannot happen there, and the case is skipped with that reason.
+- **Check 2** adds the mutation that puts the removal back before the state.
