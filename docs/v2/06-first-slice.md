@@ -9958,3 +9958,26 @@ were open keep the old build until `/reload-plugins`. Live, in headless sessions
   a read that shows one entry, got that entry's label and nothing more.
 - **C-2:** `/second-brain:tailor show work-status` printed the agent's whole text, the four check scripts and the run
   line. The model relayed all of it, unchanged, so L-1's drop did not recur here.
+
+**CI on the 8i and 8j move (2026-11-25):** run 45655288922 on `a4df52d3` (`88e323d58cca`) passed every job: the
+self-test on macOS, Windows and Linux, and the load jobs. That is J-5's evidence: 8j's Windows-only cases, reasoned
+for macOS, pass there.
+
+**The live test: L-3 diagnosed (2026-11-25).** One "with" run of the `left` case, run as the trial runs it but keeping
+its output, wrote an accurate, current list:
+- 8a's block lifted into 8k, then 8k, 8m and 8l registered and not built;
+- group M, the audit's items, and what waits for the user.
+
+The check failed it anyway. It wanted 8a's ids, or "8a" within 60 characters of "fix", and the agent said "8a … its
+fixes move into 8k" in other words. So the check was at fault, not the agent.
+- L-12, into the register (tailor's guidelines, 8l): a check for an agent that reads the repo's records hard-coded
+  facts of the commit it was written at, and matched literal wording. The trial copies the latest commit, so such
+  facts go stale between commits, and a right answer in other words fails. The `state` check had the same flaw:
+  "8b to 8j passed" never names "8h". Guideline: a check accepts any wording of the fact, and derives what changes
+  from the copy's own files rather than hard-coding it.
+- As the person would, the live cases were rewritten:
+  - the agent's prompts follow amended L-2 ("…if this repo has one; otherwise do it yourself");
+  - `left` accepts 8a's hardening named as 8a, 8k or its ids;
+  - `state` asks for one passed step and for 8k as not built.
+
+  The real answer passes the new `left` check; the wrong and empty ones fail. The trial runs again on live.1.

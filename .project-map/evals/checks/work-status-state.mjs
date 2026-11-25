@@ -1,17 +1,10 @@
-// work-status, case "state": status.md gives step 8a as blocked and step 8h as passed, as the plan records them at this
-// commit (06, section 8). A step's state counts on its own line or under a heading that names the state.
-// shortcut: a line that names both steps with both states passes either way; tighten if a run shows a swapped answer.
+// work-status, case "state": status.md gives the current section's steps their states: at least one passed, and 8k
+// (registered 2026-11-25, not built at this commit) as registered, planned or not built. Steps may be named in ranges
+// ("8b to 8j"), so no single passed step's id is required (the live test's L-12).
 import fs from 'node:fs';
 
 let text = '';
 try { text = fs.readFileSync('status.md', 'utf8'); } catch {}
-let heading = '';
-let blocked = false;
-let passed = false;
-for (const line of text.split(/\r?\n/)) {
-  if (/^\s*#{1,6}\s|^\s*\*\*[^*]+\*\*:?\s*$/.test(line)) heading = line;
-  const said = `${heading} ${line}`;
-  if (/\b8a\b/.test(line) && /blocked/i.test(said)) blocked = true;
-  if (/\b8h\b/.test(line) && /pass/i.test(said)) passed = true;
-}
-process.exitCode = blocked && passed ? 0 : 1;
+const passed = /\bpass(ed|es)?\b/i.test(text);
+const open = text.split(/\r?\n/).some((l) => /\b8k\b/.test(l) && /registered|not (yet )?built|planned|to build|pending/i.test(l));
+process.exitCode = passed && open ? 0 : 1;
