@@ -9743,3 +9743,14 @@ sets no `model:`; a cheaper one would need S7's counted runs of its own).
   The texts and 04 say so.
 - Not taken, from the second opinion: deleting the UserPromptSubmit force (D22), the Bash label hooks (D14), the
   snapshot and restore (D31), and `codebase-guide` in favour of Explore (T-6). Each is locked, and no trigger fired.
+
+**The live test, on the installed build (2026-11-25), L-6:** `/second-brain:status` in this repo reported "Nothing
+waits for review", while `.claude/agents/work-status.md.draft` waited. That is K-5: `drafts()` skips agent drafts, so
+neither status nor session start's waiting note counts them. Seen in real use, it moves from "later" into 8k, which
+owns `map.mjs` and is the last hook change. The forced directory question also ran in this slash-command turn,
+where it bore on nothing (an observation for D22).
+
+**The split of work, the user's word (2026-11-25, relayed by the other session):** the other session builds 8k, 8m
+and 8l, in that order, each in its own copy with its checks before its move. This session moves 8i and 8j in, puts
+each checked build on the live install as `2.6.0-live.N`, live-tests it, and sends every finding to the register and
+to the step that owns the file.
