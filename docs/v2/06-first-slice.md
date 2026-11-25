@@ -9443,3 +9443,23 @@ headless, with the user's settings loaded; the agent acted as the person, on the
   survey, none. Interactively each would ask the person. Tailor's text could steer to the Read and Grep tools.
 - The `work-status` draft waits in `.claude/agents/work-status.md.draft`. Promotion waits for L-2 and L-3, by the
   person in `/map-review`.
+
+### 8: the user's word on the register (2026-11-25)
+
+Asked once, four questions; the answers:
+- **8a's hardening: all of 8a now.** The block of 2026-11-24 is lifted for every item: H3 to H7, D-1 to D-6, F-1, 8a's
+  leftovers, and `status.mjs` on a FIFO or a linked map file. 8a's code (`probes/V2-8a-fixes/candidate/`, built on
+  2.5.1) is ported onto 2.6.0 as step 8k, registered before its code. Its attempt 3 failed CI on Windows (H7's fix
+  does not hold on Node 20, and a load gate read 102.7 ms against 100); 8k's registration says how each is answered.
+- **Dream drafts: build the test path (C-4).** Tailor gets a path that writes cases for an existing draft or a live
+  artifact, and map-review points to it. D35's "ships only with 8e's trial" and D10's "each is tested" stand.
+- **The analyzers' read of `usage.json`: cut it (P-3).** Each analyzer reads only its digest; the main session keeps
+  `usage.json`.
+- **Housekeeping: clean both, and stop new ones.** The trial temp folders and the empty Claude Code project folders
+  the trial copies leave are listed, then deleted (only trial-named or empty ones); a trial copy leaves no project
+  folder from now on.
+
+**The order that follows:** 8i and 8j (code, building now); then 8k, 8a on 2.6.0 (code, on the merged copy, since it
+shares `dream.mjs` with 8j); then 8l, the text step (C-4, C-6, P-3, P-7, P-13, P-14, R-c, R-d, X-6, L-2, L-5), which
+re-earns the counted model runs once (8d's check 3, 8e's check 4, S7's check 2); then the refactors; then the
+records, group M, D18's bench, and the release stop.
