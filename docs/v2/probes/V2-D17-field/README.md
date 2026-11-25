@@ -259,3 +259,26 @@ does not depend on the choice.
 - Its main-session transcripts from the install on are counted by the loop above, with `field.mjs` and
   `field-scope.mjs`, and reported apart. They are not D24's corpus, which names the first repo's sessions. A defect
   there is fixed under the same consequences.
+
+## The field read of 2026-11-25 (registered 2026-11-25, before the scan)
+
+- *Why:* the user asked for the field check (the repo's `field-check` skill). The last read (06, "5: the field
+  read", 2026-11-23) waited for sessions on 2.5.0.
+- *Installs:* both field repos run 2.5.1, the latest release, so nothing moves. This repo runs the unreleased 2.6.0
+  from a copy, for the user's live test.
+- *Corpus:*
+  - **the first field repo:** the one main session that began after the last read (2026-11-23 to 11-24), with its
+    subagent folder;
+  - **the second field repo:** no session since 2026-11-15, so nothing;
+  - **this repo, reported apart** (not a field repo): its two human main sessions of 2026-11-23 to 11-25. Both build
+    or test the plugin and know its checks, so every epoch is primed (D24's rule). The two headless sessions of the
+    2.6.0 install's smoke test are left out.
+- *Frozen* at 2026-11-25 12:32Z under `research/raw/2l-field/read-2026-11-25/` (gitignored).
+- *Then,* the loop's steps:
+  - **scan:** `count.mjs` once per repo;
+  - **read:** the loop's step 3; each flag is read by hand before it is called a defect;
+  - **record:** 06, counts only;
+  - **ask:** the fixed question, once, to the one active session, this repo's other one. The field repos' sessions
+    are offline and are not asked.
+- *Triage* by the loop's step 6. A defect becomes a build step registered in 06 and waits for the user's word. As on
+  2026-11-23, this read is not a pass or fail.
