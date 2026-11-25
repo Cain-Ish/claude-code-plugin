@@ -9155,3 +9155,29 @@ the repo. The field repos' sessions were offline and not asked.
   - C2 should follow a force's parent records to its prompt, not the time;
   - the build label should be per epoch: the field epoch that ran 2.5.1's setup is labelled 2.5.0.
 - **Next read:** the field sessions on 2.5.1, or on the next release once it moves.
+
+### 8, 8h: map labels only on a command that names the map (registered 2026-11-25, before the code)
+
+**Found** in this session, while 8g ran: a Bash command run in the background that never named `.project-map` got
+every map file's labels. Reproduced with a harmless command:
+- a compound command (`;`, a redirect, a `for` loop) run in the background got the labels;
+- the same command in the foreground did not, and neither did a plain `echo` in the background.
+
+So Claude Code's `if` filter, `Bash(*.project-map*)`, lets such a command through. The handler trusts the filter
+and, as for any background command whose output it cannot see (2n), gives every map file's labels. That is noise in
+Claude's context on each such command, the kind the field account of 2026-11-08 named. The label's meaning (D14) and
+its delivery (D18) are unchanged.
+
+**The change:** the `bash` and `bash-failure` handler checks that the command names the map folder, as the filter
+does, and stays silent otherwise. The filter stays, since it spares a process start. A command that reads the map
+without naming its folder was already unlabelled (04's accepted risk), so no new miss.
+
+**The checks:**
+1. A self-test case: a `bash` and a `bash-failure` input with a `backgroundTaskId` and a command that does not name the
+   map get nothing; the same input naming the map gets every file's labels. It fails on 8g's copy and passes after.
+   The self-test passes on Windows, Node 24 and 20.
+2. A mutation: the guard removed. The case must fail.
+3. Every existing `bash` case's command names the map (read: all do), so no case changes.
+- **Attempts:** three (rule 4). Built on 8g's copy; it moves with 8g. Its review is the final audit's.
+- **Live:** once the live install carries it, a background compound command in this repo gets no label. Recorded when
+  seen; not a gate.
