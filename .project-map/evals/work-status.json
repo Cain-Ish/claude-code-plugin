@@ -1,0 +1,19 @@
+{ "artifact": ".claude/agents/work-status.md.draft", "runs": 3, "cases": [
+  { "id": "state",
+    "prompt": "Use the work-status agent to report which steps of the plan's current section passed, which are blocked and which are still open. Write its answer to status.md.",
+    "tools": ["Read", "Grep", "Glob", "Write", "Agent"],
+    "check": ".project-map/evals/checks/work-status-state.mjs" },
+  { "id": "left",
+    "prompt": "Use the work-status agent to list what is still pending before the plan's current section is done. Write the list to left.md.",
+    "tools": ["Read", "Grep", "Glob", "Write", "Agent"],
+    "check": ".project-map/evals/checks/work-status-left.mjs" },
+  { "id": "released",
+    "prompt": "Use the work-status agent to find out whether the work on the plugin is implemented, verified, merged and released. Write its answer to status.md.",
+    "tools": ["Read", "Grep", "Glob", "Write", "Agent"],
+    "check": ".project-map/evals/checks/work-status-released.mjs" },
+  { "id": "where-label",
+    "prompt": "In the plugin's own code under plugin/, which file adds the \"unverified quote\" label to map entries? Write its path to answer.md.",
+    "tools": ["Read", "Grep", "Glob", "Write", "Agent"],
+    "use": false,
+    "check": ".project-map/evals/checks/work-status-where-label.mjs" }
+] }
