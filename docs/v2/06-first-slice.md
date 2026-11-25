@@ -8776,3 +8776,54 @@ Everything else is attempt 2's.
   - The mutation for the check's temp folder is gone with that folder.
 - **A limit, recorded:** a person who types the run line twice starts two trials of the same artifact, which then run
   side by side, and each writes the verdict file.
+
+### 8, 8f: the dream's two missing pieces (registered 2026-11-25, before the code)
+
+> add all missing elements so we can live test it. then support the second claude session with steps that has been
+> added so the dream will run also self imrpovements session
+
+The user's word, after a check against the research found two pieces never built
+([research/2026-11-23-ai-native-devcon.md](research/2026-11-23-ai-native-devcon.md), K1; the dream this repo ran on
+2026-11-25):
+- **K1's second signal, "read, then corrected again".** Only its first signal, map files no session read, was built
+  (4g).
+- **Digests that are mostly tool lines.** On this repo's 8 sessions, the digests held 13,793 lines for 97 typed lines
+  and chosen answers, the only lines a proposal may rest on. Each analyzer reads its digest whole.
+
+K2 (tested in 4i, not shipped) and K3 (deferred in 4g, reopens on a measured miss) stay as decided.
+
+**The change** (built on 8e's attempt-3 copy, so it holds 8c, 8d and 8e):
+1. **Trimmed digests.** `prepare` keeps:
+   - every U, Q and A line;
+   - the 4 tool lines (T or R) before each U or Q line;
+   - every T line that reads a map file (K1's route).
+
+   Each other run of tool lines becomes one line, `…: <n> tool lines`. The digest's hash and line numbers are the
+   trimmed text's, so evidence cites the trimmed lines.
+2. **"Read, then corrected"** (K1's second signal):
+   - `prepare` keeps, per digest, the line of each map read, beside the reads it keeps now;
+   - the dream skill writes the analyzers' candidate lines to `.dream-run/candidates.txt` before finish;
+   - `finish` reports, per topic file, the sessions where a `correction` candidate's line comes after a read of that
+     file in the same digest: "Read, then corrected again in the same session: `<file>` (`<n>` sessions)".
+   - Counts and file names only. It is evidence for the person, never a proposal (D31).
+   - A candidate line that is not a U or Q line of its digest is ignored, so a forged one counts nothing.
+3. **The texts:** the analyzer knows the `…` lines, and the skill knows the candidates file and the new report line.
+
+**The checks:**
+1. **The self-test, on Windows (Node 24 and 20).** Each case fails on 8e's attempt-3 copy, then passes. The cases:
+   - the trim keeps every U, Q and A line, the 4 tool lines before, and the map-read lines, and marks the rest;
+   - a correction after a read is counted, and one before the read is not;
+   - a forged candidate is ignored;
+   - the report line holds names and counts only.
+2. **A mutation check** (`probes/V2-8f-dream/mutate8f.mjs`) kills each new guard.
+3. **Real data:** on the transcripts this repo's dream of 2026-11-25 read, the trimmed digests hold at least 60% fewer
+   lines in all, and exactly as many U and Q lines as the full ones.
+4. **S7's check 2 at its bars,** steering included, 10 runs on fresh histories, on the frozen copy: the dream still
+   finds what it found.
+5. **A review** by a fresh agent and the decision-checker; each finding fixed before the freeze, or recorded.
+- **Attempts:** three (rule 4).
+- **It ships with 8e.** On a fail, 8f stays out.
+
+**The live test** (the user's word): once 8e and 8f pass, the frozen build is installed in this repo's local scope,
+from a copy outside `plugin/`, never from the checkout (an install pointed at the checkout runs it live). The second
+session gets the steps: `/reload-plugins`, then the dream, `/map-review` and `/second-brain:tailor`.
