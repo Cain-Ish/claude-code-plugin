@@ -9754,3 +9754,22 @@ where it bore on nothing (an observation for D22).
 and 8l, in that order, each in its own copy with its checks before its move. This session moves 8i and 8j in, puts
 each checked build on the live install as `2.6.0-live.N`, live-tests it, and sends every finding to the register and
 to the step that owns the file.
+
+**The live test: a dream on the installed build (2026-11-25, `38fbf0dd76ed`).** Run headless in this repo: 13 turns,
+2.69 USD, no denial. It read 2 sessions and proposed nothing, each candidate dropped for a reason it gave: the
+never-drop rule was already in the map; the rest came from one session only, or was plan work, which the steering
+file sends to 06. The `/map-review` step had nothing to do. The log line in `dreams.md` was committed as the person
+would. What it found:
+- L-7: the dream session's own shell sat inside `.dream-run/`, so finish could not remove it. 8f's path worked:
+  "could not be removed", and the lock released. The model then deleted the folder by hand. The dream skill should
+  keep the shell out of that folder (8l).
+- L-8: a prompt that another Claude session sent through `claude -p` (here, the live test's answers to tailor) is
+  tagged `U`, as the person's typed line. A dream could propose it as the user's rule; this one nearly did. Such a
+  session's records carry `entrypoint: sdk-cli`. The digest should mark those lines, so an analyzer treats them as
+  not shown to be the person's (8m).
+- L-9: "read, then corrected again" counted `decisions.md`, though the only correction after the read concerned
+  tailor. The count does not check that the correction concerns the file read. Fix: the candidate line names the
+  topic it corrects, and finish counts it only for that file (8m, with the analyzer's text in 8l).
+- L-10: status reported 5 sessions since the last dream, and the dream read 2. Two causes, both known:
+  - the session that ran the first dream (8 MB, the other session's) is skipped whole: Q-6, now seen in real use;
+  - headless sessions with no typed line give no digest.
