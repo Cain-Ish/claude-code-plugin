@@ -31,6 +31,8 @@ const M = [
   ['(3) each worktree its own root', D, 'const roots = [...new Set([path.resolve(root), ...rootsReal])]', 'const roots = [...new Set([path.resolve(root)])]'],
   ['(3) the longest root first', D, '.sort((a, b) => b.length - a.length);\n    const inRoot', ';\n    const inRoot'],
   ['(3) a relative path from the session folder', D, 'path.resolve(cwd ?? root, p)', 'path.resolve(root, p)'],
+  // 8g: a session's folder spelled through a link is matched by its real path
+  ['(3) a folder matched by its real path', D, 'const a = realDir(path.resolve(cwd ?? root, p));', 'const a = path.resolve(cwd ?? root, p);'],
   ['(3) an inline list split outside braces', D, ".match(/(?:\"[^\"]*\"|'[^']*'|\\{[^}]*\\}|[^,])+/g) ?? []", ".split(',')"],
   ['(3) the YAML list form', D, ": paths[1].split('\\n').map((l) => l.replace(/^[ \\t]*-[ \\t]+/, ''))", ': []'],
   ['(3) a linked or impossible folder', D, 'lstat(path.join(root, fixed(g)))?.isDirectory()', 'fs.statSync(path.join(root, fixed(g)), { throwIfNoEntry: false })?.isDirectory()'],

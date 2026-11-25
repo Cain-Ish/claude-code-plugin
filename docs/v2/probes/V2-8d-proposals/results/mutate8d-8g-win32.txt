@@ -1,0 +1,17 @@
+platform win32, test/dream8d.mjs alone, MUT_ONLY=^\(3\), on 8g's copy (b80afe510db8)
+killed    (3) only the session's own calls
+killed    (3) each worktree its own root
+killed    (3) the longest root first
+killed    (3) a relative path from the session folder
+killed    (3) a folder matched by its real path
+killed    (3) an inline list split outside braces
+killed    (3) the YAML list form
+killed    (3) a linked or impossible folder
+killed    (3) a backslash glob
+killed    (3) a folder inside the repo
+killed    (3) touched files kept
+killed    (3) only files in the repo
+killed    (3) packages per digest
+killed    (3) the report by package
+killed    (3) a rule naming a folder the repo lacks
+15 of 15 killed

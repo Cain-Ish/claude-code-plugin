@@ -191,7 +191,10 @@ await tryCheck('(3) touched files and placement', async () => {
 await tryCheck('(3) globs and worktrees', async () => {
   const w = world({ 'packages/api/package.json': '{}\n', 'packages/api/src/a.ts': 'export {};\n', 'packages/web/package.json': '{}\n' });
   w.g('worktree', 'add', '-q', '-b', 'feat', '.claude/worktrees/feat');
-  const wt = path.join(w.r, '.claude', 'worktrees', 'feat');
+  // 8g: the session spells the repo through a link, as CI's macOS /var and Windows 8.3 temp folders do
+  const alias = path.join(fs.mkdtempSync(path.join(tmp, 'alias-')), 'r');
+  fs.symlinkSync(w.r, alias, 'junction');
+  const wt = path.join(alias, '.claude', 'worktrees', 'feat');
   const { rec } = w;
   // the session's folder is a package inside the worktree, so a relative path resolves from there
   const inWt = (o) => JSON.stringify({ cwd: path.join(wt, 'packages', 'api'), timestamp: '2026-11-20T10:00:00Z', ...o });

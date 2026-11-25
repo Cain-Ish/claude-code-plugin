@@ -125,7 +125,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '38fbf0dd76ed', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), 'b977771fc513', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -397,6 +397,10 @@ assert.ok(noNote.endsWith(only('.project-map/cited.md', [2])) && !only('.project
   const raw = (command, tool_response) => hook('bash', { tool_input: { command }, tool_response });
   // 1. a background command: its output comes later, from a file outside the map
   assert.equal(raw('cat .project-map/captured.md', resp({ backgroundTaskId: 'b1' })), whole());
+  // 8h: a command that does not name the map gets nothing on either route, in the background or with output that
+  // reads as cut, should Claude Code's if field let it through (it did with some compound commands)
+  assert.equal(raw('S=/tmp; ( echo "exit $?" ) > "$S/x" 2>&1', resp({ backgroundTaskId: 'b2' })), '');
+  assert.deepEqual(fail({ tool_input: { command: 'false; echo x' }, error: 'Exit code 1\n... [40000 characters truncated] ...' }), {});
   // 2. output Claude Code cut and saved to a file; the uncommitted entry is past the cut
   assert.equal(raw('cat .project-map/captured.md', resp({ stdout: run('head -3 .project-map/captured.md').stdout, persistedOutputPath: 'tool-results/x.txt', persistedOutputSize: 50_000 })), whole());
   // the same on the failure route, whose error text says it was truncated

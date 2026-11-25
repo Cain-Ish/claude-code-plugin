@@ -9205,3 +9205,26 @@ without naming its folder was already unlabelled (04's accepted risk), so no new
 - **Attempts:** three (rule 4). Built on 8g's copy; it moves with 8g. Its review is the final audit's.
 - **Live:** once the live install carries it, a background compound command in this repo gets no label. Recorded when
   seen; not a gate.
+
+### 8, 8g and 8h: results (2026-11-25): pass on Windows; macOS from CI on this push
+
+- **8g passes, attempt 1** (product `b80afe510db8`, built on `38fbf0dd76ed`):
+  - check 1: the new spelling, a worktree session whose folder runs through a link to the repo, fails on the current
+    `plugin/` and passes on the copy. The self-test passes on Node 24 and 20, each with the temp folder as it is and
+    behind a junction: 4 of 4.
+  - check 2 (`probes/V2-8d-proposals/results/mutate8d-8g-win32.txt`): 15 of 15 of 8d's (3) mutations killed, the new
+    one (the real-path step removed) included.
+- **8h passes, attempt 1** (product `b977771fc513`, built on 8g's copy):
+  - check 1: a `bash` and a `bash-failure` input that do not name the map, one marked as a background command and one
+    whose error text reads as cut, got 413 and 420 bytes of labels from 8g's hook and nothing from 8h's. The self-test
+    passes on Node 24 and 20.
+  - check 2: with the guard removed, the self-test fails at the new case (`selftest.mjs:402`).
+  - check 3 held: every existing case's command names the map.
+  - **Found while it ran:** the noise came by two routes, not one. Besides background compound commands, a foreground
+    command (`test … && cp … && sed … | cut …`) got every file's labels. Its output printed the self-test's own
+    `[40000 characters truncated]` text, which the handler reads as a cut output. Both need the filter to let through
+    a command that does not name the map; 8h stops both in the handler.
+- **Moved into `plugin/`:** `plugin/` hashes `b977771fc513`, and `claude plugin validate plugin` passes. CI's macOS job
+  on this push is the macOS evidence (8g's check 3); its result is recorded next.
+- **Not in the live install:** that holds `38fbf0dd76ed`. 8g matters only where a repo's path has two spellings, which
+  this repo's does not. 8h's noise stays in the live test until the install is refreshed.

@@ -392,11 +392,14 @@ export async function prepare(root, data) {
     // transcripts, so the counters have no prototype (a skill named "constructor" or "__proto__" is only a name)
     const bag = () => Object.create(null);
     const usage = { sessions: 0, skill: bag(), agent: bag(), failed: bag(), subagents: bag(), digests: bag() };
+    // 8g: a session may spell its folder through a link or a short name (macOS /var, a Windows 8.3 name) while the
+    // worktree roots are real paths, so a file's folder is matched by the real path of its nearest folder that exists
+    const realDir = (a) => { let q = path.dirname(a); while (!fs.existsSync(q) && path.dirname(q) !== q) q = path.dirname(q); try { return path.join(real(q), path.relative(q, a)); } catch { return a; } };
     // 8d (D35): a file a session named, relative to the root of the worktree that holds it (the longest root first, so a
     // worktree under .claude/worktrees/ is its own; a relative path is taken from the session's folder), or null when
     // no root holds it (the 8d review)
     const roots = [...new Set([path.resolve(root), ...rootsReal])].sort((a, b) => b.length - a.length);
-    const inRoot = (p, cwd) => { const a = path.resolve(cwd ?? root, p); for (const r of roots) { const q = path.relative(r, a); if (q && !q.startsWith('..') && !path.isAbsolute(q)) return q.split(path.sep).join('/'); } return null; };
+    const inRoot = (p, cwd) => { const a = realDir(path.resolve(cwd ?? root, p)); for (const r of roots) { const q = path.relative(r, a); if (q && !q.startsWith('..') && !path.isAbsolute(q)) return q.split(path.sep).join('/'); } return null; };
     // a file's package: the nearest folder below the root that holds a package manifest; null when none does
     const pkgs = new Map();
     const packageOf = (rel) => {

@@ -47,11 +47,12 @@ if (which === 'session-start') {
 } else if (which === 'read') {
   const file = rel(root, input.tool_input?.file_path);
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
-} else if (which === 'bash' || which === 'bash-failure') {
+} else if ((which === 'bash' || which === 'bash-failure') && String(input.tool_input?.command ?? '').includes(MAP)) {
   // a Bash command that names the map folder gets every uncommitted entry's labels, and those of the committed entries
   // its output shows (D14, 06 2o): the output is every string in tool_response (stdout, stderr), or the failure's
-  // error text. shortcut: a command that does not name the map folder never starts this handler (the if field), so
-  // `git diff` from the root stays unlabelled (04's accepted risk)
+  // error text. shortcut: a command that does not name the map folder gets nothing, so `git diff` from the root stays
+  // unlabelled (04's accepted risk). The if field spares the process; the check above holds when Claude Code lets
+  // through a command that does not name it, as it did with some compound ones (8h)
   const ev = which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure';
   const strings = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
   const got = strings(which === 'bash' ? input.tool_response : input.error);
