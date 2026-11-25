@@ -9670,3 +9670,28 @@ The other session checked 8k's and 8l's registrations against the sources and co
   - R-l is the talk's "graph" item (records).
   - R-m is R4's scheduled-task reopen (later), and R-n the `claude plugin eval` probe (later).
   - R-p, for later: retirement is never a proposal of its own, only the "no use" line and a trial's verdict.
+
+**More items from the other session's read of Claude Code's docs (CLI 2.1.332) and its sweep (2026-11-25), placed:**
+- **8k** (it is the last hook change):
+  - Q-1: SessionStart has a `fork` source, which the matcher leaves out. D12 probed clear and resume, not fork.
+    Probe whether a forked session carries the start context, then add `fork` or record why not.
+  - Q-3: no hook sets a `timeout`, so the documented defaults hold (600 s, 30 s for UserPromptSubmit). A hung hook
+    would hold a session that long, against D18's 100 ms. Each hook gets a short timeout, such as 10 s.
+- **8l:** Q-5: `memory: project` turns on Read, Write and Edit for an agent, so `decision-checker` and `codebase-guide`
+  are not read-only. The templates' and 04's claims are corrected to match, once the other session's check of them
+  is in.
+- **later:**
+  - Q-2: the grants' form `Bash(node "<root>/scripts/x.mjs":*)` is not in the docs. It matched on every CLI run here;
+    a release smoke checks that each skill's command still runs without a prompt.
+  - Q-4: `engines` with a minimum Claude Code version, once the minimum is known.
+  - `SECOND_BRAIN_TRIAL_CLAUDE`, the tests' stand-in hook, ships in `trial.mjs` (recorded in 8e, not built).
+  - The session-start index still lists `.claude/` folders for agents, skills, commands and output styles.
+  - K3, deferred with a trigger, was not under "later".
+  - The next field read.
+  - Two of the Fog's bullets that still name changes: the map drifting from auto memory, and capture taking Claude's
+    option text as the owner's words.
+- **records:** judge D22's two observations of 2026-11-25 against its trigger; tick #115's step 22 or say what
+  closes it; triage #115's Fog (about 90 bullets).
+- **user (A5-2, measured):** `claude plugin marketplace add … --sparse .claude-plugin plugin` works and persists
+  through updates. An existing full install cannot switch with one command: a re-add is refused, and editing
+  `sparsePaths` by hand lost the marketplace. The other session puts the options to the user.
