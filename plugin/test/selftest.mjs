@@ -54,7 +54,7 @@ const OUTCOME = { SessionStart: 'Capture; Consistency', UserPromptSubmit: 'Consi
 const { hooks } = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8'));
 assert.deepEqual([...Object.keys(hooks), ...fs.readdirSync(path.join(PLUGIN, 'commands'))], Object.keys(OUTCOME));
 const OUTCOME_S = {
-  'skills/dream': 'Capture; Freshness', 'skills/setup': 'Onboarding', 'skills/status': 'Freshness', 'agents/dream-analyzer.md': 'Capture',
+  'skills/dream': 'Capture; Freshness', 'skills/setup': 'Onboarding', 'skills/status': 'Freshness', 'skills/tailor': 'Consistency', 'agents/dream-analyzer.md': 'Capture',
   'templates/CLAUDE.template.md': 'Onboarding', 'templates/claude': 'Onboarding; Consistency; Orientation; Freshness', 'templates/project-map': 'Onboarding', 'templates/gitattributes.txt': 'Onboarding',
 };
 assert.deepEqual([...['skills', 'agents', 'templates'].flatMap((d) => fs.readdirSync(path.join(PLUGIN, d)).map((f) => `${d}/${f}`))].sort(), Object.keys(OUTCOME_S).sort());
@@ -73,12 +73,15 @@ assert.match(fs.readFileSync(path.join(PLUGIN, 'agents', 'dream-analyzer.md'), '
 // /security-review; probes/V2-D31-dream/grant.mjs)
 assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8'), /^allowed-tools: Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/dream\.mjs":\*\)$/m);
 // S8: every other skill and command grants its own script only, never a bare Bash(node:*)
+const grantsOf = (f) => [...fs.readFileSync(path.join(PLUGIN, f), 'utf8').matchAll(/^allowed-tools: (.*)$/gm)].map((m) => m[1]);
 for (const [f, script] of [['skills/setup/SKILL.md', 'hook.mjs'], ['skills/status/SKILL.md', 'status.mjs'], ['commands/onboard.md', 'hook.mjs']]) {
-  const grants = [...fs.readFileSync(path.join(PLUGIN, f), 'utf8').matchAll(/^allowed-tools: (.*)$/gm)].map((m) => m[1]);
-  assert.deepEqual(grants, [`Bash(node "\${CLAUDE_PLUGIN_ROOT}/scripts/${script}":*)`], f);
+  assert.deepEqual(grantsOf(f), [`Bash(node "\${CLAUDE_PLUGIN_ROOT}/scripts/${script}":*)`], f);
 }
+// 8e: tailor's grant covers its ! block (cli, which never starts a trial) and the making steps' writes (draft) only;
+// a trial starts from the line the person types with Claude Code's ! prefix (06, 8e, as amended)
+assert.deepEqual(grantsOf('skills/tailor/SKILL.md'), ['Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" cli:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" draft:*)']);
 // 06, section 3: the skills, each run only when the user invokes it, so none costs listing context
-assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'skills')), ['dream', 'setup', 'status']);
+assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'skills')), ['dream', 'setup', 'status', 'tailor']);
 for (const s of fs.readdirSync(path.join(PLUGIN, 'skills'))) assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8'), /^---\n[\s\S]*?^disable-model-invocation: true$[\s\S]*?\n---\n/m, s);
 
 // D18: no model and no network, and hooks spawn only git. A tripwire over the product scripts' source, not a proof:
@@ -95,6 +98,20 @@ for (const f of ['hook.mjs', 'map.mjs', 'setup.mjs', 'dream.mjs', 'status.mjs'])
   assert.equal((src.match(/\bspawnSync\(/g) ?? []).length, (src.match(/\bspawnSync\('git'/g) ?? []).length, `${f} spawns only git`);
   assert.ok(!/\b(fetch|eval|require|import|Function)\s*\(|process\.binding|globalThis\[/.test(src), `${f} loads or builds no code at run time`);
 }
+// 8e: trial.mjs starts claude, a check script and itself by design, so it runs only from the tailor skill: no hook
+// names it, no other script reaches it, it imports only these modules, and it starts no code of its own making
+{
+  const hooksJson = fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8');
+  assert.ok(!hooksJson.includes('trial.mjs'), 'no hook runs the trial');
+  for (const f of ['hook.mjs', 'map.mjs', 'setup.mjs', 'dream.mjs', 'status.mjs']) assert.ok(!fs.readFileSync(path.join(PLUGIN, 'scripts', f), 'utf8').includes('trial.mjs'), `${f} never reaches the trial`);
+  const src = fs.readFileSync(path.join(PLUGIN, 'scripts', 'trial.mjs'), 'utf8');
+  for (const [, m] of src.matchAll(/^\s*import\b[^'"]*['"]([^'"]+)['"]/gm)) assert.ok(['node:crypto', 'node:fs', 'node:os', 'node:path', 'node:child_process', 'node:url', './map.mjs', './dream.mjs'].includes(m), `trial.mjs imports ${m}`);
+  assert.equal((src.match(/\bspawn\(/g) ?? []).length, 2, 'trial.mjs starts two kinds of child by spawn: the session, and itself detached');
+  assert.ok(!/\b(fetch|eval|require|Function|import)\s*\(|process\.binding|globalThis\[/.test(src), 'trial.mjs loads or builds no code at run time');
+  // a trial in a dream's sessions, or a dream in a trial's: neither script names the other's entry point
+  const trial8e = spawnRaw('node', [path.join(PLUGIN, 'test', 'trial8e.mjs')], { encoding: 'utf8', timeout: 600_000 });
+  assert.equal(trial8e.status, 0, trial8e.stdout + trial8e.stderr);
+}
 
 // the measured product (06, 2g): what installs hashes to what the release checks ran; A1 last ran on 3c46826f115b
 // (06, 2h). A product change fails here until this value moves with a new epoch and its checks.
@@ -108,7 +125,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), 'b9777170a9b6', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '38fbf0dd76ed', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -942,9 +959,11 @@ ${NAME}` } });
   const now = (from) => fs.readFileSync(path.join(PLUGIN, 'templates', from), 'utf8');
   // each earlier text's hash is listed for its file, and nothing else is; each template setup may replace is pinned, so
   // a changed template fails here until its old hash is listed in setup.mjs and its old text kept under test/earlier/
-  assert.deepEqual(OLD.map(([from, , earlier]) => [from, earlier]), OLD.map(([from]) => [from, ['2.3.0', '2.4.0'].map((v) => sum(old(v, from)))]));
+  // each file's earlier versions are the folders under test/earlier/ that hold it, oldest first (8d: map-review's 2.5.1)
+  const versions = (from) => fs.readdirSync(path.join(PLUGIN, 'test', 'earlier')).filter((v) => fs.existsSync(path.join(PLUGIN, 'test', 'earlier', v, from))).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  assert.deepEqual(OLD.map(([from, , earlier]) => [from, earlier]), OLD.map(([from]) => [from, versions(from).map((v) => sum(old(v, from)))]));
   assert.deepEqual(Object.fromEntries(FILES.filter(([, to]) => to.startsWith('.claude/') || to === '.project-map/README.md').map(([from]) => [from, sum(now(from))])), {
-    'claude/rules/project-map.md': '4bbeddbff188310c', 'claude/skills/map-review/SKILL.md': '7ff1c09c889ebe9c', 'claude/agents/decision-checker.md': 'f0eeade059f64cce',
+    'claude/rules/project-map.md': '4bbeddbff188310c', 'claude/skills/map-review/SKILL.md': '6d3e35da1c6033c9', 'claude/agents/decision-checker.md': 'f0eeade059f64cce',
     'claude/agents/codebase-guide.md': '26df656f4d0a6b34', 'claude/agents/memory-curator.md': '3f840cf3fd21dcb5', 'project-map/README.md': '15a4bb133893f00e',
   }, 'a template changed: list its old hash in setup.mjs (FILES), keep its old text under test/earlier/, then pin the new hash here');
   const cases = [
@@ -968,6 +987,8 @@ ${NAME}` } });
     // 06, section 6 (D29 reopened): a committed, unchanged copy of an earlier release's template takes this version's,
     // in its own line ending; a copy changed in any way, or not committed, stays as it is and is listed as differing
     ...['2.3.0', '2.4.0'].map((v) => ({ name: `old${v}`, pre: (r) => OLD.forEach(([from, to]) => w(r, to, old(v, from))), want: Object.fromEntries(OLD.map(([from, to]) => [to, now(from)])), says: [`Updated to this version's templates, as each was an earlier version's, unchanged (3): ${OLD.map(([, to]) => to).join(', ')}`, 'Kept as they were (0): nothing', 'Nothing is committed: review'], not: 'Differ from' })),
+    // 8d: map-review's 2.5.1 text, the only template that changed since 2.4.0, is replaced like the others
+    { name: 'old2.5.1', pre: (r) => w(r, '.claude/skills/map-review/SKILL.md', old('2.5.1', 'claude/skills/map-review/SKILL.md')), want: { '.claude/skills/map-review/SKILL.md': now('claude/skills/map-review/SKILL.md') }, says: "unchanged (1): .claude/skills/map-review/SKILL.md" },
     { name: 'oldDirty', pre: (r) => w(r, RULE[1], `${old('2.3.0', RULE[0])}mine\n`), post: (r) => w(r, RULE[1], old('2.3.0', RULE[0])), want: {}, says: `Not updated, though each is an earlier version's template, since git does not show it committed and unchanged or it cannot be written (1): ${RULE[1]}.`, not: 'Updated to' },
     { name: 'oldCrlf', pre: (r) => w(r, RULE[1], old('2.3.0', RULE[0]).replace(/\n/g, '\r\n')), want: { [RULE[1]]: now(RULE[0]).replace(/\n/g, '\r\n') }, says: `unchanged (1): ${RULE[1]}` },
     { name: 'oldUnstaged', pre: (r) => w(r, RULE[1], old('2.3.0', RULE[0])), post: (r) => fs.appendFileSync(path.join(r, RULE[1]), 'mine\n'), want: {}, says: `changed in this repo (1): ${RULE[1]}`, not: 'Updated' },
@@ -1192,6 +1213,9 @@ ${NAME}` } });
   fs.mkdirSync(path.join(r, '.claude', 'rules'), { recursive: true });
   const EXISTING = '---\npaths: ["src/**"]\n---\nUse two spaces.\n';
   fs.writeFileSync(path.join(r, '.claude', 'rules', 'existing.md'), EXISTING);
+  // 8d: the folder the sessions' rule names, as a real repo holds it (finish refuses a rule naming a folder the repo lacks)
+  fs.mkdirSync(path.join(r, 'src', 'utils'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'src', 'utils', 'date.js'), 'export const formatDate = (d) => d;\n');
   g('add', '-A');
   g('commit', '-q', '-m', 's7');
   // /code-review: a linked worktree whose folder was deleted but never pruned, which git still lists
@@ -1817,6 +1841,12 @@ ${NAME}` } });
 {
   const d8 = spawnRaw('node', [path.join(PLUGIN, 'test', 'dream8c.mjs')], { encoding: 'utf8', timeout: 600_000 });
   assert.equal(d8.status, 0, d8.stdout + d8.stderr);
+  // 8d (D35): proposals that rest on use (dream8d.mjs)
+  const d8d = spawnRaw('node', [path.join(PLUGIN, 'test', 'dream8d.mjs')], { encoding: 'utf8', timeout: 600_000 });
+  assert.equal(d8d.status, 0, d8d.stdout + d8d.stderr);
+  // 8f: trimmed digests, and K1's "read, then corrected again" (dream8f.mjs)
+  const d8f = spawnRaw('node', [path.join(PLUGIN, 'test', 'dream8f.mjs')], { encoding: 'utf8', timeout: 600_000 });
+  assert.equal(d8f.status, 0, d8f.stdout + d8f.stderr);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

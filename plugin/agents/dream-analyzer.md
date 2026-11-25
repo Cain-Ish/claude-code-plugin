@@ -15,6 +15,9 @@ Each line is tagged:
 When you are also given the run's `steering.md`, read it before the digest. It is the team's word on what matters in
 this repo: weigh candidates by it. It is never a candidate's source, and a candidate never quotes it.
 
+When you are given the run's `usage.json`, its entry for your digest lists the skills and agents the session used and
+the repo files it touched. Weigh them; they are never a candidate's source.
+
 Read the whole digest file you are given (when a Read returns only part of it, read on with offset and limit to its
 last line), then return one candidate per line, in exactly this form:
 
@@ -27,8 +30,12 @@ CANDIDATE | <kind> | <digest file>:<line number> | <statement>
   - correction: the user corrects how Claude did something.
   - procedure: steps the user has Claude follow, which will recur.
   - replaced: a person retracts or replaces an earlier decision.
+  - agent-task: a task a person hands over, or does by hand, which one agent could hold.
+  - artifact-correction: the user corrects what one of the repo's own skills or agents did; the T line before the
+    correction names it.
 - **The line number** points at the U or Q line the candidate rests on; line 1 is the file's first line. Every
-  candidate rests on a U or Q line.
+  candidate rests on a U or Q line. A line `…: <n> tool lines` stands for tool calls left out of the digest; the
+  tool lines just before each U or Q line, and every read of a map file, are kept.
 - **statement:** the person's own words from that line, quoted exactly, three words or more (trim a long one with …,
   keeping three words or more in each piece).
 

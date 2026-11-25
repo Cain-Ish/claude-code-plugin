@@ -1,6 +1,6 @@
 ---
 name: map-review
-description: Reviews the team memory in .project-map/ with the user. It accepts or rejects a dream's proposals, promotes draft rules and skills, and settles entries due for review. Use after a dream, or when an entry is due.
+description: Reviews the team memory in .project-map/ with the user. It accepts or rejects a dream's proposals, promotes draft rules, skills and agents and changes to them, and settles entries due for review. Use after a dream, or when an entry is due.
 disable-model-invocation: true
 ---
 # Review the team memory
@@ -14,9 +14,21 @@ Work through each list with the user, one item at a time. Done when every list i
      `- status: expired <today> by review: rejected`.
    - A committed entry that a dream gave a `- status:` line is a proposal about that line only. Accept: replace the
      `proposed` line as above. Reject: delete the status line and the `proposed` line, and leave the entry as it was.
-2. **Drafts.** Files named `.claude/rules/*.md.draft` and `.claude/skills/*/SKILL.md.draft`. Show each one.
-   - Promote: rename it without `.draft`. Claude Code loads it from the next session.
+2. **Drafts.** Files named `.claude/rules/*.md.draft`, `.claude/skills/*/SKILL.md.draft` and
+   `.claude/agents/*.md.draft`. Show each one.
+   - A draft beside a file of the same name without `.draft` is a change to that file: show it as a diff against
+     the file (`git diff --no-index <file> <file>.draft`).
+   - Its trial, before the question: read `.project-map/.trial/<name>.json` for the case file whose `artifact` is
+     this draft. Say its verdict and counts. If `git hash-object <the draft>` or `git hash-object <the case file>` no
+     longer equals its `artifactBlob` or `casesBlob`, call it stale. "Not judged" means a session failed or the case
+     that should not use it failed anyway: say so, and offer nothing on it. With no verdict, call the draft untested,
+     and name the line that tests it: `/second-brain:tailor show <name>`. Agents are trialled only through cases that
+     name them.
+   - Promote: rename it without `.draft`, which replaces the file a change draft sits beside. Claude Code loads it
+     from the next session.
    - Discard: delete it.
+   - A live skill, agent or rule whose own trial, not stale, says "adds nothing" or "hurts": offer to remove it.
+     Remove it only on the user's yes.
 3. **Due entries.** Entries whose `- review:` date has passed, and the stale entries a `/second-brain:status` report
    in this session listed. Ask whether each one still holds.
    - It holds: set `- verified:` to today with how it was confirmed, and set a new `- review:` date or remove the line.

@@ -15,9 +15,11 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.6.0` in progress on branch `v2` (the dream reads use and steering); the last release is `2.5.1`.
-- It has been tested in live Claude Code sessions on Windows only.
-- On macOS and Linux, only its self-test has run, in CI.
+**Status:** `2.6.0` in progress on branch `v2`: the dream reads use and steering, proposes agents, changes and
+package rules from that use, and digests sessions more cheaply; `/second-brain:tailor` makes and trials one artifact.
+The last release is `2.5.1`.
+- It has been tested in live Claude Code sessions on Windows only. 2.6.0 is in a live test in this repo.
+- On macOS and Linux, only its self-test has run, in CI. Windows and macOS are the targets; Linux is skipped for now.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
 
 ## What it does
@@ -126,6 +128,22 @@ locks: no hook blocks a write.
   - rules and skills as `*.md.draft` files, which Claude Code never loads until `/map-review` promotes them;
   - one counts-only line in `.project-map/dreams.md`.
 
+  Since 2.6.0 it can also propose, each as an inert draft:
+  - an agent, `.claude/agents/<name>.md.draft`, for a task you handed over or did by hand in two or more sessions;
+  - a change to one of your own skills or agents, as a draft beside it, only when every session it cites used that
+    skill or agent and a typed line corrected it. A skill's change keeps whether Claude may start it, and a change to
+    a file setup makes is refused;
+  - a path rule placed in one package of a monorepo (`paths: <package>/**`), when every session behind it touched files
+    in that package only. A package is the nearest folder that holds `package.json`, `pyproject.toml`, `Cargo.toml`,
+    `go.mod`, `pom.xml` or `build.gradle`.
+
+  A rule draft can now come from a stated decision as well as a correction. Since 2.6.0 the digests keep what a
+  proposal can rest on, and cut the rest: every typed line and chosen answer, Claude's replies, each skill or agent
+  call, each failed tool result, each read of a map file, and the 4 tool lines before each typed line. On this repo's
+  own sessions that left 31% of the lines. Its report also names the topic files read, then corrected again in the same
+  session. Every skill draft it writes carries `disable-model-invocation: true`, so only a person starts it until
+  `/map-review` promotes it.
+
   Since 2.6.0 its report also counts what the sessions did:
   - each of the repo's own skills and agents: how often it was used, and how often a typed line followed a use;
   - failed tool calls;
@@ -144,7 +162,28 @@ locks: no hook blocks a write.
   only the files the review changed, so other work on the branch stays out of that commit.
 
   Anything else that changed during the dream, under `.project-map/`, in Claude's instruction folders, `CLAUDE.md` or
-  `.mcp.json`, is put back, with what it replaced saved in the plugin's data folder.
+  `.mcp.json`, is put back, with what it replaced saved in the plugin's data folder. Since 2.6.0, when the system will
+  not remove the dream's working folder (on Windows, while a program has it open), the dream still finishes, and its
+  report names the folder to delete.
+- **`/second-brain:tailor`** (2.6.0) runs only when you invoke it.
+  - With a request that names a task, such as `/second-brain:tailor make a skill for our pricing check: …`, it makes
+    one agent, skill or path rule for that gap as an inert draft, with a case file of three or more cases (one where it
+    should not be used) and a check script for each.
+  - With a request that names no task, such as "make agents for this repo", it surveys the repo first: what the code
+    does, what `.claude/` and the map already hold, and the dream log. It lists the gaps it found, each with its
+    evidence and the smallest home for it, says what it will not make, and asks which to make. It makes nothing until
+    you pick one.
+  - `/second-brain:tailor show <name>` prints what a trial would run: the cases, the draft's front matter and command
+    lines, the files beside it, each check script, and a line for you to type with `!`. Nothing runs until you type
+    that line, so a model cannot start a trial.
+  - The trial runs each case 3 to 5 times, with the draft and without it, each time in a copy of your last commit
+    outside the repo, one headless `claude -p` session at a time, with only the case's tools and every hook off. Your
+    check scripts decide each pass; no model judges. The verdict ("helps", "adds nothing", "hurts", "mixed", or "not
+    judged" when a session failed) lands in `.project-map/.trial/<name>.json`, git-ignored. A case counts as better or
+    worse only by half its runs, so one lucky pass does not decide. `/map-review` shows the verdict before you promote
+    the draft.
+  - Each session costs usage. A trial is not a sandbox: a case that lists `Bash` can reach other folders, so list it
+    only when the task needs it.
 - **`/second-brain:status`** (2.3.0) reports:
   - how large the team memory is and when it last changed;
   - the last dream and the sessions since;
@@ -155,8 +194,8 @@ locks: no hook blocks a write.
 - **`/second-brain:onboard`** checks Node and git, sizes the index, and says how many map files are not committed.
 
 The hooks call no model and use no network or MCP server. They run Node and start only `git`. The dream runs inside
-your own Claude session, with the plugin's analyzer agent. Nothing leaves your machine except what your session sends
-to Claude.
+your own Claude session, with the plugin's analyzer agent. The trial is the one part that starts Claude Code sessions
+of its own, only from the line you type. Nothing leaves your machine except what your sessions send to Claude.
 
 ## What was measured, and what was not
 
@@ -376,7 +415,11 @@ Then remove them in this order:
 - **After a dream** (2.3.0), run `/map-review`. It walks you through:
   - each proposed entry: accept it (its `- proposed:` line becomes `- origin: dream <date>`, with a `- verified:`
     line), or reject it;
-  - each draft rule or skill: promote it by dropping `.draft`, or delete it;
+  - each draft rule, skill or agent: its trial verdict first (stale when the draft or its cases changed since,
+    untested when there is none), then promote it by dropping `.draft`, or delete it. A draft beside a file of the same
+    name is a change to that file, shown as a diff; promoting it replaces the file (2.6.0);
+  - a live skill, agent or rule whose own trial says "adds nothing" or "hurts": an offer to remove it, done only on
+    your yes (2.6.0);
   - each entry whose review date has passed.
 
   Then commit. The previous dream's proposals that reached a commit are counted in the next dream's log line.

@@ -77,6 +77,10 @@ killed    (6) never over a live file
 killed    (6) a draft never through a link
 killed    (7) tailor only a person starts
 killed    (7) tailor never runs a trial itself
+killed    (7) a broad request surveys first
+killed    (7) the survey reads the code first
+killed    (7) the gaps listed with evidence
+killed    (7) asks before making
 killed    (7) tailor grants cli and draft only
 killed    (7) the words by a quoted heredoc
 killed    (7) no code loaded at run time
@@ -84,4 +88,4 @@ killed    (7) map-review calls a changed draft stale
 killed    (7) map-review offers nothing when not judged
 killed    (7) map-review removes only on a yes
 killed    (7) map-review removes only on a fresh verdict
-85 of 85 killed
+89 of 89 killed

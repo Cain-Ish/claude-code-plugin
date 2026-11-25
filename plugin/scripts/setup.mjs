@@ -16,7 +16,7 @@ import { git, inRepo, configDir, utf16 } from './map.mjs';
 export const FILES = [
   ['CLAUDE.template.md', 'CLAUDE.md'],
   ['claude/rules/project-map.md', '.claude/rules/project-map.md', ['ee1a057e8299bc76', 'a35728b3712e83a5']],
-  ['claude/skills/map-review/SKILL.md', '.claude/skills/map-review/SKILL.md', ['3b63bc2d0cb5baa3', '744cac5ea8919e92']],
+  ['claude/skills/map-review/SKILL.md', '.claude/skills/map-review/SKILL.md', ['3b63bc2d0cb5baa3', '744cac5ea8919e92', '7ff1c09c889ebe9c']],
   ['claude/agents/decision-checker.md', '.claude/agents/decision-checker.md'],
   ['claude/agents/codebase-guide.md', '.claude/agents/codebase-guide.md'],
   ['claude/agents/memory-curator.md', '.claude/agents/memory-curator.md'],

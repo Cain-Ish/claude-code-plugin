@@ -14,7 +14,8 @@ running or stopped, ask whether one is still running in another session; if none
 above with `abort` in place of `prepare`, then tell them to run `/second-brain:dream` again.
 
 1. **Analyze.** For each digest above, use the Agent tool with subagent_type `second-brain:dream-analyzer`, giving it
-   the digest's path, and the steering file's path when the report above names one. Send up to 4 Agent calls in one
+   the digest's path, the path of `.project-map/.dream-run/usage.json` (each digest's uses and touched files), and the
+   steering file's path when the report above names one. Send up to 4 Agent calls in one
    message with `run_in_background` false, and wait for their
    results before you send the next ones. Do every step, finish included, in this one turn: the permission this skill
    gives the finish command ends with the turn. Done when every digest has its candidates.
@@ -29,8 +30,16 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
 
      Leave out what the map already says, and the one-off details of a task.
    - **A status line,** when a person retracted or replaced an existing entry.
-   - **A rule draft:** a correction repeated in two or more sessions that applies to certain paths.
+   - **A rule draft:** a decision or a correction, stated or repeated in two or more sessions, that applies to certain
+     paths; its entry may be proposed beside it. When every session it rests on touched files in one package only
+     (`packages` per digest in `.project-map/.dream-run/usage.json`), its `paths:` is `["<that package>/**"]`. When
+     they touched more than one package, keep the paths it names.
    - **A skill draft:** a procedure repeated in two or more sessions.
+   - **An agent draft:** one task a person hands over, or does by hand, in two or more sessions, which one agent
+     could hold. One task per agent.
+   - **A change draft:** a correction of what one of the repo's own skills or agents did, in two or more sessions
+     that used it (`uses` per digest in `usage.json`). It holds the whole file with the smallest change that answers
+     the corrections.
 4. **Write each proposal under `.project-map/.dream-run/proposals/`.** The finish step applies them, after it checks
    them:
    - `map/<topic>.md`: the entries to add to the topic file of that name. Each entry:
@@ -53,9 +62,17 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      when" and the words a user would type to ask for it. Then the steps, written for the kind of task rather than
      the sessions' one instance, each ending with how to tell it is done, and none that Claude would take anyway.
      Last, a line with evidence from at least two sessions, as for rules.
+   - `agents/<name>.md`: front matter with `name`, a `description` that says when to hand it the task, and `tools`
+     naming only the tools the task needs. Then its one task as steps, each with how to tell it is done. Last, the
+     evidence line from at least two sessions.
+   - `change/skills/<name>/SKILL.md` or `change/agents/<name>.md`, where `<name>` is one of the repo's own skills or
+     agents: the whole new text of that file. Last, the evidence line, citing only sessions that used it.
    - Every quote comes from a U or Q line, or from a tracked file of this repo, as a run of three words or more; a
      quote trimmed with … keeps three words or more in each piece. Secrets, session ids, email addresses and
      absolute paths stay out of every proposal.
+   - `.project-map/.dream-run/candidates.txt`: every analyzer's `CANDIDATE | …` lines, as they returned them, one per
+     line. It is not a proposal: finish counts each correction that came after a read of a map file in the same
+     session, and reports which files were read, then corrected again.
    - Write nothing else. Finish puts back any other change to `.project-map/`, to `.claude/` rules, skills, agents,
      commands and output styles, to `CLAUDE.md` and to `.mcp.json`, and reports any change to the settings files.
 5. **Finish.** Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/dream.mjs" finish "${CLAUDE_PLUGIN_DATA}"` and show
@@ -67,5 +84,5 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      hand.
    - Later: `/map-review` accepts or rejects each proposal and promotes drafts at any time.
    - From prepare's report, name the topic files no session read: their names or descriptions do not lead Claude to
-     them. When a correction came in a session that had read the entry's file, say that the entry did not hold
-     Claude to it. This is evidence for the user, not a proposal.
+     them. From finish's report, name the topic files read, then corrected again in the same session: their entries
+     did not hold Claude to them. This is evidence for the user, not a proposal.

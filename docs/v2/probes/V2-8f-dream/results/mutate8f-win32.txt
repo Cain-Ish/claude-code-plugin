@@ -1,0 +1,28 @@
+platform win32, the self-test
+killed    (1) the trim keeps A lines
+killed    (1) skill, agent and failure lines kept
+killed    (1) 4 tool lines before
+killed    (1) map-read lines kept
+killed    (1) a run of tool lines counted
+killed    (1) the trailing cut counted
+killed    (2) prepare writes the trimmed digest
+killed    (2) map reads recorded
+killed    (2) each reading call its own line
+killed    (2) a read's line in the trimmed digest
+killed    (3) only corrections count
+killed    (3) a digest given with its folder
+killed    (3) only at a U or Q line
+killed    (3) only after the read
+killed    (3) topic files only
+killed    (3) reads of the candidate's own session
+killed    (3) counted by session
+killed    (4) no candidates file
+killed    (6) the state and the lock before the run folder
+killed    (6) the folder named in the report
+killed    (6) the .gitignore removed last
+killed    (7) abort's lock before a held folder
+killed    (5) a decision can be a rule draft
+killed    (5) the skill writes the candidates file
+killed    (5) the skill reads finish's line
+killed    (5) the analyzer knows the cut lines
+26 of 26 killed

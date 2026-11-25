@@ -12,10 +12,13 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { spawnSync } from 'node:child_process';
 import { MAP, entries, foundIn, stateDir, loadState, knownDirs, localDate, toplevel, decode, dreamDate, reviewStep, git, quoteOf, idsIn, utf16, inRepo, words, configDir } from './map.mjs';
+import { FILES } from './setup.mjs';
 
 const RUN = `${MAP}/.dream-run`;
 const MAX_SESSIONS = 30;
 const MAX_BYTES = 5 << 20;
+// 8d (D35): the files that make a folder a package, for placing a path rule in a monorepo
+const PKG = ['package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'pom.xml', 'build.gradle'];
 const STALE_LOCK_MS = 2 * 3600e3;
 const enc = (p) => p.replace(/[^A-Za-z0-9]/g, '-');
 const real = (p) => fs.realpathSync.native(p);
@@ -198,12 +201,32 @@ export async function digestFrom(file, start, accept, skills = new Set()) {
   // Claude's Skill or Agent call ends the uses still open; a person's typed /<name> is added beside them
   const use = (u, ends) => { const e = { ...u, after: false }; open = ends ? [e] : [...open, e]; uses.push(e); };
   const agentCalls = new Set();
+  // 8d (D35): the files the session's own Read, Edit and Write calls named, as given (prepare keeps those in the repo)
+  const touched = new Set();
+  // 8f (K1's second signal): the lines of the tool calls that read a map file, and which files, so the trim keeps them
+  // and finish can tell a correction that came after a read
+  const mapAt = [];
   for await (const l of rl) {
     const r = parse(l);
     if (!r) continue;
     if (cwd === null && typeof r.cwd === 'string') { cwd = r.cwd; if (!accept(cwd)) break; }
     if (r.timestamp) { first ??= r.timestamp; last = r.timestamp; }
-    if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_use') { names.set(x.id, x.name); for (const f of mapReads(x)) reads.add(f); const u = !r.isSidechain && used(x); if (u) { use({ ...u, via: 'call' }, true); if (u.kind === 'agent') agentCalls.add(x.id); } }
+    // each reading call's own line: tag() gives an assistant record one line per text and per tool call, in order
+    const at = lines.length;
+    let off = 0;
+    if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const x of r.message.content) {
+      if (x?.type === 'text') { off++; continue; }
+      if (x?.type !== 'tool_use') continue;
+      names.set(x.id, x.name);
+      const read = mapReads(x);
+      for (const f of read) reads.add(f);
+      if (read.length && !r.isSidechain) mapAt.push({ idx: at + off, files: read });
+      off++;
+      const u = !r.isSidechain && used(x);
+      if (u) { use({ ...u, via: 'call' }, true); if (u.kind === 'agent') agentCalls.add(x.id); }
+      const fp = x.input?.file_path ?? x.input?.notebook_path;
+      if (!r.isSidechain && /^(Read|Edit|Write|MultiEdit|NotebookEdit)$/.test(x.name) && typeof fp === 'string') touched.add(fp);
+    }
     // Claude Code records a slash command as a command-name record, not as a typed prompt (/code-review's finding)
     const cmd = r.type === 'user' && typeof r.message?.content === 'string' ? /<command-name>\/([^<\s]+)<\/command-name>/.exec(r.message.content)?.[1] : null;
     if (cmd === 'second-brain:dream') dream = true;
@@ -214,7 +237,32 @@ export async function digestFrom(file, start, accept, skills = new Set()) {
     lines.push(...t);
   }
   input.destroy();
-  return { lines, first, last, cwd, dream, reads, uses, fails, agentCalls };
+  return { lines, first, last, cwd, dream, reads, uses, fails, agentCalls, touched, mapAt };
+}
+
+// 8f: a digest keeps every U, Q and A line; every line 8c added for D35, a skill's or an agent's call and a failed
+// result (the decision-checker's finding: the trim dropped them); the 4 tool lines (T or R) before each U or Q line; and
+// each tool line that reads a map file. Each other run of tool lines becomes one "…: <n> tool lines" line. On this
+// repo's sessions, 97 of 13,793 digest lines were U or Q lines. `at` maps a line's index to its number in the trimmed
+// digest
+export function trim(lines, keepAt = new Set()) {
+  const tool = (l) => /^(T|R!?): /.test(l);
+  const keep = lines.map((l, i) => !tool(l) || keepAt.has(i) || /^(T: (Skill|Agent|Task) |R!: )/.test(l));
+  lines.forEach((l, i) => {
+    if (!/^(U|Q): /.test(l)) return;
+    for (let k = i - 1, n = 0; k >= 0 && n < 4; k--) if (tool(lines[k])) { keep[k] = true; n++; }
+  });
+  const out = [];
+  const at = new Map();
+  let gap = 0;
+  lines.forEach((l, i) => {
+    if (!keep[i]) { gap++; return; }
+    if (gap) { out.push(`…: ${gap} tool lines`); gap = 0; }
+    out.push(l);
+    at.set(i, out.length);
+  });
+  if (gap) out.push(`…: ${gap} tool lines`);
+  return { out, at };
 }
 // 8c (D35): a session's subagent runs by type, from Claude Code's meta files beside its transcript, and the failed tool
 // results in each run's own transcript, counted only (no subagent text enters a digest). A run counts when its
@@ -343,7 +391,21 @@ export async function prepare(root, data) {
     // 8c (D35): what the read sessions did with skills and agents, and their subagent runs; keyed by names from
     // transcripts, so the counters have no prototype (a skill named "constructor" or "__proto__" is only a name)
     const bag = () => Object.create(null);
-    const usage = { sessions: 0, skill: bag(), agent: bag(), failed: bag(), subagents: bag() };
+    const usage = { sessions: 0, skill: bag(), agent: bag(), failed: bag(), subagents: bag(), digests: bag() };
+    // 8d (D35): a file a session named, relative to the root of the worktree that holds it (the longest root first, so a
+    // worktree under .claude/worktrees/ is its own; a relative path is taken from the session's folder), or null when
+    // no root holds it (the 8d review)
+    const roots = [...new Set([path.resolve(root), ...rootsReal])].sort((a, b) => b.length - a.length);
+    const inRoot = (p, cwd) => { const a = path.resolve(cwd ?? root, p); for (const r of roots) { const q = path.relative(r, a); if (q && !q.startsWith('..') && !path.isAbsolute(q)) return q.split(path.sep).join('/'); } return null; };
+    // a file's package: the nearest folder below the root that holds a package manifest; null when none does
+    const pkgs = new Map();
+    const packageOf = (rel) => {
+      for (let d = path.posix.dirname(rel); d && d !== '.'; d = path.posix.dirname(d)) {
+        if (!pkgs.has(d)) pkgs.set(d, PKG.some((f) => fs.existsSync(path.join(root, d, f))));
+        if (pkgs.get(d)) return d;
+      }
+      return null;
+    };
     // the repo's own skills and agents, each reported even when no session used it
     const own = (d, re) => { try { return fs.readdirSync(path.join(root, '.claude', d), { withFileTypes: true }).flatMap((e) => re(e)); } catch { return []; } };
     usage.ownSkills = own('skills', (e) => (e.isDirectory() && fs.existsSync(path.join(root, '.claude', 'skills', e.name, 'SKILL.md')) ? [e.name] : []));
@@ -370,12 +432,20 @@ export async function prepare(root, data) {
       for (const s of await subagentRuns(c.p, dg.agentCalls)) { const e = (usage.subagents[s.type] ??= { runs: 0, failed: 0 }); e.runs++; e.failed += s.failed; }
       if (!dg.lines.some((l) => /^(U|Q): /.test(l))) { manifest.push({ f: c.f, end: c.size, skipped: 'nothing typed' }); continue; }
       const name = `d${manifest.filter((m) => m.digest).length + 1}.digest`;
-      const text = `${dg.lines.join('\n')}\n`;
+      // 8f: the trimmed digest, and each map read's line in it
+      const { out, at } = trim(dg.lines, new Set(dg.mapAt.map((m) => m.idx)));
+      const readsAt = dg.mapAt.flatMap((m) => m.files.map((file) => ({ file, line: at.get(m.idx) })));
+      const text = `${out.join('\n')}\n`;
       fs.writeFileSync(path.join(run, 'digests', name), text);
       bytes += Buffer.byteLength(text);
       // its hash, kept outside the repo: finish reads only a digest that nothing changed since (the session can edit the
       // run folder, which is inside the repo)
-      manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10), reads: [...dg.reads] });
+      // 8d (D35): each digest's uses and the repo files it touched, kept here in the data folder for finish's checks,
+      // and given to the analyzers in the run folder
+      const files = [...new Set([...dg.touched].map((p) => inRoot(p, dg.cwd)).filter(Boolean))].sort();
+      const its = [...new Set(dg.uses.map((u) => `${u.kind}\0${u.name}`))].map((k) => { const [kind, n] = k.split('\0'); return { kind, name: n }; });
+      manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10), reads: [...dg.reads], readsAt, uses: its, touched: files });
+      usage.digests[name] = { uses: its, touched: files, packages: [...new Set(files.map(packageOf).filter(Boolean))].sort() };
       usage.sessions++;
     }
     fs.writeFileSync(path.join(run, 'usage.json'), JSON.stringify(usage, null, 1));
@@ -391,9 +461,13 @@ export async function prepare(root, data) {
     let topics = [];
     try { topics = fs.readdirSync(path.join(root, MAP)).filter(topic); } catch {}
     const read = new Set(digests.flatMap((m) => m.reads));
+    // 8d (D35): the files these sessions touched, counted by package (counts only, no file names)
+    const byPkg = new Map();
+    for (const m of digests) for (const f of m.touched) { const k = packageOf(f) ?? '(no package)'; byPkg.set(k, (byPkg.get(k) ?? 0) + 1); }
     return [
       `Dream prepared: ${digests.length} session digest(s) in ${RUN}/digests/: ${digests.map((m) => `${m.digest} (${m.first}${m.last && m.last !== m.first ? ` to ${m.last}` : ''})`).join(', ') || 'none'}.`,
       digests.length ? `Map files these sessions read: ${digests.map((m) => `${m.digest}: ${m.reads.join(', ') || 'none'}`).join('; ')}. Topic files no session read: ${topics.filter((f) => !read.has(f)).join(', ') || 'none'}.` : '',
+      [...byPkg.keys()].some((k) => k !== '(no package)') ? `Files these sessions touched, by package: ${[...byPkg].sort().map(([k, v]) => `${k} ${v}`).join(', ')}. Each digest's packages are in ${RUN}/usage.json.` : '',
       left.length ? `${left.length} more session(s) wait for the next dream (the cap is ${MAX_SESSIONS} sessions or ${MAX_BYTES >> 20} MB a run).` : '',
       digests.length ? '' : 'Nothing new to read since the last dream: run finish now to close it.',
       steer.status === 0 ? `Steering: ${RUN}/steering.md, the team's word on what matters here, as HEAD holds it. Give its path to each analyzer with its digest.` : '',
@@ -407,6 +481,10 @@ export async function prepare(root, data) {
 // such as "_" before an id or a key does not hide it
 export const PRIVATE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?![\w-])|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
 const front = (t) => /^---\n([\s\S]*?)\n---\n/.exec(t.replace(/\r/g, ''));
+// a front-matter key's value on its own line, quotes dropped; '' when the key is missing or empty (the 8d review: \s*
+// crossed the line end, so an empty "tools:" took the next key's value)
+const field = (fm, k) => (new RegExp(`^${k}:[ \\t]*(\\S.*)$`, 'm').exec(fm?.[1] ?? '')?.[1] ?? '').trim().replace(/^["']|["']$/g, '');
+const MADE = new Set(FILES.map(([, to]) => to));
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
 // every ellipsis-separated segment of a proposed quote has 3 or more words, so none goes unchecked (the read hook's
 // foundIn skips shorter segments, as 2.2.0's did)
@@ -424,6 +502,17 @@ const evidence = (t, digests) => {
     return line && /^(U|Q): /.test(line) ? r[1] : null;
   }).filter(Boolean));
 };
+// 8f: the repo's run folder, emptied with its .gitignore last, so a folder the system will not fully remove (Windows,
+// while a program has a folder in it as its working folder) never leaves a digest that git would see (D10). False when
+// something is left
+const clearRun = (run) => {
+  try {
+    for (const e of fs.readdirSync(run)) if (e !== '.gitignore') fs.rmSync(path.join(run, e), { recursive: true, force: true });
+    fs.rmSync(run, { recursive: true, force: true });
+    return true;
+  } catch (e) { return e.code === 'ENOENT'; }
+};
+const STUCK = `${RUN}/ could not be removed (a program has it open, such as a shell whose working folder is inside it): delete that folder once nothing holds it.`;
 // a free name beside existing ones: a clash gets -2, -3 (finish never replaces a file)
 const freeName = (p) => { if (!fs.existsSync(p)) return p; const { dir, base } = path.parse(p); const [stem, ...ext] = base.split('.'); for (let k = 2; ; k++) { const q = path.join(dir, [`${stem}-${k}`, ...ext].join('.')); if (!fs.existsSync(q)) return q; } };
 
@@ -443,6 +532,19 @@ export function finish(root, data) {
     try { bytes = fs.readFileSync(path.join(run, 'digests', m.digest)); } catch { throw new Error(`the digest ${m.digest} is missing: run abort, then dream again`); }
     if (crypto.createHash('sha256').update(bytes).digest('hex') !== m.sha) throw new Error(`the digest ${m.digest} changed after prepare wrote it: run abort, then dream again`);
     digests[m.digest] = bytes.toString('utf8').split('\n');
+  }
+  // 8f (K1's second signal): a topic file read in a session, then corrected in the same session, from the analyzers'
+  // candidates the skill wrote. A correction counts only at a U or Q line of its digest, after a read of that file
+  // there (the reads' lines are the run record's, which the session cannot edit). Names and counts only, for the
+  // person: never a proposal (D31)
+  const corrected = new Map();
+  let cands = '';
+  try { cands = fs.readFileSync(path.join(run, 'candidates.txt'), 'utf8'); } catch {}
+  for (const l of cands.split(/\r?\n/)) {
+    // the digest may come with the folder it lies in, as an analyzer was given its path
+    const c = /^CANDIDATE \| correction \| (?:[^|]*[\\/])?(d\d+\.digest):(\d+) \|/.exec(l.trim());
+    if (!c || !/^(U|Q): /.test(digests[c[1]]?.[Number(c[2]) - 1] ?? '')) continue;
+    for (const r of job.manifest.find((x) => x.digest === c[1])?.readsAt ?? []) if (topic(r.file) && r.line < Number(c[2])) { if (!corrected.has(r.file)) corrected.set(r.file, new Set()); corrected.get(r.file).add(c[1]); }
   }
   // what changed during the dream goes back to the snapshot: proposals reach the repo only through this step (06, S7)
   const { changed: strays, undone } = restore(root, dir, runDir, job.watched, job.links ?? {});
@@ -487,7 +589,7 @@ export function finish(root, data) {
   };
   const inTracked = (q) => { repoText ??= headText(); return foundIn(q, repoText); };
   const date = localDate();
-  const n = { entries: 0, status: 0, rules: 0, skills: 0 };
+  const n = { entries: 0, status: 0, rules: 0, skills: 0, agents: 0, changes: 0 };
   const dropped = {};
   const drop = (why) => { dropped[why] = (dropped[why] ?? 0) + 1; };
   const written = [];
@@ -558,8 +660,14 @@ export function finish(root, data) {
     if (PRIVATE.test(f)) { drop('private data'); continue; }
     const t = fs.readFileSync(path.join(rulesDir, f), 'utf8').replace(/\r/g, '');
     const fm = front(t);
-    const paths = fm && /^paths:[ \t]*(\[[^\]]*\S[^\]]*\]|\n(?:[ \t]+-[ \t]+\S.*\n?)+)/m.test(`${fm[1]}\n`);
+    const paths = fm && /^paths:[ \t]*(\[[^\]]*\S[^\]]*\]|\n(?:[ \t]+-[ \t]+\S.*\n?)+)/m.exec(`${fm[1]}\n`);
     if (!paths) { drop('rule without paths'); continue; }
+    // 8d (D35): a rule placed in a package names folders the repo holds: each glob's fixed part, up to its last /
+    // an inline list splits on commas outside quotes and braces, so "packages/{api,web}/**" stays one glob (the 8d review)
+    const globs = (paths[1].startsWith('[') ? paths[1].slice(1, -1).match(/(?:"[^"]*"|'[^']*'|\{[^}]*\}|[^,])+/g) ?? [] : paths[1].split('\n').map((l) => l.replace(/^[ \t]*-[ \t]+/, ''))).map((g) => g.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+    const fixed = (g) => { const pre = g.split(/[*?[{]/)[0]; return pre.includes('/') ? pre.slice(0, pre.lastIndexOf('/')) : ''; };
+    // lstat: a linked folder, or a name the system cannot hold (a NUL), counts as lacking; a backslash is no glob separator
+    if (globs.some((g) => g.includes('\\') || (fixed(g) && !(lstat(path.join(root, fixed(g)))?.isDirectory() && inRepo(root, path.join(root, fixed(g))))))) { drop('rule paths naming a folder the repo lacks'); continue; }
     if (t.split('\n').length > 60 || PRIVATE.test(t)) { drop('rule too long or private'); continue; }
     if (evidence(t, digests).size < 2) { drop('rule from fewer than two sessions'); continue; }
     // a name that neither a draft nor a live rule holds, so promoting the draft (dropping .draft) replaces no rule
@@ -580,7 +688,7 @@ export function finish(root, data) {
     if (PRIVATE.test(d)) { drop('private data'); continue; }
     let t = fs.readFileSync(p, 'utf8').replace(/\r/g, '');
     const fm = front(t);
-    if (!fm || !/^name:\s*\S/m.test(fm[1]) || !/^description:\s*\S/m.test(fm[1])) { drop('skill without name or description'); continue; }
+    if (!field(fm, 'name') || !field(fm, 'description')) { drop('skill without name or description'); continue; }
     if (PRIVATE.test(t)) { drop('skill with private data'); continue; }
     if (evidence(t, digests).size < 2) { drop('skill from fewer than two sessions'); continue; }
     // the flag is set, and any other value of it removed: two keys would leave the last one, which may be false
@@ -592,6 +700,59 @@ export function finish(root, data) {
     written.push(path.relative(root, path.join(folder, 'SKILL.md.draft')).split(path.sep).join('/'));
     n.skills++;
   }
+  // 8d (D35): agent drafts, never loaded until review promotes them (D34, probe 3), through a skill draft's gates
+  const agentsDir = path.join(P, 'agents');
+  for (const f of fs.existsSync(agentsDir) ? fs.readdirSync(agentsDir).filter((x) => /^[\w.-]+\.md$/.test(x)) : []) {
+    if (PRIVATE.test(f)) { drop('private data'); continue; }
+    const t = fs.readFileSync(path.join(agentsDir, f), 'utf8').replace(/\r/g, '');
+    const fm = front(t);
+    if (!field(fm, 'name') || !field(fm, 'description') || !field(fm, 'tools')) { drop('agent without name, description or tools'); continue; }
+    // Claude Code knows an agent by its name, so the name is the file's: a draft cannot pass as another agent
+    if (field(fm, 'name') !== f.slice(0, -3)) { drop('a name that is not its file name'); continue; }
+    if (PRIVATE.test(t)) { drop('agent with private data'); continue; }
+    if (evidence(t, digests).size < 2) { drop('agent from fewer than two sessions'); continue; }
+    const live = path.join(root, '.claude', 'agents', f);
+    if (fs.existsSync(live)) { drop('an agent the repo holds'); continue; }
+    if (fs.existsSync(`${live}.draft`)) { drop('a draft already waits'); continue; }
+    if (!inside(root, `${live}.draft`)) { drop('a link on its path'); continue; }
+    fs.mkdirSync(path.dirname(live), { recursive: true });
+    fs.writeFileSync(`${live}.draft`, t, { flag: 'wx' });
+    written.push(path.relative(root, `${live}.draft`).split(path.sep).join('/'));
+    n.agents++;
+  }
+  // 8d (D35): a change to a skill or agent the repo holds, as a draft beside it, when every session it cites used it
+  // (the uses kept in the run record, which the session cannot edit). A skill's change keeps the file's
+  // disable-model-invocation as it is: the person chose whether Claude may start that skill
+  const usedIn = Object.fromEntries(job.manifest.filter((m) => m.digest).map((m) => [m.digest, new Set((m.uses ?? []).map((u) => `${u.kind}\0${u.name}`))]));
+  const list = (d, re) => { try { return fs.readdirSync(d).filter((x) => re.test(x)); } catch { return []; } };
+  const changes = [
+    ...list(path.join(P, 'change', 'skills'), /^[\w.-]+$/).map((d) => ({ kind: 'skill', name: d, src: path.join(P, 'change', 'skills', d, 'SKILL.md'), live: path.join(root, '.claude', 'skills', d, 'SKILL.md') })),
+    ...list(path.join(P, 'change', 'agents'), /^[\w.-]+\.md$/).map((f) => ({ kind: 'agent', name: f.slice(0, -3), src: path.join(P, 'change', 'agents', f), live: path.join(root, '.claude', 'agents', f) })),
+  ];
+  for (const c of changes) {
+    if (!fs.existsSync(c.src)) continue;
+    if (PRIVATE.test(c.name)) { drop('private data'); continue; }
+    let t = fs.readFileSync(c.src, 'utf8').replace(/\r/g, '');
+    const fm = front(t);
+    if (!field(fm, 'name') || !field(fm, 'description') || (c.kind === 'agent' && !field(fm, 'tools'))) { drop('change without name, description or tools'); continue; }
+    if (field(fm, 'name') !== c.name) { drop('a name that is not its file name'); continue; }
+    // the files setup makes stay the plugin's: setup updates them (D29), and map-review is the review itself (D33)
+    if (MADE.has(path.relative(root, c.live).split(path.sep).join('/'))) { drop('a change to a file setup makes'); continue; }
+    if (PRIVATE.test(t)) { drop('change with private data'); continue; }
+    const cited = evidence(t, digests);
+    if (cited.size < 2) { drop('change from fewer than two sessions'); continue; }
+    if (![...cited].every((d) => usedIn[d]?.has(`${c.kind}\0${c.name}`))) { drop('change whose sessions did not use it'); continue; }
+    if (!fs.existsSync(c.live)) { drop('change for a file the repo lacks'); continue; }
+    if (fs.existsSync(`${c.live}.draft`)) { drop('a draft already waits'); continue; }
+    if (!inside(root, `${c.live}.draft`)) { drop('a link on its path'); continue; }
+    if (c.kind === 'skill') {
+      const flag = (front(fs.readFileSync(c.live, 'utf8').replace(/\r/g, ''))?.[1] ?? '').split('\n').find((l) => /^disable-model-invocation\s*:/.test(l));
+      t = `---\n${[...(flag ? [flag] : []), ...fm[1].split('\n').filter((l) => !/^disable-model-invocation\s*:/.test(l))].join('\n')}\n---\n${t.slice(fm[0].length)}`;
+    }
+    fs.writeFileSync(`${c.live}.draft`, t, { flag: 'wx' });
+    written.push(path.relative(root, `${c.live}.draft`).split(path.sep).join('/'));
+    n.changes++;
+  }
   // the log line: counts only, no ids; the previous dream's survival is what its proposals became in HEAD (G7)
   const st = loadState(dir);
   const head = git(root, 'show', `HEAD:./${MAP}/dreams.md`).status === 0 ? mapFiles(root).map((f) => git(root, 'show', `HEAD:./${f}`).stdout).join('\n') : '';
@@ -601,7 +762,7 @@ export function finish(root, data) {
   const waiting = prev ? (head.match(new RegExp(`^- proposed: dream ${prev}`, 'gm')) ?? []).length : 0;
   const read = job.manifest.filter((m) => m.digest);
   const span = read.length ? `${read[0].first} to ${read.at(-1).last ?? read.at(-1).first}` : 'none';
-  const line = `- ${date}: ${read.length} session(s) (${span}); proposed ${n.entries} entr${n.entries === 1 ? 'y' : 'ies'}, ${n.status} status line(s), ${n.rules} rule draft(s), ${n.skills} skill draft(s); dropped ${Object.values(dropped).reduce((a, b) => a + b, 0)}`
+  const line = `- ${date}: ${read.length} session(s) (${span}); proposed ${n.entries} entr${n.entries === 1 ? 'y' : 'ies'}, ${n.status} status line(s), ${n.rules} rule draft(s), ${n.skills} skill draft(s)${n.agents ? `, ${n.agents} agent draft(s)` : ''}${n.changes ? `, ${n.changes} change draft(s)` : ''}; dropped ${Object.values(dropped).reduce((a, b) => a + b, 0)}`
     + (prev ? `; the dream of ${prev}: ${accepted} accepted, ${waiting} still proposed` : '');
   // a dream that read nothing writes no log line and keeps the last dream's date; skipped sessions still count as seen
   const prevSeen = { ...st.seen };
@@ -614,18 +775,22 @@ export function finish(root, data) {
     st.lastDream = new Date().toISOString();
     st.lastDreamDate = date;
   }
-  // the state last, after the run is gone: a finish that stopped before it can be retried without a second pending
-  // record overwriting the first one's prevSeen (the devils-advocate review)
-  fs.rmSync(run, { recursive: true, force: true });
+  // the state after the run record is gone: a finish that stopped before it can be retried without a second pending
+  // record overwriting the first one's prevSeen (the devils-advocate review). The repo's run folder goes last, at best:
+  // Windows refuses to delete a folder while a program has it as its working folder, and that must not strand the lock
+  // and the state (8f, a field failure of 2.5.1); prepare clears a leftover one
   fs.rmSync(runDir, { recursive: true, force: true });
   fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(st, null, 1));
+  // still under the lock, so a new prepare cannot lose its folder to this removal (the 8f review); clearRun never throws
+  const stuck = clearRun(run) ? '' : `${STUCK} The dream is finished.`;
   unlock(dir);
   const drops = Object.entries(dropped).map(([k, v]) => `${v} ${k}`).join(', ');
   return [`Dream finished: ${line.slice(2)}.`, ...usageLines(job.usage),
+    corrected.size ? `Read, then corrected again in the same session: ${[...corrected].sort().map(([f, s]) => `${f} (${s.size} session${s.size === 1 ? '' : 's'})`).join(', ')}.` : '',
     strays.length ? `Undone, because they changed during the dream (only its proposals reach the repo): ${strays.join(', ')}.${undone ? ` What they replaced is saved in ${undone}; copy back anything that was not the dream's.` : ''}` : '',
     settings.length ? `Changed during the dream and left as they are: ${settings.join(', ')}. An "always allow" you gave lands there; check the rest, hooks above all.` : '',
     drops ? `Dropped: ${drops}.` : '', written.length ? `Written (uncommitted): ${[...new Set(written)].join(', ')}.` : 'Nothing written.',
-    `Next: ${reviewStep(root)} to accept or reject the proposals and promote drafts; then commit.`].filter(Boolean).join('\n');
+    `Next: ${reviewStep(root)} to accept or reject the proposals and promote drafts; then commit.`, stuck].filter(Boolean).join('\n');
 }
 
 // 8c (D35): the report's lines on use: one per skill and agent the repo holds, then failures and subagent runs. Counts
@@ -663,8 +828,9 @@ export function abort(root, data) {
     said = `Dream aborted: the map and Claude's instruction files are as they were before the dream, and the next dream reads the same sessions.${changed.length ? ` Undone: ${changed.join(', ')}.${undone ? ` What they replaced is saved in ${undone}.` : ''}` : ''}`
       + (settings.length ? ` Changed during the dream and left as they are: ${settings.join(', ')}; check them, hooks above all.` : '');
   }
-  if (inRepo(root, path.join(root, MAP))) fs.rmSync(path.join(root, RUN), { recursive: true, force: true });
+  // the run record first, then the repo's run folder, which never throws, then the lock, as finish does (8f)
   fs.rmSync(runDir, { recursive: true, force: true });
+  if (inRepo(root, path.join(root, MAP)) && !clearRun(path.join(root, RUN))) said += ` ${STUCK}`;
   unlock(dir);
   return said;
 }

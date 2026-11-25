@@ -9045,3 +9045,25 @@ self-tests passed with the pin off before the freezes.
    - Parseable candidate lines in 10 of 10 runs (9 to 24 each).
 4. **8d's check 3 on this copy** (`probes/V2-8d-proposals/results/check3-on-8f2.json`, fresh histories): every case 5
    of 5. Nothing was made live, and nothing was committed. (e) could fail in 3 of the 5 runs, and held.
+
+### 8, 8e and 8f: results (2026-11-25): pass
+
+- **8e passes in attempt 4,** allowed on the user's word. Every check passed on its frozen copy (`edd5f7375a2f`):
+  - the self-test on Windows, Node 24 and 20;
+  - check 2 (`results/mutate8e-win32.txt`): 89 of 89 killed;
+  - check 3 and check 4, as recorded above.
+
+  **D34 locks on (T)** (DECISIONS). By 8d's D10 line, 8d's agent and change drafts ship with it. D10's reopened scope
+  and D18's surface re-lock with section 8's release, as registered.
+- **8f passes in attempt 2.** Every check passed on its frozen copy (`38fbf0dd76ed`):
+  - the self-test on Windows, Node 24 and 20;
+  - check 2 (`probes/V2-8f-dream/results/mutate8f-win32.txt`): 26 of 26 killed;
+  - the real-data trim, S7's check 2 and 8d's check 3, as recorded above.
+  - The reviews (check 5) read attempt 1's code; attempt 2 changed one line of the skill's text, whose cause and
+    effect are recorded above.
+- **Moved into `plugin/`:** the frozen build, 8c with 8d, 8e and 8f. `plugin/` now hashes `38fbf0dd76ed`.
+  `claude plugin validate plugin` passes. The README says what 2.6.0 adds.
+- **Next, the live test the user asked for:** the frozen build installed in this repo's local scope from a copy
+  outside `plugin/` (a directory marketplace `second-brain-live` that wraps it unchanged, rehearsed in an isolated
+  config, where its cached copy hashed `38fbf0dd76ed`). Then the steps for the second session. CI's macOS job runs on
+  this push. Then group M, the final audit, and a stop before `main`.
