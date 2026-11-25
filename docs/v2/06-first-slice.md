@@ -9583,3 +9583,23 @@ Built on 8k's copy. Each change below is to text a model reads, or to a digest t
    - then `/map-review` and the person's choice.
 5. A fresh review, and the decision-checker on D10, D31, D34 and D35.
 - **Attempts:** three (rule 4).
+
+**8j, built (2026-11-25), the builder's report, before the merge's checks:** every item has a case that fails on
+`b977771fc513` and passes on the copy, under Node 24 and 20, with the temp folder as it is and behind a junction.
+`mutate8j` kills 22 of 22, and 8d's and 8f's lists still kill 49 and 26 on the copy. The builder went wider than
+registered in places, and the merge keeps them:
+- `clearRun` now refuses a run folder that a session replaced with a link. 8f's version emptied the link's target,
+  outside the repo, in finish and abort: a data-loss path, verified by a scratch run and now covered by a case.
+- Any top-level key that is not plain is refused in an agent or change draft.
+- The tools comparison is textual.
+- A change to a live file that already sets a power is refused.
+- P-2 checks again each path git stops at; with no git, it drops the touched files.
+
+**New findings, into the register:**
+- J-1: a new skill draft can still carry `hooks` or `allowed-tools` (X-4 covered agents and changes).
+- J-2: a change that removes `disallowedTools` widens an agent unnoticed.
+- J-3: `clearRun` stops at the first held entry, so later entries stay (they are still git-ignored).
+- J-4: a path past a link, or a name with pathspec magic, makes `git check-ignore` exit mid-batch.
+- J-5: the new cases ran on Windows only; CI's macOS job is their evidence on the merge.
+- J-6, process: the builder sent its diff to agy with this machine's scratchpad path, which names the Windows
+  account. No secret went out. Builders now work without agy.
