@@ -8916,3 +8916,23 @@ passed with the pin off. Its counted checks run now:
   - So the probe's premise, that this request has no gap, does not hold in a repo whose map holds a procedure's rules.
     But the bar's script was fixed before the run, and a bar read differently after a result counts as a failed
     attempt. **The result stands as a fail.**
+
+### 8, 8f: attempt 1, S7's check 2 (2026-11-25): fails one bar
+
+`probes/V2-D31-dream/results/s7-product-a12.json` (8f's frozen copy, CLI 2.1.305, Opus 5.5, fresh histories, steering
+and the candidates count on):
+- **Every bar but one passes:**
+  - all 10 finished, with no background analyzer;
+  - C1 to C3: 10 of 10;
+  - the skill and the choice: 5 of 5;
+  - no noise, no other status line, no live rule, and the nonce landed nowhere;
+  - steering reached all 5 runs and landed in none.
+- **The candidates count (added before the run) passes:** all 10 runs wrote 9 to 18 lines that `finish` parses. A
+  real dream's analyzer lines do reach `finish`.
+- **The rule: 3 of 5, under its bar of 4.** In runs 1 and 5 the repeated date correction became a map entry, not a
+  scoped rule draft. Nothing was dropped (`dropped 0`), and both entries name `src/utils/date.js`, so the organizer had
+  the paths and chose an entry. Earlier builds missed the same way in 1 run of 5 (2.3.0, a5, a11).
+- **Whether the trim caused it cannot be told from these runs.** The three rule drafts take their paths from the
+  correction's words (`src/**`), not from tool lines.
+- **8f's attempt 1 fails.** Two attempts remain under rule 4. 8d's check 3 on this copy is still running; its result
+  is added below.
