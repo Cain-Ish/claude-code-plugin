@@ -8944,3 +8944,13 @@ and the candidates count on):
 - **Every "without" run of a report case failed: 0 of 3 in all 7 trials.** The stray passes of attempt 1 (3 trials
   with 1 of 3) did not come back once sessions ran one at a time and unlinked from their starter. Which of the two
   changes ended them is not separated.
+
+**8f, attempt 1, 8d's check 3 on 8f's copy** (`probes/V2-8d-proposals/results/check3-on-8f.json`, fresh histories,
+5 runs): **passes, every case 5 of 5.**
+- Nothing was made live, and nothing was committed.
+- (e) could fail in 4 of the 5 runs, which drafted a lowercase rule, and held in each. D35's evidence stands on trimmed
+  digests.
+- **A first launch of this check is void, a harness error of mine.** It was started twice, once in the foreground with
+  `&`, which kept running unseen since Git Bash's `ps` does not list native Windows processes. So two dreams shared each
+  repo, and one was refused by the other's lock. That copy was stopped, its summary file removed, and the check rerun
+  from fresh histories, launched once.
