@@ -8894,3 +8894,11 @@ and the decision-checker read the build.
 **Attempt 3, frozen (2026-11-25):** product `24d6b6da4bf7`. Before the freeze, the self-test passed with the pin off, and
 the dry run killed 83 of 85 mutations against `trial8e.mjs` alone. The other two are the self-test's own checks (the
 exact grant, and no code loaded at run time). Checks 1 to 4 run now, on Windows.
+
+**8f, frozen (2026-11-25):** product `d21930c51c1a`, on 8e's attempt-3 copy (its `trial.mjs` unchanged). The self-test
+passed with the pin off. Its counted checks run now:
+- the self-test waits for a quiet machine, since 8e's mutation run is on;
+- the real-data trim;
+- S7's check 2, with steering and the candidates count;
+- 8d's check 3 again;
+- the mutation check.
