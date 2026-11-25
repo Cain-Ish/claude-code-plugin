@@ -19,7 +19,9 @@ const M = [
   ['(1) Agent\'s older name, Task', D, '/^(Agent|Task)$/.test(x?.name)', "x?.name === 'Agent'"],
   ['(1) the analyzer names R!', AN, ", and **R!:** a tool's output marked as a failure", ''],
   ['(1) the analyzer reads steering first', AN, "When you are also given the run's `steering.md`, read it before the digest.", ''],
-  ['(2) uses counted', D, "const u = !r.isSidechain && used(x); if (u) { use({ ...u, via: 'call' }, true);", 'const u = false; if (u) { use({ ...u, via: \'call\' }, true);'],
+  // re-anchored 2026-11-25: the move of 8d to 8f into plugin/ (2e57af4f) split this line in two, so the old anchor went
+  // missing unseen until the merged 8i and 8j copy's run
+  ['(2) uses counted', D, 'const u = !r.isSidechain && used(x);', 'const u = false;'],
   ['(2) a sidechain call is no use', D, "const u = !r.isSidechain && used(x);", 'const u = used(x);'],
   ['(2) a typed /<name> counted', D, "else if (cmd && (skills.has(cmd) || cmd.includes(':'))) use({ kind: 'skill', name: cmd, via: 'typed' }, false);", ''],
   ['(2) a built-in command is no use', D, "else if (cmd && (skills.has(cmd) || cmd.includes(':')))", 'else if (cmd)'],

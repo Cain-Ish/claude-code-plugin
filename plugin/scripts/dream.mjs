@@ -327,6 +327,9 @@ export async function prepare(root, data) {
       st.pending = null;
       fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(st, null, 1));
     }
+    // K-1: the repo's run folder emptied, its .gitignore last; one a program holds stops the dream before anything moves
+    const run = path.join(root, RUN);
+    if (!clearRun(run)) throw new Error(STUCK);
     // a run left by a dream that did not finish (its lock went stale): moved aside, not restored, since a restore days
     // later would revert what was captured and committed since; the report names what differs from its snapshot
     const runDir = path.join(dir, 'run');
@@ -346,8 +349,6 @@ export async function prepare(root, data) {
         : `A dream of ${old.date} in the worktree ${old.root} did not finish; check that worktree with git diff. Its snapshot is saved in ${to}.`;
     }
     fs.rmSync(runDir, { recursive: true, force: true });
-    const run = path.join(root, RUN);
-    fs.rmSync(run, { recursive: true, force: true });
     fs.mkdirSync(path.join(run, 'digests'), { recursive: true });
     fs.mkdirSync(path.join(run, 'proposals'), { recursive: true });
     fs.writeFileSync(path.join(run, '.gitignore'), '*\n');
@@ -364,12 +365,20 @@ export async function prepare(root, data) {
     // unread, so the due nudge cannot count it for ever (/code-review's finding)
     const known = new Set(knownDirs(dir));
     const owners = new Map();
+    // X-2: how sessions spell their folders: each recorded folder (Claude Code writes it, not the model) beside its real
+    // path, both cut back to where their names part (a link or a short name)
+    const spellings = [];
     const owner = (cwd) => {
       if (!owners.has(cwd)) {
         let q = path.resolve(cwd);
         while (!fs.existsSync(q) && path.dirname(q) !== q) q = path.dirname(q);
         let o = null;
         try { o = real(toplevel(q)); } catch {}
+        let a = path.resolve(cwd), b = a;
+        try { b = path.join(real(q), path.relative(q, a)); } catch {}
+        while (path.basename(a) && path.basename(a) === path.basename(b)) { a = path.dirname(a); b = path.dirname(b); }
+        // the longest first, as the roots are: a shorter one (a linked temp folder) would map past a link below it
+        if (a !== b) { spellings.push([a, b]); spellings.sort((x, y) => y[0].length - x[0].length); }
         owners.set(cwd, { ours: Boolean(o) && rootsReal.includes(o), gone: q !== path.resolve(cwd) });
       }
       const { ours, gone } = owners.get(cwd);
@@ -393,8 +402,9 @@ export async function prepare(root, data) {
     const bag = () => Object.create(null);
     const usage = { sessions: 0, skill: bag(), agent: bag(), failed: bag(), subagents: bag(), digests: bag() };
     // 8g: a session may spell its folder through a link or a short name (macOS /var, a Windows 8.3 name) while the
-    // worktree roots are real paths, so a file's folder is matched by the real path of its nearest folder that exists
-    const realDir = (a) => { let q = path.dirname(a); while (!fs.existsSync(q) && path.dirname(q) !== q) q = path.dirname(q); try { return path.join(real(q), path.relative(q, a)); } catch { return a; } };
+    // worktree roots are real paths, so a file is mapped through the sessions' spellings to its real path. X-2: by
+    // strings only, since the name is the model's and a file-system call on it can reach another host (a UNC path)
+    const realDir = (a) => { for (const [s, r] of spellings) { const q = path.relative(s, a); if (!q.startsWith('..') && !path.isAbsolute(q)) return path.join(r, q); } return a; };
     // 8d (D35): a file a session named, relative to the root of the worktree that holds it (the longest root first, so a
     // worktree under .claude/worktrees/ is its own; a relative path is taken from the session's folder), or null when
     // no root holds it (the 8d review)
@@ -448,8 +458,23 @@ export async function prepare(root, data) {
       const files = [...new Set([...dg.touched].map((p) => inRoot(p, dg.cwd)).filter(Boolean))].sort();
       const its = [...new Set(dg.uses.map((u) => `${u.kind}\0${u.name}`))].map((k) => { const [kind, n] = k.split('\0'); return { kind, name: n }; });
       manifest.push({ f: c.f, end: c.size, digest: name, sha: crypto.createHash('sha256').update(text).digest('hex'), first: dg.first?.slice(0, 10), last: dg.last?.slice(0, 10), reads: [...dg.reads], readsAt, uses: its, touched: files });
-      usage.digests[name] = { uses: its, touched: files, packages: [...new Set(files.map(packageOf).filter(Boolean))].sort() };
       usage.sessions++;
+    }
+    // P-2: a git-ignored file (node_modules, build output) is no one's work, so it makes no package and no rule's paths.
+    // One check for every digest's files; git stops at a path it cannot check (past a link, in a submodule, pathspec
+    // magic), which is left out, and checks the rest again
+    const kept = new Set();
+    for (let rest = [...new Set(manifest.flatMap((m) => m.touched ?? []))]; rest.length;) {
+      const x = spawnSync('git', ['check-ignore', '-z', '-v', '-n', '--stdin'], { cwd: root, input: rest.join('\0'), encoding: 'utf8' });
+      const f = (x.stdout ?? '').split('\0');
+      let k = 0;
+      // "<source>\0<line>\0<pattern>\0<path>\0" per path: no pattern, or a "!" one, is not ignored
+      for (; k + 3 < f.length; k += 4) if (!f[k + 2] || f[k + 2].startsWith('!')) kept.add(f[k + 3]);
+      rest = x.status > 1 ? rest.slice(k / 4 + 1) : [];
+    }
+    for (const m of manifest.filter((x) => x.digest)) {
+      const files = (m.touched = m.touched.filter((f) => kept.has(f)));
+      usage.digests[m.digest] = { uses: m.uses, touched: files, packages: [...new Set(files.map(packageOf).filter(Boolean))].sort() };
     }
     fs.writeFileSync(path.join(run, 'usage.json'), JSON.stringify(usage, null, 1));
     // 8c (D35): the team's steering, as HEAD holds it (under D14 an uncommitted edit is unreviewed); guidance for the
@@ -485,8 +510,18 @@ export async function prepare(root, data) {
 export const PRIVATE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?![\w-])|(?<![a-z0-9])[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s([{`'"=:;,>*_~|]|\/\/)\/(?:users|home|root|var|tmp|etc|opt|srv|mnt|private|volumes)\/|(?:^|[\s([{`'"=:;,>*_~|])\/(?:cygdrive\/)?[a-z]\/(?:users|home)\/|(?<![a-z0-9])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![a-z0-9])|(?<![a-z0-9])(?:sk-[a-z0-9_-]{10,}|gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{10,}|(?:akia|asia)[0-9a-z]{12,}|xox[abpr]-[a-z0-9-]{10,}|glpat-[a-z0-9_-]{15,}|npm_[a-z0-9]{30,}|aiza[0-9a-z_-]{30,}|eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})|begin [a-z ]*private key/i;
 const front = (t) => /^---\n([\s\S]*?)\n---\n/.exec(t.replace(/\r/g, ''));
 // a front-matter key's value on its own line, quotes dropped; '' when the key is missing or empty (the 8d review: \s*
-// crossed the line end, so an empty "tools:" took the next key's value)
-const field = (fm, k) => (new RegExp(`^${k}:[ \\t]*(\\S.*)$`, 'm').exec(fm?.[1] ?? '')?.[1] ?? '').trim().replace(/^["']|["']$/g, '');
+// crossed the line end, so an empty "tools:" took the next key's value). K-4: or a YAML block list below the key
+// ("tools:" then "  - Read" lines, the form Claude Code's docs show), its items joined
+const field = (fm, k) => (new RegExp(`^${k}:[ \\t]*(\\S.*)$`, 'm').exec(fm?.[1] ?? '')?.[1]
+  ?? new RegExp(`^${k}:[ \\t]*((?:\\n[ \\t]*-[ \\t]+\\S.*)+)`, 'm').exec(fm?.[1] ?? '')?.[1].split(/\n[ \t]*-[ \t]+/).slice(1).join(', ') ?? '').trim().replace(/^["']|["']$/g, '');
+// X-4: a top-level key's whole text, each time it occurs: its line and the lines that continue it (indented, a list's
+// "-" lines, blank ones, comments, which YAML skips inside a list), so a list, a folded value or a repeated key is seen
+const entry = (fm, k) => { let on = false; return (fm?.[1] ?? '').split('\n').filter((l) => (on = /^([ \t#-]|$)/.test(l) ? on : new RegExp(`^${k}[ \\t]*:`).test(l))).join('\n'); };
+// keys that let an agent or a skill act without asking: a draft that may set one is refused, never promoted on one yes.
+// A top-level line that is not a plain key (a quoted or escaped key, an anchor, a tag, "?", "<<", a flow mapping) could
+// spell one unseen, so it counts too
+const POWERS = ['permissionMode', 'hooks', 'mcpServers'];
+const powers = (fm) => POWERS.some((k) => entry(fm, k)) || !(fm?.[1] ?? '').split('\n').every((l) => /^([ \t#-]|$)|^[\w-]+[ \t]*:/.test(l));
 const MADE = new Set(FILES.map(([, to]) => to));
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
 // every ellipsis-separated segment of a proposed quote has 3 or more words, so none goes unchecked (the read hook's
@@ -510,7 +545,8 @@ const evidence = (t, digests) => {
 // something is left
 const clearRun = (run) => {
   try {
-    for (const e of fs.readdirSync(run)) if (e !== '.gitignore') fs.rmSync(path.join(run, e), { recursive: true, force: true });
+    // a link in its place is removed, never followed: emptying it would delete what it points to
+    if (!lstat(run)?.isSymbolicLink()) for (const e of fs.readdirSync(run)) if (e !== '.gitignore') fs.rmSync(path.join(run, e), { recursive: true, force: true });
     fs.rmSync(run, { recursive: true, force: true });
     return true;
   } catch (e) { return e.code === 'ENOENT'; }
@@ -712,6 +748,7 @@ export function finish(root, data) {
     if (!field(fm, 'name') || !field(fm, 'description') || !field(fm, 'tools')) { drop('agent without name, description or tools'); continue; }
     // Claude Code knows an agent by its name, so the name is the file's: a draft cannot pass as another agent
     if (field(fm, 'name') !== f.slice(0, -3)) { drop('a name that is not its file name'); continue; }
+    if (powers(fm)) { drop('agent that may set permissionMode, hooks or mcpServers'); continue; }
     if (PRIVATE.test(t)) { drop('agent with private data'); continue; }
     if (evidence(t, digests).size < 2) { drop('agent from fewer than two sessions'); continue; }
     const live = path.join(root, '.claude', 'agents', f);
@@ -739,6 +776,7 @@ export function finish(root, data) {
     const fm = front(t);
     if (!field(fm, 'name') || !field(fm, 'description') || (c.kind === 'agent' && !field(fm, 'tools'))) { drop('change without name, description or tools'); continue; }
     if (field(fm, 'name') !== c.name) { drop('a name that is not its file name'); continue; }
+    if (powers(fm)) { drop('change that may set permissionMode, hooks or mcpServers'); continue; }
     // the files setup makes stay the plugin's: setup updates them (D29), and map-review is the review itself (D33)
     if (MADE.has(path.relative(root, c.live).split(path.sep).join('/'))) { drop('a change to a file setup makes'); continue; }
     if (PRIVATE.test(t)) { drop('change with private data'); continue; }
@@ -746,10 +784,13 @@ export function finish(root, data) {
     if (cited.size < 2) { drop('change from fewer than two sessions'); continue; }
     if (![...cited].every((d) => usedIn[d]?.has(`${c.kind}\0${c.name}`))) { drop('change whose sessions did not use it'); continue; }
     if (!fs.existsSync(c.live)) { drop('change for a file the repo lacks'); continue; }
+    const liveFm = front(fs.readFileSync(c.live, 'utf8').replace(/\r/g, ''));
+    // X-4: a change keeps what the skill or agent may run as the live file has it; the person changes that by hand
+    if (['allowed-tools', 'tools'].some((k) => entry(fm, k) !== entry(liveFm, k))) { drop('change to allowed-tools or tools'); continue; }
     if (fs.existsSync(`${c.live}.draft`)) { drop('a draft already waits'); continue; }
     if (!inside(root, `${c.live}.draft`)) { drop('a link on its path'); continue; }
     if (c.kind === 'skill') {
-      const flag = (front(fs.readFileSync(c.live, 'utf8').replace(/\r/g, ''))?.[1] ?? '').split('\n').find((l) => /^disable-model-invocation\s*:/.test(l));
+      const flag = (liveFm?.[1] ?? '').split('\n').find((l) => /^disable-model-invocation\s*:/.test(l));
       t = `---\n${[...(flag ? [flag] : []), ...fm[1].split('\n').filter((l) => !/^disable-model-invocation\s*:/.test(l))].join('\n')}\n---\n${t.slice(fm[0].length)}`;
     }
     fs.writeFileSync(`${c.live}.draft`, t, { flag: 'wx' });

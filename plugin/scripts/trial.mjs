@@ -13,7 +13,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { MAP, toplevel, inRepo } from './map.mjs';
+import { MAP, toplevel, inRepo, configDir } from './map.mjs';
 import { PRIVATE } from './dream.mjs';
 
 export const casesFile = (root, name) => path.join(root, MAP, 'evals', `${name}.json`);
@@ -118,18 +118,22 @@ function load(root, name) {
 }
 
 // what run would do, for the person to read before they type its line; nothing runs
+const quote = (t) => t.split(/\r?\n/).map((l) => `  | ${l}`).join('\n');
 export function show(root, name, self = fileURLToPath(import.meta.url)) {
   const { spec, info, checks, hash, runs } = load(root, name);
   const fm = info.text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
-  const bangs = info.text.split('\n').filter((l) => /!`|^\s*```!/.test(l));
+  // a fenced ! block is kept whole, to its closing fence (C-1)
+  let fenced = false;
+  const bangs = info.text.split('\n').filter((l) => { const keep = fenced || /!`|^\s*```!/.test(l); fenced = fenced ? !/^\s*```\s*$/.test(l) : /^\s*```!/.test(l); return keep; });
   const sessions = spec.cases.reduce((s, c) => s + runs(c) * 2, 0);
   return [`Trial of ${spec.artifact} (${info.kind}${info.name ? ` "${info.name}"` : ''}): "with" ${info.draft ? 'has the draft in place' : 'has it as the commit holds it'}, "without" ${info.change ? 'has the file as the commit holds it' : info.draft ? 'has nothing there' : 'has it removed'}.`,
     `${sessions} sessions, each in its own copy of the last commit outside the repo, as claude -p with acceptEdits, only the case's tools, project settings only, every hook off, no MCP server and no transcript kept. Each one costs usage. Each case's check script decides a pass.`,
     fm ? `Its front matter:\n${fm.split(/\r?\n/).map((l) => `  ${l}`).join('\n')}` : 'It has no front matter.',
     bangs.length ? `Its command lines:\n${bangs.map((l) => `  ${l.trim()}`).join('\n')}` : 'It runs no command lines.',
-    ...(info.extras.length ? [`Files beside it, which "with" adds: ${info.extras.map((e) => e.rel).join(', ')}`] : []),
+    `Its whole text, which "with" runs:\n${quote(info.text)}`,
+    ...(info.extras.length ? [`Files beside it, which "with" adds: ${info.extras.map((e) => e.rel).join(', ')}`, ...info.extras.map((e) => `The file ${e.rel}:\n${quote(e.body.toString('utf8'))}`)] : []),
     ...spec.cases.map((c) => `- case ${c.id} (${c.use === false ? 'should not be used' : 'should be used'}), ${runs(c)} run(s) per arm\n  prompt: ${c.prompt}\n  tools: ${(c.tools ?? DEFAULT_TOOLS).join(', ')}\n  check: ${c.check}`),
-    ...Object.entries(checks).map(([k, t]) => `The check script ${k}, which runs with node on each session's work:\n${t.split(/\r?\n/).map((l) => `  | ${l}`).join('\n')}`),
+    ...Object.entries(checks).map(([k, t]) => `The check script ${k}, which runs with node on each session's work:\n${quote(t)}`),
     'To run it, type this line yourself; the ! runs it in your shell, so no model starts it:',
     `! node "${self.split(path.sep).join('/')}" run ${name} ${hash}`].join('\n');
 }
@@ -139,6 +143,7 @@ export function show(root, name, self = fileURLToPath(import.meta.url)) {
 export function start(root, name, hash, self = fileURLToPath(import.meta.url)) {
   const { hash: now } = load(root, name);
   if (hash !== now) throw new Error(`the hash ${hash || '(none)'} is not this case file and artifact as they are now: type /second-brain:tailor show ${name} again`);
+  if (holder(root)) throw new Error(RUNNING);
   spawn(process.execPath, [self, 'exec', name, hash], { cwd: root, detached: true, stdio: 'ignore', windowsHide: true, env: childEnv() }).unref();
   return `The trial of ${name} started. Its verdict lands in ${MAP}/.trial/${name}.json when it ends, and /map-review shows it.`;
 }
@@ -160,16 +165,18 @@ const GIT_COPY = ['-c', 'user.name=trial', '-c', 'user.email=trial@example.inval
 const commit = (dir) => { for (const a of [['add', '-A'], ['commit', '-qm', 'trial copy', '--allow-empty']]) { const r = git(dir, ...GIT_COPY, ...a); if (r.status !== 0) throw new Error(`git ${a[0]} failed in a copy: ${String(r.stderr).trim()}`); } };
 // a copy of one commit, with no history: each blob it holds (no links, no submodules, no path with a backslash, a
 // colon, a .git or .. segment), then a fresh repository, so the session's git sees a clean tree. The evals folder
-// never reaches a copy
+// never reaches a copy, nor the drafts' staging folder, which "without" must not see (C-7)
 export function copyHead(root, commitId, to) {
   const tree = git(root, 'ls-tree', '-r', '-z', commitId).stdout.split('\0').filter(Boolean).map((l) => { const [meta, p] = l.split('\t'); const [mode, type, oid] = meta.split(' '); return { mode, type, oid, p }; })
-    .filter((e) => e.type === 'blob' && e.mode !== '120000' && !`${e.p}/`.startsWith(`${MAP}/evals/`) && !/[\\:]/.test(e.p) && !e.p.split('/').some((s) => s === '..' || s.toLowerCase() === '.git'));
+    .filter((e) => e.type === 'blob' && e.mode !== '120000' && !`${e.p}/`.startsWith(`${MAP}/evals/`) && !`${e.p}/`.startsWith(`${MAP}/drafts/`) && !/[\\:]/.test(e.p) && !e.p.split('/').some((s) => s === '..' || s.toLowerCase() === '.git'));
   const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: tree.map((e) => e.oid).join('\n') + '\n', maxBuffer: 1 << 30, windowsHide: true }).stdout;
   let at = 0;
   for (const e of tree) {
     const nl = out.indexOf(10, at);
     const size = Number(out.toString('latin1', at, nl).split(' ')[2]);
     const body = out.subarray(nl + 1, nl + 1 + size);
+    // a missing object, or a read cut short (a repo over the buffer), has no size or fewer bytes: never a truncated tree (X-7)
+    if (body.length !== size) throw new Error(`git cat-file could not read ${e.p} in a copy`);
     at = nl + 1 + size + 1;
     fs.mkdirSync(path.dirname(path.join(to, e.p)), { recursive: true });
     fs.writeFileSync(path.join(to, e.p), body, { mode: e.mode === '100755' ? 0o755 : 0o644 });
@@ -196,17 +203,18 @@ export function place(copy, info, arm) {
   commit(copy);
 }
 
-// a session counts only when it ran to its end: a JSON result that is not an error, exit 0, and no stop at 15 minutes
+// a session counts only when it ran to its end: a JSON result that is not an error, exit 0, and no stop at 15 minutes.
+// One that cannot start rejects with why, which the verdict names (K-8)
 function session(cwd, prompt, tools) {
   const stub = process.env.SECOND_BRAIN_TRIAL_CLAUDE; // the self-test's stand-in for claude
   const [cmd, args] = stub ? [process.execPath, [stub, ...childArgs(prompt, tools)]] : ['claude', childArgs(prompt, tools)];
-  return new Promise((done) => {
+  return new Promise((done, fail) => {
     let out = '';
     let killed = false;
     const c = spawn(cmd, args, { cwd, env: childEnv(), stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     c.stdout.on('data', (d) => { if (out.length < 1 << 22) out += d; });
     const stop = setTimeout(() => { killed = true; c.kill(); }, 900_000);
-    c.on('error', () => { clearTimeout(stop); done(false); });
+    c.on('error', (e) => { clearTimeout(stop); fail({ why: `claude could not be started (${e.code}). On Windows, an npm install puts only claude.cmd on the PATH, which a trial cannot start` }); });
     c.on('close', (code) => {
       clearTimeout(stop);
       let r = null;
@@ -214,6 +222,16 @@ function session(cwd, prompt, tools) {
       done(!killed && code === 0 && r?.type === 'result' && r.is_error === false);
     });
   });
+}
+
+// the copy's Claude Code project folder, named for its real path with every other character a dash: a session leaves
+// one even with no transcript kept (an empty memory folder, the subagents' notes). Removed only when it holds no
+// transcript (8i, item 10)
+function forget(copy) {
+  try {
+    const dir = path.join(configDir(), 'projects', fs.realpathSync.native(copy).replace(/[^A-Za-z0-9]/g, '-'));
+    if (!fs.readdirSync(dir, { recursive: true }).some((f) => String(f).endsWith('.jsonl'))) fs.rmSync(dir, { recursive: true, force: true });
+  } catch {}
 }
 
 // a check script, from the text read at the start, fed to node on stdin after the session: it never touches the disk,
@@ -235,26 +253,52 @@ export function verdict(rows, failed = 0) {
   return better && worse ? 'mixed' : better ? 'helps' : worse ? 'hurts' : 'adds nothing';
 }
 
-// the verdict file, inside the repo and git-ignored, privacy-scanned, and never written through a file or link
+// the trials' folder, inside the repo and git-ignored; a file put there is never written through a file or link
 // already at its path
-export function record(root, name, out) {
-  const text = `${JSON.stringify(out, null, 1)}\n`;
-  if (PRIVATE.test(text)) throw new Error('the verdict would hold private data');
+function put(root, files) {
   const dir = path.join(root, MAP, '.trial');
   if (!inRepo(root, dir)) throw new Error(`${MAP}/.trial is a link out of the repo`);
   fs.mkdirSync(dir, { recursive: true });
-  for (const [f, body] of [['.gitignore', '*\n'], [`${name}.json`, text]]) { const p = path.join(dir, f); fs.rmSync(p, { force: true }); fs.writeFileSync(p, body, { flag: 'wx' }); }
+  for (const [f, body] of [['.gitignore', '*\n'], ...files]) { const p = path.join(dir, f); fs.rmSync(p, { force: true }); fs.writeFileSync(p, body, { flag: 'wx' }); }
+  return dir;
 }
-// git's blob id of a file, which /map-review can compute again to tell a stale verdict
-const blobId = (root, rel) => git(root, 'hash-object', '--', rel).stdout.trim();
+// the verdict file, privacy-scanned
+export function record(root, name, out) {
+  const text = `${JSON.stringify(out, null, 1)}\n`;
+  if (PRIVATE.test(text)) throw new Error('the verdict would hold private data');
+  put(root, [[`${name}.json`, text]]);
+}
+
+// one trial at a time per repo (D34): exec holds a lock with its process id; a lock whose process has ended is taken over
+const RUNNING = 'another trial is running in this repo: type the line again once its verdict lands';
+const lockOf = (root) => path.join(root, MAP, '.trial', '.lock');
+function holder(root) {
+  let pid = 0;
+  try { pid = Number(fs.readFileSync(lockOf(root), 'utf8')); } catch {}
+  // signal 0 only asks whether the process exists; EPERM means it does, under another user
+  try { return pid > 0 && process.kill(pid, 0) ? pid : 0; } catch (e) { return e.code === 'EPERM' ? pid : 0; }
+}
+function take(root) {
+  const lock = path.join(put(root, []), '.lock');
+  if (!holder(root)) fs.rmSync(lock, { force: true });
+  try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); } catch { throw new Error(RUNNING); }
+  return lock;
+}
 
 // the run: one session at a time (06, 8e, attempt 3), so no session runs while another job's copy exists
 export async function exec(root, name, hash) {
   const t = load(root, name);
   if (hash !== t.hash) throw new Error('the case file or the artifact changed after the run started');
+  // git's blob ids, which /map-review computes again to tell a stale verdict: of the text that runs and of the case
+  // file at the trial's commit, taken now, so an edit during the run leaves the verdict stale (P-1)
+  const artifactBlob = spawnSync('git', ['hash-object', '--stdin', `--path=${t.spec.artifact}`], { cwd: root, input: t.info.text, encoding: 'utf8', windowsHide: true }).stdout.trim();
+  const casesBlob = git(root, 'rev-parse', `${t.commit}:${t.rel}`).stdout.trim();
+  const lock = take(root);
   const jobs = ['with', 'without'].flatMap((arm) => t.spec.cases.flatMap((c) => Array.from({ length: t.runs(c) }, () => ({ arm, c }))));
   const pass = {};
+  const left = [];
   let failed = 0;
+  let why;
   for (const { arm, c } of jobs) {
     let copy = null;
     try {
@@ -264,11 +308,17 @@ export async function exec(root, name, hash) {
       place(copy, t.info, arm);
       if (!(await session(copy, c.prompt, c.tools ?? DEFAULT_TOOLS))) { failed++; continue; }
       if (judged(t.checks[c.check], copy)) pass[`${c.id}\0${arm}`] = (pass[`${c.id}\0${arm}`] ?? 0) + 1;
-    } catch { failed++; } finally { if (copy) fs.rmSync(copy, { recursive: true, force: true }); }
+    } catch (e) { failed++; why ??= e.why; } finally {
+      if (copy) forget(copy);
+      // a copy the system will not remove (Windows, while a program the session started still runs in it) is named in
+      // the verdict, and the trial goes on (K-3)
+      if (copy) try { fs.rmSync(copy, { recursive: true, force: true }); } catch { left.push(path.basename(copy)); }
+    }
   }
   const rows = t.spec.cases.map((c) => ({ id: c.id, use: c.use !== false, runs: t.runs(c), with: pass[`${c.id}\0with`] ?? 0, without: pass[`${c.id}\0without`] ?? 0 }));
-  const out = { artifact: t.spec.artifact, kind: t.info.kind, hash, artifactBlob: blobId(root, t.spec.artifact), casesBlob: blobId(root, t.rel), date: new Date().toISOString().slice(0, 10), failed, cases: rows, verdict: verdict(rows, failed) };
+  const out = { artifact: t.spec.artifact, kind: t.info.kind, hash, artifactBlob, casesBlob, date: new Date().toISOString().slice(0, 10), failed, ...(why && { why }), ...(left.length && { copiesLeft: left }), cases: rows, verdict: verdict(rows, failed) };
   record(root, name, out);
+  fs.rmSync(lock, { force: true });
   return out;
 }
 
@@ -282,13 +332,19 @@ export function draft(root, name, kind) {
   const src = path.join(root, MAP, 'drafts', name);
   if (!fs.lstatSync(src, { throwIfNoEntry: false })?.isDirectory() || !inRepo(root, src)) throw new Error(`no folder ${MAP}/drafts/${name} (a plain folder, not a link)`);
   const [target, main] = HOME[kind](name);
-  if (!plainFile(path.join(src, main))) throw new Error(`no ${MAP}/drafts/${name}/${main}`);
+  const names = fs.readdirSync(src);
+  // on a system that ignores case, skill.md passes for SKILL.md, and beside the draft it would load as a live skill (X-1)
+  if (!names.includes(main) || !plainFile(path.join(src, main))) throw new Error(`no ${MAP}/drafts/${name}/${main}, by that exact name`);
+  const beside = kind === 'skill' ? names.filter((f) => f !== main) : [];
+  const odd = beside.find((f) => f.toLowerCase() === main.toLowerCase() || /\.draft$/i.test(f));
+  if (odd) throw new Error(`a file beside ${main} may not be named ${odd}`);
   const text = fs.readFileSync(path.join(src, main), 'utf8');
   const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? '';
-  for (const k of kind === 'rule' ? ['paths'] : kind === 'agent' ? ['name', 'description', 'tools'] : ['name', 'description']) if (!new RegExp(`^${k}:[ \\t]*\\S`, 'm').test(fm)) throw new Error(`the front matter needs ${k}`);
+  // a value on the line, or a YAML block list under it (K-4)
+  for (const k of kind === 'rule' ? ['paths'] : kind === 'agent' ? ['name', 'description', 'tools'] : ['name', 'description']) if (!new RegExp(`^${k}:[ \\t]*(?:\\S|\\r?\\n[ \\t]*-[ \\t]+\\S)`, 'm').test(fm)) throw new Error(`the front matter needs ${k}`);
   // Claude Code knows a skill or an agent by its name, so the name is the draft's own (8d's rule)
   if (kind !== 'rule' && fm.match(/^name:[ \t]*["']?([^"'\r\n]+?)["']?[ \t]*$/m)?.[1] !== name) throw new Error(`the front matter's name must be ${name}`);
-  const files = [[path.join(src, main), target], ...(kind === 'skill' ? fs.readdirSync(src).filter((f) => f !== main) : []).map((f) => [path.join(src, f), `.claude/skills/${name}/${f}`])];
+  const files = [[path.join(src, main), target], ...beside.map((f) => [path.join(src, f), `.claude/skills/${name}/${f}`])];
   for (const [from, to] of files) {
     if (!plainFile(from)) throw new Error(`not a plain file: ${path.basename(from)}`);
     if (PRIVATE.test(fs.readFileSync(from, 'utf8'))) throw new Error(`${path.basename(from)} holds private data`);

@@ -9926,3 +9926,27 @@ replaces A5-1's move.
    - the map's own folder not protected;
    - the fallback removed.
 6. **Session start's cost:** still one `git ls-files` call. D18's bench after 8l covers the timing.
+
+### 8, 8i and 8j: results (2026-11-25): pass; moved into `plugin/`
+
+Merged in one copy, with the product hash pinned: `88e323d58cca`. The two steps touch different files, so the merge
+copied each step's files over `b977771fc513`.
+- **The self-test passes** on Windows under Node 24 and Node 20. Each builder showed its own cases failing on
+  `b977771fc513` and passing on its copy: 8i 10 cases, 8j 7.
+- **Every mutation list on the merged copy** (`probes/V2-8i-trial/results/mutations-8ij-merged-win32.txt`, each list
+  with its own test files):
+
+  | list | killed | notes |
+  |---|---|---|
+  | `mutate8c` | 32 of 32 | One anchor, "(2) uses counted", had been missing since 8d to 8f's move split its line (`2e57af4f`). It went unseen because that list had not been re-run since; it is re-anchored and killed. |
+  | `mutate8d` | 49 of 49 | |
+  | `mutate8e` | 85 of 85 that apply | Four anchors that 8i moved are carried, re-anchored, in `mutate8i`. Two "(7)" guards that `selftest.mjs` checks survive a run of `trial8e.mjs` alone, and are killed in a full run. |
+  | `mutate8f` | 26 of 26 | |
+  | `mutate8i` | 24 of 24 | |
+  | `mutate8j` | 22 of 22 | |
+- **The reviews** (check 4) come with 8k's, on the merged diff of 8i to 8k, since a fresh review of each step on its
+  own would read code that 8k changes again.
+- **Moved into `plugin/`:** `plugin/` hashes `88e323d58cca`, and `claude plugin validate plugin` passes. CI on this push
+  is the macOS evidence for 8j's Windows-only reasoning (J-5); its result is recorded next.
+- **Live:** this build goes on the live install as `2.6.0-live.1`, its version set in the live copy only.
+- **8k's base** is this commit. The other session builds 8k, 8m and 8l from it.

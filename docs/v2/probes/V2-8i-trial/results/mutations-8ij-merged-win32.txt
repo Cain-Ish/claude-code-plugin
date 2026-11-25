@@ -1,0 +1,260 @@
+platform win32, the merged 8i+8j copy (88e323d58cca), MUT_FAST (each list's own test files) unless noted, 2026-11-25
+== mutate8c
+killed    (1) the name first
+killed    (1) R! for a failure
+killed    (1) an older Skill call names its skill as command
+killed    (1) Agent's older name, Task
+killed    (1) the analyzer names R!
+killed    (1) the analyzer reads steering first
+MISSING   (2) uses counted
+killed    (2) a sidechain call is no use
+killed    (2) a typed /<name> counted
+killed    (2) a built-in command is no use
+killed    (2) a typed use leaves the open ones open
+killed    (2) a typed line after a use
+killed    (2) a call ends the open uses
+killed    (2) failed results by tool
+killed    (2) a sidechain failure is not the session's
+killed    (2) use counted before the nothing-typed skip
+killed    (2) subagent runs read
+killed    (2) a run counts by its Agent call
+killed    (2) a run counts through the run that started it
+killed    (2) "unknown" with no agentType
+killed    (2) failures inside a subagent run
+killed    (2) counters with no prototype
+killed    (3) the "used" line
+killed    (3) "no use" needs 10 sessions
+killed    (3) the repo's own skills listed
+killed    (3) the repo's own agents listed
+killed    (3) names made safe
+killed    (4) steering from HEAD
+killed    (4) the steering line in the report
+killed    (4) topic refuses steering.md
+killed    (4) a status line only in a topic file
+killed    (4) the skill skips steering.md in its map read
+31 of 32 killed; 1 survived or could not be applied
+== mutate8d
+killed    (1) agent drafts written
+killed    (1) an agent names its tools
+killed    (1) an empty field is no value
+killed    (1) the agent name is its file name
+killed    (1) an agent with a private name
+killed    (2) a change with a private name
+killed    (2) a change names its fields
+killed    (2) an agent change names its tools
+killed    (2) the change name is its file name
+killed    (2) not a file setup makes
+killed    (2) a change from two sessions
+killed    (2) every cited session used it
+killed    (2) an agent change named by its file
+killed    (2) the live flag kept
+killed    (3) only the session's own calls
+killed    (3) each worktree its own root
+killed    (3) the longest root first
+killed    (3) a relative path from the session folder
+killed    (3) a folder matched by its real path
+killed    (3) an inline list split outside braces
+killed    (3) the YAML list form
+killed    (3) a linked or impossible folder
+killed    (3) a backslash glob
+killed    (3) a folder inside the repo
+killed    (4) the analyzer's artifact-correction
+killed    (5) the template says promotion replaces
+killed    (1) an agent with private data
+killed    (1) an agent from two sessions
+killed    (1) an agent the repo holds
+killed    (1) an agent draft already waiting
+killed    (1) an agent through a link
+killed    (2) a change its sessions used
+killed    (2) the uses from the data folder
+killed    (2) a change with private data
+killed    (2) a change for a file the repo holds
+killed    (2) a change draft already waiting
+killed    (2) a change through a link
+killed    (2) a change keeps the invocation flag
+killed    (3) touched files kept
+killed    (3) only files in the repo
+killed    (3) packages per digest
+killed    (3) the report by package
+killed    (3) a rule naming a folder the repo lacks
+killed    (4) the analyzer's agent-task
+killed    (4) the analyzer gets usage.json
+killed    (4) the skill stages change drafts
+killed    (5) the template lists agent drafts
+killed    (5) the template shows a change as a diff
+killed    (5) the 2.5.1 template listed for update
+49 of 49 killed
+== mutate8e
+killed    (1) fields it does not know
+killed    (1) a tool that reads as a flag
+killed    (1) a prompt that reads as a flag
+killed    (1) the tool its kind needs
+killed    (1) a check under the checks folder
+killed    (1) a check path that climbs
+killed    (1) three cases or more
+killed    (1) a case where it should not be used
+killed    (1) runs at least 3
+killed    (1) runs at most 5
+killed    (1) the privacy scan
+killed    (1) the artifact's home
+killed    (1) an artifact path that climbs
+killed    (1) committed as git compares
+killed    (1) unchanged since the commit
+killed    (1) the case file committed
+killed    (1) each check committed
+killed    (1) a case file through a link
+killed    (1) a live artifact as committed
+killed    (2) the hash covers the commit
+killed    (2) the hash covers the artifact
+killed    (2) the hash covers the files beside it
+killed    (2) run checks the hash
+killed    (2) show prints the front matter
+killed    (2) show prints every command form
+killed    (2) show prints the files beside it
+killed    (2) show prints each check script
+killed    (2) the run line is typed with !
+killed    (2) the skill never starts a trial
+killed    (2) other words ask to make
+killed    (3) no evals in a copy
+killed    (3) no backslash or colon in a copy
+killed    (3) no .git in a copy
+killed    (3) no signing in a copy
+killed    (3) no hooks in a copy
+killed    (3) the same message in every arm
+killed    (3) a draft never stays in a copy
+killed    (3) "with" adds the files beside it
+killed    (3) a new skill has no folder without it
+killed    (3) a change keeps the committed file
+killed    (3) the tools limited
+killed    (3) project settings only
+killed    (3) no transcript kept
+killed    (3) hooks off
+killed    (3) no MCP server
+killed    (3) acceptEdits stated
+killed    (3) one JSON result
+killed    (3) the linking variables removed
+killed    (3) every linking variable removed
+killed    (3) login and configuration kept
+killed    (4) "not judged" on a failed session
+killed    (4) "not judged" when the should-not case fails without
+killed    (4) a should-not case that fails is "hurts"
+killed    (4) the margin is half the runs
+killed    (4) the margin rounds up
+killed    (4) "mixed" when one better and one worse
+killed    (4) worse alone is "hurts"
+killed    (5) a session counts only a result
+killed    (5) the check never on disk
+MISSING   (5) one session at a time
+killed    (5) a reduced environment for the check
+MISSING   (5) the copies deleted
+killed    (5) no copy inside the repo
+killed    (5) the verdict privacy-scanned
+killed    (5) the verdict folder in the repo
+killed    (5) never through a link at its path
+killed    (5) the verdict git-ignored
+MISSING   (5) the blob ids recorded
+killed    (5) a stopped trial recorded
+killed    (6) an agent draft names its tools
+MISSING   (6) an empty field is no value
+killed    (6) the name is the draft's own
+killed    (6) a draft with private data
+killed    (6) never over a draft
+killed    (6) never over a live file
+killed    (6) a draft never through a link
+killed    (7) tailor only a person starts
+killed    (7) tailor never runs a trial itself
+killed    (7) a broad request surveys first
+killed    (7) the survey reads the code first
+killed    (7) the gaps listed with evidence
+killed    (7) asks before making
+SURVIVED  (7) tailor grants cli and draft only
+killed    (7) the words by a quoted heredoc
+SURVIVED  (7) no code loaded at run time
+killed    (7) map-review calls a changed draft stale
+killed    (7) map-review offers nothing when not judged
+killed    (7) map-review removes only on a yes
+killed    (7) map-review removes only on a fresh verdict
+83 of 89 killed; 6 survived or could not be applied
+== mutate8f
+killed    (1) the trim keeps A lines
+killed    (1) skill, agent and failure lines kept
+killed    (1) 4 tool lines before
+killed    (1) map-read lines kept
+killed    (1) a run of tool lines counted
+killed    (1) the trailing cut counted
+killed    (2) prepare writes the trimmed digest
+killed    (2) map reads recorded
+killed    (2) each reading call its own line
+killed    (2) a read's line in the trimmed digest
+killed    (3) only corrections count
+killed    (3) a digest given with its folder
+killed    (3) only at a U or Q line
+killed    (3) only after the read
+killed    (3) topic files only
+killed    (3) reads of the candidate's own session
+killed    (3) counted by session
+killed    (4) no candidates file
+killed    (6) the state and the lock before the run folder
+killed    (6) the folder named in the report
+killed    (6) the .gitignore removed last
+killed    (7) abort's lock before a held folder
+killed    (5) a decision can be a rule draft
+killed    (5) the skill writes the candidates file
+killed    (5) the skill reads finish's line
+killed    (5) the analyzer knows the cut lines
+26 of 26 killed
+== mutate8i
+killed    (8i-1) X-1: the main file by its exact name: (8i-1) X-1
+killed    (8i-1) X-1: nothing beside it named as the main file or a draft: (8i-1) X-1
+killed    (8i-2) P-1: artifactBlob of the text that ran: (8i-2) P-1
+killed    (8i-2) P-1: casesBlob at the trial's commit: (8i-2) P-1
+killed    (8i-3) C-1: a fenced ! block whole: (8i-3) C-1, C-2
+killed    (8i-3) C-2: the artifact's whole text: (8i-3) C-1, C-2
+killed    (8i-3) C-2: the text of each file beside it: (8i-3) C-1, C-2
+killed    (8i-4) C-7: no staging folder in a copy: (8i-4) C-7
+killed    (8i-5) C-8: run stops while a trial runs: (8i-5) C-8
+killed    (8i-5) C-8: exec never takes a held lock: (8i-5) C-8
+killed    (8i-5) C-8: a lock whose process ended is taken over: (8i-5) C-8
+killed    (8i-5) C-8: only a live process holds the lock: (8i-5) C-8
+killed    (8i-5) C-8: the lock gone when the verdict lands: (8i-5) C-8
+killed    (8i-5) C-8: the lock git-ignored: (8i-5) C-8
+killed    (8i-6) K-3: a copy not removed is named, and the trial goes on: (8i-6) K-3
+killed    (8i-7) K-4: a YAML block list: (8i-7) K-4
+killed    (8i-8) K-8: a session that cannot start says why: (8i-8) K-8
+killed    (8i-9) X-7: a failed read stops the copy: (8i-9) X-7
+killed    (8i-10) the copy's project folder removed: (8i-10) no project folder left
+killed    (8i-10) never a project folder holding a transcript: (8i-10) no project folder left
+killed    (8e 5) the blob ids recorded: (5) a run end to end; (8i-2) P-1
+killed    (8e 5) the copies deleted: (5) a run end to end; (5) not judged, and no write through a link; (8i-6) K-3
+killed    (8e 5) one session at a time: (5) a run end to end
+killed    (8e 6) an empty field is no value: (6) draft refusals; (8i-7) K-4
+24 of 24 killed
+== mutate8j
+killed    (X-2) a named path placed by strings only
+killed    (X-2) a session spelled through a link
+killed    (X-2) the longest spelling first
+killed    (X-2) the spellings cut back to where they part
+killed    (K-1) prepare clears the run folder with clearRun
+killed    (K-1) a linked run folder is not followed
+killed    (X-4) an agent that may set a power refused
+killed    (X-4) a change that may set a power refused
+killed    (X-4) permissionMode is a power
+killed    (X-4) hooks is a power
+killed    (X-4) mcpServers is a power
+killed    (X-4) a change keeps the live tools
+killed    (X-4) allowed-tools compared
+killed    (X-4) tools compared
+killed    (X-4) a key that is not plain counts as a power
+killed    (X-4) the lines that continue a key counted
+killed    (X-4) a comment inside a list continues it
+killed    (K-4) a block list read
+killed    (P-2) ignored files left out
+killed    (P-2) the rest checked again after git stops
+killed    (P-2) the path git stops at left out
+killed    (P-2) a "!" pattern keeps its file
+22 of 22 killed
+== mutate8c, re-anchored (2) uses counted
+killed    (2) uses counted
+== mutate8e, (7) in full mode (selftest.mjs)
+killed    (7) tailor grants cli and draft only
+killed    (7) no code loaded at run time

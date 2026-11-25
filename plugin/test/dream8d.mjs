@@ -220,6 +220,112 @@ await tryCheck('(3) globs and worktrees', async () => {
     && has('brace') && has('yamlgood') && !has('yamlbad') && !has('nul') && !has('back') && !has('climb') && /(^|\D)4 rule paths naming a folder the repo lacks/.test(fin), JSON.stringify({ all, fin }));
 });
 
+// 8j, X-2: a path a tool call names gets no file-system call before a string check places it in a root: a UNC path in
+// both spellings, a path outside the repo, one that climbs out. The spy answers the marked paths itself, so no run (the
+// unchanged product's included) opens a connection
+await tryCheck('(3) 8j no file-system call on a named path', async () => {
+  const w = world({ 'packages/api/package.json': '{}\n', 'packages/api/src/a.ts': 'export {};\n' });
+  const { rec } = w;
+  const named = ['\\\\evil-8j\\share\\f.md', '//evil-8j/share/g.md', path.join(tmp, 'evil-8j-out', 'x.ts'), '../../evil-8j-up/x.ts'];
+  w.session('s1', [rec.U('Read these, marker X1.'), ...named.map((p, i) => rec.call(`x${i}`, 'Read', { file_path: p })), rec.call('ok', 'Read', { file_path: path.join(w.r, 'packages/api/src/a.ts') })]);
+  w.use();
+  const seen = [];
+  const names = ['existsSync', 'statSync', 'lstatSync', 'accessSync', 'openSync', 'opendirSync', 'readdirSync', 'readFileSync', 'readlinkSync'];
+  const saved = Object.fromEntries(names.map((k) => [k, fs[k]]));
+  const native = fs.realpathSync.native;
+  const spy = (k, f) => (p, ...a) => {
+    if (!String(p).includes('evil-8j')) return f(p, ...a);
+    seen.push(`${k} ${p}`);
+    if (k === 'existsSync') return false;
+    throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+  };
+  for (const k of names) fs[k] = spy(k, saved[k]);
+  fs.realpathSync.native = spy('realpathSync.native', native);
+  try { await D.prepare(w.r, w.data); } finally { Object.assign(fs, saved); fs.realpathSync.native = native; }
+  const all = Object.values(JSON.parse(fs.readFileSync(path.join(w.run, 'usage.json'), 'utf8')).digests).flatMap((d) => d.touched);
+  check('(3) 8j no file-system call on a named path', !seen.length && all.includes('packages/api/src/a.ts') && !all.some((f) => /evil-8j-(out|up)|\/\/evil/.test(f)), JSON.stringify({ seen, all }));
+});
+
+// 8j, X-2: spellings are tried longest first. An older session spells the repo through a link to the temp folder; a
+// newer one through that link and then a second link to the repo. The newer one's files map through its own, longer
+// spelling, not the older, shorter one (8g's file-system walk needed no order, so this passes on b977771fc513 too)
+await tryCheck('(3) 8j the longest spelling first', async () => {
+  const w = world({ 'packages/api/package.json': '{}\n', 'packages/api/src/a.ts': 'export {};\n', 'packages/web/package.json': '{}\n' });
+  const up = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pm-dream8d-up-')), 't');
+  try {
+    fs.symlinkSync(tmp, up, 'junction');
+    const alias = path.join(fs.mkdtempSync(path.join(tmp, 'alias-')), 'r');
+    fs.symlinkSync(w.r, alias, 'junction');
+    const via = path.join(up, path.relative(tmp, alias));
+    const J = (cwd, o) => JSON.stringify({ cwd, timestamp: '2026-11-20T10:00:00Z', ...o });
+    const U = (cwd, text) => J(cwd, { type: 'user', promptSource: 'sdk', isMeta: false, message: { role: 'user', content: text } });
+    const call = (cwd, id, input) => J(cwd, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Read', input }] } });
+    const cwd = path.join(via, 'packages', 'api');
+    w.session('s0', [U(path.join(up, path.basename(w.r)), 'Look around, marker O1.')]);
+    w.session('s1', [U(cwd, 'Errors carry a code, marker L1.'), call(cwd, 't1', { file_path: 'src/a.ts' }), call(cwd, 't2', { file_path: path.join(via, 'packages', 'web', 'package.json') })]);
+    // the older session is read first (oldest first), so its shorter spelling is found first
+    const tdir = path.join(w.cfg, 'projects', fs.realpathSync.native(w.r).replace(/[^A-Za-z0-9]/g, '-'));
+    fs.utimesSync(path.join(tdir, 's0.jsonl'), new Date(Date.now() - 60e3), new Date(Date.now() - 60e3));
+    w.use();
+    await D.prepare(w.r, w.data);
+    const all = Object.values(JSON.parse(fs.readFileSync(path.join(w.run, 'usage.json'), 'utf8')).digests).flatMap((d) => d.touched);
+    check('(3) 8j the longest spelling first', all.includes('packages/api/src/a.ts') && all.includes('packages/web/package.json'), JSON.stringify(all));
+  } finally { fs.rmSync(path.dirname(up), { recursive: true, force: true }); }
+});
+
+// 8j, X-4 and K-4: an agent or change draft that may set permissionMode, hooks or mcpServers (a key that is not plain,
+// quoted or tagged, counts), and a change whose allowed-tools or tools differ from the live file's (widened, repeated,
+// folded), are refused with a reason; an agent whose tools are a YAML block list is kept, and so is a change that keeps
+// the live tools
+await tryCheck('(1) and (2) 8j powers and tools', async () => {
+  const sk = (name, extra = '') => `---\nname: ${name}\ndescription: ${name}.\n${extra}---\n${name}.\n`;
+  const ag = (name, tools = 'tools: Read\n') => `---\nname: ${name}\ndescription: ${name}.\n${tools}---\n${name}.\n`;
+  const w = world({ '.claude/skills/deploy/SKILL.md': sk('deploy', 'allowed-tools: Read\n'), '.claude/skills/ship/SKILL.md': sk('ship'),
+    '.claude/agents/helper.md': ag('helper'), '.claude/agents/scout.md': ag('scout'), '.claude/agents/probe.md': ag('probe'), '.claude/agents/aide.md': ag('aide'),
+    '.claude/agents/lister.md': ag('lister', 'tools:\n  - Read\n') });
+  const { rec } = w;
+  const calls = (k) => [...['deploy', 'ship'].flatMap((s) => [rec.skill(`${s}${k}`, s), rec.res(`${s}${k}`, 'ok')]),
+    ...['helper', 'scout', 'probe', 'aide', 'lister'].flatMap((a) => [rec.call(`${a}${k}`, 'Agent', { subagent_type: a, prompt: 'x' }), rec.res(`${a}${k}`, 'ok')])];
+  w.session('s1', [rec.U('Start, marker S1.'), ...calls(1), rec.U('Tighten them, marker T1.')]);
+  w.session('s2', [rec.U('Start again, marker S2.'), ...calls(2), rec.U('Tighten them again, marker T2.')]);
+  w.use();
+  await D.prepare(w.r, w.data);
+  const e = ev(w.ref('T1'), w.ref('T2'));
+  ['permissionMode: bypassPermissions\n', 'hooks:\n  Stop:\n    - hooks: []\n', 'mcpServers: {}\n', '"mcp\\x53ervers": {}\n', '!!str hooks: []\n'].forEach((x, i) => w.stage(`agents/a-power${i}.md`, `${ag(`a-power${i}`, `tools: Read\n${x}`)}${e}`));
+  w.stage('agents/a-list.md', `${ag('a-list', 'tools:\n  - Read\n  - Grep\n')}${e}`);
+  w.stage('change/skills/deploy/SKILL.md', `${sk('deploy', 'allowed-tools: Read, Bash(*)\n')}${e}`);
+  w.stage('change/skills/ship/SKILL.md', `${sk('ship', "'allowed-tools': Bash(*)\n")}${e}`);
+  w.stage('change/agents/helper.md', `${ag('helper', 'tools: Read\npermissionMode: acceptEdits\n')}${e}`);
+  w.stage('change/agents/scout.md', `${ag('scout', 'tools: Read\ntools: Read, Bash\n')}${e}`);
+  w.stage('change/agents/probe.md', `${ag('probe', 'tools: Read\n  Bash\n')}${e}`);
+  // a comment inside a block list, which YAML skips: the item after it is still the list's
+  w.stage('change/agents/lister.md', `${ag('lister', 'tools:\n  - Read\n#\n  - Bash\n')}${e}`);
+  w.stage('change/agents/aide.md', `---\nname: aide\ndescription: Aide, tighter.\ntools: Read\n---\nAide, tighter.\n${e}`);
+  const fin = D.finish(w.r, w.data);
+  const has = (p) => fs.existsSync(path.join(w.r, '.claude', `${p}.draft`));
+  const want = ['5 agent that may set permissionMode, hooks or mcpServers', '2 change that may set permissionMode, hooks or mcpServers', '4 change to allowed-tools or tools'];
+  check('(1) and (2) 8j powers and tools', has('agents/a-list.md') && has('agents/aide.md') && ![0, 1, 2, 3, 4].some((i) => has(`agents/a-power${i}.md`))
+    && !['skills/deploy/SKILL.md', 'skills/ship/SKILL.md', 'agents/helper.md', 'agents/scout.md', 'agents/probe.md', 'agents/lister.md'].some(has) && want.every((x) => new RegExp(`(^|\\D)${x}`).test(fin)), fin);
+});
+
+// 8j, P-2: a git-ignored file is left out of the touched files, so it makes no package (a single-package repo whose
+// session read node_modules/foo). A tracked file in an ignored folder and one a "!" pattern keeps stay; a path git
+// stops at (pathspec magic here; a path past a link or in a submodule does the same) is left out, and the rest checked
+await tryCheck('(3) 8j git-ignored files', async () => {
+  const w = world({ 'package.json': '{}\n', '.gitignore': 'node_modules/\ndist/\nbuild/*\n!build/keep.js\n', 'src/a.js': 'x\n', 'node_modules/foo/package.json': '{}\n', 'node_modules/foo/index.js': 'x\n', 'dist/keep.js': 'x\n' });
+  w.g('add', '-f', 'dist/keep.js');
+  w.g('commit', '-qm', 'keep');
+  for (const f of ['build/keep.js', 'build/out.js']) { fs.mkdirSync(path.join(w.r, 'build'), { recursive: true }); fs.writeFileSync(path.join(w.r, f), 'x\n'); }
+  const { rec } = w;
+  const reads = [':(exclude)q', 'build/keep.js', 'build/out.js', 'dist/keep.js', 'node_modules/foo/index.js', 'src/a.js'];
+  w.session('s1', [rec.U('Why does foo throw, marker G1.'), ...reads.map((p, i) => rec.call(`g${i}`, 'Read', { file_path: path.join(w.r, p) }))]);
+  w.use();
+  const out = await D.prepare(w.r, w.data);
+  const d = Object.values(JSON.parse(fs.readFileSync(path.join(w.run, 'usage.json'), 'utf8')).digests);
+  check('(3) 8j git-ignored files', JSON.stringify(d.map((x) => [x.touched, x.packages])) === JSON.stringify([[['build/keep.js', 'dist/keep.js', 'src/a.js'], []]]) && !out.includes('Files these sessions touched'),
+    JSON.stringify({ d, out }));
+});
+
 // (4) and (5): the analyzer's two new kinds; map-review lists agent and change drafts and promotes a change by
 // replacing its file; the template's 2.5.1 text is listed for setup's update
 await tryCheck('(4) and (5) texts', async () => {

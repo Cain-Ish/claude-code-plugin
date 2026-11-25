@@ -1,6 +1,6 @@
 // 06, section 8, 8e (D34's option T, as amended after its reviews): the trial as a script. One case per registered
 // item, with a stand-in for claude (trial-stub8e.mjs), run against the plugin folder given (default: this one). The
-// exit code is the number of failures.
+// exit code is the number of failures. The (8i-n) cases follow 8i's items, the register's fixes (06, section 8).
 //   node trial8e.mjs [plugin folder]
 import fs from 'node:fs';
 import os from 'node:os';
@@ -364,6 +364,163 @@ await tryCheck('(7) texts', () => {
     && tl.includes('**Ask which to make, and stop.** Make nothing until the person picks one')
     && mr.includes('.project-map/.trial/<name>.json') && mr.includes('artifactBlob') && mr.includes('call it stale') && mr.includes('"Not judged"') && mr.includes('call the draft untested') && mr.includes('not stale') && mr.includes('Remove it only on')
     && dm.includes('Then ask whether to review the proposals now'), 'a text is missing');
+});
+
+// 8i: the stand-in's variables set for a run in this process, then put back
+const withEnv = async (env, f) => {
+  const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, env);
+  try { return await f(); } finally { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+};
+const stubEnv = (log, more = {}) => ({ SECOND_BRAIN_TRIAL_CLAUDE: STUB, STUB_LOG: path.join(tmp, log), STUB_LIVE: '.claude/skills/pricing/SKILL.md', ...more });
+const tryDraft = (r, name, kind) => { try { return T.draft(r, name, kind).join(','); } catch (e) { return `refused: ${e.message}`; } };
+
+// (8i-1) X-1: the main file only by its exact name (skill.md would go live beside the draft on a system that ignores
+// case), and no file beside it named as the main file in any case or as a draft
+await tryCheck('(8i-1) X-1: skill.md or a draft beside it', () => {
+  if (!need('(8i-1) X-1: skill.md or a draft beside it')) return;
+  const { r, put } = repo(D, SKILL);
+  const stage = (name, file, text) => put(`.project-map/drafts/${name}/${file}`, text);
+  stage('lower', 'skill.md', '---\nname: lower\ndescription: Lower.\n---\nL.\n');
+  stage('beside', 'SKILL.md', '---\nname: beside\ndescription: Beside.\n---\nB.\n');
+  stage('beside', 'notes.md.DRAFT', 'x\n');
+  stage('twice', 'SKILL.md', '---\nname: twice\ndescription: Twice.\n---\nT.\n');
+  stage('twice', 'skill.md', 'x\n');
+  // on a system that keeps case, both files exist, and the second is refused by name
+  const sensitive = fs.readdirSync(path.join(r, '.project-map', 'drafts', 'twice')).length === 2;
+  const got = Object.fromEntries(['lower', 'beside', 'twice'].map((k) => [k, tryDraft(r, k, 'skill')]));
+  check('(8i-1) X-1: skill.md or a draft beside it', /by that exact name/.test(got.lower) && /may not be named notes\.md\.DRAFT/.test(got.beside) && (!sensitive || /may not be named skill\.md/.test(got.twice))
+    && !['lower', 'beside'].some((k) => fs.existsSync(path.join(r, '.claude', 'skills', k))), JSON.stringify({ got, sensitive }));
+});
+
+// (8i-2) P-1, C-3, K-2: the verdict's blob ids are of the text that ran and of the case file at the trial's commit,
+// though both are edited during the run
+await tryCheck('(8i-2) P-1: blob ids of what ran', async () => {
+  if (!need('(8i-2) P-1: blob ids of what ran')) return;
+  const { r, g } = repo(D, SKILL);
+  const hash = hashOf(cli(r, 'show pricing'));
+  const cases = path.join(r, '.project-map', 'evals', 'pricing.json');
+  const v = await withEnv(stubEnv('edit.log', { STUB_EDIT: [path.join(r, D), cases].join(path.delimiter) }), () => T.exec(r, 'pricing', hash));
+  const ran = spawnSync('git', ['hash-object', '--stdin'], { cwd: r, input: SKILL, encoding: 'utf8' }).stdout.trim();
+  const atCommit = g('rev-parse', 'HEAD:.project-map/evals/pricing.json').stdout.trim();
+  const edited = g('hash-object', '--', D).stdout.trim();
+  check('(8i-2) P-1: blob ids of what ran', v?.verdict === 'helps' && v.artifactBlob === ran && v.casesBlob === atCommit && edited !== ran, JSON.stringify({ v: v && { verdict: v.verdict, artifactBlob: v.artifactBlob, casesBlob: v.casesBlob }, ran, atCommit, edited }));
+});
+
+// (8i-3) C-1, C-2: show prints a fenced ! block whole among the command lines, the artifact's whole text, and the text
+// of each file beside it
+await tryCheck('(8i-3) C-1, C-2: show prints what runs', () => {
+  if (!need('(8i-3) C-1, C-2: show prints what runs')) return;
+  const { r, put } = repo(D, `${SKILL}A body line.\n`);
+  put('.claude/skills/pricing/price.mjs', 'console.log("the helper\'s body");\n');
+  const out = cli(r, 'show pricing');
+  const commands = out.split('Its command lines:\n')[1]?.split(/\n(?! )/)[0] ?? '';
+  check('(8i-3) C-1, C-2: show prints what runs', commands.includes('!`node scripts/price.mjs`') && commands.includes('  ```!\n  node scripts/total.mjs\n  ```')
+    && out.includes('  | A body line.') && out.includes('  | permissionMode: acceptEdits') && out.includes('  | console.log("the helper\'s body");'), out);
+});
+
+// (8i-4) C-7: a committed draft's staging folder never reaches a copy; the map's other files do
+await tryCheck('(8i-4) C-7: no staging folder in a copy', () => {
+  if (!need('(8i-4) C-7: no staging folder in a copy')) return;
+  const a = repo(D, SKILL);
+  a.put('.project-map/drafts/pricing/SKILL.md', SKILL);
+  a.put('.project-map/notes.md', 'kept\n');
+  a.g('add', '.project-map/drafts', '.project-map/notes.md');
+  a.g('commit', '-qm', 'staged');
+  const c = path.join(tmp, `copy${++n}`);
+  T.copyHead(a.r, a.head(), c);
+  check('(8i-4) C-7: no staging folder in a copy', !fs.existsSync(path.join(c, '.project-map', 'drafts')) && fs.existsSync(path.join(c, '.project-map', 'notes.md')), JSON.stringify(fs.readdirSync(path.join(c, '.project-map'))));
+});
+
+// (8i-5) C-8, K-7, P-15: one trial at a time per repo. While a live process holds the lock, a typed run line stops
+// with a message and exec refuses; a lock left by a process that has ended is taken over, git never sees it, and it
+// is gone when the verdict lands
+await tryCheck('(8i-5) C-8: one trial at a time', async () => {
+  if (!need('(8i-5) C-8: one trial at a time')) return;
+  const { r } = repo(D, SKILL);
+  const hash = hashOf(cli(r, 'show pricing'));
+  const lock = path.join(r, '.project-map', '.trial', '.lock');
+  fs.mkdirSync(path.dirname(lock), { recursive: true });
+  fs.writeFileSync(lock, String(process.pid));
+  const env = stubEnv('lock.log', { STUB_REPO: r });
+  const second = runLine(r, 'pricing', hash, env);
+  let refused = '';
+  try { await withEnv(env, () => T.exec(r, 'pricing', hash)); } catch (e) { refused = e.message; }
+  fs.writeFileSync(lock, String(spawnSync(process.execPath, ['-e', '']).pid));
+  const v = await withEnv(env, () => T.exec(r, 'pricing', hash));
+  const seen = fs.readFileSync(path.join(tmp, 'lock.log'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  check('(8i-5) C-8: one trial at a time', /another trial is running/.test(second) && !/started/.test(second) && /another trial is running/.test(refused) && v?.verdict === 'helps' && !fs.existsSync(lock)
+    && seen.length === 18 && seen.every((s) => s.trialSeen === false), JSON.stringify({ second, refused, verdict: v?.verdict, lock: fs.existsSync(lock), seen: seen.length, trialSeen: seen.map((s) => s.trialSeen) }));
+});
+
+// (8i-6) K-3: a copy the system will not remove (Windows, while a program the session started runs in it) is named in
+// the verdict, and the trial goes on. macOS and Linux delete such a folder
+await tryCheck('(8i-6) K-3: a copy that cannot be removed', async () => {
+  if (process.platform !== 'win32') { console.log(`pass  (8i-6) K-3: a copy that cannot be removed (skipped on ${process.platform}: the system deletes a folder that is a working folder)`); return; }
+  if (!need('(8i-6) K-3: a copy that cannot be removed')) return;
+  const { r } = repo(D, SKILL);
+  const hash = hashOf(cli(r, 'show pricing'));
+  const held = path.join(tmp, 'holder.pid');
+  let v, err = '';
+  try { v = await withEnv(stubEnv('hold.log', { STUB_HOLD: held }), () => T.exec(r, 'pricing', hash)); } catch (e) { err = e.message; }
+  const pid = Number(fs.existsSync(held) ? fs.readFileSync(held, 'utf8') : 0);
+  if (pid) try { process.kill(pid); } catch {}
+  // the system lets the folder go a moment after the program has ended
+  for (const f of v?.copiesLeft ?? []) for (let k = 0; k < 100; k++) { try { fs.rmSync(path.join(os.tmpdir(), f), { recursive: true, force: true }); break; } catch { await new Promise((ok) => setTimeout(ok, 100)); } }
+  check('(8i-6) K-3: a copy that cannot be removed', v?.verdict === 'helps' && v.failed === 0 && v.copiesLeft?.length === 1 && /^second-brain-trial-/.test(v.copiesLeft[0]), JSON.stringify({ err, v }));
+});
+
+// (8i-7) K-4: draft reads a YAML block list, the form Claude Code's docs show, for paths and tools; an empty item is
+// still no value
+await tryCheck('(8i-7) K-4: YAML block lists', () => {
+  if (!need('(8i-7) K-4: YAML block lists')) return;
+  const { r, put } = repo(D, SKILL);
+  put('.project-map/drafts/src-rule/rule.md', '---\npaths:\n  - "src/**"\n  - "lib/**"\n---\nRule.\n');
+  put('.project-map/drafts/lister/agent.md', '---\nname: lister\ndescription: Lists.\ntools:\n  - Read\n  - Grep\n---\nList.\n');
+  put('.project-map/drafts/emptyitem/agent.md', '---\nname: emptyitem\ndescription: Empty.\ntools:\n  -\n---\nE.\n');
+  const got = { rule: tryDraft(r, 'src-rule', 'rule'), agent: tryDraft(r, 'lister', 'agent'), empty: tryDraft(r, 'emptyitem', 'agent') };
+  check('(8i-7) K-4: YAML block lists', got.rule === '.claude/rules/src-rule.md.draft' && got.agent === '.claude/agents/lister.md.draft' && /front matter needs tools/.test(got.empty), JSON.stringify(got));
+});
+
+// (8i-8) K-8: when claude cannot be started (here, no claude on the PATH), the verdict says why and names npm's
+// claude.cmd on Windows
+await tryCheck('(8i-8) K-8: claude cannot be started', () => {
+  if (!need('(8i-8) K-8: claude cannot be started')) return;
+  const { r } = repo(D, SKILL);
+  const hash = hashOf(cli(r, 'show pricing'));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(path|SECOND_BRAIN_TRIAL_CLAUDE)$/i.test(k)));
+  env.PATH = (process.env.PATH ?? '').split(path.delimiter).filter((d) => d && !['claude', 'claude.exe', 'claude.cmd', 'claude.com'].some((f) => fs.existsSync(path.join(d, f)))).join(path.delimiter);
+  const res = spawnSync(process.execPath, [TRIAL, 'exec', 'pricing', hash], { cwd: r, env, encoding: 'utf8' });
+  const vf = path.join(r, '.project-map', '.trial', 'pricing.json');
+  const v = fs.existsSync(vf) ? JSON.parse(fs.readFileSync(vf, 'utf8')) : {};
+  check('(8i-8) K-8: claude cannot be started', v.verdict === 'not judged' && v.failed === 18 && /^claude could not be started/.test(v.why ?? '') && /claude\.cmd/.test(v.why ?? ''), JSON.stringify({ v, status: res.status, out: res.stdout }));
+});
+
+// (8i-9) X-7: a failed read of the commit's files stops the copy (here, a blob the repo does not have)
+await tryCheck('(8i-9) X-7: a failed read stops the copy', () => {
+  if (!need('(8i-9) X-7: a failed read stops the copy')) return;
+  const e = repo(D, SKILL);
+  const oid = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: e.r, input: 'x\n', encoding: 'utf8' }).stdout.trim();
+  const tree = spawnSync('git', ['mktree', '--missing'], { cwd: e.r, input: `100644 blob ${'dead'.repeat(10)}\tgone.txt\n100644 blob ${oid}\tok.txt\n`, encoding: 'utf8' }).stdout.trim();
+  const cut = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit-tree', tree, '-m', 'cut'], { cwd: e.r, encoding: 'utf8' }).stdout.trim();
+  let err = '';
+  try { T.copyHead(e.r, cut, path.join(tmp, `copy${++n}`)); } catch (x) { err = x.message; }
+  check('(8i-9) X-7: a failed read stops the copy', /could not read gone\.txt/.test(err), JSON.stringify({ err, tree, cut }));
+});
+
+// (8i-10) item 10: after each session, the copy's Claude Code project folder goes when it holds no transcript, and
+// stays when it holds one (here, a subagent's, on the 6 sessions of the unrelated prompt)
+await tryCheck('(8i-10) no project folder left', async () => {
+  if (!need('(8i-10) no project folder left')) return;
+  const { r } = repo(D, SKILL);
+  const hash = hashOf(cli(r, 'show pricing'));
+  const config = path.join(tmp, 'config');
+  const projects = path.join(config, 'projects');
+  fs.mkdirSync(projects, { recursive: true });
+  const v = await withEnv(stubEnv('project.log', { CLAUDE_CONFIG_DIR: config, STUB_PROJECT: '1' }), () => T.exec(r, 'pricing', hash));
+  const left = fs.readdirSync(projects);
+  const kept = left.filter((d) => fs.readdirSync(path.join(projects, d), { recursive: true }).some((f) => String(f).endsWith('.jsonl')));
+  check('(8i-10) no project folder left', v?.verdict === 'helps' && left.length === 6 && kept.length === 6, JSON.stringify({ verdict: v?.verdict, left: left.length, kept: kept.length }));
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

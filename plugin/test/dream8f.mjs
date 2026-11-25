@@ -166,6 +166,42 @@ await tryCheck('(7) abort with a run folder held open', async () => {
   check('(7) abort with a run folder held open', /^Dream aborted/.test(said) && said.includes('could not be removed') && !fs.existsSync(path.join(repoDir, 'dream.lock')) && fs.existsSync(path.join(w.run, '.gitignore')), said);
 });
 
+// (8) 8j, K-1: prepare after a run folder a program holds stops with the folder's name, and what is left stays ignored:
+// no raw error, no local path, the lock released. Before, it deleted the .gitignore first and showed the rest to git
+await tryCheck('(8) prepare with a run folder held open', async () => {
+  if (process.platform !== 'win32') { console.log(`pass  (8) prepare with a run folder held open (skipped on ${process.platform}: the system deletes a folder that is a working folder)`); return; }
+  const w = world();
+  w.use();
+  await D.prepare(w.r, w.data);
+  const { spawn } = await import('node:child_process');
+  const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { cwd: path.join(w.run, 'digests'), stdio: 'ignore' });
+  await new Promise((ok) => setTimeout(ok, 500));
+  let said = '';
+  try {
+    D.finish(w.r, w.data);
+    try { await D.prepare(w.r, w.data); said = 'prepared'; } catch (e) { said = e.message; }
+  } finally { holder.kill(); await new Promise((ok) => holder.on('exit', ok)); }
+  const repoDir = fs.readdirSync(path.join(w.data, 'repos')).map((d) => path.join(w.data, 'repos', d))[0];
+  const seen = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: w.r, encoding: 'utf8' }).stdout.split('\n').filter((l) => l.includes('.dream-run'));
+  check('(8) prepare with a run folder held open', said.startsWith('.project-map/.dream-run/ could not be removed') && !/[a-z]:[\\/]|pm-dream8f-/i.test(said)
+    && !fs.existsSync(path.join(repoDir, 'dream.lock')) && fs.existsSync(path.join(w.run, '.gitignore')) && !seen.length, JSON.stringify({ said, seen }));
+});
+
+// (9) 8j: a run folder that a session replaced with a link is removed, never followed: abort leaves the folder it points
+// to as it was (emptying it would delete what is there; prepare now clears the run folder the same way)
+await tryCheck('(9) a linked run folder is not followed', async () => {
+  const w = world();
+  w.use();
+  await D.prepare(w.r, w.data);
+  const away = path.join(tmp, `away-${path.basename(w.r)}`);
+  fs.mkdirSync(away);
+  fs.writeFileSync(path.join(away, 'precious.txt'), 'keep me\n');
+  fs.rmSync(w.run, { recursive: true, force: true });
+  fs.symlinkSync(away, w.run, 'junction');
+  const said = D.abort(w.r, w.data);
+  check('(9) a linked run folder is not followed', fs.existsSync(path.join(away, 'precious.txt')) && !fs.existsSync(w.run), said);
+});
+
 // (5) the texts: the skill writes the candidates file; the analyzer knows the "…" lines
 await tryCheck('(5) texts', () => {
   const sk = fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8');
