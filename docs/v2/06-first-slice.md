@@ -9773,3 +9773,16 @@ would. What it found:
 - L-10: status reported 5 sessions since the last dream, and the dream read 2. Two causes, both known:
   - the session that ran the first dream (8 MB, the other session's) is skipped whole: Q-6, now seen in real use;
   - headless sessions with no typed line give no digest.
+
+**The live test: setup and map-review on the installed build (2026-11-25):**
+- L-11 (S-5, seen live): after the upgrade to 2.6.0, this repo's `/map-review` was still 2.5.1's text, committed
+  and untouched. That text names no agent draft, trial or verdict, so the `work-status` draft would never have been
+  offered. Neither status nor session start said the skill was out of date. Status should name the kept files whose
+  text is an earlier release's (setup's list already holds their hashes) and say "run `/second-brain:setup`" (8k,
+  `status.mjs`). The release notes say it too.
+- `/second-brain:setup` then did what D29 says: it replaced the untouched copy with 2.6.0's text, kept the nine other
+  files, wrote nothing else, and committed nothing. Committed as the person would.
+- `/map-review` listed the agent draft, read its trial, checked that the draft and case file still match the recorded
+  blobs ("current"), and showed the counts. It named `left`'s 0 of 3 in both arms as the weak spot, then asked
+  whether to promote or discard. It cannot see L-2 (the prompts name the agent), so "helps" stands unqualified there:
+  8l's fix. The draft waits.
