@@ -80,9 +80,10 @@ const entries =(s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### ')).
 
 function scan(file) {
   const recs = read(file).filter((r) => r.timestamp).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-  // the install that ran: Claude Code's own records of a plugin skill running (its permissions, its base directory, the
-  // skills invoked), not a tool call or result that mentions an install's folder (README, the counter's three fixes)
-  const ran = (r) => ['command_permissions', 'invoked_skills'].includes(r.attachment?.type) || (r.isMeta && /^Base directory for this skill/.test(text(r.message?.content)));
+  // the install that ran: Claude Code's own records of a plugin skill running (its permissions, its base directory),
+  // not a tool call or result that mentions an install's folder, nor the skills a compaction re-lists (README, the
+  // counter's three fixes and their amendment)
+  const ran = (r) => r.attachment?.type === 'command_permissions' || (r.isMeta && /^Base directory for this skill/.test(text(r.message?.content)));
   VERS = recs.filter(ran).flatMap((r) => { const m = JSON.stringify(r).match(/second-brain[\w-]*[\\/]+second-brain[\\/]+(\d+\.\d+\.\d+[\w.-]*)[\\/]/); return m ? [[Date.parse(r.timestamp), m[1]]] : []; });
   const cwd = recs.find((r) => r.cwd)?.cwd;
   const S = { epochs: [], writes: [], mapReads: [], mapOther: [], entries: [], named: [], hookErrors: [], anyHookErrors: 0, sources: [], bash: [] };

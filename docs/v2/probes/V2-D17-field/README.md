@@ -343,5 +343,12 @@ does not depend on the choice.
   - *On the 12:32Z freeze:* the first field repo has **2** such calls (one background, one foreground, both on 2.5.0),
     and this repo has 24. So the field read's "no defect in the scan" missed the same noise in the field. 8h fixes
     it there, once the install moves.
-- *Everything else* on the 12:32Z freeze equals the base: C1, C3's list, C5, C5b's other counts, C6 to C9 and the
-  writes.
+- *Everything else* on the 12:32Z freeze equals the base. Every other printed count is the same, for both folders.
+  The full extract (`field.json`) differs from the 12:32Z one only in:
+  - the build fields;
+  - the forces' turns, and which turns are marked forced;
+  - the new count.
+- *Amended after the result (2026-11-25):* the skills invoked (`invoked_skills`) are no longer read as a source.
+  - In the new freeze, each such record comes the moment a compaction ends. It re-lists a skill that ran earlier,
+    so it is a mention, not a skill running.
+  - With it left out, all three folders print what they printed with it.

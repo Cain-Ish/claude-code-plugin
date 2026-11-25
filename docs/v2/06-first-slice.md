@@ -9179,6 +9179,7 @@ the repo. The field repos' sessions were offline and not asked.
 
   So the read has one defect, found by the ask and not by the scan: the counter counts missing labels, not labels
   given where none was due.
+- **Corrected by the counter's fix (below):** the first field repo had that noise too, twice on 2.5.0.
 
 ### 8, 8h: map labels only on a command that names the map (registered 2026-11-25, before the code)
 
