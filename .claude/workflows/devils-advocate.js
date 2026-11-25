@@ -24,7 +24,8 @@ export const meta = {
 //    therefore told to state the cross-axis cost of their own proposed fix.
 // ---------------------------------------------------------------------------
 
-const REPO = 'C:/Workplace/Projects/claude-code-plugin-v2'
+// the agents run in the repo's checkout, so the repo is their working directory (no local path in a public repo)
+const REPO = '.'
 
 const scope = (() => {
   if (!args) return { phase: 'the current working-tree changes', claims: '', files: '' }
@@ -33,7 +34,7 @@ const scope = (() => {
 })()
 
 const CTX = `
-Repo: ${REPO} — branch v2 of the second-brain Claude Code plugin (per-repo project memory for Claude Code).
+Repo: the working directory — branch v2 of the second-brain Claude Code plugin (per-repo project memory for Claude Code).
 Inspect real state: \`git -C "${REPO}" log --oneline -12\`, \`git -C "${REPO}" diff\`, and the files themselves.
 v1 is frozen at tag v1-final; read it with \`git -C "${REPO}" show v1-final:<path>\`.
 

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const PLUGIN = 'C:/Workplace/Projects/claude-code-plugin-v2/plugin';
+const PLUGIN = path.resolve(import.meta.dirname, '../../../../../plugin');
 const HOOK = path.join(PLUGIN, 'scripts', 'hook.mjs');
 const DREAM = path.join(PLUGIN, 'scripts', 'dream.mjs');
 const STATUS = path.join(PLUGIN, 'scripts', 'status.mjs');

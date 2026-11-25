@@ -9243,3 +9243,122 @@ quoting it), so the handler took the output as cut.
 passed every job: the self-test on macOS, Windows and Linux, and the load jobs. The macOS self-test holds every case
 of 8c to 8h, including 8e's detached run through the stand-in. So the user's word on systems is met for 2.6.0 as it
 stands.
+
+### 8: the open-items register (2026-11-25), on the user's word
+
+> If you find issue, gaps, improvement do not leave it and add it to the implementation plan
+
+(map entry `findings-go-into-the-plan`). The plan is the map issue (#115); this register holds each item's detail.
+Its sources are three inventories (this file and the ledger; the research notes against `plugin/`; the user's
+sessions and the agent's notes), the final audit by four reviewers who had not seen section 8's register
+(correctness, security, simplicity, and the decision-checker), and the live test of tailor (8h's results onward).
+Each item is open until it is built and checked, or until the user drops it. The labels are a first triage and may
+be revised:
+- **fix:** blocks 2.6.0. It is a defect in code new since 2.5.1 that breaks a registered bar, a locked decision's
+  boundary, or security.
+- **text:** a change to text a model reads. Each one voids the counted model runs (8d's check 3, 8e's check 4 and S7's
+  check 2), so they are batched into one step that re-earns those runs, or deferred.
+- **refactor:** a step after the fixes, since it moves the mutation anchors.
+- **record**, **release**, **user** (the user's word is needed), **later**, **housekeeping**.
+
+**Corrections to earlier results:**
+- **8g** passed its checks, but its `realDir` added a file-system call on every path a transcript names, before any
+  root check (X-2 below). A fix may not drop 8g's link case.
+- **8e's pass** did not cover four of its own registered bars: C-1, C-2 (amendment item 2), C-6 ("then the making
+  steps run as now", attempt 4) and C-7 (N5's staging folder). No D34 trigger was seen firing; the next fix step
+  names each.
+
+**fix: blocks 2.6.0**
+- X-1 (security, verified): `trial.mjs draft` with a lowercase `skill.md` staged writes a live
+  `.claude/skills/<name>/skill.md` beside the draft on Windows and macOS, which would load as a live skill.
+- X-2 (security, Windows): prepare runs `existsSync`/`realpathSync` on a path from a transcript, such as a UNC path
+  `//host/share/f`, which opens an SMB connection (a hash leak). Added by 8g; macOS's `/net/<host>` automounts.
+- X-4 (hardening): agent and change drafts pass with `permissionMode`, `hooks`, `mcpServers`, or a widened
+  `allowed-tools`, and map-review promotes them on one yes without a word.
+- K-1 (verified; made worse by 8f): prepare after a stuck run folder deletes `.gitignore` first, throws a raw error
+  with a local path, and leaves `usage.json`, proposals and steering visible to git.
+- P-1, C-3, K-2 (verified): the verdict's blob ids come from the working tree when the run ends, so a draft edited
+  during a run gets a verdict that map-review calls current.
+- C-1: `show` prints a fenced `!` block's opener, not its commands. C-2 and X-3, part: `show` prints neither the
+  artifact's body nor the text of the files beside a skill draft, though the approved hash covers them.
+- C-7: the trial's copies carry a committed `.project-map/drafts/<name>/` into the "without" arm.
+- C-8, K-7, P-15: two typed run lines start two trials side by side, against D34's "one session at a time".
+- K-3 (verified): on Windows, a copy that cannot be removed throws in `finally` and discards the whole trial.
+- K-4 (verified): `draft()` refuses YAML block lists (`paths:` then `  - "src/**"`), the form Claude Code's docs show;
+  the dream's `field()` drops an agent whose `tools:` is a block list.
+- To reproduce before triage: P-2 (a session reading `node_modules/x` makes a rule scoped to `node_modules/x/**`);
+  X-3's tool reach (bare names in `--allowedTools` approve Write and Edit on any path) and its environment (user
+  tokens reach trial sessions).
+
+**text: a model reads it**
+- C-4, R-a: no case file for a draft the dream made or a live artifact. map-review points to `show`, which stops with
+  "no case file", so the loop's own drafts reach promotion untested (D35's "ships only with 8e's trial"; D10's "each is
+  tested"). Build a tailor path that writes cases for an existing path, or amend the decisions' words (user).
+- C-6: after the person picks, the grant to `trial.mjs draft` may have ended with the survey's turn (D31's record);
+  the live test reads it.
+- P-3: every analyzer reads the whole `usage.json`, an estimated several hundred thousand tokens per large dream
+  (registered in 8d; user).
+- P-7: tailor's text is 9.9 KB, about 2.5k tokens on each run, `show` included. Moving the guidelines out saves about
+  1.2k per `show`, and cutting duplicates about 500 per run.
+- P-13, P-14: repeated or empty sentences in `dream.mjs`'s report and the map-review template.
+- R-c: the placement table has no agent row or tailor pointer, and the README template says a dream proposes only
+  skills and path rules.
+- R-d, from the first dream: no warning that a retried finish undoes review; a retry leaves a `<name>-2` folder; the
+  dream skill does not say finish makes skill drafts user-only; digest lines carry no dates.
+- X-6: the heredoc's delimiter can be closed by pasted words.
+
+**refactor**
+- P-4: agent and change draft gates are one chain copied. P-5: `trial.mjs` re-parses front matter (reuse
+  `front`/`field`). P-8 to P-12: a set built twice; `meta` unused; local `git`/`blob` copies; a dead `mkdirSync`; a
+  third copy of the walk to the nearest existing folder. P-16: one test kit. T-5: one mutation harness for the seven
+  copies.
+
+**record**
+- C-9: D10 and D18 are REOPENED. Their texts give 3 skills, and describe tailor as one Claude may start; 2.6.0 has 4,
+  with tailor flagged. Re-lock them with the built surface, at the release.
+- C-10: 8h's "no new miss" contradicts 8a's D14 note for commands the filter lets through.
+- C-11: a stale hash comment in `setup.mjs:14`.
+- `04-architecture.md`, the charter's D34 entry, the ledger's frontier block (D20 deferred, D28 waiting) and a D14 note
+  for 8h are stale. The "graph" item was never closed after the talk was read. #115 lacked 8c to 8h.
+
+**release**
+- Group M (A1, S8, D16's drift, D14's injection), on the final candidate.
+- D18's reference bench, once, after the last hook change.
+- The live test's result: the dream, map-review and tailor with its trial, on the final build.
+- The notes, the tag, a PR to `main`; push `v2` back; move the installs. Stop and ask before `main`.
+
+**user**
+- 8a's hardening, blocked by the user's word on 2026-11-24: H3 to H7, D-1 to D-6, 8a's leftovers, and `status.mjs`
+  on a FIFO or a linked map file. Of these, H3, H7 and D-1 to D-3 are security or privacy.
+- C-4's route, and P-3.
+- K-8: with Claude Code installed by npm on Windows, `spawn('claude')` finds no `claude.cmd`, so every trial ends "not
+  judged" with no reason.
+- S-3: steering's third rule has no review on record. S-4: field-repo items the agent's notes hold. A rule ("run
+  steps back to back") has no source words left for the map.
+- T-2: `/v2-step` was never typed in 15 sessions and contradicts that rule (retire or rewrite). T-4: the repo's
+  setting that deletes a head branch on merge.
+- Housekeeping: about 263 `second-brain-trial-*` folders in the temp folder, and about 448 empty Claude Code project
+  folders from trial copies (S-1). Clean them, and make trial copies leave none.
+
+**later**
+- Hooks: H2 (a Read hook process per Read); R8's standing "repo unchanged after each hook" case; K-5 (agent drafts get
+  no waiting note; D18); labels on `.dream-run/` and no repeat-suppression (R-e); SubagentStart (its trigger fired on
+  2026-10-29).
+- Dream: K-6 (an Agent call with no type is not counted); 8c's count edges; `state.json` written without a rename;
+  usage kept between dreams, for trends and before-and-after (R-b); the auto-memory input (R-f); steering in setup and
+  capture (R-g); the token half of "learning every run" (R-h); per-document descriptions beyond topic files (R-i);
+  `when:` and headings shown (I-2); union merge for topic files (R-k); "read, then corrected" as a reword proposal
+  (R-r); assess D31's grant-lifetime trigger (R-q, with C-6).
+- Tailor and trial: not a sandbox (X-3's rest); check scripts cannot import files beside them (S-2); `draft()` refuses
+  a skill's subfolder; a case file names the `.draft` path, so after promotion `show` refuses it; a repo over 1 GB
+  copies truncated (X-7); the run hash is visible to the model (X-5).
+- Setup and templates: `codebase-guide` and `memory-curator` unused (T-6); mixed line endings; "set up once, then it
+  keeps itself current" (S-5); a nested package's own `.claude/` (R-o).
+- Probes: R4's scheduled-task reopen; the `claude plugin eval` probe; the field counter's three fixes, due before the
+  next count.
+- From the live survey: the release steps the CLAUDE.md promises are not in the map (T-3); a `work-status` agent and
+  a `release` skill, made through tailor as the live test.
+
+**Done in this round:** the absolute local path in `.claude/workflows/devils-advocate.js` and in two D34 probe scripts
+is gone. Two of the user's working rules moved from the agent's notes into the map (`findings-go-into-the-plan`,
+`usage-limits-not-usd`).

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const PLUGIN = 'C:/Workplace/Projects/claude-code-plugin-v2/plugin';
+const PLUGIN = path.resolve(import.meta.dirname, '../../../../../plugin');
 const tmp = process.argv[2];
 const cfg = path.join(tmp, 'config');
 const data = path.join(cfg, 'plugins', 'data', 'second-brain');
