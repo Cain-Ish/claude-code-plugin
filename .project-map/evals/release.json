@@ -1,0 +1,19 @@
+{ "artifact": ".claude/skills/release/SKILL.md.draft", "runs": 3, "cases": [
+  { "id": "versions",
+    "prompt": "We are releasing the version in progress. Make every file that states the plugin's version or its release status say so, and leave tagging, pushing and the pull request to me.",
+    "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Skill"],
+    "check": ".project-map/evals/checks/release-versions.mjs" },
+  { "id": "notes",
+    "prompt": "Draft the release notes for the version in progress and keep them in the repo where this project records its releases. Do not publish anything.",
+    "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Skill"],
+    "check": ".project-map/evals/checks/release-notes.mjs" },
+  { "id": "carried",
+    "prompt": "Before we release the version in progress, record in the repo what the plan has not finished, so it carries over to the next release.",
+    "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Skill"],
+    "check": ".project-map/evals/checks/release-carried.mjs" },
+  { "id": "which-version",
+    "prompt": "Which version does the plugin's manifest declare? Write just the version to answer.md.",
+    "tools": ["Read", "Grep", "Glob", "Write", "Skill"],
+    "use": false,
+    "check": ".project-map/evals/checks/release-which-version.mjs" }
+] }

@@ -10015,3 +10015,25 @@ said beforehand that this is the outcome that should retire the agent.
   its own and wrote L-16 into this file. A rule captured from the user steered a fresh session.
 - **The evidence kept:** the discarded draft, its last verdict, and its case file and checks move to
   `probes/V2-live-test/work-status/`. That answers L-16 for this draft by hand.
+
+**The live test: tailor's second pick, the `release` skill (2026-11-25, live.1).** The person asked for the local half
+only, and gave the lessons of L-2 and L-12 (prompts that do not name the skill; checks that read their facts from the
+copy). Tailor drafted the skill, four cases and a local test of the checks: 62 turns. Its checks read the version, the
+product hash and the plan's open steps from the copy's first commit, so nothing is fixed to today. The person moved
+the draft (C-6 again), the check test passed 17 of 17 once its own pin pattern was fixed, and the cases were committed.
+What it found:
+- L-17 (8l, tailor's guidelines): L-2's rule clashes with a user-only skill. With `disable-model-invocation`, Claude
+  cannot see the skill, so plain prompts never reach it, and the verdict is "adds nothing" by construction. The
+  person chose to drop the flag, since the skill commits nothing. The guideline needs a clause: a user-only skill's
+  case starts with `/<name>`, and how a headless "without" session treats an unknown slash command is to be probed
+  first.
+- L-18 (records): stale version lines: `.claude/CLAUDE.md` says 2.5.0, the charter 2.3.0, `04-architecture.md`
+  2.5.1.
+- L-19 (release): no release notes are kept in the repo after 2.2.0. 2.6.0's are drafted in this file before the tag.
+- L-20 (later, the trial): a trial cannot judge a step that edits `.claude/`, since a headless session cannot have
+  that edit approved.
+- L-21 (cost): the making turn took 62 turns, about 16.6 USD at API prices, for one skill, four checks and a test.
+  P-7's shorter text and the guidelines file may lower it; the next live run measures it again.
+- L-22: tailor's own check test matched the self-test's first `slice(0, 12)` line, the capture instruction's hash,
+  rather than the product pin. So it failed three right answers that the checks themselves passed. Testing the checks
+  caught it, as intended. Guideline: the test matches each fact exactly as its check does.
