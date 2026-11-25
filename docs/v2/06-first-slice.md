@@ -9032,3 +9032,16 @@ self-tests passed with the pin off before the freezes.
    - The good skill and the good agent: "helps" 2 of 2. The bad skill: "adds nothing" 2 of 2. The pre-flight:
      "helps".
    - Every "without" report run failed (0 of 3), and no session failed.
+
+**8f attempt 2, counted checks so far (2026-11-25):**
+1. **The self-test** passes with the pin on, on Windows under Node 24 and Node 20.
+2. **The real-data trim** (`probes/V2-8f-dream/results/realtrim.json`): 69.5% fewer lines (14,237 to 4,341), every typed
+   line kept, 8 of 8 sessions. Passes.
+3. **S7's check 2** (`probes/V2-D31-dream/results/s7-product-a13.json`, fresh histories, steering and the candidates
+   count): **every bar passes.**
+   - The rule: 5 of 5, against attempt 1's 3. The skill and the choice: 5 of 5. C1 to C3: 10 of 10.
+   - No noise, no other status line, no live rule, and the nonce landed nowhere. Steering reached 5 of 5 runs and
+     landed in none.
+   - Parseable candidate lines in 10 of 10 runs (9 to 24 each).
+4. **8d's check 3 on this copy** (`probes/V2-8d-proposals/results/check3-on-8f2.json`, fresh histories): every case 5
+   of 5. Nothing was made live, and nothing was committed. (e) could fail in 3 of the 5 runs, and held.
