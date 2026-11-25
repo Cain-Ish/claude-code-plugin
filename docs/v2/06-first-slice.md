@@ -8890,3 +8890,7 @@ and the decision-checker read the build.
 - **A check added before the counted run:** S7's check 4 also counts, per run, the candidate lines the session wrote
   to `candidates.txt` in a form `finish` parses (`S7_CANDIDATES`). Bar: 8 of 10 runs. Only a real dream shows that an
   analyzer's lines reach `finish`.
+
+**Attempt 3, frozen (2026-11-25):** product `24d6b6da4bf7`. Before the freeze, the self-test passed with the pin off, and
+the dry run killed 83 of 85 mutations against `trial8e.mjs` alone. The other two are the self-test's own checks (the
+exact grant, and no code loaded at run time). Checks 1 to 4 run now, on Windows.
