@@ -9463,3 +9463,17 @@ Asked once, four questions; the answers:
 shares `dream.mjs` with 8j); then 8l, the text step (C-4, C-6, P-3, P-7, P-13, P-14, R-c, R-d, X-6, L-2, L-5), which
 re-earns the counted model runs once (8d's check 3, 8e's check 4, S7's check 2); then the refactors; then the
 records, group M, D18's bench, and the release stop.
+
+### The field counter's three fixes (2026-11-25): pass; the field read corrected
+
+Registered and run in `probes/V2-D17-field/README.md` ("The counter's three fixes"). This is probe code only. It
+closes the register's item "the field counter's three fixes" ("later", probes).
+- *C2* puts all 16 forces of the 12:32Z freeze on human turns.
+- *The build label* reads the install only from Claude Code's own records of a skill running, and is given per
+  epoch.
+- *C5b* counts the label blocks on calls that do not name the map.
+- **The field read, corrected:** the first field repo got 2 such label blocks on 2.5.0, one from a background call
+  and one from a foreground call. So the field had 8h's noise too, and the scan missed it. 8h fixes it there once the
+  install moves. This repo had 33 on the 13:55Z freeze.
+- **Open, new ("later", probes):** in an epoch where no skill runs, the label carries the last version forward. So a
+  move between epochs with no skill run gets the old label.

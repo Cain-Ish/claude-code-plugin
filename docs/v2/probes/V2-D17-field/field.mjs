@@ -80,7 +80,10 @@ const entries =(s) => s.split(/^(?=### )/m).filter((b) => b.startsWith('### ')).
 
 function scan(file) {
   const recs = read(file).filter((r) => r.timestamp).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-  VERS = recs.flatMap((r) => { const m = JSON.stringify(r).match(/second-brain[\w-]*[\\/]+second-brain[\\/]+(\d+\.\d+\.\d+[\w.-]*)[\\/]/); return m ? [[Date.parse(r.timestamp), m[1]]] : []; });
+  // the install that ran: Claude Code's own records of a plugin skill running (its permissions, its base directory, the
+  // skills invoked), not a tool call or result that mentions an install's folder (README, the counter's three fixes)
+  const ran = (r) => ['command_permissions', 'invoked_skills'].includes(r.attachment?.type) || (r.isMeta && /^Base directory for this skill/.test(text(r.message?.content)));
+  VERS = recs.filter(ran).flatMap((r) => { const m = JSON.stringify(r).match(/second-brain[\w-]*[\\/]+second-brain[\\/]+(\d+\.\d+\.\d+[\w.-]*)[\\/]/); return m ? [[Date.parse(r.timestamp), m[1]]] : []; });
   const cwd = recs.find((r) => r.cwd)?.cwd;
   const S = { epochs: [], writes: [], mapReads: [], mapOther: [], entries: [], named: [], hookErrors: [], anyHookErrors: 0, sources: [], bash: [] };
   const corpus = []; // [ms, normalized text] of human prompts, tool results and hook contexts, for C6c
@@ -172,9 +175,18 @@ function scan(file) {
       }
     }
   }
-  // link each force to the turn it came with (its parent record), then judge-ready extracts
+  // the build label per epoch: its start label, then each other version the install's records name in it
+  S.epochs.forEach((e, i) => {
+    const end = S.epochs[i + 1]?.ms ?? Infinity;
+    e.build = [e.build, ...VERS.filter(([t]) => t > e.ms && t < end).map(([, v]) => `v${v}`)].filter((v, j, a) => !j || v !== a[j - 1]).join(' → ');
+  });
+  // link each force to the turn its parent records lead to, up past attachments and meta records (a slash command's
+  // skill text); the time match only when the walk meets an assistant record or no turn of the epoch
+  const byUuid = new Map(recs.filter((r) => r.uuid).map((r) => [r.uuid, r]));
   for (const e of S.epochs) for (const f of e.forces) {
-    const t = e.turns.find((u) => u.uuid === f.parent) ?? e.turns.filter((u) => Date.parse(u.at) <= Date.parse(f.at)).at(-1);
+    let t;
+    for (let q = byUuid.get(f.parent); q && q.type !== 'assistant' && !t; q = byUuid.get(q.parentUuid)) if (!q.isMeta) t = e.turns.find((u) => u.uuid === q.uuid);
+    t ??= e.turns.filter((u) => Date.parse(u.at) <= Date.parse(f.at)).at(-1);
     if (t) { t.forced = true; f.onTurn = t.kind + (t.queued ? '/queued' : '') + (t.origin ? `/${t.origin}` : ''); }
   }
   // C5: reads of a map file after an in-session write to it, with no commit between
@@ -207,6 +219,8 @@ function scan(file) {
     const missed = seen.filter((a) => !named.has(a));
     Object.assign(b, { seen: seen.length, labelled: seen.length - missed.length, misses: missed.filter((a) => !cites.has(a)).length, toCheck: missed.filter((a) => cites.has(a)).length });
   }
+  // labels where none was due (8h's test): a label block on a call whose command does not name the map
+  S.labelsNotDue = S.bash.filter((b) => !b.names && (ctxByTool.get(b.id) ?? []).some((c) => c.startsWith(LABEL))).map((b) => b.at);
   S.bash = S.bash.filter((b) => b.seen);
   // C6c: each entry's quote, verbatim before its write
   for (const e of S.entries) e.found = !!e.quote && corpus.some(([m, t]) => m < e.ms && t.includes(norm(e.quote)));
@@ -267,7 +281,7 @@ for (const s of all) {
   console.log(`  C2 forces: ${forced.length} in ${E.filter((e) => e.forces.length).length} epochs; on ${JSON.stringify(forced.reduce((m, { f }) => ({ ...m, [f.onTurn]: (m[f.onTurn] ?? 0) + 1 }), {}))}; epochs with a human prompt and no force ${E.filter((e) => firstHuman(e) && !e.forces.length).length}; epochs with >1 force ${E.filter((e) => e.forces.length > 1).length}; force not on the first human prompt ${E.filter((e) => e.forces.length && firstHuman(e) && !firstHuman(e).forced).length}`);
   console.log(`  C5 map reads: ${s.mapReads.length} (must label ${s.mapReads.filter((r) => r.mustLabel).length}, labelled unreviewed ${s.mapReads.filter((r) => r.mustLabel && r.labelledUnreviewed).length}; any label ${s.mapReads.filter((r) => r.ctx.length).length}); map via Grep/Glob/Bash ${JSON.stringify(s.mapOther.reduce((m, o) => ({ ...m, [o.kind]: (m[o.kind] ?? 0) + 1 }), {}))}`);
   const cb = (named) => s.bash.filter((b) => b.names === named);
-  console.log(`  C5b by output: calls naming the folder that show entries ${cb(true).length} (entries ${cb(true).reduce((n, b) => n + b.seen, 0)}, labelled ${cb(true).reduce((n, b) => n + b.labelled, 0)}); calls with a miss ${cb(true).filter((b) => b.misses).map((b) => b.at).join(', ') || 'none'}; to check (cites a file) ${cb(true).filter((b) => b.toCheck).map((b) => b.at).join(', ') || 'none'}; calls not naming it that show entries ${cb(false).length}`);
+  console.log(`  C5b by output: calls naming the folder that show entries ${cb(true).length} (entries ${cb(true).reduce((n, b) => n + b.seen, 0)}, labelled ${cb(true).reduce((n, b) => n + b.labelled, 0)}); calls with a miss ${cb(true).filter((b) => b.misses).map((b) => b.at).join(', ') || 'none'}; to check (cites a file) ${cb(true).filter((b) => b.toCheck).map((b) => b.at).join(', ') || 'none'}; calls not naming it that show entries ${cb(false).length}; labels on calls not naming it ${s.labelsNotDue.length}${s.labelsNotDue.length ? ` (${s.labelsNotDue.join(', ')})` : ''}`);
   const en = s.entries.filter((e) => !e.excluded);
   console.log(`  C6 entries (main): ${en.length} (${en.filter((e) => e.by === 'bash').length} by Bash); format ok ${en.filter((e) => e.area && e.quote && e.source && e.when).length}; forbidden ${en.filter((e) => e.forbidden.length).length}; verbatim ${en.filter((e) => e.found).length}`);
   console.log(`  C7 named paths after a change: ${s.named.length}, not found ${s.named.filter((n) => !n.exists).length}`);

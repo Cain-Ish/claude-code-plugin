@@ -316,3 +316,32 @@ does not depend on the choice.
     result has a label block. No number is predicted. A count of 0 there fails the check, since the other session
     saw three.
   - *Everything else,* every other count on the 12:32Z freeze, equals the base.
+
+### The counter's three fixes: result (2026-11-25): pass
+
+- *The base:* the unchanged counter, run again on the 12:32Z freeze, printed the 12:32Z output, for both folders.
+  The before and after outputs are in `research/raw/` (gitignored).
+- *C2:* all 16 forces sit on human turns: 3 of 3 in the first field repo, 13 of 13 here. The 4 slash-command forces
+  moved: 3 from machine turns and 1 from no turn. "Force not on the first human prompt" is 0
+  everywhere. The other 12 did not move.
+- *The build label:*
+  - in the first field repo, the fourth epoch reads v2.5.0 → v2.5.1 and the second reads "2.0.0 or later" → v2.5.0.
+    Each version is a typed `/second-brain:setup`'s permissions record;
+  - in this repo, a session's first epoch reads "2.0.0 or later" → v2.5.1, from its dream's skill record;
+  - the other session's earlier labels (2.3.0, 2.5.0, 2.6.0) came from tool calls and results that list install
+    folders. With those left out, its epochs read "2.0.0 or later" until its first skill record (v2.5.1), then carry
+    v2.5.1 forward.
+  - **Limit, found here:** an epoch in which no skill runs carries the last version forward. That session's last
+    epoch began after the 2.6.0 live install was enabled, so its v2.5.1 label is likely wrong. The old label was
+    right there, but only by a mention. Open (06's register, "later").
+- *C5b's new count:*
+  - on the new freeze of this repo's two human sessions (13:55Z; the headless runs left out): 1 and 32 calls;
+  - read by hand, all 33 are compound commands. None names `.project-map`, and each got a label block:
+    - 20 in the background;
+    - 13 in the foreground, 5 of them with the cut marker in their output or their edit's diff (8h's third route);
+    - the other session's sightings after 12:32Z are among them.
+  - *On the 12:32Z freeze:* the first field repo has **2** such calls (one background, one foreground, both on 2.5.0),
+    and this repo has 24. So the field read's "no defect in the scan" missed the same noise in the field. 8h fixes
+    it there, once the install moves.
+- *Everything else* on the 12:32Z freeze equals the base: C1, C3's list, C5, C5b's other counts, C6 to C9 and the
+  writes.
