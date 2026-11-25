@@ -9362,3 +9362,49 @@ be revised:
 **Done in this round:** the absolute local path in `.claude/workflows/devils-advocate.js` and in two D34 probe scripts
 is gone. Two of the user's working rules moved from the agent's notes into the map (`findings-go-into-the-plan`,
 `usage-limits-not-usd`).
+
+### 8, 8i and 8j: the register's fixes, code only (registered 2026-11-25, before the code)
+
+Two steps, each built by its own agent in its own copy of `plugin/` at `b977771fc513`. They touch different files:
+8i `scripts/trial.mjs` and `test/trial8e.mjs`; 8j `scripts/dream.mjs` and `test/dream8c.mjs`, `dream8d.mjs`,
+`dream8f.mjs`. No text a model reads changes in either, so no counted model run is voided. The register's text items
+wait for one batched step, after the user's word on C-4 and P-3.
+
+**8i, the trial** (the register's ids):
+1. X-1: `draft` refuses a file beside the main one whose name, in any case, is the main file's name or ends in
+   `.draft`, and requires the main file under its exact name.
+2. P-1, C-3, K-2: the verdict's `artifactBlob` is the blob of the text that ran, and its `casesBlob` the case file's
+   blob at the trial's commit, both taken when the cases are loaded.
+3. C-1 and C-2: `show` prints each fenced `!` block whole, the artifact's whole text, and the text of every file
+   beside it.
+4. C-7: the copies leave out `.project-map/drafts/`.
+5. C-8, K-7, P-15: one trial at a time per repo. A second `run` stops with a message while a trial runs; a lock left by
+   a process that has ended is taken over.
+6. K-3: a copy that cannot be removed is reported, and the trial goes on.
+7. K-4, the trial's half: `draft` reads YAML block lists in front matter (`paths:`, `tools:`).
+8. K-8, its smallest part: when `claude` cannot be started, the verdict and report say why (npm's `claude.cmd` on
+   Windows is named). Running through the shim is the user's call.
+9. X-7: a failed `git cat-file` stops the copy, never a truncated tree.
+
+**8j, the dream:**
+1. X-2: no file-system call on a path a transcript's tool call names before a plain string check places it under one
+   of the repo's roots. A UNC path (`//host/…`, `\\host\…`) is never touched. 8g's case must still pass: a session
+   whose folder runs through a link resolves by its recorded folder, which Claude Code writes, not the model.
+2. K-1, P-6: `prepare` clears an old run folder with `clearRun` (`.gitignore` last) and stops with the "could not be
+   removed" text when it cannot, with no raw error and no local path.
+3. X-4: `finish` refuses an agent or change draft whose front matter sets `permissionMode`, `hooks` or `mcpServers`,
+   and a change draft whose `allowed-tools` or `tools` differ from the live file's, each with a reason in the report.
+4. K-4, the dream's half: `field()` reads a YAML block list, so an agent draft whose `tools:` is a list is kept.
+5. P-2, reproduced first. If a session's read of an ignored path (such as `node_modules/x`) becomes a package or a
+   rule's paths, `prepare` leaves git-ignored paths out of the touched files.
+
+**The checks, for each step:**
+1. Each fix has a test that fails on `b977771fc513` and passes on the copy; the builder shows both runs.
+2. Each new guard has a mutation the test kills (`probes/V2-8i-trial/mutate8i.mjs`,
+   `probes/V2-8j-dream/mutate8j.mjs`, in the form of `mutate8f.mjs`).
+3. On the merged copy (both steps together, with the product hash pinned): the self-test on Windows, Node 24 and 20;
+   every mutation list of 8c to 8j; CI on the push that moves it in (macOS's evidence). A builder's pass is a claim;
+   these runs are the evidence.
+4. A fresh review of the merged diff, and the decision-checker against D31, D34 and D35.
+- **Attempts:** three per step (rule 4). Neither step changes `hook.mjs` or `map.mjs`, so D18's bench runs once, after
+  the last hook change in this section.
