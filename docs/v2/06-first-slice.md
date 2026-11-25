@@ -9695,3 +9695,51 @@ The other session checked 8k's and 8l's registrations against the sources and co
 - **user (A5-2, measured):** `claude plugin marketplace add … --sparse .claude-plugin plugin` works and persists
   through updates. An existing full install cannot switch with one command: a re-add is refused, and editing
   `sparsePaths` by hand lost the marketplace. The other session puts the options to the user.
+
+### 8, 8m: the dream's older gaps (registered 2026-11-25, before the code); 8k narrowed
+
+The other session's read (its verifier checked each claim in the code at `18de2b0e`, with scripts and temp repos)
+found more. Q-6, Q-7 and Q-16 change what the analyzers read, so they land before 8l re-earns the counted model
+runs. 8k keeps the hook side, as the last hook change. A new step, 8m, takes the dream side. The order is 8k, 8m,
+8l.
+
+**8k gains** (`map.mjs`, `hook.mjs`, `status.mjs`, `hooks.json`):
+- Q-8: in a folder with no `.git`, session start still emits 2,215 B (the capture instruction and the naming line).
+- Q-9: the catalog's due count and the read labels count an ended entry (superseded, expired or done) whose review
+  date has passed; status skips it.
+- Q-10: `unseenIn` misses a session that grew on resume, so the nudge and status's "sessions since" miss it.
+- Q-11: dream or status with no `.git` prints a raw ENOENT with an absolute path.
+- Q-12 (a D14 miss): the Read hook's `rel()` has no real-path step, so a root under a link (macOS `/var`) or an 8.3
+  name gets no labels at all. It must match 8g's spelling rule without a file-system call on a model-given path.
+- Q-13: on Node below 20 every hook fails with a raw read error. Each hook checks the version and says once that the
+  map needs Node 20.
+- Also Q-1 and Q-3, as placed.
+- J-1, J-2 and J-4 move from 8k to 8m.
+
+**8m, the dream's older gaps** (`dream.mjs`, its tests; on 8k's copy):
+1. Q-6: a session that ran `/second-brain:dream` is read up to the dream's start, and after its finish, rather than
+   skipped whole, so the person's other words in it are dreamed over.
+2. Q-7: `tag()` keeps a prompt's text parts when it holds an image, and keeps a prompt that starts with `<` unless it
+   is one of Claude Code's own wrappers.
+3. Q-14: `PRIVATE` no longer takes a route (`GET /users/:id`), a web path (`/home/dashboard`), a file name
+   (`avatar@2x.png`), a git remote (`git@github.com:org/repo`) or a config folder (`/etc/nginx/`) for private data.
+   Real secrets, e-mail addresses and home paths stay caught.
+4. Q-15: when finish or abort puts back an edit another session made to a watched file, its report names the file
+   and where the edit is kept. Session start also says so once, in the next session.
+5. Q-16: a quote's pieces must come from one session's lines, not from all of them joined. A U line's cut and a Q
+   line's cut are recorded in the digest.
+6. J-1: a new skill draft that carries `hooks` or `allowed-tools` is refused. J-2: a change that removes
+   `disallowedTools` counts as widening. J-4: `git check-ignore` is fed only paths that git can take.
+
+**The checks:** as 8i's. Each item gets a case that fails on 8k's copy and passes, under Node 24 and 20, plus a
+mutation each (`probes/V2-8m-dream/mutate8m.mjs`). Every mutation list is re-run on the merged copy. Three attempts.
+
+**later:** Q-17 (inRepo refuses a plugin data base that does not exist yet; perhaps unreachable). Q-18 (the analyzer
+sets no `model:`; a cheaper one would need S7's counted runs of its own).
+
+**8l gains Q-5's detail:**
+- The three agent templates say their writes go only to their memory folder (`memory-curator`: and `.project-map/`).
+  `memory: project` turns on Read, Write and Edit with no path scope, so that limit is an instruction, not a guard.
+  The texts and 04 say so.
+- Not taken, from the second opinion: deleting the UserPromptSubmit force (D22), the Bash label hooks (D14), the
+  snapshot and restore (D31), and `codebase-guide` in favour of Explore (T-6). Each is locked, and no trigger fired.
