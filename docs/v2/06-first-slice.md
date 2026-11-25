@@ -9890,3 +9890,39 @@ replaces A5-1's move.
 - `state.seen` keeps transcripts that Claude Code's cleanup has deleted.
 - Unverified: whether `CLAUDE_PROJECT_DIR` still names the main checkout in a session moved into a linked worktree. If
   so, Reads of that worktree's map files get no labels.
+
+### 8, 8k: the index's exclusions (registered 2026-11-25, before the code), on the user's word
+
+> second-brain has no setting to exclude folders from the index it load on the start so we need to add that faeture
+> too so we wont load to much on start and second brain in each repo can control what it loads
+
+(The user, relaying a session on macOS. D22 is reopened.)
+
+**The change** (`map.mjs`'s `index()`, in 8k, the step that owns it):
+- **The file:** `.project-map/index.ignore`, committed by the team.
+  - Each line that is not blank and does not start with `#` names a folder or a pattern, from the repo's root. For
+    example: `docs/archive`, or `**/fixtures`.
+  - The name ends in neither `.md` nor `.txt`, so the file is not itself a document of the index.
+- **The matching:** each line becomes `:(exclude)<line>` on the index's one `git ls-files` call. Git's own pathspec
+  matching then leaves out the files under it, so no matching code is added and no git call.
+- **The map's own folder,** `.project-map/` (with its untracked entries), is always listed, even when a line would
+  match it.
+- **A line git rejects never costs the index:**
+  - the call runs again without the file's lines;
+  - the person's line at session start names the file as not used.
+- **The forced decision** asks only about the folders that are listed.
+- **The README template** says how to use the file (8l's text).
+
+**The checks:**
+1. Every existing session-start and index case is byte-identical without the file.
+2. **With the file:**
+   - a folder line and a pattern line each leave their folders out of the index and the forced list, and every other
+     line of the start text is unchanged;
+   - the index's directory count falls by the number left out.
+3. A line that names `.project-map` leaves the map listed.
+4. A line that git rejects (a bad pathspec magic) gives the full index and the person's note.
+5. **A mutation for each guard:**
+   - the exclusion dropped;
+   - the map's own folder not protected;
+   - the fallback removed.
+6. **Session start's cost:** still one `git ls-files` call. D18's bench after 8l covers the timing.
