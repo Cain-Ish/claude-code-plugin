@@ -4481,6 +4481,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   of 5 runs against the cut's 5 of 5: Claude judged directories by name, while the cut's "not listed" note sent it
   searching. Reverted. The size of a large repo's session start is accepted. *Reopen if:* the triggers above, or a
   field session misses a document past the cut that a search would have found.
+- **Observation (2026-11-25, the field read of that date, [06](06-first-slice.md)):** this repo's other session was
+  asked the field question. In this repo (77 to 82 index directories) it said the forced answer changed nothing it
+  read, and that the per-directory list is long. The session is primed and this is not a field repo. As G3 of
+  2026-11-18 found, it is the cost of the answer, not a missed document. No trigger fired.
 
 ### V2-D23 — Naming the decisions followed and their sources (A1 item 5)
 - **Question:** how is A1 item (5) met and measured? The charter asks that Claude "name each decision it followed and

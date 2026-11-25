@@ -9094,3 +9094,64 @@ not only on CI's runners.
 3. CI's macOS job passes on the push that moves 8g into `plugin/`. That run is the macOS evidence.
 4. The review is the final audit's, which reads the whole of 2.6.0.
 - **Attempts:** three (rule 4). Built in a copy of `plugin/`.
+
+### The field read of 2026-11-25: no defect
+
+Registered in `probes/V2-D17-field/README.md` before the scan (`25f06399`); frozen at 12:32Z. Counts only.
+- **Installs:** both field repos run 2.5.1, the latest release, so nothing moved.
+- **The second field repo** has had no session since 2026-11-15.
+
+**The first field repo:** one main session, 4 epochs (startup 1, compaction 3).
+- **C1:** the plugin's start reached 4 of 4 epochs, with its context recorded each time. The index listed 11
+  directories.
+- **C2:** 3 forces, one in each of the 3 epochs with a human prompt, never two in an epoch.
+  - The counter put 2 of them on machine turns. Read by hand, both hang, by their parent records, from a slash
+    command the person typed (`/second-brain:setup`).
+  - Claude Code writes that command's record after the hook's context, and the counter matches by time. So the
+    error is the counter's, not the plugin's.
+- **C3:** all 3 forces answered per directory.
+- **C5b:** 6 calls that name the map folder showed 205 entries, all 205 labelled. 1 call that does not name it
+  showed an entry (04's accepted risk).
+- **C6:** 1 entry, in the format, word for word, with no forbidden data.
+- **C7:** 2 paths named after a change, 0 invented.
+- **C8:** 0 errors, from the plugin's hooks or any other's.
+- **C9:** 7 subagents, none with the index. 3 wrote repo files (34 writes), none of them a map entry.
+- **2.5.1's setup, used for real:**
+  - the person ran `/plugin` to update, then `/reload-plugins` and `/second-brain:setup`, from the 2.5.1 copy;
+  - setup updated the three files section 6 found stale, created nothing, and kept 7;
+  - each of the three now equals 2.5.1's template, committed and clean.
+
+  Section 6's fix works in the field.
+- **What Claude called on its own:** the repo's agents (`decision-checker` 2 times, among 7 subagents). The person
+  typed every plugin skill that ran.
+
+**This repo, reported apart and primed:** 2 human sessions, 13 epochs. The two headless sessions of the 2.6.0
+install's smoke test are left out.
+- **C1:** 13 of 13. The index listed 40 to 82 directories.
+- **C2:**
+  - 13 forces, one per epoch with a human prompt;
+  - the counter's 2 off-turn forces hang from typed slash commands, as above.
+- **C5b:**
+  - 12 calls that name the folder showed 15 entries, 9 labelled;
+  - the 5 calls with a miss read the dream's digests or grep the plan, which quote the words the later entries hold.
+    They are not map reads, so no label was due;
+  - 26 calls that do not name the folder showed an entry.
+- **C6:** 4 entries, with no forbidden data.
+  - 3 were the dream's proposals, word for word.
+  - 1 was the release entry. It was found while merging: its quote states what was seen, and its source names that
+    event rather than a person.
+- **C7:** 51 paths, 3 not found, all false hits: a web address, the name of a study, and a test fixture's draft.
+- **C8:** 0 errors from the plugin's hooks. 2 timeouts of another tool's `PreToolUse` hook (the plugin has none).
+- **C9:** 55 subagents; 12 wrote repo files (24 writes), none of them a map entry.
+
+**The ask:** this repo's other session, the only active one, answered the fixed question. Its answer stays outside
+the repo. The field repos' sessions were offline and not asked.
+
+**Triage (the loop's rule 6):**
+- **No defect.**
+- **An observation for D22:** in this repo (77 to 82 directories), the session said the forced answer changed
+  nothing it read and is long. Recorded in the ledger; no trigger fired.
+- **The counter** (probe code, not the product), due before the next count and registered first, as 18b was:
+  - C2 should follow a force's parent records to its prompt, not the time;
+  - the build label should be per epoch: the field epoch that ran 2.5.1's setup is labelled 2.5.0.
+- **Next read:** the field sessions on 2.5.1, or on the next release once it moves.
