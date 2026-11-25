@@ -282,3 +282,37 @@ does not depend on the choice.
     are offline and are not asked.
 - *Triage* by the loop's step 6. A defect becomes a build step registered in 06 and waits for the user's word. As on
   2026-11-23, this read is not a pass or fail.
+
+## The counter's three fixes (registered 2026-11-25, before the change)
+
+- *Why:* the field read of 2026-11-25 (06) left three counter faults, due before the next count (06's register,
+  "later"). All three are in `field.mjs`, which is probe code; `plugin/` does not change.
+- *The changes:*
+  1. *C2:* a force goes to the turn its parent records lead to. The walk goes up past attachments and meta records
+     (a slash command's skill text) to the first turn. If it reaches an assistant record first, the time match
+     decides, as now.
+     - Read before this registration: the 16 forces in the 12:32Z freeze. The walk and the time match differ on
+       exactly 4, each a typed slash command: the hook's context, then the command's permissions, then the skill's
+       meta record, then the person's command. No walk reached an assistant record.
+  2. *The build label:*
+     - *Its source:* a version is read only from Claude Code's own records of a plugin skill running: the command's
+       permissions, the skill's base directory, and the skills invoked. A tool call or result that mentions an
+       install's folder no longer counts. In this repo such mentions flip the label: one session reads 2.5.1, then
+       2.5.0, three minutes apart.
+     - *Per epoch:* an epoch lists its start label, then each other version such a record names in that epoch, in
+       order.
+  3. *C5b:* a new count, the Bash calls that got a `[project map]` label block although their command does not name
+     `.project-map`: 8h's test, a plain substring. It counts before C5b's filter to calls that show entries, so the
+     existing C5b counts do not move. The other kind of extra label is left out: all of a file's labels on a call
+     that names the map. 8h's record accepts it.
+- *Pass:*
+  - *The base,* the unchanged counter run again on the 12:32Z freeze before the change. Its output equals the
+    12:32Z output, for both folders.
+  - *C2:* on that freeze, the 4 forces sit on human turns, and the other 12 do not move.
+  - *The build label:* the first field repo's fourth epoch reads v2.5.0 then v2.5.1. Every label that changes is
+    read by hand against the records that name its versions.
+  - *C5b:* a new freeze of this repo's sessions, taken after the change. The 2.6.0 install there predates 8h, so
+    the noise should show. Each call the count names is read by hand: its command does not name the map, and its
+    result has a label block. No number is predicted. A count of 0 there fails the check, since the other session
+    saw three.
+  - *Everything else,* every other count on the 12:32Z freeze, equals the base.
