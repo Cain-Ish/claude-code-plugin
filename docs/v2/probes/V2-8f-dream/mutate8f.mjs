@@ -40,6 +40,8 @@ const M = [
   ['(6) the .gitignore removed last', D, "if (e !== '.gitignore') fs.rmSync", 'fs.rmSync'],
   ["(7) abort's lock before a held folder", D, '  if (inRepo(root, path.join(root, MAP)) && !clearRun(path.join(root, RUN))) said += ` ${STUCK}`;', '  fs.rmSync(path.join(root, RUN), { recursive: true, force: true });'],
   // 3, the texts
+  // attempt 2: a decision or a correction that applies to certain paths is a rule draft
+  ['(5) a decision can be a rule draft', SK, '**A rule draft:** a decision or a correction, stated or repeated in two or more sessions', '**A rule draft:** a correction repeated in two or more sessions'],
   ['(5) the skill writes the candidates file', SK, '   - `.project-map/.dream-run/candidates.txt`:', '   - `candidates`:'],
   ["(5) the skill reads finish's line", SK, "From finish's report, name the topic files read, then corrected again", 'Name the files'],
   ['(5) the analyzer knows the cut lines', AN, ' A line `…: <n> tool lines` stands for tool calls left out of the digest;', ''],

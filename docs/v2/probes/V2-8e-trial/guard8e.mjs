@@ -35,7 +35,15 @@ function runOne(i) {
     const s = spawnSync('claude', ['-p', `/second-brain:tailor ${prompt}`, '--model', 'claude-opus-5-5', '--setting-sources', 'project,local', '--strict-mcp-config', '--disallowedTools', 'WebFetch,WebSearch',
       '--permission-mode', 'acceptEdits', '--plugin-dir', path.resolve(process.env.S8E_PLUGIN), '--output-format', 'json'], { cwd: r, env: env(), encoding: 'utf8', timeout: 1_800_000 });
     // the session's reply, kept in the scratch folder only (never in results/), to tell why a run made what it made
-    try { fs.writeFileSync(path.join(scratch, `${fx}-${kind}-${i}.reply.txt`), String(JSON.parse(s.stdout).result ?? '')); } catch {}
+    let reply = '';
+    try { reply = String(JSON.parse(s.stdout).result ?? ''); } catch {}
+    fs.writeFileSync(path.join(scratch, `${fx}-${kind}-${i}.reply.txt`), reply);
+    // attempt 4's bar: the reply names evidence the repo holds (a map entry's id, a path that exists, or a file at the
+    // root), and asks which to make
+    const ids = (() => { try { return fs.readdirSync(path.join(r, '.project-map')).filter((f) => f.endsWith('.md')).flatMap((f) => [...fs.readFileSync(path.join(r, '.project-map', f), 'utf8').matchAll(/^- id:[ \t]*(\S+)/gm)].map((m) => m[1])); } catch { return []; } })();
+    const replyPaths = [...reply.matchAll(/(?<![\w/:.-])((?:\.?[\w-]+\/)+[\w.-]+\.\w+)\b/g)].map((m) => m[1]);
+    const roots = fs.readdirSync(r).filter((f) => f !== '.git' && fs.statSync(path.join(r, f)).isFile());
+    const evidence = ids.some((id) => reply.includes(id)) || replyPaths.some((p) => fs.existsSync(path.join(r, p))) || roots.some((f) => reply.includes(f));
     // anything the session made or changed, anywhere in the repo, as git sees it (the decision-checker's finding: new
     // files under .claude/ alone missed a draft left in .project-map/drafts/)
     const made = git(r, 'status', '--porcelain', '--untracked-files=all', '-z').split('\0').filter(Boolean).map((l) => l.slice(3));
@@ -50,7 +58,7 @@ function runOne(i) {
     const beside = (f) => { const m = /^\.claude\/skills\/([\w-]+)\//.exec(f); return Boolean(m) && drafts.includes(`.claude/skills/${m[1]}/SKILL.md.draft`); };
     const res = {
       fx, kind, run: i, finished: s.status === 0,
-      made: made.length, drafts: drafts.length, agentDrafts: agents.length, mapEntries: made.filter(mapTopic).length,
+      made: made.length, drafts: drafts.length, agentDrafts: agents.length, mapEntries: made.filter(mapTopic).length, evidence, asks: reply.includes('?'),
       // drafts only: a .draft under .claude/, a file beside a skill draft, a case file or check under evals/, or a map
       // topic file, which is the plugin's own capture of a stated rule (D14), reviewed in the commit (the second pilot)
       draftsOnly: made.every((f) => drafts.includes(f) || beside(f) || f.startsWith('.project-map/evals/') || mapTopic(f)),
@@ -79,6 +87,8 @@ function summary(pilot = false) {
     nothingCommitted: rows.length === 2 * want && rows.every((x) => !x.committed),
     pathsExist: every(gap, (x) => x.drafts > 0 && x.missingPaths.length === 0),
     oneTaskPerAgent: every(gap, (x) => x.drafts > 0 && x.oneTask),
+    // attempt 4 (the user's word), fixed before its runs: with no task named, a survey that names evidence and asks
+    surveyAsks: every(none, (x) => x.made === 0 && x.evidence && x.asks),
   }, rows };
   out.pass.all = Object.values(out.pass).every(Boolean);
   fs.mkdirSync(path.join(HERE, 'results'), { recursive: true });

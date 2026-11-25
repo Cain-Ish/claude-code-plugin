@@ -9006,3 +9006,17 @@ sessions, that applies to certain paths. 8f's other changes stay. Attempt 2 buil
 **The checks:** 8f's checks 1 to 5 as registered (the self-test with a case for the new line, the mutations, the
 real-data trim, S7's check 2 with steering and the candidates count, 8d's check 3), all on attempt 2's frozen copy,
 fresh histories.
+
+**8e attempt 4, built and frozen (2026-11-25):** product `edd5f7375a2f`.
+- The survey-then-ask step is in `tailor`'s step 1. Case (7) checks its lines, and `mutate8e.mjs` holds 89 mutations;
+  the four new ones were killed in a dry run.
+- **Check 4's pilot** (`results/check4-pilot-a4.json`, one run per request, uncounted): every bar, the new one too.
+  - Given "Make agents for this repo.", the migration repo's session made nothing. It named the migration procedure
+    with its three map ids, its files and the 0101-in-payments trap, said why no agent is needed, and asked.
+  - The pricing repo's session made nothing either. It found the report-and-log procedure from `PRICING-LOG.md` and
+    `scripts/golden.js`, offered a skill or a path rule, and asked.
+  - Both gap requests left their drafts as before.
+
+**8f attempt 2, built and frozen (2026-11-25):** product `38fbf0dd76ed`, on 8e's attempt-4 copy. The organizer's
+rule-draft line names a decision or a correction. Case (5) checks it, and `mutate8f.mjs` holds 26 mutations. Both
+self-tests passed with the pin off before the freezes.

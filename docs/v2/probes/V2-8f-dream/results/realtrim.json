@@ -1,0 +1,80 @@
+{
+ "sessions": 8,
+ "missing": 0,
+ "full": 14097,
+ "trimmed": 4288,
+ "cut": 69.6,
+ "rows": [
+  {
+   "digest": "d1.digest",
+   "full": 1149,
+   "trimmed": 468,
+   "uqFull": 6,
+   "uqTrimmed": 6,
+   "mapReads": 10
+  },
+  {
+   "digest": "d2.digest",
+   "full": 2575,
+   "trimmed": 742,
+   "uqFull": 25,
+   "uqTrimmed": 25,
+   "mapReads": 16
+  },
+  {
+   "digest": "d3.digest",
+   "full": 612,
+   "trimmed": 149,
+   "uqFull": 4,
+   "uqTrimmed": 4,
+   "mapReads": 3
+  },
+  {
+   "digest": "d4.digest",
+   "full": 2214,
+   "trimmed": 550,
+   "uqFull": 11,
+   "uqTrimmed": 11,
+   "mapReads": 21
+  },
+  {
+   "digest": "d5.digest",
+   "full": 452,
+   "trimmed": 153,
+   "uqFull": 8,
+   "uqTrimmed": 8,
+   "mapReads": 4
+  },
+  {
+   "digest": "d6.digest",
+   "full": 751,
+   "trimmed": 246,
+   "uqFull": 1,
+   "uqTrimmed": 1,
+   "mapReads": 16
+  },
+  {
+   "digest": "d7.digest",
+   "full": 333,
+   "trimmed": 109,
+   "uqFull": 7,
+   "uqTrimmed": 7,
+   "mapReads": 1
+  },
+  {
+   "digest": "d8.digest",
+   "full": 6011,
+   "trimmed": 1871,
+   "uqFull": 40,
+   "uqTrimmed": 40,
+   "mapReads": 46
+  }
+ ],
+ "pass": {
+  "sessions": true,
+  "cut": true,
+  "typedKept": true,
+  "none_missing": true,
+  "all": true
+ }
+}

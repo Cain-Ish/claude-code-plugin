@@ -103,6 +103,11 @@ const M = [
   // the texts, and the self-test's own checks
   ['(7) tailor only a person starts', TL, 'disable-model-invocation: true\n', ''],
   ['(7) tailor never runs a trial itself', TL, 'Never run `trial.mjs` yourself except `draft`', 'You may run trial.mjs'],
+  // attempt 4: a request that names no task surveys, lists gaps with evidence, and asks first
+  ['(7) a broad request surveys first', TL, '**A request that names no task**', 'A request with no task'],
+  ['(7) the survey reads the code first', TL, '**Survey, read only.**', 'Look around.'],
+  ['(7) the gaps listed with evidence', TL, '**List the gaps you found.**', 'Pick a gap.'],
+  ['(7) asks before making', TL, '**Ask which to make, and stop.** Make nothing until the person picks one', 'Make the one that fits best'],
   ['(7) tailor grants cli and draft only', TL, 'trial.mjs" cli:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" draft:*)', 'trial.mjs":*)'],
   ['(7) the words by a quoted heredoc', TL, "cli <<'SECOND_BRAIN_WORDS'\n$ARGUMENTS\nSECOND_BRAIN_WORDS", 'cli $ARGUMENTS'],
   ['(7) no code loaded at run time', TR, "import { PRIVATE } from './dream.mjs';", "const { PRIVATE } = await import('./dream.mjs');"],
