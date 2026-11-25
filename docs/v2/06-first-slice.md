@@ -9487,3 +9487,99 @@ closes the register's item "the field counter's three fixes" ("later", probes).
 
 **The cleanup itself (2026-11-25):** 402 trial-named project folders that held no transcript were deleted. 112 that
 hold transcripts (probe sessions) are kept. The 263 trial temp folders wait until the builders' tests stop.
+
+### 8, 8k: all of 8a on 2.6.0 (registered 2026-11-25, before the code), on the user's word
+
+Built by one agent on the merged 8i and 8j copy, from 8a's candidate (`probes/V2-8a-fixes/candidate/`), which was
+built on 2.5.1. Since 2.5.1, `map.mjs` and `status.mjs` are unchanged, `hook.mjs` changed only by 8h's guard, and
+`dream.mjs` grew by 8c to 8g.
+- **Ported as built:** H3 (no link out of the repo is followed), H4 (map files read through `readMapFile`, special
+  files skipped), H5 (the quote re-find in linear time), H6 (`safeName` in labels and `closed()`), D-4 (`lock()`), D-5
+  (`headText`/`inTracked`), and the `when:` cap of D-1.
+- **Adapted:**
+  - H1's naming test goes into 8h's guard. A command names the map when it does so after letter case, quotes,
+    backslashes and backslash-newlines are set aside, so the guard is never narrower than the `if` filter (8a's
+    four naming cases and their mutations). This settles C-10. The rest of H1 is superseded by 8h.
+  - D-1: `topic()`'s exclusions are merged with 8c's `steering.md`.
+  - D-2: `PRIVATE` applies wherever it is used, `trial.mjs` included.
+  - D-3: digests are redacted before they are trimmed (`trim(lines.map(redact), …)`), so 8f's line numbers hold.
+  - D-6: the end offset becomes `digestFrom`'s fifth argument.
+  - F-1: the self-test removes the markers it made by listing them before and after.
+- **H7, answered differently:** one resolver in `map.mjs` finds `git.exe` among the absolute PATH entries on Windows,
+  by file checks only. It never falls back to the bare name: with none found, it gives a path that does not exist, so
+  the call fails as "git not found". Every git call in the plugin uses it. The same resolver finds `claude` for the
+  trial, which runs inside a copy of the repo. 8a's environment line goes, since Node 20 ignores it. A self-test case
+  fails when any script starts `git` or `claude` by bare name.
+- **Leftovers:**
+  - fixed: one `review:` line and one `when:` line per entry, each capped; a URL credential with an empty user; a
+    record that straddles the recorded size ends at the last newline before it;
+  - kept recorded: three prepares within microseconds of each other on a stale lock; a path's tail after a space; a
+    URL password holding `/`;
+  - accepted: `[Private]` read as private, and no case for the word cache.
+- **status:** `status.mjs` reads map files through `readMapFile` and reports one it cannot read as "cannot read".
+- **Found while planning, fixed here:** `finish` reads map files unchecked (H4's class) and now reads them through
+  `readMapFile`.
+- **Recorded, not fixed:** D-2's wider filter may refuse a real draft that shows a placeholder such as `Bearer
+  YOUR_TOKEN`.
+
+**The checks:**
+1. The self-test and `fix8k.mjs` (from `fix8a.mjs`) on Windows, under Node 24 and Node 20. Node 20 is the condition
+   that failed 8a's CI. Each new case fails on the merged 8i and 8j copy. 8a's R8 case ("the repo is unchanged after
+   every hook event") comes back, which closes that later item. The FIFO and device cases run where the system has
+   them: CI's macOS job carries them (Linux is skipped, by the user's word).
+2. `mutate8k.mjs`: each new guard killed, H7's mutation included ("the resolver returns the bare name"). Then every
+   mutation list from 8c to 8j is re-run on the 8k copy, since 8k edits `dream.mjs` and `trial.mjs`.
+3. `equivalence8.mjs` is re-run, for D16's note.
+4. D18's paired reference bench, after 8k (the last hook change). The control is the merged 8i and 8j copy; CPU at most
+   10%; at 1 and 8 sessions; the 100 ms budget is unchanged. CI's load job is reported only (the user's word on CI);
+   8a's 102.7 ms read was the unpaired gate's noise, since 2.5.1 itself read 112.4 ms on it.
+5. A fresh review, and the decision-checker on D14 (the naming test), D16 and D18.
+- **Not carried over:** 8a's live check 5, whose third leg expected labels that 8h now withholds; 8a's `plugin.json`
+  2.5.2 and its pin. 8k ships in 2.6.0. D16's note and the README's link passages come back.
+- **The counted model runs** that D-3 voids (S7's check 2, 8d's check 3) are re-earned once, in 8l.
+- **Attempts:** three (rule 4).
+
+### 8, 8l: the text step (registered 2026-11-25, before the code)
+
+Built on 8k's copy. Each change below is to text a model reads, or to a digest the analyzers read:
+1. **C-4, the user's word:** `/second-brain:tailor cases <path>` writes only the making step's cases for an existing
+   draft (`.claude/…/*.draft`) or a live artifact, and makes no new draft. map-review's untested line names this
+   command.
+2. **C-6:** the survey ends by asking the person to type `/second-brain:tailor make <name>` for the gap they pick. That
+   is a new invocation, so its grant holds for the making steps.
+3. **P-3, the user's word:** analyzers read only their digest, and the steering file when there is one. The main
+   session keeps `usage.json`.
+4. **P-7:** tailor's guidelines move to a file beside the skill, read at the making step, and the duplicates go.
+5. **P-13, P-14:** the repeated and empty sentences go.
+6. **R-c:** the placement table gains an agent row and tailor's pointer, and the README template's dream line is
+   corrected. The templates' earlier hashes go into setup's list (D29), so setup updates untouched copies.
+7. **R-d:**
+   - the dream skill tells the person that a retried finish must come before review;
+   - a retry leaves no `<name>-2` folder;
+   - the skill says that finish makes skill drafts user-only;
+   - each digest gains a line `D: <date>` where the sessions' date changes (trim keeps it), so evidence carries a
+     date.
+8. **X-6:** the heredoc's delimiter becomes improbable.
+9. **L-2:** a should-use case's prompt does not name its artifact, and `validate()` refuses one that does.
+10. **L-5:** tailor reads with Read, Grep and Glob, not Bash.
+
+**The checks:**
+1. The self-test's text and code cases for each item, failing first, on Windows under Node 24 and Node 20, and a
+   mutation each.
+2. **The counted model runs, re-earned once on 8l's frozen copy at their registered bars:**
+   - S7's check 2 (10 runs);
+   - 8d's check 3 (5 runs per case);
+   - 8e's check 3 (the good skill, the good agent and the bad skill, 2 runs each);
+   - 8e's check 4 (12 runs).
+3. **New counted runs:**
+   - C-4: on a fixture, a skill draft the dream made gets cases through `cases`, then `show` and a trial. Its
+     verdict is judged as in 8e's check 3. 3 runs.
+   - C-6: the typed `make` drafts and moves the draft with no denial, with `--setting-sources project,local`. 3 of
+     3.
+4. **The live test again,** on this repo:
+   - the `work-status` cases are rewritten without the agent's name (L-2); the agent's `left` gap (L-3) is
+     answered;
+   - its trial is run again;
+   - then `/map-review` and the person's choice.
+5. A fresh review, and the decision-checker on D10, D31, D34 and D35.
+- **Attempts:** three (rule 4).
