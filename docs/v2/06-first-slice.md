@@ -9028,3 +9028,7 @@ self-tests passed with the pin off before the freezes.
      to make.
    - With a gap, each run left one draft with its script, case file and checks, every named path present.
    - Nothing was committed.
+3. **Check 3** (`results/check3.json`, 6 trials plus the pre-flight): **passes.**
+   - The good skill and the good agent: "helps" 2 of 2. The bad skill: "adds nothing" 2 of 2. The pre-flight:
+     "helps".
+   - Every "without" report run failed (0 of 3), and no session failed.
