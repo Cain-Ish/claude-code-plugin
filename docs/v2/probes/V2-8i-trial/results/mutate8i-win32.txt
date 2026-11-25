@@ -1,0 +1,26 @@
+platform win32, copy c8i, trial8e.mjs alone
+killed    (8i-1) X-1: the main file by its exact name: (8i-1) X-1
+killed    (8i-1) X-1: nothing beside it named as the main file or a draft: (8i-1) X-1
+killed    (8i-2) P-1: artifactBlob of the text that ran: (8i-2) P-1
+killed    (8i-2) P-1: casesBlob at the trial's commit: (8i-2) P-1
+killed    (8i-3) C-1: a fenced ! block whole: (8i-3) C-1, C-2
+killed    (8i-3) C-2: the artifact's whole text: (8i-3) C-1, C-2
+killed    (8i-3) C-2: the text of each file beside it: (8i-3) C-1, C-2
+killed    (8i-4) C-7: no staging folder in a copy: (8i-4) C-7
+killed    (8i-5) C-8: run stops while a trial runs: (8i-5) C-8
+killed    (8i-5) C-8: exec never takes a held lock: (8i-5) C-8
+killed    (8i-5) C-8: a lock whose process ended is taken over: (8i-5) C-8
+killed    (8i-5) C-8: only a live process holds the lock: (8i-5) C-8
+killed    (8i-5) C-8: the lock gone when the verdict lands: (8i-5) C-8
+killed    (8i-5) C-8: the lock git-ignored: (8i-5) C-8
+killed    (8i-6) K-3: a copy not removed is named, and the trial goes on: (8i-6) K-3
+killed    (8i-7) K-4: a YAML block list: (8i-7) K-4
+killed    (8i-8) K-8: a session that cannot start says why: (8i-8) K-8
+killed    (8i-9) X-7: a failed read stops the copy: (8i-9) X-7
+killed    (8i-10) the copy's project folder removed: (8i-10) no project folder left
+killed    (8i-10) never a project folder holding a transcript: (8i-10) no project folder left
+killed    (8e 5) the blob ids recorded: (5) a run end to end; (8i-2) P-1
+killed    (8e 5) the copies deleted: (5) a run end to end; (5) not judged, and no write through a link; (8i-6) K-3
+killed    (8e 5) one session at a time: (5) a run end to end
+killed    (8e 6) an empty field is no value: (6) draft refusals; (8i-7) K-4
+24 of 24 killed

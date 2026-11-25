@@ -9603,3 +9603,25 @@ registered in places, and the merge keeps them:
 - J-5: the new cases ran on Windows only; CI's macOS job is their evidence on the merge.
 - J-6, process: the builder sent its diff to agy with this machine's scratchpad path, which names the Windows
   account. No secret went out. Builders now work without agy.
+
+**8i, built (2026-11-25), the builder's report, before the merge's checks:** all ten items. Each new case (10) fails
+on `b977771fc513` and passes on the copy (19 of 19), under Node 24 and 20. `mutate8i` kills 24 of 24, each by its
+own case. Four of them are 8e's mutations whose anchors 8i moved, carried over with new anchors: the blob ids, the
+copies deleted, one session at a time, and an empty field. So on the merged copy `mutate8e` reports those four as
+missing. That is recorded, not a pass of its own. Item 9 checks each file's byte count against git's size, which
+catches a missing object and a cut output. No agy, and no outside service.
+
+**New findings, into the register:**
+- I-1: the self-test's case (5) counts `second-brain-*` folders in the shared temp folder. So it fails when another
+  test runs at once, as it did once beside `mutate8j`.
+- I-2: on Node 24, a folder that cannot be removed keeps every file in it, so a whole repo copy stays in the temp
+  folder. Node 20 reports EBUSY.
+- I-3: the lock has three limits:
+  - a dead process's id reused by Windows makes `run` refuse until that program ends;
+  - two takeovers in the same microseconds could both start;
+  - a failed verdict write leaves the lock until the process exits.
+- I-4: `show` prints a binary file beside a skill as text.
+- I-5: K-3 does not retry a removal, which would help when antivirus holds a file.
+- I-6: section 7's `mutate7.mjs` anchors were not checked against 8i.
+- The cleanup: 389 `second-brain-trial-*` temp folders were deleted, with no test running (mutation runs had added
+  126).

@@ -1,0 +1,24 @@
+platform win32, copy c8j, test/dream8d.mjs, dream8f.mjs and dream8c.mjs alone
+killed    (X-2) a named path placed by strings only
+killed    (X-2) a session spelled through a link
+killed    (X-2) the longest spelling first
+killed    (X-2) the spellings cut back to where they part
+killed    (K-1) prepare clears the run folder with clearRun
+killed    (K-1) a linked run folder is not followed
+killed    (X-4) an agent that may set a power refused
+killed    (X-4) a change that may set a power refused
+killed    (X-4) permissionMode is a power
+killed    (X-4) hooks is a power
+killed    (X-4) mcpServers is a power
+killed    (X-4) a change keeps the live tools
+killed    (X-4) allowed-tools compared
+killed    (X-4) tools compared
+killed    (X-4) a key that is not plain counts as a power
+killed    (X-4) the lines that continue a key counted
+killed    (X-4) a comment inside a list continues it
+killed    (K-4) a block list read
+killed    (P-2) ignored files left out
+killed    (P-2) the rest checked again after git stops
+killed    (P-2) the path git stops at left out
+killed    (P-2) a "!" pattern keeps its file
+22 of 22 killed
