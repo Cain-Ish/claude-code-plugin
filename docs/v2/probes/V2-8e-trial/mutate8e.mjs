@@ -78,12 +78,14 @@ const M = [
   ['(4) worse alone is "hurts"', TR, "worse ? 'hurts' : 'adds nothing'", "'adds nothing'"],
   // item 3 and 4, the run
   ['(5) a session counts only a result', TR, "done(!killed && code === 0 && r?.type === 'result' && r.is_error === false);", 'done(true);'],
-  ['(5) the check written after the session', TR, '        if (!(await session(copy, c.prompt, c.tools ?? DEFAULT_TOOLS))) { failed++; continue; }\n        if (judged(t.checks[c.check], copy))',
-    "        const pre = fs.mkdtempSync(path.join(os.tmpdir(), 'second-brain-check-')); fs.writeFileSync(path.join(pre, 'check.mjs'), t.checks[c.check]);\n        if (!(await session(copy, c.prompt, c.tools ?? DEFAULT_TOOLS))) { failed++; continue; }\n        if (spawnSync(process.execPath, [path.join(pre, 'check.mjs')], { cwd: copy, env: checkEnv() }).status === 0)"],
+  // attempt 3: the check never on disk, and one session at a time
+  ['(5) the check never on disk', TR, '      if (!(await session(copy, c.prompt, c.tools ?? DEFAULT_TOOLS))) { failed++; continue; }\n      if (judged(t.checks[c.check], copy))',
+    "      const pre = fs.mkdtempSync(path.join(os.tmpdir(), 'second-brain-check-')); fs.writeFileSync(path.join(pre, 'check.mjs'), t.checks[c.check]);\n      if (!(await session(copy, c.prompt, c.tools ?? DEFAULT_TOOLS))) { failed++; continue; }\n      if (spawnSync(process.execPath, [path.join(pre, 'check.mjs')], { cwd: copy, env: checkEnv() }).status === 0)"],
+  ['(5) one session at a time', TR, '  for (const { arm, c } of jobs) {\n', '  await Promise.all(jobs.map(async ({ arm, c }) => {\n',
+    [['{ failed++; continue; }', '{ failed++; return; }'], ['finally { if (copy) fs.rmSync(copy, { recursive: true, force: true }); }\n  }\n', 'finally { if (copy) fs.rmSync(copy, { recursive: true, force: true }); }\n  }));\n']]],
   ['(5) a reduced environment for the check', TR, 'env: checkEnv(), timeout: 120_000', 'env: process.env, timeout: 120_000'],
   ['(5) the copies deleted', TR, 'finally { if (copy) fs.rmSync(copy, { recursive: true, force: true }); }', 'finally { }'],
-  ["(5) the check's folder deleted", TR, '  } finally { fs.rmSync(d, { recursive: true, force: true }); }', '  } finally { }'],
-  ['(5) no copy inside the repo', TR, "        if (inRepo(root, copy)) throw new Error('the temporary folder lies inside the repo');\n", ''],
+  ['(5) no copy inside the repo', TR, "      if (inRepo(root, copy)) throw new Error('the temporary folder lies inside the repo');\n", ''],
   ['(5) the verdict privacy-scanned', TR, "  if (PRIVATE.test(text)) throw new Error('the verdict would hold private data');\n", ''],
   ['(5) the verdict folder in the repo', TR, '  if (!inRepo(root, dir)) throw new Error(`${MAP}/.trial is a link out of the repo`);\n', ''],
   ['(5) never through a link at its path', TR, "fs.rmSync(p, { force: true }); fs.writeFileSync(p, body, { flag: 'wx' });", 'fs.writeFileSync(p, body);'],
@@ -114,7 +116,8 @@ const only = process.env.MUT_ONLY ? new RegExp(process.env.MUT_ONLY) : null;
 const dry = fast || only;
 const lines = [`platform ${process.platform}, ${fast ? 'trial8e alone' : 'the self-test'}${dry ? ' (a dry run)' : ''}`];
 let bad = 0, ran = 0;
-for (const [name, file, a, b] of M) {
+// a mutation may carry more [from, to] pairs, applied with it; each must occur once
+for (const [name, file, a, b, more = []] of M) {
   if (only && !only.test(name)) continue;
   ran++;
   const dir = path.join(work, 'm');
@@ -122,8 +125,9 @@ for (const [name, file, a, b] of M) {
   fs.cpSync(plugin, path.join(dir, 'plugin'), { recursive: true });
   const target = path.join(dir, 'plugin', file);
   const src = fs.readFileSync(target, 'utf8');
-  if (src.split(a).length !== 2) { lines.push(`MISSING   ${name}`); console.log(lines.at(-1)); bad++; continue; }
-  fs.writeFileSync(target, src.replace(a, () => b));
+  const pairs = [[a, b], ...more];
+  if (pairs.some(([x]) => src.split(x).length !== 2)) { lines.push(`MISSING   ${name}`); console.log(lines.at(-1)); bad++; continue; }
+  fs.writeFileSync(target, pairs.reduce((s, [x, y]) => s.replace(x, () => y), src));
   const t = path.join(dir, 'plugin/test/selftest.mjs');
   const pin = "assert.equal(product.digest('hex').slice(0, 12), ";
   fs.writeFileSync(t, fs.readFileSync(t, 'utf8').replace(pin, `if (0) ${pin}`));

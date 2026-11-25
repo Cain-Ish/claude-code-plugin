@@ -8762,3 +8762,17 @@ Everything else is attempt 2's.
 - **Check 2's** mutations follow the code: the check written to a file before the session, and sessions run two at
   once, must each be killed.
 - **On a fail,** D34 stays BLOCKED (rule 4), and 8d's agent and change drafts do not ship (8d's D10 line).
+
+**Attempt 3, built (2026-11-25, before the freeze):**
+- **`exec`** runs its jobs in one loop, one session at a time.
+- **`judged`** feeds the check script to `node --input-type=module -` on stdin, so no file of it exists.
+- **The stand-in in case (5)** now also tampers with other copies: it writes "pass" into every other copy's `out.txt`,
+  besides overwriting every check script it can find. Run one at a time, with the check on stdin, it reaches nothing;
+  three runs of `trial8e.mjs` in a row passed.
+- **`mutate8e.mjs`:**
+  - An entry may now carry more replacement pairs, applied with it. "Sessions run two at once" needs three edits at
+    once: the loop, its `continue` and its end.
+  - New: "the check never on disk" and "one session at a time". Both are killed in a dry run.
+  - The mutation for the check's temp folder is gone with that folder.
+- **A limit, recorded:** a person who types the run line twice starts two trials of the same artifact, which then run
+  side by side, and each writes the verdict file.
