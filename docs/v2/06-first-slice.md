@@ -9095,7 +9095,7 @@ not only on CI's runners.
 4. The review is the final audit's, which reads the whole of 2.6.0.
 - **Attempts:** three (rule 4). Built in a copy of `plugin/`.
 
-### The field read of 2026-11-25: no defect
+### The field read of 2026-11-25: no defect in the scan; one from the ask (8h)
 
 Registered in `probes/V2-D17-field/README.md` before the scan (`25f06399`); frozen at 12:32Z. Counts only.
 - **Installs:** both field repos run 2.5.1, the latest release, so nothing moved.
@@ -9148,13 +9148,37 @@ install's smoke test are left out.
 the repo. The field repos' sessions were offline and not asked.
 
 **Triage (the loop's rule 6):**
-- **No defect.**
+- **No defect in the scan.** The ask found one; see the additions below.
 - **An observation for D22:** in this repo (77 to 82 directories), the session said the forced answer changed
   nothing it read and is long. Recorded in the ledger; no trigger fired.
 - **The counter** (probe code, not the product), due before the next count and registered first, as 18b was:
   - C2 should follow a force's parent records to its prompt, not the time;
   - the build label should be per epoch: the field epoch that ran 2.5.1's setup is labelled 2.5.0.
 - **Next read:** the field sessions on 2.5.1, or on the next release once it moves.
+
+**Added after the record (2026-11-25):**
+- **The scope counts** (`field-scope.mjs`), which the first record missed.
+  - *The first field repo:*
+    - 10 gate events, each with a declared set; 25 pairs: D 8, R 0, X 17, with 11 of the X delivered with the
+      write;
+    - (S-b) as registered is over its bar at 10 of 10 events, as in 17m.
+  - *The other 6 X pairs* are one broad rule, whose `paths:` name whole top folders.
+    - All fall in the epoch after a compaction, at writes to files not Read in that epoch, so Claude Code had no read
+      to deliver on.
+    - The rule was delivered in the epoch before.
+    - Whether it bore on each change is not judged.
+  - *X is 68% of the pairs,* above 10%: an observation for D22's selection-miss trigger, recorded in the ledger. No
+    trigger fired.
+  - *This repo:* 29 gate events, none with a declared set, so 0 pairs. Its one path rule covers `.project-map/**`
+    only. This is not a counter failure.
+- **The ask's correction:**
+  - after answering, the other session saw map labels three times, on background Bash commands that never named the
+    map;
+  - it reproduced the cause and registered the fix as 8h, below;
+  - this is the label noise the 2026-11-08 field account named.
+
+  So the read has one defect, found by the ask and not by the scan: the counter counts missing labels, not labels
+  given where none was due.
 
 ### 8, 8h: map labels only on a command that names the map (registered 2026-11-25, before the code)
 
