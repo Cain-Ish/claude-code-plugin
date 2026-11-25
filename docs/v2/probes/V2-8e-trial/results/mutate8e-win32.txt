@@ -1,0 +1,87 @@
+platform win32, the self-test
+killed    (1) fields it does not know
+killed    (1) a tool that reads as a flag
+killed    (1) a prompt that reads as a flag
+killed    (1) the tool its kind needs
+killed    (1) a check under the checks folder
+killed    (1) a check path that climbs
+killed    (1) three cases or more
+killed    (1) a case where it should not be used
+killed    (1) runs at least 3
+killed    (1) runs at most 5
+killed    (1) the privacy scan
+killed    (1) the artifact's home
+killed    (1) an artifact path that climbs
+killed    (1) committed as git compares
+killed    (1) unchanged since the commit
+killed    (1) the case file committed
+killed    (1) each check committed
+killed    (1) a case file through a link
+killed    (1) a live artifact as committed
+killed    (2) the hash covers the commit
+killed    (2) the hash covers the artifact
+killed    (2) the hash covers the files beside it
+killed    (2) run checks the hash
+killed    (2) show prints the front matter
+killed    (2) show prints every command form
+killed    (2) show prints the files beside it
+killed    (2) show prints each check script
+killed    (2) the run line is typed with !
+killed    (2) the skill never starts a trial
+killed    (2) other words ask to make
+killed    (3) no evals in a copy
+killed    (3) no backslash or colon in a copy
+killed    (3) no .git in a copy
+killed    (3) no signing in a copy
+killed    (3) no hooks in a copy
+killed    (3) the same message in every arm
+killed    (3) a draft never stays in a copy
+killed    (3) "with" adds the files beside it
+killed    (3) a new skill has no folder without it
+killed    (3) a change keeps the committed file
+killed    (3) the tools limited
+killed    (3) project settings only
+killed    (3) no transcript kept
+killed    (3) hooks off
+killed    (3) no MCP server
+killed    (3) acceptEdits stated
+killed    (3) one JSON result
+killed    (3) the linking variables removed
+killed    (3) every linking variable removed
+killed    (3) login and configuration kept
+killed    (4) "not judged" on a failed session
+killed    (4) "not judged" when the should-not case fails without
+killed    (4) a should-not case that fails is "hurts"
+killed    (4) the margin is half the runs
+killed    (4) the margin rounds up
+killed    (4) "mixed" when one better and one worse
+killed    (4) worse alone is "hurts"
+killed    (5) a session counts only a result
+killed    (5) the check never on disk
+killed    (5) one session at a time
+killed    (5) a reduced environment for the check
+killed    (5) the copies deleted
+killed    (5) no copy inside the repo
+killed    (5) the verdict privacy-scanned
+killed    (5) the verdict folder in the repo
+killed    (5) never through a link at its path
+killed    (5) the verdict git-ignored
+killed    (5) the blob ids recorded
+killed    (5) a stopped trial recorded
+killed    (6) an agent draft names its tools
+killed    (6) an empty field is no value
+killed    (6) the name is the draft's own
+killed    (6) a draft with private data
+killed    (6) never over a draft
+killed    (6) never over a live file
+killed    (6) a draft never through a link
+killed    (7) tailor only a person starts
+killed    (7) tailor never runs a trial itself
+killed    (7) tailor grants cli and draft only
+killed    (7) the words by a quoted heredoc
+killed    (7) no code loaded at run time
+killed    (7) map-review calls a changed draft stale
+killed    (7) map-review offers nothing when not judged
+killed    (7) map-review removes only on a yes
+killed    (7) map-review removes only on a fresh verdict
+85 of 85 killed

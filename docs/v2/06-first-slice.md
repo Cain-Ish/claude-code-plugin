@@ -8954,3 +8954,55 @@ and the candidates count on):
   `&`, which kept running unseen since Git Bash's `ps` does not list native Windows processes. So two dreams shared each
   repo, and one was refused by the other's lock. That copy was stopped, its summary file removed, and the check rerun
   from fresh histories, launched once.
+
+**Attempt 3, check 2** (`probes/V2-8e-trial/results/mutate8e-win32.txt`): 85 of 85 killed. So attempt 3 passed checks
+1 to 3 and failed one bar of check 4: the last attempt rule 4 allows.
+
+### 8, 8e: attempt 4, on the user's word (registered 2026-11-25, before the code)
+
+> If we ask to create the skills for repo we need do be aware of what code do, what agent we need and what lamps
+> mukta asked to have. Not just "make a skill". Try again and be smart on what you add not mindless create the code
+
+The user allows a fourth attempt. "What lamps mukta asked to have" is the approach of research/2026-11-23-ai-native-devcon.md:
+evidence first, a person's choice, then a test.
+
+**The change** (only `tailor`'s text, and check 4's probe). When a request names no task (such as "Make agents for
+this repo."), `tailor` makes nothing at first:
+1. **It surveys, read only:**
+   - what the code does: the README or `CLAUDE.md`, the layout, and the build, test and check scripts;
+   - what the repo already holds: `.claude/` rules, skills and agents;
+   - the map's topic files, and the dream log `.project-map/dreams.md`.
+2. **It lists the gaps it found.** Each is a task the repo repeats, or a rule it keeps needing, with its evidence (a
+   map entry's id, a file, a script, a dream log line) and the smallest home, with why:
+   - an agent only for a task that needs its own context, its own tools or its own notes;
+   - a skill for a procedure of several steps;
+   - a path rule for certain files;
+   - a `CLAUDE.md` line for what every session needs.
+3. **It says what it will not make, and why:** Claude does it anyway, the repo already shows it, or the evidence is
+   thin.
+4. **It asks which to make, and stops.** It makes nothing until the person picks one; then the making steps run as now.
+
+A request that names a task runs the making steps as before.
+
+**The checks:** checks 1 to 4 as registered, all run again on attempt 4's frozen copy, on Windows.
+- **Check 1** adds the new text's lines to case (7).
+- **Check 2** adds their mutations.
+- **Check 3** is unchanged, since the trial's code is unchanged.
+- **Check 4** keeps every bar, and adds one, fixed now: for the request that names no task, the reply names at least
+  one gap with evidence the repo holds (a path that exists, or an id in its map) and asks which to make, in 3 of 3 runs
+  per repo. Nothing made stays 3 of 3.
+
+### 8, 8f: attempt 2 (registered 2026-11-25, before the code)
+
+**The cause of attempt 1's miss.** In all five fixture runs, the analyzers labelled the date rule a "decision" (the
+dream sessions' transcripts: 14 candidate lines each). The skill's organizer step says "A rule draft: a correction
+repeated in two or more sessions that applies to certain paths". Three runs drafted the rule anyway; two kept the
+wording and wrote only an entry. Earlier builds missed the same way once in five, so the trim is not shown to be the
+cause.
+
+**The change:** the organizer's rule-draft line covers a decision or a correction, stated or repeated in two or more
+sessions, that applies to certain paths. 8f's other changes stay. Attempt 2 builds on 8e's attempt-4 copy.
+
+**The checks:** 8f's checks 1 to 5 as registered (the self-test with a case for the new line, the mutations, the
+real-data trim, S7's check 2 with steering and the candidates count, 8d's check 3), all on attempt 2's frozen copy,
+fresh histories.
