@@ -9981,3 +9981,15 @@ fixes move into 8k" in other words. So the check was at fault, not the agent.
   - `state` asks for one passed step and for 8k as not built.
 
   The real answer passes the new `left` check; the wrong and empty ones fail. The trial runs again on live.1.
+
+**The live test: the trial again, on live.1 (2026-11-25).** `show` gave the run line, and the person typed it twice,
+at once. Two findings so far:
+- L-14 (`trial.mjs`, into 8k): 8i's lock holds, since only one trial process runs. But both lines printed "started",
+  and the refused process's error path recorded `{"verdict": "not judged", "stopped": true}` over the verdict file.
+  The earlier verdict was lost, and `/map-review` would show "not judged" while the real trial runs.
+  - `run` checks the lock before the detached process takes it. It should take the lock itself, then hand it on.
+  - The error path should record nothing when the error is "a trial is running".
+- L-13 (a correction): with a directory-source marketplace, Claude Code runs the plugin from the source folder.
+  `CLAUDE_PLUGIN_ROOT` is the live copy in the scratchpad, not the cache, so the earlier note that the install made
+  its own copy and nothing ran from that folder was wrong. The live folder changes only at a live release. The field
+  installs use a git marketplace, which is copied into the cache.
