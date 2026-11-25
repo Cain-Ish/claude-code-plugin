@@ -9625,3 +9625,48 @@ catches a missing object and a cut output. No agy, and no outside service.
 - I-6: section 7's `mutate7.mjs` anchors were not checked against 8i.
 - The cleanup: 389 `second-brain-trial-*` temp folders were deleted, with no test running (mutation runs had added
   126).
+
+### 8, 8k and 8l: amended before their code (2026-11-25), on the other session's read
+
+The other session checked 8k's and 8l's registrations against the sources and confirmed two conflicts:
+- **8l item 9 (L-2) would refuse every agent case.** For an agent, the prompt must name it: 8e's registration says
+  so, so does tailor's text, and D34's first probe found that a draft agent was loaded but never delegated to without
+  its name (research, 2026-11-24, final logic). Amended:
+  - a skill's should-use case may not name the skill, and `validate()` refuses one that does;
+  - an agent's case names the agent, as "the `<name>` agent, if this repo has one; otherwise do it yourself", so the
+    "without" arm does the task rather than fail on a missing name. That is a rule in tailor's guidelines; the
+    live `work-status` cases are rewritten so.
+- **8k's D-3 drops a condition.** Redaction removes absolute paths whole, so the digests would lose every file path.
+  The research of 2026-11-24 required the repo root to be made relative first; it was dropped (06, "8a: before the
+  model runs") only because D-3 was blocked. Amended: before redaction, paths under the repo's roots are made
+  relative in the digest text, and only what stays absolute is redacted.
+
+**Items that had no step, now placed:**
+- **8k** (code: `dream.mjs`, `trial.mjs` and tests):
+  - J-1 (a new skill draft carrying `hooks` or `allowed-tools`), J-2 (a change that removes `disallowedTools`) and
+    J-4 (`git check-ignore` exiting mid-batch);
+  - from 8i's build:
+    - the self-test's temp-folder count (8i's finding 1): count only the folders the case made;
+    - an unremovable copy (8i's findings 2 and 5): one retry, then report, and on Node 24 the copy's files go
+      before its folder;
+    - `show` on a binary file beside a skill (8i's finding 4): name it and say it is binary;
+    - section 7's `mutate7` anchors (8i's finding 6), checked with the others;
+  - X-3, reproduced first. If bare names in `--allowedTools` reach outside the copy, they are left out (acceptEdits
+    covers the copy). If user tokens reach trial sessions, the environment becomes an allowlist plus Claude Code's
+    login variables.
+- **later:** J-3, and 8i's finding 3 (the lock's three limits), recorded.
+- **8l:** tailor's description says it can "create, change or test" an artifact, but `trial.mjs` refuses a draft
+  when the live file exists, so it cannot change one. The text says what it does: create, or test through `cases`.
+- **release:** PM7's keep-or-kill read for 2.6.0's features (`02-v1-postmortem.md`) joins the release list.
+
+**Ids, made unique and complete:**
+- 8i's findings are renamed B-1 to B-6, since I-2 already names "`when:` and headings shown". A plan item names them by
+  the new ids.
+- Ids cited in the plan but never defined here:
+  - T-1 is done: two of the user's rules are map entries, and the third waits for its source words.
+  - L-4 was never used.
+  - C-5 is X-1.
+  - R-j is I-2.
+  - R-l is the talk's "graph" item (records).
+  - R-m is R4's scheduled-task reopen (later), and R-n the `claude plugin eval` probe (later).
+  - R-p, for later: retirement is never a proposal of its own, only the "no use" line and a trial's verdict.
