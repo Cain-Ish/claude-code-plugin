@@ -9020,3 +9020,11 @@ fresh histories.
 **8f attempt 2, built and frozen (2026-11-25):** product `38fbf0dd76ed`, on 8e's attempt-4 copy. The organizer's
 rule-draft line names a decision or a correction. Case (5) checks it, and `mutate8f.mjs` holds 26 mutations. Both
 self-tests passed with the pin off before the freezes.
+
+**8e attempt 4, counted checks so far (2026-11-25):**
+1. **The self-test** passes with the pin on, on Windows under Node 24 and Node 20 (8f attempt 2's too).
+2. **Check 4** (`results/check4.json`, 12 runs): **every bar passes, the new one too.**
+   - With no task named, no run made anything (6 of 6), and each reply named evidence the repo holds and asked which
+     to make.
+   - With a gap, each run left one draft with its script, case file and checks, every named path present.
+   - Nothing was committed.

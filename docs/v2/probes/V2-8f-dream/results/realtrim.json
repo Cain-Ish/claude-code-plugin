@@ -1,9 +1,9 @@
 {
  "sessions": 8,
  "missing": 0,
- "full": 14097,
- "trimmed": 4288,
- "cut": 69.6,
+ "full": 14237,
+ "trimmed": 4341,
+ "cut": 69.5,
  "rows": [
   {
    "digest": "d1.digest",
@@ -63,11 +63,11 @@
   },
   {
    "digest": "d8.digest",
-   "full": 6011,
-   "trimmed": 1871,
-   "uqFull": 40,
-   "uqTrimmed": 40,
-   "mapReads": 46
+   "full": 6151,
+   "trimmed": 1924,
+   "uqFull": 41,
+   "uqTrimmed": 41,
+   "mapReads": 48
   }
  ],
  "pass": {
