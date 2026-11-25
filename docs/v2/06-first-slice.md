@@ -8936,3 +8936,11 @@ and the candidates count on):
   correction's words (`src/**`), not from tool lines.
 - **8f's attempt 1 fails.** Two attempts remain under rule 4. 8d's check 3 on this copy is still running; its result
   is added below.
+
+**Attempt 3, check 3** (`probes/V2-8e-trial/results/check3.json`, the frozen copy, CLI 2.1.331): **passes.**
+- The good skill: "helps" 2 of 2. The good agent: "helps" 2 of 2. The bad skill: "adds nothing" 2 of 2.
+- The pre-flight trial: "helps". In every trial the person's line was printed by `show` through the skill, typed, and
+  started. No session failed.
+- **Every "without" run of a report case failed: 0 of 3 in all 7 trials.** The stray passes of attempt 1 (3 trials
+  with 1 of 3) did not come back once sessions ran one at a time and unlinked from their starter. Which of the two
+  changes ended them is not separated.

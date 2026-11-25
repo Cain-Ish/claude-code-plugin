@@ -4,7 +4,7 @@
   "helps"
  ],
  "bad": [
-  "helps",
+  "adds nothing",
   "adds nothing"
  ],
  "agent": [
@@ -17,7 +17,7 @@
    "n": "1",
    "lineShown": true,
    "started": true,
-   "minutes": 2,
+   "minutes": 4,
    "verdict": "helps",
    "failed": 0,
    "cases": [
@@ -49,7 +49,7 @@
    "n": "2",
    "lineShown": true,
    "started": true,
-   "minutes": 2,
+   "minutes": 4,
    "verdict": "helps",
    "failed": 0,
    "cases": [
@@ -58,7 +58,7 @@
      "use": true,
      "runs": 3,
      "with": 3,
-     "without": 1
+     "without": 0
     },
     {
      "id": "report-again",
@@ -81,15 +81,15 @@
    "n": "1",
    "lineShown": true,
    "started": true,
-   "minutes": 2,
-   "verdict": "helps",
+   "minutes": 3,
+   "verdict": "adds nothing",
    "failed": 0,
    "cases": [
     {
      "id": "report-month",
      "use": true,
      "runs": 3,
-     "with": 1,
+     "with": 0,
      "without": 0
     },
     {
@@ -113,7 +113,7 @@
    "n": "2",
    "lineShown": true,
    "started": true,
-   "minutes": 2,
+   "minutes": 3,
    "verdict": "adds nothing",
    "failed": 0,
    "cases": [
@@ -145,7 +145,7 @@
    "n": "1",
    "lineShown": true,
    "started": true,
-   "minutes": 2,
+   "minutes": 3,
    "verdict": "helps",
    "failed": 0,
    "cases": [
@@ -177,7 +177,7 @@
    "n": "2",
    "lineShown": true,
    "started": true,
-   "minutes": 2,
+   "minutes": 3,
    "verdict": "helps",
    "failed": 0,
    "cases": [
@@ -186,7 +186,7 @@
      "use": true,
      "runs": 3,
      "with": 3,
-     "without": 1
+     "without": 0
     },
     {
      "id": "report-again",
@@ -207,8 +207,8 @@
  ],
  "pass": {
   "good": true,
-  "bad": false,
+  "bad": true,
   "agent": true,
-  "all": false
+  "all": true
  }
 }
