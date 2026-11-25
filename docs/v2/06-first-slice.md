@@ -9228,3 +9228,18 @@ without naming its folder was already unlabelled (04's accepted risk), so no new
   on this push is the macOS evidence (8g's check 3); its result is recorded next.
 - **Not in the live install:** that holds `38fbf0dd76ed`. 8g matters only where a repo's path has two spellings, which
   this repo's does not. 8h's noise stays in the live test until the install is refreshed.
+
+**8h, a third route, read after the move (2026-11-25).** Two more foreground commands got the whole-file form. This
+session's transcript shows why: Claude Code's Bash result now carries a field `bashEditDiff`, the diff of the files a
+command edited. The handler takes every string in the result as output, so the edited text counts as output. Both
+commands edited text that holds the cut marker `[40000 characters truncated]` (the self-test's case, and this record
+quoting it), so the handler took the output as cut.
+- The first did not name the map: 8h stops it.
+- The second named the map (in its commit message), so its labels are due. It got all of them rather than those the
+  output showed: more labels, never fewer, and only when an edit's text holds the cut marker. No change.
+- So a map entry that a Bash command edits is labelled as shown. That is D14's "the entries this output shows".
+
+**8g's check 3, and the macOS evidence (2026-11-25):** CI's run 45616472804 on `69f9163a` (product `b977771fc513`)
+passed every job: the self-test on macOS, Windows and Linux, and the load jobs. The macOS self-test holds every case
+of 8c to 8h, including 8e's detached run through the stand-in. So the user's word on systems is met for 2.6.0 as it
+stands.
