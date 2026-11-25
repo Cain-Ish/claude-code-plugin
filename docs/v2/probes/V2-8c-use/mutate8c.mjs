@@ -23,8 +23,8 @@ const M = [
   // missing unseen until the merged 8i and 8j copy's run
   ['(2) uses counted', D, 'const u = !r.isSidechain && used(x);', 'const u = false;'],
   ['(2) a sidechain call is no use', D, "const u = !r.isSidechain && used(x);", 'const u = used(x);'],
-  ['(2) a typed /<name> counted', D, "else if (cmd && (skills.has(cmd) || cmd.includes(':'))) use({ kind: 'skill', name: cmd, via: 'typed' }, false);", ''],
-  ['(2) a built-in command is no use', D, "else if (cmd && (skills.has(cmd) || cmd.includes(':')))", 'else if (cmd)'],
+  ['(2) a typed /<name> counted', D, "    if (cmd && (skills.has(cmd) || cmd.includes(':'))) use({ kind: 'skill', name: cmd, via: 'typed' }, false);", ''],
+  ['(2) a built-in command is no use', D, "    if (cmd && (skills.has(cmd) || cmd.includes(':')))", '    if (cmd)'],
   ['(2) a typed use leaves the open ones open', D, "use({ kind: 'skill', name: cmd, via: 'typed' }, false);", "use({ kind: 'skill', name: cmd, via: 'typed' }, true);"],
   ['(2) a typed line after a use', D, '{ for (const u of open) u.after = true; open = []; }', '{ open = []; }'],
   ['(2) a call ends the open uses', D, 'open = ends ? [e] : [...open, e];', 'open = [...open, e];'],
@@ -45,7 +45,7 @@ const M = [
   ['(4) steering from HEAD', D, "if (steer.status === 0) fs.writeFileSync(path.join(run, 'steering.md'), steer.stdout);", "try { fs.writeFileSync(path.join(run, 'steering.md'), fs.readFileSync(path.join(root, MAP, 'steering.md'), 'utf8')); } catch {}"],
   ['(4) the steering line in the report', D, "steer.status === 0 ? `Steering: ", "true ? `Steering: "],
   ['(4) topic refuses steering.md', D, "'readme.md', 'dreams.md', 'steering.md'", "'readme.md', 'dreams.md'"],
-  ['(4) a status line only in a topic file', D, 'mapFiles(root).find((p) => topic(path.basename(p)) && !utf16At', 'mapFiles(root).find((p) => !utf16At'],
+  ['(4) a status line only in a topic file', D, '.filter((p) => topic(path.basename(p))).map((p) => [p, mapText(p)])', '.map((p) => [p, mapText(p)])'],
   ['(4) the skill skips steering.md in its map read', S, ", except `steering.md`: the analyzers\n   had its committed text, and its working copy may hold edits no one reviewed.", '.'],
 ];
 const fast = Boolean(process.env.MUT_FAST);

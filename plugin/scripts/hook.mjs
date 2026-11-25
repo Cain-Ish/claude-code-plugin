@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MAP, CAP, git, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft } from './map.mjs';
+import { MAP, CAP, git, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft, safeName } from './map.mjs';
 import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
@@ -15,22 +15,27 @@ const readInput = () => {
   for (let k; (k = fs.readSync(0, b, 0, b.length, null)) > 0;) parts.push(Buffer.from(b.subarray(0, k)));
   return Buffer.concat(parts).toString('utf8');
 };
-const input = ['onboard', 'setup'].includes(which) ? {} : JSON.parse(readInput());
+// Q-13 (06, 8k): below Node 20 a hook exits 0 before it reads its input (Node 16 failed there), and only session start
+// says so, once a session; onboard and setup print their own reports
+const old = !['onboard', 'setup'].includes(which) && Number(process.versions.node.split('.')[0]) < 20;
+const input = old || ['onboard', 'setup'].includes(which) ? {} : JSON.parse(readInput());
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
 // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
-const closed = (file, why = 'could not be computed') => `[project map] The labels for ${file} ${why}: treat every entry in it as unreviewed and unverified.\n`;
+const closed = (file, why = 'could not be computed') => `[project map] The labels for ${safeName(file)} ${why}: treat every entry in it as unreviewed and unverified.\n`;
 const labelled = (file, output) => { try { return labels(root, file, output); } catch { return closed(file); } };
 
-if (which === 'session-start') {
-  const idx = index(root);
-  // the marker only serves the forced decision: a missing or read-only TEMP must not cost the rest (D18, 2g)
-  if (idx) try { openEpoch(input.session_id); } catch {}
+if (old) {
+  if (which === 'session-start') process.stdout.write(JSON.stringify({ systemMessage: 'The project map needs Node 20 or later; install it, or disable the plugin.' }));
+} else if (which === 'session-start') {
   // v1's statusline and timer shims outlive an update to v2 (V2-D26)
   const brain = process.env.BRAIN_DIR || path.join(os.homedir(), '.second-brain');
   const v1 = ['buddy-statusline.sh', 'sb-extract-drain.sh'].some((f) => fs.existsSync(path.join(brain, 'bin', f)));
   // 06, section 3, S6 (D32): what waits for review, and whether a dream is due, for the user only, at a session's
   // start or after /clear; any failure here costs the rest nothing
   const notes = v1 ? [V1_LEFT] : [];
+  const idx = index(root, notes);
+  // the marker only serves the forced decision: a missing or read-only TEMP must not cost the rest (D18, 2g)
+  if (idx) try { openEpoch(input.session_id); } catch {}
   if (idx !== null && ['startup', 'clear'].includes(input.source)) {
     try { const w = waiting(root); if (w) notes.push(w); } catch {}
     const data = process.env.CLAUDE_PLUGIN_DATA;
@@ -39,20 +44,28 @@ if (which === 'session-start') {
       try { const l = dreamLeft(root, data); if (l) notes.push(l); } catch {}
     }
   }
-  emit('SessionStart', startText(idx).text, notes.length ? notes.join('\n') : undefined);
+  // Q-8 (06, 8k): with no index, outside git or where git cannot run, Claude gets nothing (it got 2,215 bytes); in a
+  // repo, index() has told the person why
+  emit('SessionStart', idx === null ? '' : startText(idx).text, notes.length ? notes.join('\n') : undefined);
 } else if (which === 'prompt') {
   // the hook also fires on a background subagent's report and another session's message: the force waits for a typed
   // prompt (06, 2i). shortcut: matched on the wrappers transcripts record; another form spends the force as before
   if (!/^\s*(Another Claude session sent a message:|<(task-notification|cross-session-message|agent-message)[\s>])/.test(input.prompt ?? '')) emit('UserPromptSubmit', takeForce(input.session_id));
 } else if (which === 'read') {
-  const file = rel(root, input.tool_input?.file_path);
+  // Q-12 (06, 8k): the root by its real path too, as 8g spells it (macOS /var, a Windows 8.3 name); by strings only,
+  // since the path is the model's and a file-system call on it can reach another host (X-2)
+  const at = (r) => rel(r, input.tool_input?.file_path);
+  let file = at(root);
+  if (!file.startsWith(`${MAP}/`)) try { file = at(fs.realpathSync.native(root)); } catch {}
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
-} else if ((which === 'bash' || which === 'bash-failure') && String(input.tool_input?.command ?? '').includes(MAP)) {
+} else if ((which === 'bash' || which === 'bash-failure') && String(input.tool_input?.command ?? '').toLowerCase().replace(/\\\r?\n/g, '').replace(/["'`\\]/g, '').includes(MAP)) {
   // a Bash command that names the map folder gets every uncommitted entry's labels, and those of the committed entries
   // its output shows (D14, 06 2o): the output is every string in tool_response (stdout, stderr), or the failure's
   // error text. shortcut: a command that does not name the map folder gets nothing, so `git diff` from the root stays
   // unlabelled (04's accepted risk). The if field spares the process; the check above holds when Claude Code lets
-  // through a command that does not name it, as it did with some compound ones (8h)
+  // through a command that does not name it, as it did with some compound ones (8h). H1 (06, 8a; settles C-10 in 8k):
+  // it names the map after letter case, quotes, backslashes and backslash-newlines are set aside, so the check is
+  // never narrower than the if field's match
   const ev = which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure';
   const strings = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
   const got = strings(which === 'bash' ? input.tool_response : input.error);

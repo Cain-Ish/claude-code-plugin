@@ -5,7 +5,9 @@
 // delimiter) appends a line to each, as a person editing during a run; STUB_REPO records whether git sees the repo's
 // trial folder; STUB_HOLD (a file) makes the first session leave a program running in its copy, its id in that file;
 // STUB_PROJECT leaves the copy's project folder under CLAUDE_CONFIG_DIR, as Claude Code does, with a subagent's
-// transcript in it on the unrelated prompt
+// transcript in it on the unrelated prompt. 8k: it records its folder, so a case can check that each copy is gone, and
+// whether a user's token reached it (X-3); with the session's environment an allowlist, trial8e passes the STUB_
+// variables through a file that loads this one
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,7 +17,8 @@ const live = process.env.STUB_LIVE;
 const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';
 fs.appendFileSync(process.env.STUB_LOG, `${JSON.stringify({
   args: process.argv.slice(2),
-  env: { CLAUDECODE: process.env.CLAUDECODE ?? null, CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT ?? null },
+  cwd: process.cwd(),
+  env: { CLAUDECODE: process.env.CLAUDECODE ?? null, CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT ?? null, GITHUB_TOKEN: process.env.GITHUB_TOKEN ?? null },
   has: fs.existsSync(live),
   helper: process.env.STUB_HELPER ? fs.existsSync(process.env.STUB_HELPER) : null,
   evals: fs.existsSync('.project-map/evals'),

@@ -89,3 +89,6 @@ killed    (7) map-review offers nothing when not judged
 killed    (7) map-review removes only on a yes
 killed    (7) map-review removes only on a fresh verdict
 89 of 89 killed
+
+Then, on the same copy: the (7) guards in full mode (the self-test, MUT_ONLY='^\(7\)'), which MUT_FAST cannot kill: 13 of 13 killed.
+The three missing anchors ((1) unchanged since the commit, (5) the blob ids recorded, (6) an empty field is no value) were already missing on the base: 8i rewrote those guards, and its list and 8k-trial's carry their moved versions, each killed.

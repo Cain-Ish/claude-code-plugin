@@ -6,14 +6,14 @@
 //                              any other words hand over to the making steps. It never starts a trial
 //   run <name> <hash>          the person's yes, typed with ! as show printed it
 //   draft <name> <kind>        the making steps' only write
-//   exec <name> <hash>         the detached run that `run` starts
+//   exec <name> <hash> <token> the detached run that `run` starts, handed run's lock by the token
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { MAP, toplevel, inRepo, configDir } from './map.mjs';
+import { MAP, toplevel, inRepo, configDir, exe } from './map.mjs';
 import { PRIVATE } from './dream.mjs';
 
 export const casesFile = (root, name) => path.join(root, MAP, 'evals', `${name}.json`);
@@ -30,12 +30,12 @@ const plainFile = (p) => { try { return fs.lstatSync(p).isFile(); } catch { retu
 const runsOk = (n) => Number.isInteger(n) && n >= 3 && n <= 5;
 
 // git with no console window: the detached run has no console, so on Windows each console program it starts would
-// otherwise get a console of its own, at a cost of seconds per call
-const git = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 << 20, windowsHide: true });
-const blob = (root, commit, rel) => spawnSync('git', ['show', `${commit}:${rel}`], { cwd: root, maxBuffer: 64 << 20, windowsHide: true });
+// otherwise get a console of its own, at a cost of seconds per call. git starts by its full path (H7, 06, 8k)
+const git = (cwd, ...args) => spawnSync(exe('git'), args, { cwd, encoding: 'utf8', maxBuffer: 64 << 20, windowsHide: true });
+const blob = (root, commit, rel) => spawnSync(exe('git'), ['show', `${commit}:${rel}`], { cwd: root, maxBuffer: 64 << 20, windowsHide: true });
 // a file the commit holds, which the working tree has not changed since, as git compares them (so core.autocrlf's
-// line ends are no change)
-const committed = (root, commit, rel) => git(root, 'cat-file', '-e', `${commit}:${rel}`).status === 0 && git(root, 'diff', '--quiet', commit, '--', rel).status === 0;
+// line ends are no change). Two reads, never git diff, which rewrites the index under index.lock (the audit's item 7)
+const committed = (root, commit, rel) => { const at = git(root, 'rev-parse', '--verify', '-q', `${commit}:${rel}`); return at.status === 0 && at.stdout.trim() === git(root, 'hash-object', '--', rel).stdout.trim(); };
 
 // the case file: an artifact in one of the three homes; three cases or more, one where it should not be used; each
 // with a prompt (none that reads as a flag), the tools it may use (none that reads as a flag, and the one its kind
@@ -131,7 +131,8 @@ export function show(root, name, self = fileURLToPath(import.meta.url)) {
     fm ? `Its front matter:\n${fm.split(/\r?\n/).map((l) => `  ${l}`).join('\n')}` : 'It has no front matter.',
     bangs.length ? `Its command lines:\n${bangs.map((l) => `  ${l.trim()}`).join('\n')}` : 'It runs no command lines.',
     `Its whole text, which "with" runs:\n${quote(info.text)}`,
-    ...(info.extras.length ? [`Files beside it, which "with" adds: ${info.extras.map((e) => e.rel).join(', ')}`, ...info.extras.map((e) => `The file ${e.rel}:\n${quote(e.body.toString('utf8'))}`)] : []),
+    // a file with a NUL byte is binary, so it is named, not printed as text (B-4, 06, 8k); the hash covers its bytes
+    ...(info.extras.length ? [`Files beside it, which "with" adds: ${info.extras.map((e) => e.rel).join(', ')}`, ...info.extras.map((e) => (e.body.includes(0) ? `The file ${e.rel} is binary (${e.body.length} bytes), so it is not shown.` : `The file ${e.rel}:\n${quote(e.body.toString('utf8'))}`))] : []),
     ...spec.cases.map((c) => `- case ${c.id} (${c.use === false ? 'should not be used' : 'should be used'}), ${runs(c)} run(s) per arm\n  prompt: ${c.prompt}\n  tools: ${(c.tools ?? DEFAULT_TOOLS).join(', ')}\n  check: ${c.check}`),
     ...Object.entries(checks).map(([k, t]) => `The check script ${k}, which runs with node on each session's work:\n${quote(t)}`),
     'To run it, type this line yourself; the ! runs it in your shell, so no model starts it:',
@@ -143,19 +144,36 @@ export function show(root, name, self = fileURLToPath(import.meta.url)) {
 export function start(root, name, hash, self = fileURLToPath(import.meta.url)) {
   const { hash: now } = load(root, name);
   if (hash !== now) throw new Error(`the hash ${hash || '(none)'} is not this case file and artifact as they are now: type /second-brain:tailor show ${name} again`);
-  if (holder(root)) throw new Error(RUNNING);
-  spawn(process.execPath, [self, 'exec', name, hash], { cwd: root, detached: true, stdio: 'ignore', windowsHide: true, env: childEnv() }).unref();
+  // run takes the lock itself and hands it over, so the lock names a live process throughout: two lines typed at once
+  // both started while the lock waited for exec (L-14). The token is run's process id, which exec takes as its own
+  const lock = take(root);
+  const c = spawn(process.execPath, [self, 'exec', name, hash, String(process.pid)], { cwd: root, detached: true, stdio: 'ignore', windowsHide: true, env: unlinked() });
+  fs.writeFileSync(lock, String(c.pid));
+  c.unref();
   return `The trial of ${name} started. Its verdict lands in ${MAP}/.trial/${name}.json when it ends, and /map-review shows it.`;
 }
 
 // the session: its tools limited to the case's (--tools takes the names, --allowedTools approves them as written),
 // acceptEdits, project settings only, every hook off, no MCP server, no transcript kept, and one JSON result; its
 // environment, without the variables that link a session to the Claude Code session that started it (its id, its
-// messaging socket and token, its child notes), so it starts as from a plain terminal; login and configuration stay
-export const childArgs = (prompt, tools) => ['-p', prompt, '--output-format', 'json', '--permission-mode', 'acceptEdits', '--setting-sources', 'project,local', '--no-session-persistence',
-  '--settings', JSON.stringify({ disableAllHooks: true }), '--strict-mcp-config', '--tools', ...new Set(tools.map((t) => t.replace(/\(.*$/s, '').trim())), '--allowedTools', ...tools];
+// messaging socket and token, its child notes), so it starts as from a plain terminal; login and configuration stay.
+// X-3 (06, 8k), seen on a loopback stand-in: a file tool's bare name in --allowedTools let a session write, edit, read
+// and search outside its copy; acceptEdits and the read rules cover the copy, so those names are not approved
+const FILE_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob', 'Grep'];
+export const childArgs = (prompt, tools) => {
+  const allowed = tools.filter((t) => !FILE_TOOLS.includes(t.replace(/\(.*$/s, '').trim())); // Write(*) is Write
+  return ['-p', prompt, '--output-format', 'json', '--permission-mode', 'acceptEdits', '--setting-sources', 'project,local', '--no-session-persistence',
+    '--settings', JSON.stringify({ disableAllHooks: true }), '--strict-mcp-config', '--tools', ...new Set(tools.map((t) => t.replace(/\(.*$/s, '').trim())), ...(allowed.length ? ['--allowedTools', ...allowed] : [])];
+};
 const LINKS = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_CODE_(ENTRYPOINT|SESSION_\w+|BRIDGE_\w+|CHILD_\w+|MESSAGING_\w+))$/i;
-export const childEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !LINKS.test(k)));
+const unlinked = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !LINKS.test(k)));
+// X-3: of the rest, a session gets what a program needs to run, the network's proxy and certificates, and Claude Code's
+// own variables (its login and settings), so no other token of the user's reaches it; AWS's and Google's only when
+// Claude Code logs in through Bedrock or Vertex
+const KEEP = /^(PATH|PATHEXT|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|HOME|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|PROGRAMDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|TEMP|TMP|TMPDIR|LANG|LANGUAGE|LC_\w+|TZ|TERM|SHELL|USER|USERNAME|LOGNAME|XDG_\w+|(HTTPS?|ALL|NO)_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_(FILE|DIR)|ANTHROPIC_\w+|CLAUDE_CONFIG_DIR|CLAUDE_CODE_\w+|DISABLE_\w+)$/i;
+const on = (v) => Boolean(v) && !/^(0|false)$/i.test(v); // a login switched off with 0 passes nothing
+const cloud = (k) => (on(process.env.CLAUDE_CODE_USE_BEDROCK) && /^AWS_/i.test(k)) || (on(process.env.CLAUDE_CODE_USE_VERTEX) && /^(GOOGLE_|CLOUD_ML_|VERTEX_)/i.test(k));
+export const childEnv = () => Object.fromEntries(Object.entries(unlinked()).filter(([k]) => KEEP.test(k) || cloud(k)));
 // a check script's environment: what node and git need to run, and nothing else of the user's
 const checkEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|HOME|USERPROFILE|TEMP|TMP|TMPDIR|LANG|LC_ALL)$/i.test(k)));
 
@@ -167,9 +185,10 @@ const commit = (dir) => { for (const a of [['add', '-A'], ['commit', '-qm', 'tri
 // colon, a .git or .. segment), then a fresh repository, so the session's git sees a clean tree. The evals folder
 // never reaches a copy, nor the drafts' staging folder, which "without" must not see (C-7)
 export function copyHead(root, commitId, to) {
-  const tree = git(root, 'ls-tree', '-r', '-z', commitId).stdout.split('\0').filter(Boolean).map((l) => { const [meta, p] = l.split('\t'); const [mode, type, oid] = meta.split(' '); return { mode, type, oid, p }; })
+  // the path is all after the first tab, which may hold another (the audit, 06, 8k)
+  const tree = git(root, 'ls-tree', '-r', '-z', commitId).stdout.split('\0').filter(Boolean).map((l) => { const t = l.indexOf('\t'); const [mode, type, oid] = l.slice(0, t).split(' '); return { mode, type, oid, p: l.slice(t + 1) }; })
     .filter((e) => e.type === 'blob' && e.mode !== '120000' && !`${e.p}/`.startsWith(`${MAP}/evals/`) && !`${e.p}/`.startsWith(`${MAP}/drafts/`) && !/[\\:]/.test(e.p) && !e.p.split('/').some((s) => s === '..' || s.toLowerCase() === '.git'));
-  const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: tree.map((e) => e.oid).join('\n') + '\n', maxBuffer: 1 << 30, windowsHide: true }).stdout;
+  const out = spawnSync(exe('git'), ['cat-file', '--batch'], { cwd: root, input: tree.map((e) => e.oid).join('\n') + '\n', maxBuffer: 1 << 30, windowsHide: true }).stdout;
   let at = 0;
   for (const e of tree) {
     const nl = out.indexOf(10, at);
@@ -204,10 +223,11 @@ export function place(copy, info, arm) {
 }
 
 // a session counts only when it ran to its end: a JSON result that is not an error, exit 0, and no stop at 15 minutes.
-// One that cannot start rejects with why, which the verdict names (K-8)
+// One that cannot start rejects with why, which the verdict names (K-8). claude starts by its full path, never from the
+// copy (H7, 06, 8k); on Windows that is claude.exe, so npm's claude.cmd reads as not found
 function session(cwd, prompt, tools) {
   const stub = process.env.SECOND_BRAIN_TRIAL_CLAUDE; // the self-test's stand-in for claude
-  const [cmd, args] = stub ? [process.execPath, [stub, ...childArgs(prompt, tools)]] : ['claude', childArgs(prompt, tools)];
+  const [cmd, args] = stub ? [process.execPath, [stub, ...childArgs(prompt, tools)]] : [exe('claude'), childArgs(prompt, tools)];
   return new Promise((done, fail) => {
     let out = '';
     let killed = false;
@@ -285,15 +305,21 @@ function take(root) {
   return lock;
 }
 
-// the run: one session at a time (06, 8e, attempt 3), so no session runs while another job's copy exists
-export async function exec(root, name, hash) {
+// a copy's files go before its folder, since a folder Node cannot remove keeps every file in it (B-2, 06, 8k)
+const clear = (dir) => { try { for (const e of fs.readdirSync(dir)) try { fs.rmSync(path.join(dir, e), { recursive: true, force: true }); } catch {} fs.rmSync(dir, { recursive: true, force: true }); return true; } catch (e) { return e.code === 'ENOENT'; } };
+
+// the run: one session at a time (06, 8e, attempt 3), so no session runs while another job's copy exists. Started by
+// run, it holds run's lock: the lock names run's process (the token) or this one (L-14)
+export async function exec(root, name, hash, token) {
   const t = load(root, name);
   if (hash !== t.hash) throw new Error('the case file or the artifact changed after the run started');
   // git's blob ids, which /map-review computes again to tell a stale verdict: of the text that runs and of the case
   // file at the trial's commit, taken now, so an edit during the run leaves the verdict stale (P-1)
-  const artifactBlob = spawnSync('git', ['hash-object', '--stdin', `--path=${t.spec.artifact}`], { cwd: root, input: t.info.text, encoding: 'utf8', windowsHide: true }).stdout.trim();
+  const artifactBlob = spawnSync(exe('git'), ['hash-object', '--stdin', `--path=${t.spec.artifact}`], { cwd: root, input: t.info.text, encoding: 'utf8', windowsHide: true }).stdout.trim();
   const casesBlob = git(root, 'rev-parse', `${t.commit}:${t.rel}`).stdout.trim();
-  const lock = take(root);
+  let held = '';
+  try { held = fs.readFileSync(lockOf(root), 'utf8'); } catch {}
+  const lock = token && [token, String(process.pid)].includes(held) ? lockOf(root) : take(root);
   const jobs = ['with', 'without'].flatMap((arm) => t.spec.cases.flatMap((c) => Array.from({ length: t.runs(c) }, () => ({ arm, c }))));
   const pass = {};
   const left = [];
@@ -311,8 +337,11 @@ export async function exec(root, name, hash) {
     } catch (e) { failed++; why ??= e.why; } finally {
       if (copy) forget(copy);
       // a copy the system will not remove (Windows, while a program the session started still runs in it) is named in
-      // the verdict, and the trial goes on (K-3)
-      if (copy) try { fs.rmSync(copy, { recursive: true, force: true }); } catch { left.push(path.basename(copy)); }
+      // the verdict, and the trial goes on (K-3); after one retry a second later, since antivirus can hold a file (B-5)
+      if (copy && !clear(copy)) {
+        await new Promise((ok) => setTimeout(ok, 1000));
+        if (!clear(copy)) left.push(path.basename(copy));
+      }
     }
   }
   const rows = t.spec.cases.map((c) => ({ id: c.id, use: c.use !== false, runs: t.runs(c), with: pass[`${c.id}\0with`] ?? 0, without: pass[`${c.id}\0without`] ?? 0 }));
@@ -372,9 +401,10 @@ if (path.basename(process.argv[1] ?? '') === 'trial.mjs') {
       else console.log('Tailor: make one agent, skill or path rule for a gap this repo shows. Follow the steps below.');
     } else if (cmd === 'run') console.log(start(root, rest[0], rest[1]));
     else if (cmd === 'exec') {
-      try { await exec(root, rest[0], rest[1]); } catch (e) {
-        // a trial that stopped is never a verdict: the record says so, and /map-review offers nothing on it
-        if (/^[\w.-]+$/.test(String(rest[0] ?? ''))) try { record(root, rest[0], { date: new Date().toISOString().slice(0, 10), verdict: 'not judged', stopped: true }); } catch {}
+      try { await exec(root, rest[0], rest[1], rest[2]); } catch (e) {
+        // a trial that stopped is never a verdict: the record says so, and /map-review offers nothing on it. One refused
+        // because another runs records nothing, so the verdict file stays that trial's (L-14)
+        if (e.message !== RUNNING && /^[\w.-]+$/.test(String(rest[0] ?? ''))) try { record(root, rest[0], { date: new Date().toISOString().slice(0, 10), verdict: 'not judged', stopped: true }); } catch {}
         throw e;
       }
     } else if (cmd === 'draft') console.log(`Written, as drafts: ${draft(root, rest[0], rest[1]).join(', ')}`);

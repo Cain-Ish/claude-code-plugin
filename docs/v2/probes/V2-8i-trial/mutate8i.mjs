@@ -22,18 +22,18 @@ const M = [
   // 3, C-1, C-2
   ['(8i-3) C-1: a fenced ! block whole', TR, ' fenced = fenced ? !/^\\s*```\\s*$/.test(l) : /^\\s*```!/.test(l);', ''],
   ["(8i-3) C-2: the artifact's whole text", TR, '    `Its whole text, which "with" runs:\\n${quote(info.text)}`,\n', ''],
-  ['(8i-3) C-2: the text of each file beside it', TR, ", ...info.extras.map((e) => `The file ${e.rel}:\\n${quote(e.body.toString('utf8'))}`)", ''],
+  ['(8i-3) C-2: the text of each file beside it', TR, ", ...info.extras.map((e) => (e.body.includes(0) ? `The file ${e.rel} is binary (${e.body.length} bytes), so it is not shown.` : `The file ${e.rel}:\\n${quote(e.body.toString('utf8'))}`))", ''],
   // 4, C-7
   ['(8i-4) C-7: no staging folder in a copy', TR, ' && !`${e.p}/`.startsWith(`${MAP}/drafts/`)', ''],
   // 5, C-8, K-7, P-15
-  ['(8i-5) C-8: run stops while a trial runs', TR, '  if (holder(root)) throw new Error(RUNNING);\n', ''],
+  ['(8i-5) C-8: run stops while a trial runs', TR, 'const lock = take(root);', 'const lock = lockOf(root);'],
   ['(8i-5) C-8: exec never takes a held lock', TR, "String(process.pid), { flag: 'wx' }", 'String(process.pid)'],
   ['(8i-5) C-8: a lock whose process ended is taken over', TR, '  if (!holder(root)) fs.rmSync(lock, { force: true });\n', ''],
   ['(8i-5) C-8: only a live process holds the lock', TR, 'pid > 0 && process.kill(pid, 0) ? pid : 0', 'pid'],
   ['(8i-5) C-8: the lock gone when the verdict lands', TR, '  record(root, name, out);\n  fs.rmSync(lock, { force: true });\n', '  record(root, name, out);\n'],
   ['(8i-5) C-8: the lock git-ignored', TR, "const lock = path.join(put(root, []), '.lock');", 'const lock = lockOf(root); fs.mkdirSync(path.dirname(lock), { recursive: true });'],
   // 6, K-3
-  ['(8i-6) K-3: a copy not removed is named, and the trial goes on', TR, 'if (copy) try { fs.rmSync(copy, { recursive: true, force: true }); } catch { left.push(path.basename(copy)); }', 'if (copy) fs.rmSync(copy, { recursive: true, force: true });'],
+  ['(8i-6) K-3: a copy not removed is named, and the trial goes on', TR, 'if (!clear(copy)) left.push(path.basename(copy));', "if (!clear(copy)) throw new Error('copy left');"],
   // 7, K-4
   ['(8i-7) K-4: a YAML block list', TR, '(?:\\\\S|\\\\r?\\\\n[ \\\\t]*-[ \\\\t]+\\\\S)', '\\\\S'],
   // 8, K-8
@@ -45,9 +45,9 @@ const M = [
   ['(8i-10) never a project folder holding a transcript', TR, "if (!fs.readdirSync(dir, { recursive: true }).some((f) => String(f).endsWith('.jsonl'))) fs.rmSync(dir", 'if (true) fs.rmSync(dir'],
   // 8e's, anchored again where 8i moved them
   ['(8e 5) the blob ids recorded', TR, 'hash, artifactBlob, casesBlob, date', 'hash, casesBlob, date'],
-  ['(8e 5) the copies deleted', TR, 'if (copy) try { fs.rmSync(copy, { recursive: true, force: true }); } catch { left.push(path.basename(copy)); }', ''],
+  ['(8e 5) the copies deleted', TR, 'if (copy && !clear(copy)) {', 'if (false) {'],
   ['(8e 5) one session at a time', TR, '  for (const { arm, c } of jobs) {\n', '  await Promise.all(jobs.map(async ({ arm, c }) => {\n',
-    [['{ failed++; continue; }', '{ failed++; return; }'], ['left.push(path.basename(copy)); }\n    }\n  }\n', 'left.push(path.basename(copy)); }\n    }\n  }));\n']]],
+    [['{ failed++; continue; }', '{ failed++; return; }'], ['        if (!clear(copy)) left.push(path.basename(copy));\n      }\n    }\n  }\n', '        if (!clear(copy)) left.push(path.basename(copy));\n      }\n    }\n  }));\n']]],
   ['(8e 6) an empty field is no value', TR, '`^${k}:[ \\\\t]*(?:', '`^${k}:\\\\s*(?:'],
 ];
 const fast = Boolean(process.env.MUT_FAST);

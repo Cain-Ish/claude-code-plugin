@@ -1,0 +1,33 @@
+platform win32, claude claude.exe, loopback only
+
+plugin folder 1, exit 0
+  --tools Read Write Edit Glob Grep Bash
+  --allowedTools Read Write Edit Glob Grep Bash(printenv GITHUB_TOKEN)
+  user token in the session's environment: true
+  ran     write outside: "File created successfully at: <work>\\outside0\\written.txt (file state is current in your context — no need 
+  ran     read outside: "1\tOUTSIDE-LINE\n2\t"
+  ran     edit outside: "The file <work>\\outside0\\secret.txt has been updated successfully. (file state is current in your context —
+  ran     glob outside: "<work>\\outside0\\written.txt\n<work>\\outside0\\secret.txt"
+  ran     grep outside: "<work>\\outside0\\secret.txt:1:EDITED-LINE"
+  ran     write inside: "File created successfully at: <work>\\copy0\\made.txt (file state is current in your context — no need to Rea
+  ran     read inside: "1\tINSIDE-LINE\n2\t"
+  ran     edit inside: "The file <work>\\copy0\\inside.txt has been updated successfully. (file state is current in your context — no
+  ran     the token in the session: "ghp-stand-in-user-token\nShell cwd was reset to <work>\\copy0"
+  on disk: outside written true, outside edited true, inside written true, inside edited true
+
+plugin folder 2, exit 0
+  --tools Read Write Edit Glob Grep Bash
+  --allowedTools Bash(printenv GITHUB_TOKEN)
+  user token in the session's environment: false
+  error   write outside: "Claude requested permissions to write to <work>\\outside1\\written.txt, but you haven't granted it yet."
+  error   read outside: "Claude requested permissions to read from <work>\\outside1\\secret.txt, but you haven't granted it yet."
+  error   edit outside: "<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>"
+  error   glob outside: "Claude requested permissions to read from <work>\\outside1, but you haven't granted it yet."
+  error   grep outside: "Claude requested permissions to read from <work>\\outside1, but you haven't granted it yet."
+  ran     write inside: "File created successfully at: <work>\\copy1\\made.txt (file state is current in your context — no need to Rea
+  ran     read inside: "1\tINSIDE-LINE\n2\t"
+  ran     edit inside: "The file <work>\\copy1\\inside.txt has been updated successfully. (file state is current in your context — no
+  error   the token in the session: "Exit code 1"
+  on disk: outside written false, outside edited false, inside written true, inside edited true
+
+hosts refused by the proxy: none; other API requests: none

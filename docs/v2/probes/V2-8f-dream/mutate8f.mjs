@@ -25,8 +25,8 @@ const M = [
   ['(2) each reading call its own line', D, '{ idx: at + off, files: read }', '{ idx: at, files: read }'],
   ["(2) a read's line in the trimmed digest", D, 'line: at.get(m.idx)', 'line: m.idx + 1'],
   // 2, read then corrected
-  ['(3) only corrections count', D, 'CANDIDATE \\| correction \\|', 'CANDIDATE \\| \\w+ \\|'],
-  ['(3) a digest given with its folder', D, '(?:[^|]*[\\\\/])?(d', '(d'],
+  ['(3) only corrections count', D, 'CANDIDATE \\\\| correction \\\\|', 'CANDIDATE \\\\| \\\\w+ \\\\|'],
+  ['(3) a digest given with its folder', D, '(?:[^|,]*[\\\\/])?(d', '(d'],
   ['(3) only at a U or Q line', D, "if (!c || !/^(U|Q): /.test(digests[c[1]]?.[Number(c[2]) - 1] ?? '')) continue;", 'if (!c) continue;'],
   ['(3) only after the read', D, 'r.line < Number(c[2])', 'true'],
   ['(3) topic files only', D, 'if (topic(r.file) && ', 'if ('],

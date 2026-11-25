@@ -56,6 +56,13 @@ const cli = (r, words, env = {}) => spawnSync('node', [TRIAL, 'cli'], { cwd: r, 
 const runLine = (r, name, hash, env = {}) => spawnSync('node', [TRIAL, 'run', name, hash], { cwd: r, encoding: 'utf8', env: { ...process.env, ...env } }).stdout;
 const hashOf = (out) => /run pricing ([0-9a-f]{12})/.exec(out)?.[1];
 const D = '.claude/skills/pricing/SKILL.md.draft';
+// 8k (X-3): a session's environment is an allowlist, so the stand-in gets its variables from a file that sets them and
+// loads it; they stay in the run's own environment too, where the check script must not see them
+const stand = (vars) => {
+  const f = path.join(tmp, `stand${++n}.mjs`);
+  fs.writeFileSync(f, `Object.assign(process.env, ${JSON.stringify(vars)});\nawait import(${JSON.stringify(pathToFileURL(STUB).href)});\n`);
+  return { ...vars, SECOND_BRAIN_TRIAL_CLAUDE: f };
+};
 
 // (1) the case file: every refusal, each on its own
 await tryCheck('(1) case file refusals', () => {
@@ -123,7 +130,7 @@ await tryCheck('(2) show and the hash', () => {
   const { r, put, g } = repo(D, SKILL);
   put('.claude/skills/pricing/price.mjs', 'console.log(1);\n');
   const log = path.join(tmp, 'show.log');
-  const env = { SECOND_BRAIN_TRIAL_CLAUDE: STUB, STUB_LOG: log };
+  const env = stand({ STUB_LOG: log });
   const out = cli(r, 'show pricing', env);
   const hash = hashOf(out);
   const wrong = runLine(r, 'pricing', '000000000000');
@@ -222,7 +229,7 @@ await tryCheck('(3) copies and arms', () => {
     odd: !oddErr && JSON.stringify(oddFiles) === '["ok.txt"]' && !fs.existsSync(path.join(tmp, 'b.txt')) && !fs.existsSync(path.join(ce, '.git', 'f.txt')),
     flags: args[0] === '-p' && args[1] === 'Price it.' && after('--output-format') === 'json' && after('--permission-mode') === 'acceptEdits' && after('--setting-sources') === 'project,local'
       && args.includes('--no-session-persistence') && args.includes('--strict-mcp-config') && JSON.parse(after('--settings')).disableAllHooks === true
-      && JSON.stringify(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools'))) === '["Read","Bash"]' && JSON.stringify(args.slice(args.indexOf('--allowedTools') + 1)) === '["Read","Bash(node x.mjs:*)"]',
+      && JSON.stringify(args.slice(args.indexOf('--tools') + 1, args.indexOf('--allowedTools'))) === '["Read","Bash"]' && JSON.stringify(args.slice(args.indexOf('--allowedTools') + 1)) === '["Bash(node x.mjs:*)"]',
     nested: !nested,
   };
   check('(3) copies and arms', Object.values(facts).every(Boolean), JSON.stringify({ facts, oddErr, oddFiles }));
@@ -263,9 +270,7 @@ await tryCheck('(5) a run end to end', async () => {
   const { r, put } = repo(D, SKILL);
   put('.claude/skills/pricing/price.mjs', 'console.log(1);\n');
   const log = path.join(tmp, 'run.log');
-  const env = { SECOND_BRAIN_TRIAL_CLAUDE: STUB, STUB_LOG: log, STUB_LIVE: '.claude/skills/pricing/SKILL.md', STUB_HELPER: '.claude/skills/pricing/price.mjs', STUB_TOUCH_CHECKS: '1' };
-  const temps = () => fs.readdirSync(os.tmpdir()).filter((f) => /^second-brain-(trial|check)-/.test(f)).length;
-  const before = temps();
+  const env = stand({ STUB_LOG: log, STUB_LIVE: '.claude/skills/pricing/SKILL.md', STUB_HELPER: '.claude/skills/pricing/price.mjs', STUB_TOUCH_CHECKS: '1' });
   const hash = hashOf(cli(r, 'show pricing', env));
   const started = runLine(r, 'pricing', hash, env);
   const vf = path.join(r, '.project-map', '.trial', 'pricing.json');
@@ -277,14 +282,16 @@ await tryCheck('(5) a run end to end', async () => {
   check('(5) a run end to end', /started/.test(started) && v.verdict === 'helps' && v.hash === hash && v.failed === 0 && a?.with === 3 && a?.without === 0 && v.artifactBlob === blob && /^[0-9a-f]{40}$/.test(v.casesBlob ?? '')
     && fs.readFileSync(path.join(r, '.project-map', '.trial', '.gitignore'), 'utf8') === '*\n' && seen.length === 18
     && seen.every((s) => !s.evals && !s.untracked && s.commits === '2' && s.message === 'trial copy' && s.env.CLAUDECODE === null && s.args.includes('--tools') && s.args.includes('--no-session-persistence') && s.helper === s.has)
-    && temps() <= before, JSON.stringify({ verdict: v.verdict, failed: v.failed, a, blobOk: v.artifactBlob === blob, seen: seen.length, bad: seen.filter((s) => s.evals || s.untracked || s.commits !== '2' || s.message !== 'trial copy').slice(0, 2), before, after: temps() }));
+    // 8k (B-1): the copies this run made are gone, each by the folder its session ran in; the shared temp folder's count
+    // also moved with any other test running at once
+    && seen.every((s) => !fs.existsSync(s.cwd)), JSON.stringify({ verdict: v.verdict, failed: v.failed, a, blobOk: v.artifactBlob === blob, seen: seen.length, bad: seen.filter((s) => s.evals || s.untracked || s.commits !== '2' || s.message !== 'trial copy').slice(0, 2), left: seen.filter((s) => fs.existsSync(s.cwd)).length }));
 });
 
 // (5) a failed session, or a stopped trial, is never a verdict; the verdict file is never written through a link
 await tryCheck('(5) not judged, and no write through a link', async () => {
   if (!need('(5) not judged, and no write through a link')) return;
   const { r } = repo(D, SKILL);
-  const env = { SECOND_BRAIN_TRIAL_CLAUDE: STUB, STUB_LOG: path.join(tmp, 'fail.log'), STUB_LIVE: '.claude/skills/pricing/SKILL.md', STUB_FAIL: '1' };
+  const env = stand({ STUB_LOG: path.join(tmp, 'fail.log'), STUB_LIVE: '.claude/skills/pricing/SKILL.md', STUB_FAIL: '1' });
   const hash = hashOf(cli(r, 'show pricing', env));
   // a hard link at the verdict's path, to a file outside the repo
   const outside = path.join(tmp, 'outside-verdict.json');
@@ -372,7 +379,7 @@ const withEnv = async (env, f) => {
   Object.assign(process.env, env);
   try { return await f(); } finally { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
 };
-const stubEnv = (log, more = {}) => ({ SECOND_BRAIN_TRIAL_CLAUDE: STUB, STUB_LOG: path.join(tmp, log), STUB_LIVE: '.claude/skills/pricing/SKILL.md', ...more });
+const stubEnv = (log, more = {}) => stand({ STUB_LOG: path.join(tmp, log), STUB_LIVE: '.claude/skills/pricing/SKILL.md', ...more });
 const tryDraft = (r, name, kind) => { try { return T.draft(r, name, kind).join(','); } catch (e) { return `refused: ${e.message}`; } };
 
 // (8i-1) X-1: the main file only by its exact name (skill.md would go live beside the draft on a system that ignores

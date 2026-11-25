@@ -10037,3 +10037,83 @@ What it found:
 - L-22: tailor's own check test matched the self-test's first `slice(0, 12)` line, the capture instruction's hash,
   rather than the product pin. So it failed three right answers that the checks themselves passed. Testing the checks
   caught it, as intended. Guideline: the test matches each fact exactly as its check does.
+
+### 8: the rethink of 2026-11-25 (evening), on the user's word
+
+The note: [research/2026-11-25-rethink-delivery.md](research/2026-11-25-rethink-delivery.md). Into the register:
+- **W-1 (housekeeping, seen):** at about 20:26 to 20:28, every folder under Claude Code's per-project temp root was
+  emptied, 8k's build copies and the other session's tools included, while group C's mutation run was half-way.
+  Older entries in the system temp folder survived. The cause is not settled; a session start was recorded at 20:26.
+  Groups A and B were recovered by replaying their recorded edits (both product hashes match); group C's replay equals
+  its rebuilt candidate. Build copies now live outside that root, and each test run gets its own `TEMP`.
+- **S-1 (housekeeping), done in part by the user's word:** 1,240 leftover project folders of temp copies and five temp
+  trial folders deleted, and the ignored `research/raw/` (2.6 GB). Trial copies leaving none stays open.
+- **B-6 (8k):** `mutate7` was already stale on 8k's base: 28 of its 42 anchors are missing, since 8e replaced the 7a
+  script. 8k moved one anchor of 8c's list, three of 8e's and four of 8i's; those lists follow the moved guards.
+- **D36 (new, after 2.6.0, the user's word):** scopes for a monorepo. Setup finds each source and gives it a scope in
+  the map and the index; the dream and tailor make agents and skills for a scope only from its own sessions. Probe
+  first; registered before it is built.
+
+### 8, 8k: the two reviews (2026-11-25), taken before the checks' final run
+
+**The decision-checker** (D14, D16, D18, D22): D14, D16 and D18 hold.
+- **Fixed, D22:** when git rejected a line of `index.ignore`, the build tried each line alone, 1 + N + 1 git calls,
+  and lines that fail only together gave no index at all. Now the call runs again without the file, as registered,
+  and the note says the file is not used this session. The case and its mutation follow.
+- **Accepted, recorded:**
+  - the lines go in as `:(exclude,glob)<line>` and `<line>/**`, since the registration's own example `**/fixtures`
+    needs glob matching;
+  - a leading `/` names the root;
+  - the file is read from the working tree, committed or not;
+  - the cases are three files (`fix8k-hook`, `-dream`, `-trial`), not one `fix8k.mjs`;
+  - `under()` refuses a map folder linked out of the repo (H3's class).
+- **Record:** D18's boundary sentence says no map text reaches a spawn's arguments; `index.ignore`'s lines now do, as
+  git pathspecs in an argument array with no shell. The ledger's sentence gets a note at the release.
+
+**The fresh review** (Gemini 4 Argon, through T3 in plan mode, given only the diff and the repo; each claim checked
+in the code before use):
+- **Fixed, each with a case that fails before and a mutation:**
+  - X-3's filter compared whole tool strings, so `Write(*)` or `Edit(/x/**)` was approved; it now compares the tool's
+    name, and NotebookEdit (and MultiEdit) count as file tools;
+  - `CLAUDE_CODE_USE_BEDROCK=0` (or Vertex's) still passed AWS's (Google's) variables; `0` and `false` now mean off;
+  - D-3: `<root>/../x` and `<root>~x` lost the root without being redacted. A root now ends only at a separator not
+    followed by `..`, or before a character that ends a path in text;
+  - `PRIVATE` missed a home path after `<`, and a key header with digits (`ED25519`, `PKCS8`).
+- **Refuted:** "exec's lock keeps run's dead process id": `start` writes the child's id into the lock before it
+  returns.
+- **Into the register (later):**
+  - `exec` checks the hash before it takes the lock, so a hand-typed `exec` while another trial of the same name runs
+    overwrites that trial's verdict (`run` itself is safe);
+  - Q-10's count: a transcript whose last record has no newline yet counts as unseen until it grows; a foreign
+    session's growth is counted again;
+  - raw errors with local paths remain where `lock()` races a vanishing lock file, and on a `.project-map` that is a
+    file or a broken worktree `.git` (Q-11's class);
+  - Q-12's real-path step: a Read through an 8.3 short name while the root is long, and a macOS path in another letter
+    case, may still get no labels (D14; probe on CI's macOS job);
+  - a map file named `.MD` in capitals, or a link to a device, is listed in the index but gets no labels;
+  - `unseenIn` stats every seen transcript at startup (D18's bench covers it);
+  - four shortening nits, for the refactor step.
+
+### 8, 8k: result (2026-11-25): pass; moved into `plugin/` (product `62048055c544`)
+
+Built by three agents (A: the hook side, B: the dream side, C: the trial side), recovered after W-1 by replaying their
+recorded edits (A and B to their recorded hashes), merged, and fixed after the two reviews above. All runs on Windows,
+each in its own temp folder; Node 20 first on PATH for its leg, its children logged as 20.18.1.
+1. **The cases:** `fix8k-hook` 34 of 34, `fix8k-dream` 14 of 14, `fix8k-trial` 14 of 14, `trial8e` 19 of 19, and the
+   self-test, under Node 24 and Node 20. On the base, each new case fails except three that guard what must never
+   change (the map stays listed, no hook writes, no file-system call on a model's path); their mutations cover them.
+   8a's R8 case is back. The FIFO and device cases are left to CI's macOS job.
+2. **Mutations,** MUT_FAST on the merged copy: 8k-hook 46 of 46, 8k-dream 41 of 41 (two survived the first run; the
+   cases gained a literal `<root>/../` path and an ED25519 key body, then both were killed), 8k-trial 29 of 29, 8c
+   32 of 32, 8d 49 of 49, 8f 26 of 26, 8j 22 of 22, 8i 24 of 24, 8e 86 of 86 applicable (its 13 "(7)" guards are
+   the self-test's own and were killed in full mode; three anchors were already gone since 8i, whose list carries
+   their moved versions). The lists follow every guard that 8k moved. `mutate7` stays stale (B-6).
+3. `equivalence8.mjs`: 4,284 quotes over 77 documents, 0 differences, also with the linear search alone.
+4. D18's bench: after 8l, the last hook change (the amendment of 2026-11-25).
+5. The reviews: above. `claude plugin validate` passes.
+- **Q-1 (`fork`):** the docs list `fork` as a SessionStart source and say nothing of what a forked session carries;
+  `fork` is in the matcher, as `resume` is. No live probe was run.
+- **Lists ahead of the code:** the 8m builder, working in parallel, moved anchors of 8c, 8f, 8j and 8k-dream to 8m's
+  code; those four lists match 8m, which lands next.
+- **Doubted:** is it over-built? 8k's own size is the registered items plus the review's four fixes. One mechanism was
+  wider than registered (the per-line fallback) and is now as registered.
