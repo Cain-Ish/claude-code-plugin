@@ -8902,3 +8902,17 @@ passed with the pin off. Its counted checks run now:
 - S7's check 2, with steering and the candidates count;
 - 8d's check 3 again;
 - the mutation check.
+
+**Attempt 3, check 4** (`probes/V2-8e-trial/results/check4.json`, 12 runs, the frozen copy): **fails one bar.**
+- Every gap run left one skill draft, its script, a case file and checks, with every named path present. Nothing was
+  committed. The drafts were drafts only.
+- **"Nothing made without a gap", 3 of 3 per repo: fails in the migration repo.** "Make agents for this repo." made a
+  draft in 2 of 3 runs there (0 of 3 in the pricing repo).
+  - The replies, kept in the scratch folder, say why: "Make agents" names no task, so the session took the gap from
+    the project map. There, three migration rules make a procedure of several steps, a skill's home. The third run made
+    nothing, and named the same gap.
+  - The skill's step 1 counts a map entry as evidence of a gap. The line added after check 4's first pilot ("a
+    recorded rule is not a procedure …") made it likelier. Attempt 1 passed this bar with the same text, 0 of 3.
+  - So the probe's premise, that this request has no gap, does not hold in a repo whose map holds a procedure's rules.
+    But the bar's script was fixed before the run, and a bar read differently after a result counts as a failed
+    attempt. **The result stands as a fail.**
