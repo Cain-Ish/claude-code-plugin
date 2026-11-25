@@ -8845,3 +8845,48 @@ session gets the steps: `/reload-plugins`, then the dream, `/map-review` and `/s
   dream finishes, the lock is gone, `state.json` is written, and the report names the folder. On macOS a folder can be
   deleted while it is a working folder, so the failure cannot happen there, and the case is skipped with that reason.
 - **Check 2** adds the mutation that puts the removal back before the state.
+
+**8f, the two reviews, taken before the freeze (2026-11-25).** A fresh agent (it ran the cases and its own mutations)
+and the decision-checker read the build.
+- **A break of D35, fixed.** The trim dropped the lines 8c added for D35: a skill's or an agent's call (`T: Skill`,
+  `T: Agent`) and a failed result (`R!`), unless they fell among the 4 tool lines before a typed line. The usage
+  counts survived, since they are taken before the trim, but the analyzer's "the T line before the correction names
+  it" could fail. Every such line is now kept.
+  - **Check 3 of 8d re-runs** (5 runs, fresh histories, its bars) on 8f's frozen copy, since D35 was locked on
+    untrimmed digests.
+- **A digest left where git sees it, fixed** (the fresh agent's bug).
+  - Node's recursive removal stops at its first error, and the run folder's `.gitignore` was among the first files it
+    removed. So a held subfolder left staged proposals (unchecked by finish's privacy scan) and the usage file as
+    untracked files beside a report that ends "then commit".
+  - The folder is now emptied with its `.gitignore` last. Case (6) checks that git sees nothing of what is left.
+- **Fixed, each with a case and a mutation:**
+  - `abort` removed the repo's run folder before the lock, the same fault as `finish`. It now removes the run record,
+    then the folder (best effort, never throwing), then the lock. Case (7) covers it.
+  - `finish` now clears the repo's run folder before it releases the lock, still never throwing. A new `prepare` taking
+    the lock in between could otherwise lose its folder. This deviates from the amendment's wording ("releases the
+    lock, and only then removes"), and closes that gap.
+  - "Per topic file": `finish` counts only topic files (`topic()`), not `README.md`, `dreams.md` or `steering.md`.
+  - A record holding several tool calls marked all its lines as reads. Each reading call now marks its own line.
+  - A candidate written with the digest's path (as the skill gives each analyzer) counted nothing. The match now takes
+    an optional folder before `dN.digest`.
+  - The report line had an unregistered sentence ("Their wording may not hold Claude to them."), now gone. The skill's
+    step 6, which had Claude work the same signal out alone, now names the files from `finish`'s line.
+- **The cases and mutations the reviews found weak:** the trailing cut line, exactly 4 lines before a typed line, a
+  candidate counted once per session, reads only from the candidate's own session, and both Windows cases skipped
+  together elsewhere. `mutate8f.mjs` now holds 25 mutations; a dry run against `dream8f.mjs` alone killed 25 of 25.
+- **Recorded:**
+  - The trim's walk-back no longer stops at the previous typed line: that line's own 4 kept lines are the ones the
+    walk would reach, so the output is the same, as the registration's words read.
+  - "A forged one counts nothing" overstated the guard. A candidate on a line that is not U or Q counts nothing. A
+    `correction` aimed at a real U line after a read counts, since the analyzer's judgement is trusted as it is for
+    proposals.
+  - Case (4) (no candidates file) passes on 8e's copy as well: it guards the old behaviour, not a new one.
+  - `realtrim.mjs` reads each transcript from its start. That is the range this repo's first dream read. Its typed-line
+    bar holds by construction (the trim never drops a non-tool line), so the cut is the measure. It now also needs at
+    least one session.
+  - **Carried:**
+    - the hooks label a leftover run folder's staged proposals (`hook.mjs`; a hook change, D18);
+    - `prepare` on a held folder throws a raw error that names a local path to the person, then releases the lock.
+- **A check added before the counted run:** S7's check 4 also counts, per run, the candidate lines the session wrote
+  to `candidates.txt` in a form `finish` parses (`S7_CANDIDATES`). Bar: 8 of 10 runs. Only a real dream shows that an
+  analyzer's lines reach `finish`.

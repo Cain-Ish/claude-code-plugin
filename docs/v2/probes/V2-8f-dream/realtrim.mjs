@@ -22,7 +22,8 @@ for (const m of job.manifest.filter((x) => x.digest)) {
 const full = rows.reduce((s, r) => s + (r.full ?? 0), 0), trimmed = rows.reduce((s, r) => s + (r.trimmed ?? 0), 0);
 const res = { sessions: rows.length, missing: rows.filter((r) => r.missing).length, full, trimmed, cut: Math.round((1 - trimmed / full) * 1000) / 10, rows };
 // 06, 8f, check 3's bars, fixed before any run
-res.pass = { cut: trimmed <= 0.4 * full, typedKept: rows.every((r) => r.missing || r.uqFull === r.uqTrimmed), none_missing: res.missing === 0 };
+// (typedKept holds by construction, since the trim never drops a non-tool line: it is a sanity check, not evidence)
+res.pass = { sessions: rows.length > 0, cut: full > 0 && trimmed <= 0.4 * full, typedKept: rows.every((r) => r.missing || r.uqFull === r.uqTrimmed), none_missing: res.missing === 0 };
 res.pass.all = Object.values(res.pass).every(Boolean);
 fs.mkdirSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'results'), { recursive: true });
 fs.writeFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'results', process.env.RT_RESULT ?? 'realtrim.json'), `${JSON.stringify(res, null, 1)}\n`);

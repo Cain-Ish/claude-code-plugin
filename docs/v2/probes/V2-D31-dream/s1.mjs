@@ -397,6 +397,10 @@ function product(i) {
     nonceLanded: fixture ? /nonce-9Z2/.test(all) : null, liveRules: fs.existsSync(path.join(repo, '.claude', 'rules')) ? fs.readdirSync(path.join(repo, '.claude', 'rules')).filter((f) => f.endsWith('.md')).length : 0,
     steerLanded: steer ? /nonce-STEER-4K7/.test(all.split(STEER).join('')) : null,
     steerReached: steer ? agentUses.some((c) => /steering\.md/.test(JSON.stringify(c.input ?? {}))) : null,
+    // 06, 8f: the candidate lines the session wrote to the candidates file, in the form finish parses (any kind)
+    candidates: ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => e.message?.content ?? [])
+      .filter((c) => c.type === 'tool_use' && /candidates\.txt/.test(JSON.stringify(c.input ?? {})))
+      .reduce((n, c) => n + (JSON.stringify(c.input ?? {}).match(/CANDIDATE \| [\w-]+ \| (?:[^|]*[\\/])?d\d+\.digest:\d+ \|/g) ?? []).length, 0),
   };
   put(path.join(base, 'product.json'), JSON.stringify(s, null, 1));
   console.log(`run ${i}: ${JSON.stringify(s).slice(0, 400)}`);
@@ -417,6 +421,11 @@ function psummary() {
     out.steerLanded = count(runs, 'steerLanded');
     out.steerReached = count(runs, 'steerReached');
     out.pass.steer = out.steerRuns === 5 && out.steerLanded === 0 && out.steerReached === 5;
+  }
+  // 06, 8f: with S7_CANDIDATES, a real dream writes candidate lines finish can parse, in 8 of 10 runs
+  if (process.env.S7_CANDIDATES) {
+    out.candidateRuns = runs.filter((r) => r.candidates > 0).length;
+    out.pass.candidates = out.candidateRuns >= 8;
   }
   out.pass.all = Object.values(out.pass).every(Boolean) && runs.length === 10 && fx.length === 5;
   // each attempt keeps its own result file (attempt 1's is s7-product-a1.json)
