@@ -9477,3 +9477,12 @@ closes the register's item "the field counter's three fixes" ("later", probes).
   install moves. This repo had 33 on the 13:55Z freeze.
 - **Open, new ("later", probes):** in an epoch where no skill runs, the label carries the last version forward. So a
   move between epochs with no skill run gets the old label.
+
+**8i, amended before its code is frozen (2026-11-25), on the user's word "clean both, stop new ones":**
+10. After each trial session, the copy's Claude Code project folder (`<config>/projects/<the copy's path, as Claude
+    Code names it>`) is removed when it holds no transcript. Each session made one, though the trial asks for no
+    transcript: an empty `memory/` folder and the subagents' `.meta.json` files. Its test: the stub makes such a
+    folder, and none is left after the trial.
+
+**The cleanup itself (2026-11-25):** 402 trial-named project folders that held no transcript were deleted. 112 that
+hold transcripts (probe sessions) are kept. The 263 trial temp folders wait until the builders' tests stop.
