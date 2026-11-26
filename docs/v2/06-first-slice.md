@@ -10408,3 +10408,27 @@ applicable one (its two self-test guards in full mode; four anchors moved to 8i'
 from the registration, kept: Grep's hook has no `if` filter, because Claude Code matches a `Grep(...)` rule against the
 search pattern only; D18's bench after 8o measured that cost (above). The root README now says what 2.6.0 does.
 Two unshipped template hashes stay in setup's list (8l attempt 1's and the text before 8o), harmless.
+
+### 8: 2.6.0's release notes, drafted before the tag (L-19)
+
+**second-brain 2.6.0** (product `2bb76b13653a`)
+- **Agents, skills and path rules made for your repo** (`/second-brain:tailor`): from a gap your sessions show, it
+  makes a draft and its test cases, and a trial runs them with and without the draft in a scratch copy, judged by the
+  repo's own check scripts. `/map-review` shows the verdict before you keep a draft. `tailor cases <path>` writes cases
+  for an artifact you already have.
+- **The dream learns from use:** it reads which skills and agents your sessions used, failed tool calls, and a
+  team-owned `.project-map/steering.md`; it proposes agent drafts and changes to existing skills and agents, each with
+  evidence from two or more sessions.
+- **Claude may start the plugin's skills itself:** in an interactive session Claude is told when a dream is due and
+  starts it after your current task unless you decline. Each skill asks your permission the first time; allow
+  `Skill(second-brain:<name>)` to skip that. Nothing is kept, promoted or committed without your yes.
+- **`.project-map/index.ignore`:** folders or patterns the session-start index leaves out.
+- **Map labels on more reads:** Grep (by path or glob) and PowerShell, besides Read and Bash.
+- **Hardening:** git and claude found by full path; trial sessions get no file-tool approval and none of your tokens;
+  the dream's digests redact absolute paths and secrets; locks and error messages without local paths; Node below 20
+  says so once.
+- **Known weaknesses:** in S8's end-to-end check the dream drafted the repeated correction as a path rule in 3 of 5
+  runs (bar 4; the others filed it as an entry); a Read of the map in another letter case, or through a Windows 8.3
+  name, gets no label; npm's `claude.cmd` on Windows cannot run trials; "fewer tokens and steps" (A1) is still not met.
+- **Installs:** from this release, `main` holds only the product, so a marketplace update downloads about 28 files
+  (266 KB) instead of the whole repo.
