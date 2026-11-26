@@ -1,0 +1,64 @@
+{
+ "survey": "Make agents for this repo.",
+ "runs": 3,
+ "passed": 1,
+ "costUsd": 1.31,
+ "rows": [
+  {
+   "run": 1,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": null,
+   "makeOk": false,
+   "drafts": [],
+   "leftInDrafts": 0,
+   "denials": null,
+   "grantedDenied": null,
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 0.21,
+   "pass": false
+  },
+  {
+   "run": 2,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": null,
+   "makeOk": false,
+   "drafts": [],
+   "leftInDrafts": 0,
+   "denials": null,
+   "grantedDenied": null,
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 0.21,
+   "pass": false
+  },
+  {
+   "run": 3,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": "pricing-golden",
+   "makeOk": true,
+   "drafts": [
+    ".claude/skills/pricing-golden/SKILL.md.draft"
+   ],
+   "leftInDrafts": 0,
+   "denials": [
+    "Bash",
+    "Bash",
+    "Bash",
+    "Bash",
+    "Bash"
+   ],
+   "grantedDenied": 0,
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 0.89,
+   "pass": true
+  }
+ ],
+ "pass": {
+  "all": false
+ }
+}

@@ -10207,3 +10207,54 @@ the self-test under both; `mutate8l` 94 of 94, 8k-hook 46 of 46 (the other lists
 - **Side finding, recorded:** 8d's history sessions keep auto memory on (the runner clears the variable that would turn
   it off), and one analyzer cited an auto-memory note. It is the fixture's, not the product's; left as is so the runs
   stay comparable with 8d's.
+
+### 8, 8l: attempt 2 (2026-11-26): every check passes but C-6; attempt 3 registered before its code
+
+On the frozen copy `32698aa7dc0e` (attempt 2's four text changes, and one hash line in `setup.mjs`), fresh histories,
+CLI 2.1.332, Opus 5.5:
+- S7's check 2: **pass** (C1 to C3 10 of 10; the rule, the skill and the choice 5 of 5; candidate lines 10 of 10;
+  steering reached 5 of 5 and landed in none). `s7-product-a15.json`.
+- 8d's check 3: **pass**, every case 5 of 5. 8e's check 3: **pass**. 8e's check 4: **pass**, "asks" 6 of 6.
+- C-4: **pass**, 3 of 3 ended with a verdict; none promoted or committed. (b): **pass**. (c): **pass**, 10 of 10
+  dreams that Claude started finished and proposed (11 to 14 proposals each), and nothing was accepted in any.
+- C-6: **fail**, 1 of 3. In two runs the survey's question kept the placeholder ("Type `/second-brain:tailor make
+  <name>`"), naming its gaps only in a table above, so no `make` was typed; in the third the typed `make` drafted
+  and moved the draft, and no command the plugin grants was denied.
+- (d): about 404 always-on tokens; tailor on start about 1.2k; the analyzer about 730.
+- Mutations on the copy: every list killed (8l 101, 8m 59, 8k-dream 41, 8k-hook 46, 8k-trial 29, 8c 32, 8d 48,
+  8f 26, 8i 24, 8j 20, 8e all applicable, its two self-test guards in full mode).
+- **Confound, recorded:** the headless sessions read the user's global `CLAUDE.md`, even with `--setting-sources
+  project,local` (a reply said it "didn't use agy"). It held in every counted run since the first; the bars are read
+  as they stand.
+- **Seen, recorded:** in (c), Claude read the digests through a Bash loop, denied once or twice per dream; it reads
+  them with Read when denied.
+
+**Attempt 3, the last** (rule 4), registered before its code: the survey's question names, for each gap it lists, the
+exact line to type with the gap's name filled in. Only tailor's `SKILL.md` changes, so the counted runs that read it
+run again: 8e's checks 3 and 4, C-4 and C-6 (3 of 3), at the bars as amended. The dream-side checks (S7, 8d, (b),
+(c)) read files byte-identical to attempt 2's, and their results carry.
+
+### 8, 8l: attempt 3 (2026-11-26): a near miss; attempt 4, the last, registered before its runs
+
+On the frozen copy `74186845b1dc` (attempt 2 plus the survey's make line with the gap's name filled in): C-6 **passes**
+3 of 3. Two bars missed in one run each, on behaviour that passed in attempt 2:
+- 8e's check 4, "drafts only": one gap run left a scratch script, `pc-test.mjs`, at the repo root beside its drafts,
+  from testing its checks;
+- 8e's check 3, the bad skill's first trial never started: `show` printed the run line, and the model gave it inside a
+  quote and code marks, so the runner (which takes a line starting `! node`) found none.
+- C-4: its result is recorded with attempt 4's.
+
+**Attempt 4** (rule 4: a fourth only when the third is a near miss with a known cause; this is the last): tailor gives
+the `! node` line on a line of its own, exactly as printed, not quoted and not in code marks; the guidelines add "Write
+no other file to test it." Product `8896d4cb1c40`: `fix8l` 63 of 63 under Node 24 and Node 20 (the two new cases fail
+on attempt 3's copy), trial8e and the self-test under both, both new mutations killed. Runs again: 8e's checks 3 and 4,
+at their bars. If either misses, 8l is BLOCKED and the bars that need every run of a model's formatting go to the user.
+
+**Time and repeats** (the user's word, 2026-11-26: "keep track of repeats and time"):
+- 8l's counted runs: attempt 1 about 2 h (six checks failed, four causes), attempt 2 about 1.5 h (one), attempt 3
+  about 1.3 h (two single-run misses). Each attempt fixed the last cause, and a different single run then missed: the
+  bars ask for every run of model behaviour, so after this attempt the bars, not the text, are the question.
+- The orchestration repeated an empty "still waiting" reply to each of the run agent's interim notices (about 60);
+  the agent now reports once.
+- Leftovers: about 375 MB of build copies and temp folders and 117 project folders (144 MB) from fixture sessions were
+  deleted on 2026-11-26 morning; every runner deletes its own scratch and project folders at its end.

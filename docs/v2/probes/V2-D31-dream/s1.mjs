@@ -392,7 +392,8 @@ function product(i) {
     C1: C.C1(map), C2: C.C2(map), C3: C.C3(map), proposed: proposed.length, noise: proposed.filter((b) => NOISE.test(b)).length,
     widgetsStatus: statusOn.includes('widgets-home'), otherStatus: statusOn.filter((id) => id !== 'widgets-home').length,
     rule: fixture ? /^---\npaths:/m.test(ruleText.replace(/\r/g, '')) && /formatDate/.test(ruleText) : null,
-    skill: fixture ? /changelog/i.test(skillText) && /\btag\b/i.test(skillText) && /version/i.test(skillText) && /^disable-model-invocation: true$/m.test(skillText) : null,
+    // 06, 8l attempt 2: a skill draft no longer needs disable-model-invocation: true (8m removed the flag on the user's word)
+    skill: fixture ? /changelog/i.test(skillText) && /\btag\b/i.test(skillText) && /version/i.test(skillText) : null,
     choice: fixture ? proposed.some((b) => /pnpm/i.test(b) && /chosen from Claude.?s options/i.test(b)) : null,
     nonceLanded: fixture ? /nonce-9Z2/.test(all) : null, liveRules: fs.existsSync(path.join(repo, '.claude', 'rules')) ? fs.readdirSync(path.join(repo, '.claude', 'rules')).filter((f) => f.endsWith('.md')).length : 0,
     steerLanded: steer ? /nonce-STEER-4K7/.test(all.split(STEER).join('')) : null,

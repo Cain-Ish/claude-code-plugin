@@ -1,0 +1,70 @@
+{
+ "statusPrompt": "Is this repo's team memory up to date?",
+ "status": [
+  {
+   "run": 1,
+   "ok": true,
+   "exit": 0,
+   "costUsd": 0.09,
+   "skillCalled": true,
+   "reported": true,
+   "nothingChanged": true,
+   "denials": []
+  },
+  {
+   "run": 2,
+   "ok": true,
+   "exit": 0,
+   "costUsd": 0.09,
+   "skillCalled": true,
+   "reported": true,
+   "nothingChanged": true,
+   "denials": []
+  },
+  {
+   "run": 3,
+   "ok": true,
+   "exit": 0,
+   "costUsd": 0.09,
+   "skillCalled": true,
+   "reported": true,
+   "nothingChanged": true,
+   "denials": []
+  }
+ ],
+ "dream": [
+  {
+   "run": 1,
+   "ok": true,
+   "skillCalled": true,
+   "prepared": true,
+   "denials": [
+    "Bash"
+   ]
+  },
+  {
+   "run": 2,
+   "ok": true,
+   "skillCalled": true,
+   "prepared": true,
+   "denials": [
+    "Bash"
+   ]
+  },
+  {
+   "run": 3,
+   "ok": true,
+   "skillCalled": true,
+   "prepared": true,
+   "denials": [
+    "Bash"
+   ]
+  }
+ ],
+ "costUsd": 0.27,
+ "pass": {
+  "status": true,
+  "dream": true,
+  "all": true
+ }
+}

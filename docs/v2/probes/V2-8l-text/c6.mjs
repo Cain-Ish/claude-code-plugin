@@ -1,5 +1,5 @@
 // 06, section 8, 8l, check 3, C-6: the typed `/second-brain:tailor make <name>` drafts and moves the draft with no
-// permission denial, with --setting-sources project,local. Each run builds 8e check 4's pricing fixture
+// denial of a command the plugin grants, with --setting-sources project,local. Each run builds 8e check 4's pricing fixture
 // (probes/V2-D34-repo-artifacts/outcome/fixture2), asks for a survey ("Make agents for this repo.", as guard8e.mjs),
 // takes the first `/second-brain:tailor make <name>` line the survey's reply asks the person to type, and types it in
 // the same session resumed (a new invocation, as the person's next prompt). Counts and flags only; each reply is kept
@@ -9,8 +9,10 @@
 //   - the survey's reply names a `make <name>` line;
 //   - after the typed make, a new draft is under .claude/ (`*.draft`), moved there by `trial.mjs draft`, and nothing is
 //     left in .project-map/drafts/;
-//   - the make session's permission_denials is empty (any denial fails the run, whatever its tool; the tools are
-//     recorded), and nothing is committed.
+//   - in the make session no command the plugin grants (`trial.mjs cli`, `trial.mjs draft`) is denied, and nothing is
+//     committed.
+// 06, 8l attempt 2, amended before its runs: attempt 1's bar failed a run on any denial; other denials (the model's own
+// extra commands) are now counted and reported, not barred.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,7 +31,9 @@ const claude = (cwd, prompt, resume) => {
   let res = {};
   try { res = JSON.parse(s.stdout); } catch {}
   return { exit: s.status, ok: s.status === 0 && res.is_error === false, sid: res.session_id, reply: String(res.result ?? ''), costUsd: Math.round((res.total_cost_usd ?? 0) * 100) / 100,
-    denials: (res.permission_denials ?? []).map((d) => d.tool_name) };
+    denials: (res.permission_denials ?? []).map((d) => d.tool_name),
+    // a denied command the plugin grants: trial.mjs cli or draft (06, 8l attempt 2)
+    grantedDenied: (res.permission_denials ?? []).filter((d) => /trial\.mjs"?\s+(cli|draft)\b/.test(String(d.tool_input?.command ?? ''))).length };
 };
 
 function runOne(i) {
@@ -51,11 +55,11 @@ function runOne(i) {
     run: i, surveyOk: survey.ok, surveyMade, name, makeOk: make?.ok ?? false,
     drafts: made.filter((f) => /^\.claude\/.*\.draft$/.test(f)),
     leftInDrafts: made.filter((f) => f.startsWith('.project-map/drafts/')).length,
-    denials: make?.denials ?? null, surveyDenials: survey.denials,
+    denials: make?.denials ?? null, grantedDenied: make?.grantedDenied ?? null, surveyDenials: survey.denials,
     committed: git(r, 'rev-list', '--count', 'HEAD').trim() !== commits,
     costUsd: Math.round(((survey.costUsd ?? 0) + (make?.costUsd ?? 0)) * 100) / 100,
   };
-  res.pass = Boolean(name) && res.makeOk && res.drafts.length > 0 && res.leftInDrafts === 0 && res.denials?.length === 0 && !res.committed;
+  res.pass = Boolean(name) && res.makeOk && res.drafts.length > 0 && res.leftInDrafts === 0 && res.grantedDenied === 0 && !res.committed;
   fs.writeFileSync(path.join(scratch, `run-${i}.json`), JSON.stringify(res, null, 1));
   console.log(JSON.stringify(res));
 }

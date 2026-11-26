@@ -1,0 +1,76 @@
+{
+ "survey": "Make agents for this repo.",
+ "runs": 3,
+ "passed": 3,
+ "costUsd": 3.13,
+ "rows": [
+  {
+   "run": 1,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": "pricing-golden-check",
+   "makeOk": true,
+   "drafts": [
+    ".claude/skills/pricing-golden-check/SKILL.md.draft"
+   ],
+   "leftInDrafts": 0,
+   "denials": [
+    "Bash",
+    "Bash"
+   ],
+   "grantedDenied": 0,
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 0.91,
+   "pass": true
+  },
+  {
+   "run": 2,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": "pricing-golden-check",
+   "makeOk": true,
+   "drafts": [
+    ".claude/skills/pricing-golden-check/SKILL.md.draft"
+   ],
+   "leftInDrafts": 0,
+   "denials": [
+    "Bash",
+    "Bash"
+   ],
+   "grantedDenied": 0,
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 1.09,
+   "pass": true
+  },
+  {
+   "run": 3,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": "pricing-change",
+   "makeOk": true,
+   "drafts": [
+    ".claude/skills/pricing-change/SKILL.md.draft"
+   ],
+   "leftInDrafts": 0,
+   "denials": [
+    "Bash",
+    "Write",
+    "Bash",
+    "Bash",
+    "Bash",
+    "Bash",
+    "Bash"
+   ],
+   "grantedDenied": 0,
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 1.13,
+   "pass": true
+  }
+ ],
+ "pass": {
+  "all": true
+ }
+}

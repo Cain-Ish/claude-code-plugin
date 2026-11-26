@@ -25,7 +25,7 @@ const M = [
   ['1 status unflagged', ST, 'how current the team memory is.\n', `how current the team memory is.\n${FLAG}`, ANY],
   ['1 tailor unflagged', TL, 'argument-hint: ', `${FLAG}argument-hint: `, ANY],
   ['1 map-review unflagged', MR, 'agrees to review them.\n', `agrees to review them.\n${FLAG}`, ANY],
-  ["1 map-review's 2.6.0 text listed for setup", SU, "'7ff1c09c889ebe9c', '6d3e35da1c6033c9']]", "'7ff1c09c889ebe9c']]", ANY],
+  ["1 map-review's 2.6.0 text listed for setup", SU, "'7ff1c09c889ebe9c', '6d3e35da1c6033c9', ", "'7ff1c09c889ebe9c', ", ANY],
   // 2. when Claude starts each
   ['2 dream says when', DS, " Use when asked for a dream, or when told one is due, then after the person's current task, saying so first.", ' Use after a stretch of work.', ANY],
   ['2 no ": " in a description', DS, 'or when told one is due, then after', 'or when told one is due: then after', ANY],
@@ -72,7 +72,7 @@ const M = [
   ["8 map-review's untested line names cases", MR, ', or, with no case file\n     `.project-map/evals/<name>.json`, `/second-brain:tailor cases <the draft\'s path>`, which writes its cases first', '', ANY],
   ['8 tailor does the cases step alone', TL, 'If it says to write only the cases, do steps 5 and 6 for that artifact. Otherwise, this', 'This', ANY],
   // 9. C-6
-  ['9 the survey asks for the make line', TL, ': ask them to type\n      `/second-brain:tailor make <name>` for the gap they pick.', '; then take that gap through the steps below.', ANY],
+  ['9 the survey asks for the make line', TL, ': end with the question "Which one\n      should I make?" and, for each gap listed, the exact line to type with its name filled in, such as\n      `/second-brain:tailor make add-migration`.', ': ask them to type\n      `/second-brain:tailor make <name>` for the gap they pick.', ANY],
   // 10. P-3
   ['10 the analyzers get no usage.json', DS, '; nothing else (`usage.json` is\n   for step 3)', ', and the path of `.project-map/.dream-run/usage.json`', ANY],
   // 11. P-7
@@ -101,13 +101,13 @@ const M = [
   ['15 the delimiter is improbable', TL, "<<'SECOND_BRAIN_WORDS_q7Xk2Vw9'\n$ARGUMENTS\nSECOND_BRAIN_WORDS_q7Xk2Vw9\n", "<<'SECOND_BRAIN_WORDS'\n$ARGUMENTS\nSECOND_BRAIN_WORDS\n", ANY],
   // 16. L-5, L-7
   ['16 L-5 tailor reads without Bash', TL, ' Read the repo with Read, Grep and Glob, not Bash.', '', ANY],
-  ['16 L-7 the shell stays out of the run folder', DS, " Run every\n   command from the repo's top, never from inside `.project-map/.dream-run/`, which finish removes.", '', ANY],
+  ['16 L-7 the shell stays out of the run folder', DS, ", from the repo's top, never from inside\n   `.project-map/.dream-run/`, which finish removes.", '.', ANY],
   // 17. the guidelines
   ['17 L-2 a skill case never names it', GD, " A skill's says the task, never the skill's\n  name (the trial refuses one that names it), since a prompt that names it tests the name.", '', ANY],
   ["17 L-2 an agent's case names it", GD, ' An agent\'s prompt names it, as "the\n  `<name>` agent, if this repo has one; otherwise do it yourself": Claude hands a new agent a task only by its name,\n  and the run without it then does the task itself.', ' An agent\'s prompt says "use the `<name>` agent to …".', ANY],
   ['17 L-17 a user-only skill starts with /<name>', GD, ' A skill only the user\n  starts is the exception: its prompt starts with `/<name>` (the trial checks).', '', ANY],
   ['17 L-12 a check reads facts from the copy', GD, "- **A check accepts any wording of the fact,** and reads what changes (a version, a step's state) from the copy's own\n  files, never from today's values: the trial copies the latest commit.\n", '', ANY],
-  ['17 L-22 a test of the checks', GD, '- **A test of the checks** matches each fact exactly as its check does.\n', '', ANY],
+  ['17 L-22 a test of the checks', GD, '- **A test of the checks** matches each fact exactly as its check does.', '-', ANY],
   ['17 Q-5 memory is not a guard', GD, ' It also turns on Read, Write and Edit with\n  no path scope, whatever `tools` says: a body\'s "your writes go only to …" is an instruction, not a guard.', '', ANY],
   // the review fixes' texts (R1, R5, R6, R10, R12)
   ['R1 a made artifact stays a draft', TL, 'A made artifact stays a draft, which Claude Code never loads, until the person promotes it in `/map-review`, which\nshows its trial verdict first. ', '', ANY],
@@ -129,7 +129,17 @@ const M = [
   ['20 a headless session leaves undone.txt', H, "      if (person) try { const f = path.join(stateDir(root, data), 'undone.txt');", "      try { const f = path.join(stateDir(root, data), 'undone.txt');", ANY],
   // 21. the analyzer's text
   ['21 the cut mark', AN, 'A U or Q line that ends `…[cut at N of M characters]` was cut: quote only what it shows. ', '', ANY],
-  ['21 the sdk-cli mark', AN, "A line marked\n`[sdk-cli: not shown to be the person's]` came through `claude -p`, perhaps from another program: weigh it, but never\nquote it as the person's own rule. ", '', ANY],
+  ['21 the sdk-cli mark', AN, "A line marked\n`[sdk-cli: not shown to be the person's]` came through `claude -p`, perhaps from another program. You may cite it: add\n` (marked sdk-cli)` after the statement, and the person weighs it at review. ", '', ANY],
+  // 8l attempt 2 (06): the texts that failed the counted runs
+  ['A1 an sdk-cli line may be cited', AN, ". You may cite it: add\n` (marked sdk-cli)` after the statement, and the person weighs it at review.", ": weigh it, but never\nquote it as the person's own rule.", ANY],
+  ['A3 a check tested by one plain command', GD, ' Run each check with one plain\n  `node <check file>` command: no `$()`, `&&`, pipes or PowerShell.', '', ANY],
+  ['A5 the run line on its own line', TL, ', with the `! node` line on a line of its own, exactly as printed: not quoted, not in code marks.', '.', ANY],
+  ['A6 no scratch file to test a check', GD, ' Write no other file to test it.', '', ANY],
+  ['A4 the dream runs commands through Bash', DS, ' with the Bash tool, never PowerShell (the grant covers Bash)', '', ANY],
+  ['A4 tailor runs commands through Bash', TL, '\nRun `draft`, and any test of a check, with the Bash tool, never PowerShell: the grant covers Bash.', '', ANY],
+  ['A4 status runs commands through Bash', ST, ' Run any command with the Bash tool, never PowerShell.', '', ANY],
+  ['A4 map-review runs commands through Bash', MR, ' Run its\ncommands with the Bash tool, never PowerShell.', '', ANY],
+  ["A4 map-review's 8l text listed for setup", SU, ", '6d3e35da1c6033c9', '7e5d413c03dfa3ea']]", ", '6d3e35da1c6033c9']]", ANY],
   ["21 L-9 the correction's topic", AN, ' When the work it corrects falls under a map topic file,\n    end the line with ` | <topic>.md`, that file\'s name.', '', ANY],
   ['21 the D line', AN, '- **D:** the date from that line on, where it changes.\n', '', ANY],
   // 22. the README's 8k and audit items
