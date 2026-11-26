@@ -8,14 +8,14 @@ Work through each list with the user, one item at a time. Done when every list i
 commands with the Bash tool, never PowerShell.
 
 1. **Proposals.** Entries with a `- proposed: dream <date>` line (grep `.project-map/`). Show each one, with the
-   dream's reason if this session has the dream's report.
+   dream's reason if this session has the dream's report. Wait for the user's answer before any edit.
    - Accept: replace the line with `- origin: dream <date>` and add `- verified: <today> accepted in review`.
    - Reject: delete the entry if it is not yet committed. If it is committed, replace its `proposed` line with
      `- status: expired <today> by review: rejected`.
    - A committed entry that a dream gave a `- status:` line is a proposal about that line only. Accept: replace the
      `proposed` line as above. Reject: delete the status line and the `proposed` line, and leave the entry as it was.
 2. **Drafts.** Files named `.claude/rules/*.md.draft`, `.claude/skills/*/SKILL.md.draft` and
-   `.claude/agents/*.md.draft`. Show each one.
+   `.claude/agents/*.md.draft`. Show each one, and wait for the user's answer before any edit.
    - A draft beside a file of the same name without `.draft` is a change to that file: show it as a diff against
      the file (`git diff --no-index <file> <file>.draft`).
    - Its trial, before the question: read `.project-map/.trial/<name>.json` for the case file whose `artifact` is
@@ -37,4 +37,6 @@ commands with the Bash tool, never PowerShell.
    - It ended: add `- status: expired <today> by review: <what still holds>`.
 4. Show `git diff --stat`. Tell the user that committing is the review: an entry counts as reviewed once it is
    committed. Offer to commit only the files this review changed, so other work on the branch stays as it is:
-   `git add <those files> && git commit -m "Review the team memory" -- <those files>`.
+   `git add <those files> && git commit -m "Review the team memory" -- <those files>`. Before it, show any change in
+   those files that this review did not make (`git diff HEAD -- <those files>`), and commit a file that holds one
+   only on the user's yes.

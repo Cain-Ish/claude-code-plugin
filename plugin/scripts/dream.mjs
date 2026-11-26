@@ -611,6 +611,8 @@ const entry = (fm, k) => { let on = false; return (fm?.[1] ?? '').split('\n').fi
 // spell one unseen, so it counts too
 const POWERS = ['permissionMode', 'hooks', 'mcpServers'];
 const powers = (fm) => POWERS.some((k) => entry(fm, k)) || !(fm?.[1] ?? '').split('\n').every((l) => /^([ \t#-]|$)|^[\w-]+[ \t]*:/.test(l));
+// 8o: memory: user puts an agent's notes outside the repo; only project, local or none pass, spelled once, plainly
+const userMemory = (fm) => Boolean(entry(fm, 'memory')) && !/^memory[ \t]*:[ \t]*(["']?)(project|local)\1[ \t]*$/.test(entry(fm, 'memory'));
 const MADE = new Set(FILES.map(([, to]) => to));
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
 // every ellipsis-separated segment of a proposed quote has 3 or more words, so none goes unchecked (the read hook's
@@ -863,6 +865,7 @@ export function finish(root, data) {
     // Claude Code knows an agent by its name, so the name is the file's: a draft cannot pass as another agent
     if (field(fm, 'name') !== f.slice(0, -3)) { drop('a name that is not its file name'); continue; }
     if (powers(fm)) { drop('agent that may set permissionMode, hooks or mcpServers'); continue; }
+    if (userMemory(fm)) { drop('agent with memory: user, or a memory other than project or local'); continue; }
     if (PRIVATE.test(t)) { drop('agent with private data'); continue; }
     if (evidence(t, digests).size < 2) { drop('agent from fewer than two sessions'); continue; }
     const live = path.join(root, '.claude', 'agents', f);
@@ -891,6 +894,7 @@ export function finish(root, data) {
     if (!field(fm, 'name') || !field(fm, 'description') || (c.kind === 'agent' && !field(fm, 'tools'))) { drop('change without name, description or tools'); continue; }
     if (field(fm, 'name') !== c.name) { drop('a name that is not its file name'); continue; }
     if (powers(fm)) { drop('change that may set permissionMode, hooks or mcpServers'); continue; }
+    if (userMemory(fm)) { drop('change with memory: user, or a memory other than project or local'); continue; }
     // the files setup makes stay the plugin's: setup updates them (D29), and map-review is the review itself (D33)
     if (MADE.has(path.relative(root, c.live).split(path.sep).join('/'))) { drop('a change to a file setup makes'); continue; }
     if (PRIVATE.test(t)) { drop('change with private data'); continue; }

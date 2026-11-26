@@ -157,7 +157,8 @@ export function show(root, name, self = fileURLToPath(import.meta.url)) {
     `Its whole text, which "with" runs:\n${quote(info.text)}`,
     // a file with a NUL byte is binary, so it is named, not printed as text (B-4, 06, 8k); the hash covers its bytes
     ...(info.extras.length ? [`Files beside it, which "with" adds: ${info.extras.map((e) => e.rel).join(', ')}`, ...info.extras.map((e) => (e.body.includes(0) ? `The file ${e.rel} is binary (${e.body.length} bytes), so it is not shown.` : `The file ${e.rel}:\n${quote(e.body.toString('utf8'))}`))] : []),
-    ...spec.cases.map((c) => `- case ${c.id} (${c.use === false ? 'should not be used' : 'should be used'}), ${runs(c)} run(s) per arm\n  prompt: ${c.prompt}\n  tools: ${(c.tools ?? DEFAULT_TOOLS).join(', ')}\n  check: ${c.check}`),
+    // 8o (X-3's rest): a bare Bash approves every command, and the copy is no sandbox
+    ...spec.cases.map((c) => `- case ${c.id} (${c.use === false ? 'should not be used' : 'should be used'}), ${runs(c)} run(s) per arm\n  prompt: ${c.prompt}\n  tools: ${(c.tools ?? DEFAULT_TOOLS).join(', ')}${(c.tools ?? []).some((t) => t.trim() === 'Bash') ? '\n  Bash with no pattern: its sessions may run any command as you, outside the copy too.' : ''}\n  check: ${c.check}`),
     ...Object.entries(checks).map(([k, t]) => `The check script ${k}, which runs with node on each session's work:\n${quote(t)}`),
     'To run it, type this line yourself; the ! runs it in your shell, so no model starts it:',
     `! node "${self.split(path.sep).join('/')}" run ${name} ${hash}`].join('\n');

@@ -25,7 +25,7 @@ const M = [
   ['1 status unflagged', ST, 'how current the team memory is.\n', `how current the team memory is.\n${FLAG}`, ANY],
   ['1 tailor unflagged', TL, 'argument-hint: ', `${FLAG}argument-hint: `, ANY],
   ['1 map-review unflagged', MR, 'agrees to review them.\n', `agrees to review them.\n${FLAG}`, ANY],
-  ["1 map-review's 2.6.0 text listed for setup", SU, "'7ff1c09c889ebe9c', '6d3e35da1c6033c9', ", "'7ff1c09c889ebe9c', ", ANY],
+  ["1 map-review's 2.6.0 text listed for setup", SU, "'2c564cbd2d263dac', '6d3e35da1c6033c9', ", "'2c564cbd2d263dac', ", ANY],
   // 2. when Claude starts each
   ['2 dream says when', DS, " Use when asked for a dream, or when told one is due, then after the person's current task, saying so first.", ' Use after a stretch of work.', ANY],
   ['2 no ": " in a description', DS, 'or when told one is due, then after', 'or when told one is due: then after', ANY],

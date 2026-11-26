@@ -26,12 +26,24 @@
       {
         "matcher": "Bash",
         "hooks": [{ "type": "command", "if": "Bash(*.project-map*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash"], "timeout": 10 }]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [{ "type": "command", "if": "PowerShell(*.project-map*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash"], "timeout": 10 }]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash"], "timeout": 10 }]
       }
     ],
     "PostToolUseFailure": [
       {
         "matcher": "Bash",
         "hooks": [{ "type": "command", "if": "Bash(*.project-map*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash-failure"], "timeout": 10 }]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [{ "type": "command", "if": "PowerShell(*.project-map*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs", "bash-failure"], "timeout": 10 }]
       }
     ]
   }

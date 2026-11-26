@@ -132,7 +132,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '8896d4cb1c40', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '2bb76b13653a', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -353,7 +353,7 @@ assert.equal(bash('cat ../b/.project-map/captured.md'), only(C, [3]));
 assert.equal(bash(append(), ''), only(C, [3]));
 for (const command of [`tail -5 ${R}/.project-map/captured.md`, `cd .. && tail -5 ${path.basename(repo)}/.project-map/captured.md`, 'cat ./.project-map/captured.md']) assert.equal(bash(command), only(C, command.includes('tail') ? [3] : [1, 2, 3]), command);
 // 2m: a command that exits non-zero comes as PostToolUseFailure, and its error text gets the same labels
-assert.deepEqual(hooks.PostToolUseFailure, [{ matcher: 'Bash', hooks: [{ type: 'command', if: 'Bash(*.project-map*)', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs', 'bash-failure'], timeout: 10 }] }]);
+assert.deepEqual(hooks.PostToolUseFailure[0], { matcher: 'Bash', hooks: [{ type: 'command', if: 'Bash(*.project-map*)', command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs', 'bash-failure'], timeout: 10 }] });
 const fail = (input) => {
   const r = spawnSync('node', [HOOK, 'bash-failure'], { input: JSON.stringify({ cwd: repo, tool_input: { command: 'tail -5 .project-map/captured.md; false' }, ...input }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: repo } });
   return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : {};
@@ -977,7 +977,7 @@ ${NAME}` } });
   const versions = (from) => fs.readdirSync(path.join(PLUGIN, 'test', 'earlier')).filter((v) => fs.existsSync(path.join(PLUGIN, 'test', 'earlier', v, from))).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
   assert.deepEqual(OLD.map(([from, , earlier]) => [from, earlier]), OLD.map(([from]) => [from, versions(from).map((v) => sum(old(v, from)))]));
   assert.deepEqual(Object.fromEntries(FILES.filter(([, to]) => to.startsWith('.claude/') || to === '.project-map/README.md').map(([from]) => [from, sum(now(from))])), {
-    'claude/rules/project-map.md': '4bbeddbff188310c', 'claude/skills/map-review/SKILL.md': '2c564cbd2d263dac','claude/agents/decision-checker.md': 'f0eeade059f64cce',
+    'claude/rules/project-map.md': '4bbeddbff188310c', 'claude/skills/map-review/SKILL.md': 'd2e13952443549c2','claude/agents/decision-checker.md': 'f0eeade059f64cce',
     'claude/agents/codebase-guide.md': '26df656f4d0a6b34', 'claude/agents/memory-curator.md': '3f840cf3fd21dcb5', 'project-map/README.md': 'e2ebd48478e808f3',
   }, 'a template changed: list its old hash in setup.mjs (FILES), keep its old text under test/earlier/, then pin the new hash here');
   const cases = [
@@ -1874,6 +1874,7 @@ ${NAME}` } });
 { const f8d = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8k-dream.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8d.status, 0, f8d.stdout + f8d.stderr); } // 8k, group B: the dream side
 { const f8m = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8m-dream.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8m.status, 0, f8m.stdout + f8m.stderr); } // 8m: the dream's older gaps
 { const f8l = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8l.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8l.status, 0, f8l.stdout + f8l.stderr); } // 8l: the text step
+{ const f8o = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8o.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8o.status, 0, f8o.stdout + f8o.stderr); } // 8o: the final audit's fixes
 
 // 06, section 8, 8k, group C: one case per item of the trial side (fix8k-trial.mjs, which also runs on its own)
 {

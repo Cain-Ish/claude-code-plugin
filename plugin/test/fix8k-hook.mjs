@@ -177,7 +177,7 @@ await tryCheck('Q-1 and Q-3 in hooks.json', () => {
   const { hooks } = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8'));
   const all = Object.values(hooks).flatMap((g) => g.flatMap((m) => m.hooks));
   check('Q-1 the fork source', hooks.SessionStart[0].matcher.split('|').includes('fork'), hooks.SessionStart[0].matcher);
-  check('Q-3 a 10-second timeout on every hook', all.length === 5 && all.every((h) => h.timeout === 10), JSON.stringify(all.map((h) => h.timeout)));
+  check('Q-3 a 10-second timeout on every hook', all.length === 8 && all.every((h) => h.timeout === 10), JSON.stringify(all.map((h) => h.timeout)));
 });
 
 // Q-8: a folder with no .git gets nothing at session start

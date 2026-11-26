@@ -22,6 +22,9 @@ const KINDS = {
   'read-map': () => ['read', { tool_input: { file_path: path.join(repo, '.project-map', 'captured.md') } }],
   'bash-map': () => ['bash', { tool_input: { command: 'tail -20 .project-map/captured.md' }, tool_response: { stdout: tail20, stderr: '', interrupted: false, isImage: false } }],
   'bash-other': () => ['bash', { tool_input: { command: 'echo $HOME' }, tool_response: { stdout: `${os.homedir()}\n`, stderr: '', interrupted: false, isImage: false } }],
+  // 06, 8o: every Grep starts the hook (no if filter); one that names the map by its path, and one that does not
+  'grep-map': () => ['bash', { tool_name: 'Grep', tool_input: { pattern: 'status', path: '.project-map' }, tool_response: { mode: 'content', content: tail20 } }],
+  'grep-other': () => ['bash', { tool_name: 'Grep', tool_input: { pattern: 'status', path: 'src' }, tool_response: { mode: 'files_with_matches', filenames: [] } }],
 };
 const time = (args, input, env) => new Promise((resolve) => {
   const t = performance.now();

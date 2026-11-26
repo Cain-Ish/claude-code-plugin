@@ -32,7 +32,8 @@ The last release is `2.5.1`.
     otherwise gives you the section to add (2.4.0).
   - `.claude/rules/project-map.md`: the entry format. Its `paths:` load it only when Claude touches a map file.
   - `.claude/skills/map-review/`, which you run to accept or reject what a dream proposed, promote its drafts, and
-    settle entries due for review. It never loads unless you run it.
+    settle entries due for review. Claude may also start it when proposals, drafts or due entries wait and you agree
+    to review them.
   - Three project agents with `memory: project`:
     - `decision-checker` checks a change or plan against the recorded decisions;
     - `codebase-guide` answers where-is and how-do-we questions;
@@ -56,8 +57,10 @@ The last release is `2.5.1`.
     entries due for review and proposals (2.3.0);
   - a short instruction to keep the project's decisions in `.project-map/`.
 
-  At session start and after `/clear`, not after a resume or a compaction, you (not Claude) also see three lines
-  when they apply (2.3.0):
+  At session start and after `/clear`, not after a resume or a compaction, you also see three lines when they apply
+  (2.3.0). In an interactive session Claude is told too when a dream is due, and starts it after your current task
+  unless you decline (2.6.0). Claude's first start of each of the plugin's skills asks your permission; to allow them
+  in advance, add rules such as `Skill(second-brain:dream)` and `Skill(second-brain:status)` to your settings:
   - *waiting for review:* what a dream proposed, and its drafts;
   - *a dream is due:* after 10 or more new sessions; or after 7 days with 3 or more; or when Claude Code's cleanup
     will delete unread sessions within 5 days;
@@ -102,15 +105,16 @@ The last release is `2.5.1`.
     (2.3.0).
 
   When the hook cannot see all of a command's output (a command run in the background, or output past Claude Code's
-  limit, which it saves to a file), it gives every map file's labels. Reads by subagents, map text met through the
-  Grep tool or PowerShell, and the output of a Bash command that does not name the folder are not labelled: see Known
-  issues.
+  limit, which it saves to a file), it gives every map file's labels. A Grep whose path or glob names the folder, and a
+  PowerShell command that names it, get the same labels (2.6.0). Reads by subagents, and the output of a command that
+  does not name the folder, are not labelled: see Known issues.
 - **When it finishes a change**, Claude is told to name the recorded decisions it followed and where each came from:
   - each one once per session (2.2.0);
   - never one whose status line says it no longer holds.
-- **`/second-brain:dream`** (2.3.0) runs only when you invoke it. It reads this repo's past sessions, the ones since
-  the last dream, from Claude Code's transcripts on your machine. In your session, read-only analyzer agents look
-  for:
+- **`/second-brain:dream`** (2.3.0) runs when you invoke it or ask Claude for a dream, and when Claude is told one is
+  due: then Claude starts it after your current task, and says so first. It reads this repo's past sessions, the ones
+  since the last dream, from Claude Code's transcripts on your machine. In your session, read-only analyzer agents
+  look for:
   - decisions the map missed;
   - entries a later decision replaced;
   - corrections that repeat across sessions;
@@ -141,8 +145,8 @@ The last release is `2.5.1`.
   proposal can rest on, and cut the rest: every typed line and chosen answer, Claude's replies, each skill or agent
   call, each failed tool result, each read of a map file, and the 4 tool lines before each typed line. On this repo's
   own sessions that left 31% of the lines. Its report also names the topic files read, then corrected again in the same
-  session. Every skill draft it writes carries `disable-model-invocation: true`, so only a person starts it until
-  `/map-review` promotes it.
+  session. A skill draft is written as proposed, with no `disable-model-invocation` added: it never loads until
+  `/map-review` promotes it, and after that Claude may start it too.
 
   Since 2.6.0 its report also counts what the sessions did:
   - each of the repo's own skills and agents: how often it was used, and how often a typed line followed a use;
@@ -165,7 +169,8 @@ The last release is `2.5.1`.
   `.mcp.json`, is put back, with what it replaced saved in the plugin's data folder. Since 2.6.0, when the system will
   not remove the dream's working folder (on Windows, while a program has it open), the dream still finishes, and its
   report names the folder to delete.
-- **`/second-brain:tailor`** (2.6.0) runs only when you invoke it.
+- **`/second-brain:tailor`** (2.6.0) runs when you invoke it, or when you ask Claude to make or test an agent, skill
+  or path rule here.
   - With a request that names a task, such as `/second-brain:tailor make a skill for our pricing check: …`, it makes
     one agent, skill or path rule for that gap as an inert draft, with a case file of three or more cases (one where it
     should not be used) and a check script for each.
@@ -199,8 +204,7 @@ of its own, only from the line you type. Nothing leaves your machine except what
 
 ## What was measured, and what was not
 
-**2.3.0** was measured step by step on Claude Code 2.1.305, mostly with Opus 5.5. The records are in
-[docs/v2/06-first-slice.md](docs/v2/06-first-slice.md), section 3.
+**2.3.0** was measured step by step on Claude Code 2.1.305, mostly with Opus 5.5.
 - *Installed as a user installs it,* in a brand-new repo, 5 runs (the acceptance check):
   - setup created the full layout, with Anthropic's rules met, in 5 of 5, and a second run created nothing;
   - a fresh session named `.project-map/` and the entry format in 5 of 5;
@@ -211,7 +215,7 @@ of its own, only from the line you type. Nothing leaves your machine except what
   - after sessions with capture off, the dream proposed their decisions, drafted a rule that never loaded, and the
     next session's labels showed the proposals, in 4 of 5. In the fifth it filed the repeated correction as an
     entry;
-  - the dream-due line reached you, not Claude, in 5 of 5.
+  - the dream-due line reached you, not Claude, in 5 of 5 (2.3.0; from 2.6.0 it reaches Claude too).
 - *Capture into topic files* (scenario A1, 10 runs): every A1 check passed in 10 of 10. A topic file with front
   matter was written in 10 of 10, and every entry carried `id` and `verified`.
 - *The project agents,* 5 runs each:
@@ -248,50 +252,7 @@ of its own, only from the line you type. Nothing leaves your machine except what
   per task.
 - *Three harder shapes,* 5 runs each: a first prompt that names a symptom, two compactions, and a task switch.
 
-A2 and the three shapes ran on an earlier build. Three later changes kept the hooks' output byte-identical on those
-repos:
-- a faster quote check: 123 library comparisons, including 20,400 random quotes;
-- alpha.1's fixes: the same 123, plus 36 hook-process comparisons.
-
-  The one difference is by design: in 102 of the 123, a 200-entry map file's labels pass 10,000 characters, and are
-  now cut, with the rest of their text unchanged.
-- alpha.2's changes: the same 123 and 36, with no difference.
-- alpha.3's and alpha.4's changes were not run through those comparisons. The self-test's existing cases pass
-  unchanged.
-- alpha.5's change was compared on the test repos' session-start text: byte-identical on two of the three real repos
-  and on A1's fixture. On the third, which keeps its rule files in `.claude/rules/`, only that folder's line is
-  gone.
-- alpha.6's change: with none of v1's scripts on disk, session start's output is byte-identical to alpha.5's on this
-  repo.
-- alpha.7's changes, from the release review of 2.0.0: session start's and the prompt hook's output are byte-identical
-  to alpha.6's on this repo, on A1's fixture and on the owner's other repo.
-- alpha.8's change, the "unreviewed" label by the repo's state on every Bash command that names the map folder:
-  session start's and the prompt hook's output are byte-identical to alpha.7's on the same three repos.
-
-alpha.5's change is not an edge case: in any repo with a root `.claude/rules/` folder, the index and the forced
-decision no longer list it. In the user's own repo, where every one of 30 rule files declares `paths:`, Claude Code
-had delivered the rule before the write in 64 of 92 cases, and Claude's reads prompted by the forced decision reached
-4 more. The other changes alter the output only in edge cases that the self-test covers:
-- a session started in a subdirectory;
-- a map file or cited source that cannot be read;
-- a byte-order mark, or a UTF-16 map file;
-- a missing temp folder;
-- a map file renamed only in letter case, now folded as git's `core.ignorecase` says;
-- a map file that `.gitignore` excludes;
-- a session-start text past 10,000 characters (an index of about 8,880 characters or more);
-- a map file whose labels pass 10,000 characters;
-- a document path holding a control character, now listed with `?` in its place;
-- a turn that is a subagent's report or another session's message, which no longer takes the forced decision;
-- a map file read through Bash, which now gets the labels a Read gets;
-- v1's statusline or timer script left on disk, which adds one line at session start, shown to you and not to Claude;
-- a map file read through Bash by a command that exits with an error, now labelled;
-- several map files read in one Bash command whose labels together pass 10,000 characters;
-- a document in the root's `.claude/rules/` whose name does not end in `.md`, now listed, since Claude Code does not
-  load it;
-- map entries printed by a Bash command in a form the command's text did not show as a read (`|` inside quotes, a
-  `cd` into the folder, a glob, a loop, `git show`): every uncommitted entry is now labelled on each command that
-  names the folder, by the repo's state, and committed entries by what the command printed. A Bash read no longer
-  carries the whole file's labels.
+A2 and the three shapes ran on an earlier build.
 
 **In the owner's own sessions** (the release's field check, alpha.5 to alpha.8, one repo, CLI 2.1.318 to 2.1.322):
 every session start carried the index, and the forced decision came on each first typed prompt and was answered per
@@ -318,12 +279,6 @@ Claude Code. No hook error. Subagents never saw the index: 42 of 96 wrote files.
   change later, and a second task after a compaction. In one repo a rule was then missed in 3 to 4 of 5 runs.
 - *Pattern rules* (a required call or a forbidden one) on Opus. One such rule was followed in only 3 of 10 runs.
 - *Subagents* do not see the index.
-
-The results are in [docs/v2/06-first-slice.md](docs/v2/06-first-slice.md) (steps 2c to 2g), and the decisions behind
-them are in [docs/v2/DECISIONS.md](docs/v2/DECISIONS.md). The release review is in
-[docs/v2/research/2026-10-27-release-review.md](docs/v2/research/2026-10-27-release-review.md). alpha.3 and
-alpha.4 had no release review, by the user's choice. Their fixes come from a check of the plugin in the user's own
-sessions, in [docs/v2/probes/V2-D17-field/README.md](docs/v2/probes/V2-D17-field/README.md).
 
 ## Requirements
 
@@ -449,46 +404,16 @@ Then remove them in this order:
 
 ## What it costs your machine
 
-- *Hook latency,* measured on alpha.2. alpha.3 adds one pattern match per prompt and one per listed path, not timed.
-  alpha.4's Bash handler was timed in CI at one session (Linux, Windows, macOS): a map read through Bash added 25, 70
-  and 49 ms, as a Read of it does; a command that names the folder but reads no map file, 7, 17 and 13 ms.
-  "Added" is the p95 over an empty Node process. "Wall clock" includes Node's start, which each hook
-  pays. The repo had 8,057 files and 190 documents, or was a synthetic repo of the same shape, with map entries citing
-  1.26 MB of documents. Figures are ms, added / wall clock:
-
-  | Where | Session start | Map read | Other hooks |
-  | --- | --- | --- | --- |
-  | 1 session, GitHub's Windows runner (4 cores, 2 runs) | 66 to 69 / 116 to 122 | 70 to 87 / 118 to 148 | 17 / 68 at most |
-  | 1 session, GitHub's macOS runner (3 cores, 2 runs) | 30 to 58 / 62 to 120 | 33 to 56 / 64 to 105 | 14 / 68 at most |
-  | 1 session, GitHub's Linux runner (4 cores, 2 runs) | 18 to 25 / 37 to 50 | 21 to 32 / 41 to 56 | 11 / 36 at most |
-  | 8 at once, a 32-thread Windows machine (3 runs) | 37 to 44 / 118 to 126 | 51 to 61 / 135 to 136 | 25 / 103 at most |
-  | 8 at once, the same three runners | 61 to 209 / 137 to 396 | 86 to 217 / 165 to 436 | 97 / 253 at most |
-
-  - Session start also starts bash once, since its hook runs in shell form: about 22 ms more at one session on the
-    32-thread machine.
-  - CI fails the build when the one-session added time passes 100 ms.
-  - The 8-at-once added time on the 32-thread machine was checked at 100 ms before alpha.1, alpha.2, alpha.6,
-    alpha.7 and alpha.8, with the machine idle: CPU at most 10% before each run.
-  - alpha.8, in 3 pairs against alpha.7: every hook added at most 64.4 ms, with 0 errors. A Bash command that names no
-    map entry now reads the map's state each time: 53.0 to 64.4 ms added, against alpha.7's 18.4 to 20.2.
-  - alpha.7, in two windows of 3 pairs against alpha.6: every hook added at most 57.1 ms, with 0 errors. alpha.6's map
-    read added 106.8 ms in one pair of the first window and at most 61.9 ms elsewhere.
-  - alpha.6, in 3 pairs against alpha.5 on that machine: every hook added at most 92.1 ms, with 0 errors. Session start
-    added 52 to 92 ms, against alpha.5's 64 to 66 in the same pairs. The spread between pairs is wider than the
-    change. v1's scripts were no longer on the machine, so the path that adds the line was not timed.
-  - One CI run in alpha.2's checks went over 100 ms at one session (114 ms at session start on Windows) through
-    a few slow calls; its median was as usual. Timed in pairs on the same runner, alpha.2 costs no more than
-    alpha.1.
-  - On the small runners at 8 at once, the heavier hooks are over that budget. On a 3- or 4-core machine that runs
-    many sessions at once, expect each session start and map read to take a few tenths of a second.
-  - 2.3.0, in pooled pairs against a build without its session-start changes, with 300 unseen transcripts on disk:
-    every hook added at most 78.8 ms at 1 and at 8 sessions at once, on the 32-thread machine (S6's candidate
-    build; 2.3.0's own release bench peaked at 62.7 ms, and 2.5.0's at 82.3 ms).
+- *Hook latency:* 2.3.0, in pooled pairs against a build without its session-start changes, with 300 unseen
+  transcripts on disk: every hook added at most 78.8 ms at 1 and at 8 sessions at once, on a 32-thread Windows
+  machine (S6's candidate build; 2.3.0's own release bench peaked at 62.7 ms, and 2.5.0's at 82.3 ms). "Added" is the
+  p95 over an empty Node process; each hook also pays Node's start. On a 3- or 4-core machine that runs many sessions
+  at once, expect each session start and map read to take a few tenths of a second.
 - *Context, always on:* 1,794 B (the capture instruction, since 2.4.0; 1,765 B in 2.3.0) and 304 B per session plus the index (2 to 6
   KB in the tested repos), and 227 B for each forced decision. Each read of a map file, through the Read tool or
-  Bash, adds that file's labels. The skills (setup, dream, status, map-review) are never listed, so they cost no
-  context until you run one. Each of the three project agents adds its one-line description to Claude's list of
-  agents, as the plugin's dream analyzer does.
+  Bash, adds that file's labels. The skills (setup, dream, status, tailor, map-review) each add their description to
+  Claude's list of skills, so Claude can start them; a skill's full text loads only when it runs. Each of the three
+  project agents adds its one-line description to Claude's list of agents, as the plugin's dream analyzer does.
 - *A dream* runs on your session's model and plan. On Opus 5.5 it cost $0.39 to $0.82 a dream, reading 3 to 9 past
   sessions.
 
@@ -514,8 +439,8 @@ Then remove them in this order:
 - **Claude often reads only some of the directories it marks yes.** In two real sessions with alpha.2, each of three
   checked context windows marked 6 to 8 directories yes. Before changing code, Claude opened documents from 0 to 3 of
   them with the Read tool (3 to 4, counting reads through Bash and the rule files Claude Code loads on its own).
-- **Some map reads get no label:** through the Grep tool, a script that reads the file, a command that names only the
-  folder, PowerShell, or a subagent. In the same sessions, Claude read map entries 11 times: 2 through the Read tool
+- **Some map reads get no label:** a script that reads the file, a command that names only the folder, a Grep over
+  the whole repo, or a subagent (Grep and PowerShell that name the folder are labelled from 2.6.0). In the same sessions, Claude read map entries 11 times: 2 through the Read tool
   and 9 through Bash (`cat`, `tail`, `grep`). alpha.4 labels both kinds. alpha.8 gives every uncommitted entry's
   label on each Bash command that names the folder, whatever the command printed. Still unlabelled: the output of a
   command that does not name the folder, even when it prints map entries (`git diff` or `git show` from the root, `rg`
@@ -626,9 +551,8 @@ claude plugin marketplace remove second-brain --scope project
 ## How v2 is built
 
 It is decided one step at a time, and each decision is checked when it is made:
-- the brief: [docs/v2/00-charter.md](docs/v2/00-charter.md);
-- the process: [docs/v2/01-process.md](docs/v2/01-process.md);
-- the decision ledger: [docs/v2/DECISIONS.md](docs/v2/DECISIONS.md);
+- the brief, the process, the decision ledger, and every step's records and measurements: the `v2` branch's
+  [docs/v2](https://github.com/Cain-Ish/claude-code-plugin/tree/v2/docs/v2);
 - progress: the [map issue #115](https://github.com/Cain-Ish/claude-code-plugin/issues/115).
 
 MIT licensed.

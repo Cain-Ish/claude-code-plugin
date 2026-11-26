@@ -67,7 +67,7 @@ if (old) {
   let file = at(root);
   if (!file.startsWith(`${MAP}/`)) try { file = at(fs.realpathSync.native(root)); } catch {}
   if (file.startsWith(`${MAP}/`) && file.endsWith('.md')) emit('PostToolUse', labelled(file));
-} else if ((which === 'bash' || which === 'bash-failure') && String(input.tool_input?.command ?? '').toLowerCase().replace(/\\\r?\n/g, '').replace(/["'`\\]/g, '').includes(MAP)) {
+} else if ((which === 'bash' || which === 'bash-failure') && String((input.tool_name === 'Grep' ? [input.tool_input?.path, input.tool_input?.glob].join(' ') : input.tool_input?.command) ?? '').toLowerCase().replace(/\\\r?\n/g, '').replace(/["'`\\]/g, '').includes(MAP)) {
   // a Bash command that names the map folder gets every uncommitted entry's labels, and those of the committed entries
   // its output shows (D14, 06 2o): the output is every string in tool_response (stdout, stderr), or the failure's
   // error text. shortcut: a command that does not name the map folder gets nothing, so `git diff` from the root stays
@@ -75,6 +75,7 @@ if (old) {
   // through a command that does not name it, as it did with some compound ones (8h). H1 (06, 8a; settles C-10 in 8k):
   // it names the map after letter case, quotes, backslashes and backslash-newlines are set aside, so the check is
   // never narrower than the if field's match
+  // 8o: PowerShell as Bash; a Grep names the map by path or glob (no if: Claude Code matches Grep(...) on the pattern)
   const ev = which === 'bash' ? 'PostToolUse' : 'PostToolUseFailure';
   const strings = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : []);
   const got = strings(which === 'bash' ? input.tool_response : input.error);

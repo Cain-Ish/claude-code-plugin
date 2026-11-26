@@ -89,6 +89,8 @@ killed    21 the cut mark (by fix8l.mjs: 21 the cut mark)
 killed    21 the sdk-cli mark (by fix8l.mjs: 21 the sdk-cli mark; A1 an sdk-cli line may be cited)
 killed    A1 an sdk-cli line may be cited (by fix8l.mjs: 21 the sdk-cli mark; A1 an sdk-cli line may be cited)
 killed    A3 a check tested by one plain command (by fix8l.mjs: A3 a check tested by one plain command)
+killed    A5 the run line on its own line (by fix8l.mjs: A5 the run line on its own line)
+killed    A6 no scratch file to test a check (by fix8l.mjs: A6 no scratch file to test a check)
 killed    A4 the dream runs commands through Bash (by fix8l.mjs: 16 L-7 the shell stays out of the run folder; A4 commands through the Bash tool)
 killed    A4 tailor runs commands through Bash (by fix8l.mjs: A4 commands through the Bash tool)
 killed    A4 status runs commands through Bash (by fix8l.mjs: A4 commands through the Bash tool)
@@ -100,4 +102,4 @@ killed    22 index.ignore in the README (by fix8l.mjs: 22 index.ignore in the RE
 killed    22 [private] in the README (by fix8l.mjs: 22 [private] in the README)
 killed    23 tailor never runs a trial itself (by fix8l.mjs: 23 tailor never starts a trial)
 killed    23 tailor grants cli and draft only (by fix8l.mjs: 23 tailor never starts a trial)
-101 of 101 killed
+103 of 103 killed

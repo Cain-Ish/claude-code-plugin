@@ -1,0 +1,100 @@
+{
+ "calls": 200,
+ "cores": 32,
+ "session-start@1": {
+  "emptyP95": 35.1,
+  "controlAdded": 35.3,
+  "candidateAdded": 43.4,
+  "errors": 0
+ },
+ "prompt@1": {
+  "emptyP95": 33.5,
+  "controlAdded": 10.6,
+  "candidateAdded": 10.9,
+  "errors": 0
+ },
+ "read-other@1": {
+  "emptyP95": 34.1,
+  "controlAdded": 9.7,
+  "candidateAdded": 10.2,
+  "errors": 0
+ },
+ "read-map@1": {
+  "emptyP95": 33.4,
+  "controlAdded": 38.7,
+  "candidateAdded": 38.8,
+  "errors": 0
+ },
+ "bash-map@1": {
+  "emptyP95": 33.6,
+  "controlAdded": 39.6,
+  "candidateAdded": 39.8,
+  "errors": 0
+ },
+ "bash-other@1": {
+  "emptyP95": 34.4,
+  "controlAdded": 9.6,
+  "candidateAdded": 9.9,
+  "errors": 0
+ },
+ "grep-map@1": {
+  "emptyP95": 33,
+  "controlAdded": 10.4,
+  "candidateAdded": 41.7,
+  "errors": 0
+ },
+ "grep-other@1": {
+  "emptyP95": 33,
+  "controlAdded": 10.2,
+  "candidateAdded": 10.4,
+  "errors": 0
+ },
+ "session-start@8": {
+  "emptyP95": 55.3,
+  "controlAdded": 57,
+  "candidateAdded": 67.5,
+  "errors": 0
+ },
+ "prompt@8": {
+  "emptyP95": 58.5,
+  "controlAdded": 21.9,
+  "candidateAdded": 21.3,
+  "errors": 0
+ },
+ "read-other@8": {
+  "emptyP95": 60.2,
+  "controlAdded": 19,
+  "candidateAdded": 23.3,
+  "errors": 0
+ },
+ "read-map@8": {
+  "emptyP95": 57.7,
+  "controlAdded": 72,
+  "candidateAdded": 73,
+  "errors": 0
+ },
+ "bash-map@8": {
+  "emptyP95": 57.5,
+  "controlAdded": 73.4,
+  "candidateAdded": 72.2,
+  "errors": 0
+ },
+ "bash-other@8": {
+  "emptyP95": 59.9,
+  "controlAdded": 21,
+  "candidateAdded": 22.7,
+  "errors": 0
+ },
+ "grep-map@8": {
+  "emptyP95": 59.2,
+  "controlAdded": 19.7,
+  "candidateAdded": 75.6,
+  "errors": 0
+ },
+ "grep-other@8": {
+  "emptyP95": 61.4,
+  "controlAdded": 20.3,
+  "candidateAdded": 27.7,
+  "errors": 0
+ }
+}
