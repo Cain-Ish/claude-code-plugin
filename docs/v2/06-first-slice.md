@@ -10487,7 +10487,8 @@ product commit: every self-test job passed; Windows' load job missed, report-onl
 - the Read, Bash, PowerShell and Grep hooks each labelled `.project-map/decisions.md`'s entries; Bash and PowerShell
   only the entry their output showed (8h);
 - Claude started `/second-brain:status` itself (8l). Its report named the two kept files that are an earlier release's
-  templates (L-11) and the other session's agent draft as waiting (K-5), and said a dream is due (17 sessions);
+  templates (L-11), the other session's `release` skill draft as waiting, and that a dream is due (17 sessions).
+  K-5 (agent drafts) was not exercised: no agent draft is left here;
 - `index.ignore`, its registered live test: `.project-map/index.ignore` with `docs/v2/probes` is committed here. The
   installed hook, run with a throwaway data folder: session start 9,504 B and 93 directories before, 5,380 B and 33
   after (the 60 probe folders out, the map's folder listed). A line git refuses (`../outside`) gives the full index
@@ -10499,9 +10500,11 @@ product commit: every self-test job passed; Windows' load job missed, report-onl
 - **PM7 was skipped at the release.** Its check asks the release notes to count fix commits per part; 2.6.0's notes
   have no count. Commits whose subject says fix, harden or audit, since 2026-10-27: `map.mjs` 18, `hook.mjs` 16,
   `dream.mjs` 11, `setup.mjs` 7, `status.mjs` 4, `templates/` 4, `trial.mjs` 3, `hooks.json` 3, the dream skill 3,
-  the analyzer 2, setup's skill 1. Four parts are over PM7's line of 5, and regressions of earlier fixes are on record
-  (8g's `realDir` gave X-2). So **2.6.1 starts with a keep-or-kill entry in the ledger for `map.mjs`, `hook.mjs`,
-  `dream.mjs` and `setup.mjs`, against each one's outcome metric, before any fix.**
+  the analyzer 2, setup's skill 1. That is a proxy: it counts files, not parts, and takes in the commits that moved
+  whole steps in and 8a's, which was backed out. Still, regressions of earlier fixes are on record (8g's `realDir`
+  gave X-2). So **2.6.1 starts with PM7's count per part, in the form of its last one (DECISIONS, "PM7, 2026-10-27"),
+  then a keep-or-kill entry in the ledger for each part over the line, against its outcome metric, and a check of the
+  kill triggers on the existing entries (D16's untracked-map listing, D18's session-start cut), before any fix.**
 - **#115 lagged 06:** its boxes for 8i to 8o and the release were never ticked (06's records step left them to "the
   step's commit"). Synced now from the result sections; lines that mix done and open ids are split.
 - **Records still open:** a D14 note for 8h; #115's step 22 (2.3.0's live tests), closed by the other session's
@@ -10510,3 +10513,8 @@ product commit: every self-test job passed; Windows' load job missed, report-onl
   now say 2.6.0 is released, and that D10, D18 and D34 are locked.
 - **Open by plan:** the live test of 2.6.0; 2.6.1's register; the refactors; D36. `/map-review` and the map README
   in this repo stay an earlier template's text until setup runs on the person's yes.
+- **Into the register (later):** `claude plugin validate`'s directory checks, which the release check does not use,
+  note no README inside the plugin folder (the cache has none; `main`'s root README is not copied), no icon, and no
+  `network.hosts`. They matter only for a directory submission.
+- **Corrected the same day:** #115's tick on "trial copies leave no project folder" is undone. 06's later note (the
+  rethink of 2026-11-25) keeps it open.
