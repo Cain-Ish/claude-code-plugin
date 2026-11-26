@@ -10472,3 +10472,41 @@ On the user's word ("proceed with next steps without me"):
   (they apply at their next restart). This repo's own 2.5.1 install was left as it is, beside the other session's live
   install.
 - **Next:** the other session's live test of 2.6.0 when it runs; 2.6.1's register items; the refactors; D36.
+
+### 8: the check after the release (2026-11-26), on the user's word
+
+> check if new plugin is working - everything is merged and all points from planned elements are finished
+
+**Merged and installed:** `v2` equals `origin/v2`; `main` is PR #121's merge with its CI green; tag and release
+`v2.6.0`; no open PR. This repo's install was found on 2.6.0 too (moved outside this session), so all three installs
+hold it. The installed copy's 25 product files equal `plugin/` at the tag (`2bb76b13653a`); the cache adds only Claude
+Code's own `.in_use/` markers. `claude plugin validate` passes on it. The self-test passes (Node 24). CI on `v2`'s last
+product commit: every self-test job passed; Windows' load job missed, report-only by the user's word on CI.
+
+**Working in this session, after `/reload-plugins`:**
+- the Read, Bash, PowerShell and Grep hooks each labelled `.project-map/decisions.md`'s entries; Bash and PowerShell
+  only the entry their output showed (8h);
+- Claude started `/second-brain:status` itself (8l). Its report named the two kept files that are an earlier release's
+  templates (L-11) and the other session's agent draft as waiting (K-5), and said a dream is due (17 sessions);
+- `index.ignore`, its registered live test: `.project-map/index.ignore` with `docs/v2/probes` is committed here. The
+  installed hook, run with a throwaway data folder: session start 9,504 B and 93 directories before, 5,380 B and 33
+  after (the 60 probe folders out, the map's folder listed). A line git refuses (`../outside`) gives the full index
+  and the note. A line such as `:(bad` is not refused: each line is a glob (8k's reviews), so it matches nothing.
+- Not seen here: the due line (this session's start came before the reload), the dream, map-review, tailor and its
+  trial, and setup. That is the other session's live test.
+
+**Not finished, found by this check:**
+- **PM7 was skipped at the release.** Its check asks the release notes to count fix commits per part; 2.6.0's notes
+  have no count. Commits whose subject says fix, harden or audit, since 2026-10-27: `map.mjs` 18, `hook.mjs` 16,
+  `dream.mjs` 11, `setup.mjs` 7, `status.mjs` 4, `templates/` 4, `trial.mjs` 3, `hooks.json` 3, the dream skill 3,
+  the analyzer 2, setup's skill 1. Four parts are over PM7's line of 5, and regressions of earlier fixes are on record
+  (8g's `realDir` gave X-2). So **2.6.1 starts with a keep-or-kill entry in the ledger for `map.mjs`, `hook.mjs`,
+  `dream.mjs` and `setup.mjs`, against each one's outcome metric, before any fix.**
+- **#115 lagged 06:** its boxes for 8i to 8o and the release were never ticked (06's records step left them to "the
+  step's commit"). Synced now from the result sections; lines that mix done and open ids are split.
+- **Records still open:** a D14 note for 8h; #115's step 22 (2.3.0's live tests), closed by the other session's
+  live test of 2.6.0; the Fog's triage (about 90 bullets). D22's two observations of 2026-11-25 were already judged
+  in the ledger (no trigger fired). C-11's stale hash comment is gone. The version lines and the charter's D34 entry
+  now say 2.6.0 is released, and that D10, D18 and D34 are locked.
+- **Open by plan:** the live test of 2.6.0; 2.6.1's register; the refactors; D36. `/map-review` and the map README
+  in this repo stay an earlier template's text until setup runs on the person's yes.

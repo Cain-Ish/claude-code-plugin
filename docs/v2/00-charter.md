@@ -1,7 +1,7 @@
 # second-brain v2 — charter
 
 **Status:** the concept phase ran from 2026-10-19 to 2026-10-22. v2 replaced v1 on `main` at 2.0.0 (2026-11-12) and is
-at 2.6.0 (in progress) on branch `v2`. This file is the working brief for v2. It replaces the original request
+at 2.6.0 (released 2026-11-26; `main` holds only the product) on branch `v2`. This file is the working brief for v2. It replaces the original request
 (quoted at the end) and says what changed and why. Process: [01-process.md](01-process.md). Decisions:
 [DECISIONS.md](DECISIONS.md).
 
@@ -204,7 +204,8 @@ Nothing is implemented in this phase except throwaway probes under `docs/v2/prob
   - the trial's nested sessions only test an artifact in a copy, and never do the user's work;
   - nothing is promoted or committed without a person.
 
-  Plan and checks: 06, section 7. Decisions: D34; D10 and D18 reopened.
+  Plan and checks: 06, section 7; the trial as a script, 06 section 8, 8e. Decisions: D34 (locked on (T), 2026-11-25);
+  D10 and D18 re-locked with the built surface (2026-11-26).
 - **Claude may start the plugin's skills (2026-11-25, the user's word).** "claude cannot use commands like dream byself
   so it lock the automation. we need to make it, and other skills and commands, usable by claude too."
   - **What changes:**
