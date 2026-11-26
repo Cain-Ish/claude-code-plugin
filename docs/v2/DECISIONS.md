@@ -9,7 +9,7 @@ settled; it reopens only when one of its "reopen if" events is observed.
 | --- | --- | --- | --- | --- |
 | V2-D01 | How are decisions made, checked and tracked? | LOCKED 2026-10-19 | user | — |
 | V2-D02 | Where is v1 cut? | LOCKED 2026-10-19 | user | — |
-| V2-D03 | Which branches carry v1 and v2? | LOCKED 2026-10-19; REOPENED 2026-11-25 (the user's word: `main` holds the product only; 06, section 8, 8n) | user | D02 |
+| V2-D03 | Which branches carry v1 and v2? | LOCKED 2026-10-19; REOPENED 2026-11-25 (the user's word: `main` holds the product only; 06, section 8, 8n); re-LOCKED 2026-11-26 on 8n (`main` = 29 product files from 2.6.0; an old install updates to only the product) | user | D02 |
 | V2-D04 | Where do v2 planning decisions and research live? | LOCKED 2026-10-19 | evidence | D03 |
 | V2-D05 | How are v2 versions numbered? | LOCKED 2026-10-19 (default) | user | D03 |
 | V2-D06 | Which plugins are enabled while working on v2? | LOCKED 2026-10-19 | user | — |
@@ -102,6 +102,12 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
     rather than merging `v2`.
   - **What stands:** the docs stay on `v2` (D04), and D25's name and in-place reach hold.
   - **Check:** 06, section 8, 8n. D03 re-locks on 8n's result.
+- **re-LOCKED 2026-11-26 on 8n** (06, section 8, "8n's result"): PR #121 replaced `main` with the product (29 files:
+  `plugin/` without tests, `.claude-plugin/`, README, LICENSE, a `validate` workflow). Check 1: the tree equals the
+  allowlist. Check 2: a 2.5.1 install with a full clone updated to 2.6.0, its clone left with only the 29 files, the cache
+  without tests at the release's hash. Check 3: `claude plugin validate`, and `claude plugin details` on that install.
+  Check 4: `main`'s ruleset requires `validate` and GitGuardian. From now on a release copies the product onto `main`
+  (`probes/V2-8n-main/product.mjs`) and never merges `main` into `v2`.
 
 ### V2-D04 — Home of v2 planning knowledge
 - **Choice:** everything about v2 (charter, process, decisions, research, probes) lives on branch `v2` under

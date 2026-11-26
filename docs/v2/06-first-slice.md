@@ -10430,7 +10430,7 @@ Two unshipped template hashes stay in setup's list (8l attempt 1's and the text 
 - **Known weaknesses:** in S8's end-to-end check the dream drafted the repeated correction as a path rule in 3 of 5
   runs (bar 4; the others filed it as an entry); a Read of the map in another letter case, or through a Windows 8.3
   name, gets no label; npm's `claude.cmd` on Windows cannot run trials; "fewer tokens and steps" (A1) is still not met.
-- **Installs:** from this release, `main` holds only the product, so a marketplace update downloads about 28 files
+- **Installs:** from this release, `main` holds only the product, so a marketplace update downloads about 29 files
   (266 KB) instead of the whole repo.
 
 ### 8: the release stop (2026-11-26): the user's choices; v2.6.0 tagged; the PR to `main`
@@ -10454,3 +10454,21 @@ Two unshipped template hashes stay in setup's list (8l attempt 1's and the text 
 **After the merge (the user's):** the ruleset change; then 8n's check 2 (an install of the old `main` updates to only
 the product) and check 3 (`claude plugin details` on a fresh install), D03 re-locks on them; the installs move; the
 other session's live test of the released build.
+
+### 8, 8n: result (2026-11-26): pass; 2.6.0 released
+
+On the user's word ("proceed with next steps without me"):
+- **Check 4:** `main`'s ruleset now requires `validate` and GitGuardian (the three v2 self-test jobs dropped); the PR
+  then reported clean. PR #121 merged (a merge commit); `main` is 29 files, none under `plugin/test/`.
+- **Check 2,** in a throwaway config: installed from `main`, its clone reset to the old `main` (`e180263d`, 449 files,
+  2.5.1), then the user's update path: `marketplace update` and `plugin update` took it from 2.5.1 to 2.6.0, and the
+  clone holds only the 29 product files (check 1 passes on it); the cache's 2.6.0 has 25 files, no `test/`, and hashes
+  `2bb76b13653a`.
+- **Check 3:** `claude plugin validate` on the clone's `plugin/`; `claude plugin details`: 2.6.0, 4 hook events, the
+  skills and the command, 1 agent, about 404 always-on tokens.
+- **D03 re-locks** (DECISIONS). From now on a release copies the product onto `main`; `main` is never merged into `v2`.
+- **Released:** GitHub release `v2.6.0` with the notes above (file count corrected to 29). The user's real marketplace
+  clone updated from the whole repo to the 29 files; the installs in the two field repos moved from 2.5.1 to 2.6.0
+  (they apply at their next restart). This repo's own 2.5.1 install was left as it is, beside the other session's live
+  install.
+- **Next:** the other session's live test of 2.6.0 when it runs; 2.6.1's register items; the refactors; D36.
