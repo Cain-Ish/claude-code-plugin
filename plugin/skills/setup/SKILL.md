@@ -1,8 +1,7 @@
 ---
 name: setup
-description: Sets up this repo for Claude in Anthropic's recommended layout, with CLAUDE.md, a path-scoped rule, a review skill, three project agents with project memory, and the team memory folder. It creates what is missing, adds its section to an existing CLAUDE.md, .claude/CLAUDE.md or .gitattributes that is committed and unchanged, and updates a file that is an earlier version's template, committed and unchanged.
-disable-model-invocation: true
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs":*)
+description: Sets up this repo for Claude in Anthropic's recommended layout, with CLAUDE.md, a path-scoped rule, a review skill, three project agents with project memory, and the team memory folder. It creates what is missing, adds its section to an existing CLAUDE.md, .claude/CLAUDE.md or .gitattributes that is committed and unchanged, and updates a file that is an earlier version's template, committed and unchanged. Use, after asking the person, when the layout is missing or a kept file is an earlier release's template.
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs" setup:*)
 ---
 !`node "${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs" setup`
 

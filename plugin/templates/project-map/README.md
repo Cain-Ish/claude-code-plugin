@@ -17,11 +17,23 @@ the user decides, since a new rule or skill loads at once.
 | A decision, rule or requirement for this project | an entry here |
 | A procedure repeated across sessions | an entry here; offer the user a skill in `.claude/skills/` |
 | A rule for certain paths that keeps being corrected | an entry here; offer the user a path rule in `.claude/rules/` |
+| A task that needs its own context, tools or notes | an entry here; offer the user an agent in `.claude/agents/` |
 | A rule a tool can enforce: a format, an import, a forbidden call | an entry here; offer the user a check (a lint rule, a test or a hook), since an instruction lowers the odds of a mistake and a check prevents it |
 | A command every session needs and cannot find, such as how to run the tests | a line in `CLAUDE.md` |
 | Where code lives, or what the code already shows | nowhere in the map: it changes, and Claude finds it |
 
-A dream proposes skills and path rules as drafts, from what two or more sessions show.
+`/second-brain:tailor` makes a skill, agent or path rule as a draft, with the cases that test it. A dream proposes
+entries and status lines, and drafts of path rules, skills, agents and changes to the repo's own, from what two or
+more sessions show. In its digests, `[private]` stands for text removed as private, which no proposal quotes.
+
+## Session start
+
+- **`index.ignore`** in this folder leaves folders out of the document index: one folder or glob pattern per line,
+  from the repo's root, such as `docs/archive` or `**/fixtures`; `#` starts a comment. This folder is always listed.
+  When git rejects a line, the file is not used that session, and you are told.
+- **Claude starts the plugin's skills** when they fit: a dream when one is due, status, setup and tailor. Each asks
+  your permission the first time. To allow them in advance, add rules such as `Skill(second-brain:dream)` to
+  `permissions.allow` in `.claude/settings.json`.
 
 ## An entry
 
