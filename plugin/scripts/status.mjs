@@ -5,7 +5,8 @@
 // path the entry names that is gone (N12).
 import fs from 'node:fs';
 import path from 'node:path';
-import { MAP, entries, sourcePath, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, dreamDate, git, quoteOf, proposedOn, reviewOn, statusOf, replacedBy, refinder, unseenIn, mapMd, mapIdsOf, textOf } from './map.mjs';
+import { MAP, entries, sourcePath, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, dreamDate, git, quoteOf, proposedOn, reviewOn, statusOf, replacedBy, refinder, unseenIn, mapMd, mapIdsOf, readMapFile, decode, ended as isEnded } from './map.mjs';
+import { FILES, sum } from './setup.mjs';
 
 const count = (s) => (s ?? '').split('\n').filter(Boolean).length;
 // N12 (the field report of 2026-11-23): the repo paths an entry names, each once: a slash in them and a file extension
@@ -17,9 +18,13 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 export function status(root, data) {
   if (!fs.existsSync(path.join(root, MAP))) return `This repo has no team memory (${MAP}/). Run /second-brain:setup to create it.`;
+  // Q-11 (06, 8k): the state is kept per git repository, so with no .git there is nothing to report, said plainly
+  if (!fs.existsSync(path.join(root, '.git'))) return `This folder is not in a git repository, and the team memory (${MAP}/) is kept per repository. Run /second-brain:status inside one.`;
   const today = localDate();
   const files = mapMd(root);
-  const all = files.map((f) => ({ f, es: entries(textOf(root, f)) }));
+  // 06, 8k: map files are read as the hooks read them (readMapFile), and one that cannot be read is named
+  const unread = [];
+  const all = files.map((f) => { let b = null; try { b = readMapFile(root, f); } catch {} if (!b) unread.push(f); return { f, es: b ? entries(decode(b)) : [] }; });
   const ids = mapIdsOf(root);
   const refind = refinder(root);
   const commits = new Map();
@@ -35,7 +40,7 @@ export function status(root, data) {
       // checked, and it cannot stay stale after its source moves on (N8, 06 section 4, 4h); a dream's status line ends
       // nothing until review accepts it (D28, D30; the decision-checker's 4h review)
       const st = statusOf(b);
-      const ended = !proposedOn(b) && /^- status:[ \t]*(superseded|expired|done)\b/m.test(b);
+      const ended = isEnded(b);
       const by = replacedBy(st);
       if (by && ids?.size && !ids.has(by)) why.push(`replaced by ${by}, which the map does not hold`);
       const review = !ended && reviewOn(b);
@@ -72,9 +77,13 @@ export function status(root, data) {
   // --no-optional-locks: a status refresh would rewrite .git/index, and the report changes no file
   const dirty = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--', MAP).stdout);
   const agents = count(git(root, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--', '.claude/agent-memory').stdout);
+  // L-11 (06, 8k): a kept file whose text is an earlier release's template, by setup's own list, waits for setup
+  const old = FILES.filter(([, to, earlier = []]) => { try { const b = readMapFile(root, to); return Boolean(b) && earlier.includes(sum(b.toString('utf8'))); } catch { return false; } }).map(([, to]) => to);
   return [
     `second-brain status, ${today}:`,
     `- Team memory: ${plural(total, 'entry', 'entries')} in ${plural(files.length, 'file', 'files')} under ${MAP}/; last committed ${last || 'never'}${dirty ? `; ${plural(dirty, 'uncommitted change', 'uncommitted changes')}` : ''}.`,
+    unread.length ? `- Cannot read ${unread.join(', ')} (not a regular file under 4 MB inside the repo, or not readable), so ${unread.length === 1 ? 'its' : 'their'} entries are not counted.` : '',
+    old.length ? `- Out of date: ${old.join(', ')}, each an earlier release's template, unchanged. Run /second-brain:setup to update ${old.length === 1 ? 'it' : 'them'}.` : '',
     `- Dreams: ${state.lastDream ? `the last on ${dreamDate(state)}` : 'none yet'}; ${plural(since, 'session', 'sessions')} since${due ? '' : '; no dream is due'}.`,
     due ? `- ${due}` : '',
     `- ${wait || 'Nothing waits for review.'}`,
