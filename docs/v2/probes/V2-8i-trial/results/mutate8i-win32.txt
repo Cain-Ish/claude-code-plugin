@@ -1,4 +1,4 @@
-platform win32, copy c8m2, trial8e.mjs alone
+platform win32, copy c8l2, trial8e.mjs alone
 killed    (8i-1) X-1: the main file by its exact name: (8i-1) X-1
 killed    (8i-1) X-1: nothing beside it named as the main file or a draft: (8i-1) X-1
 killed    (8i-2) P-1: artifactBlob of the text that ran: (8i-2) P-1

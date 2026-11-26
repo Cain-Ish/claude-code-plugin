@@ -1,2 +1,2 @@
 - [Recurring breaks](recurring_breaks.md) — 06 steps whose registered promises (How list, section rules) the record does not show done; gate copies, tautological or never-passing bars, vacuous scorers, later steps undoing a LOCKED step's build
-- [Builders widen the registration](builders-widen-registration.md) — recurring (8j, 8k): code replaces a registered mechanism, usually on its failure path
+- [Builders widen the registration](builders-widen-registration.md) — recurring (8j, 8k, 8l): code replaces a registered mechanism, usually on its failure path

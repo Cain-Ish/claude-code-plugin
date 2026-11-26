@@ -10258,3 +10258,27 @@ at their bars. If either misses, 8l is BLOCKED and the bars that need every run 
   the agent now reports once.
 - Leftovers: about 375 MB of build copies and temp folders and 117 project folders (144 MB) from fixture sessions were
   deleted on 2026-11-26 morning; every runner deletes its own scratch and project folders at its end.
+
+### 8, 8l: result (2026-11-26): pass at attempt 4; moved into `plugin/` (product `8896d4cb1c40`)
+
+- **Attempt 4's runs** on the frozen copy: 8e's check 3 **passes** (good skill and good agent "helps" 2 of 2, bad skill
+  "adds nothing" 2 of 2, every trial started); 8e's check 4 **passes** (12 runs, every bar). Attempt 3's C-4
+  **passes** (3 of 3 ended with a verdict, none promoted or committed).
+- **So every registered check of 8l holds on the final text:** the unit cases (`fix8l` 63 of 63, Node 24 and 20), the
+  self-test, every mutation list, and the counted runs: S7's check 2, 8d's check 3, (b) and (c) from attempt 2 (their
+  files unchanged since), C-6 from attempt 3 (tailor's survey unchanged since), 8e's checks 3 and 4 from attempt 4,
+  and C-4 from attempt 3.
+- **Re-earned, as 8l registered:** S7's check 2, 8d's check 3, 8e's checks 3 and 4.
+- **D18 (reopened 2026-11-25):** every plugin skill is model-invocable; the due line is added only when the entry
+  point is not `sdk-…` and no dream holds the lock, inside the 10,000-character cap. Always-on cost 404 tokens against
+  2.6.0's 371 (`claude plugin details`); tailor on start about 1.2k against 2.3k. D18's bench runs at the release stop.
+- **D31, D32, D33:** Claude starts the dream when told it is due or asked, in view; in 10 dreams Claude started,
+  nothing was accepted without the person (c). D33's bar is earned again.
+- **Recorded, not changed:** `setup.mjs` lists the hash of 8l attempt 1's map-review text, which no install ever had
+  (harmless, removed with the next template change); the C-4 case-file overwrite and the due line after a compact or
+  resume (the builder's findings); a typed skill and Claude's own Skill call share the `T: Skill <name>` line.
+- **The refactors** (P-4 to P-12, P-16, T-5) move to after 2.6.0, under the user's delegation: they change no
+  behaviour, and each would move the mutation anchors and cost another round of runs (the rethink of 2026-11-25).
+- **Next:** the records, the release stop (group M, D18's bench, the final audit, 8n), the live test (the other
+  session), and a stop before `main`. 8n's tooling is in `probes/V2-8n-main/` (dry run: 28 files, 266 KB, against
+  `main`'s 449 files, 3.7 MB).

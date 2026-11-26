@@ -25,8 +25,8 @@ const M = [
   ['(1) runs at least 3', TR, 'n >= 3 && n <= 5', 'n >= 1 && n <= 5'],
   ['(1) runs at most 5', TR, 'n >= 3 && n <= 5', 'n >= 3 && n <= 9'],
   ['(1) the privacy scan', TR, "  if (PRIVATE.test(text)) errs.push('it holds private data: a secret, a session id, an email address or an absolute path');\n", ''],
-  ["(1) the artifact's home", TR, "if (!HOMES.test(a) || a.split('/').includes('..'))", 'if (false)'],
-  ['(1) an artifact path that climbs', TR, "if (!HOMES.test(a) || a.split('/').includes('..'))", 'if (!HOMES.test(a))'],
+  ["(1) the artifact's home", TR, "if (!HOMES.test(a) || a.split('/').includes('..')) errs.push(", 'if (false) errs.push('],
+  ['(1) an artifact path that climbs', TR, "if (!HOMES.test(a) || a.split('/').includes('..')) errs.push(", 'if (!HOMES.test(a)) errs.push('],
   ['(1) committed as git compares', TR, "at.status === 0 && at.stdout.trim() === git(root, 'hash-object', '--', rel).stdout.trim();", 'at.status === 0 && blob(root, commit, rel).stdout.equals(fs.readFileSync(path.join(root, rel)));'],
   ['(1) unchanged since the commit', TR, " && git(root, 'diff', '--quiet', commit, '--', rel).status === 0;", ';'],
   ['(1) the case file committed', TR, '  if (!committed(root, commit, rel)) throw', '  if (false) throw'],
@@ -44,7 +44,7 @@ const M = [
   ['(2) show prints each check script', TR, '...Object.entries(checks).map(', '...[].map('],
   ['(2) the run line is typed with !', TR, '`! node "${self', '`node "${self'],
   ['(2) the skill never starts a trial', TR, "      else if (/^run\\b/.test(words)) console.log('A trial starts only", "      else if (/^run\\b/.test(words)) console.log(start(root, ...words.split(/\\s+/).slice(1)), 'A trial starts only"],
-  ['(2) other words ask to make', TR, "      else console.log('Tailor: make one", "      else if (words) throw new Error('unknown');\n      else console.log('Tailor: make one"],
+  ['(2) other words ask to make', TR, '      else console.log(`Tailor: make one', "      else if (words) throw new Error('unknown');\n      else console.log(`Tailor: make one"],
   // item 3, the copies and the session
   ['(3) no evals in a copy', TR, ' && !`${e.p}/`.startsWith(`${MAP}/evals/`)', ''],
   ['(3) no backslash or colon in a copy', TR, ' && !/[\\\\:]/.test(e.p)', ''],
@@ -101,7 +101,7 @@ const M = [
   ['(6) never over a live file', TR, " || fs.existsSync(path.join(root, to.replace(/\\.draft$/, ''))))", ')'],
   ['(6) a draft never through a link', TR, 'if (!fs.lstatSync(src, { throwIfNoEntry: false })?.isDirectory() || !inRepo(root, src))', 'if (false)'],
   // the texts, and the self-test's own checks
-  ['(7) tailor only a person starts', TL, 'disable-model-invocation: true\n', ''],
+  // 8l: '(7) tailor only a person starts' went with the flag, on the user's word (06, 8l); fix8l's case 23 pins what holds
   ['(7) tailor never runs a trial itself', TL, 'Never run `trial.mjs` yourself except `draft`', 'You may run trial.mjs'],
   // attempt 4: a request that names no task surveys, lists gaps with evidence, and asks first
   ['(7) a broad request surveys first', TL, '**A request that names no task**', 'A request with no task'],
@@ -109,7 +109,7 @@ const M = [
   ['(7) the gaps listed with evidence', TL, '**List the gaps you found.**', 'Pick a gap.'],
   ['(7) asks before making', TL, '**Ask which to make, and stop.** Make nothing until the person picks one', 'Make the one that fits best'],
   ['(7) tailor grants cli and draft only', TL, 'trial.mjs" cli:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" draft:*)', 'trial.mjs":*)'],
-  ['(7) the words by a quoted heredoc', TL, "cli <<'SECOND_BRAIN_WORDS'\n$ARGUMENTS\nSECOND_BRAIN_WORDS", 'cli $ARGUMENTS'],
+  ['(7) the words by a quoted heredoc', TL, "cli <<'SECOND_BRAIN_WORDS_q7Xk2Vw9'\n$ARGUMENTS\nSECOND_BRAIN_WORDS_q7Xk2Vw9", 'cli $ARGUMENTS'],
   ['(7) no code loaded at run time', TR, "import { PRIVATE } from './dream.mjs';", "const { PRIVATE } = await import('./dream.mjs');"],
   ['(7) map-review calls a changed draft stale', MR, 'call it stale', 'note it'],
   ['(7) map-review offers nothing when not judged', MR, '"Not judged" means', 'It means'],

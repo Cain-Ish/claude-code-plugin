@@ -1,0 +1,158 @@
+{
+ "runs": 3,
+ "verdicts": [
+  "helps",
+  "helps",
+  "helps"
+ ],
+ "costUsdSessions": 1.69,
+ "rows": [
+  {
+   "run": 1,
+   "name": "release",
+   "casesOk": true,
+   "caseFile": true,
+   "cases": 4,
+   "shouldNot": 1,
+   "newDraft": false,
+   "lineShown": true,
+   "started": true,
+   "minutes": 10,
+   "verdict": "helps",
+   "failed": 0,
+   "trialCases": [
+    {
+     "id": "release-time",
+     "use": true,
+     "runs": 3,
+     "with": 0,
+     "without": 0
+    },
+    {
+     "id": "releasing-again",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "ship-next-version",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    },
+    {
+     "id": "changelog-note-only",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ],
+   "promoted": false,
+   "committed": false,
+   "costUsd": 0.47,
+   "pass": true
+  },
+  {
+   "run": 2,
+   "name": "release",
+   "casesOk": true,
+   "caseFile": true,
+   "cases": 4,
+   "shouldNot": 1,
+   "newDraft": false,
+   "lineShown": true,
+   "started": true,
+   "minutes": 9,
+   "verdict": "helps",
+   "failed": 0,
+   "trialCases": [
+    {
+     "id": "ship-patch",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 0
+    },
+    {
+     "id": "shipping-again",
+     "use": true,
+     "runs": 3,
+     "with": 2,
+     "without": 0
+    },
+    {
+     "id": "patch-bump",
+     "use": true,
+     "runs": 3,
+     "with": 2,
+     "without": 1
+    },
+    {
+     "id": "changelog-note",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ],
+   "promoted": false,
+   "committed": false,
+   "costUsd": 0.59,
+   "pass": true
+  },
+  {
+   "run": 3,
+   "name": "release",
+   "casesOk": true,
+   "caseFile": true,
+   "cases": 4,
+   "shouldNot": 1,
+   "newDraft": false,
+   "lineShown": true,
+   "started": true,
+   "minutes": 9,
+   "verdict": "helps",
+   "failed": 0,
+   "trialCases": [
+    {
+     "id": "ship-next-patch",
+     "use": true,
+     "runs": 3,
+     "with": 2,
+     "without": 0
+    },
+    {
+     "id": "usual-bump",
+     "use": true,
+     "runs": 3,
+     "with": 2,
+     "without": 0
+    },
+    {
+     "id": "patch-with-tag",
+     "use": true,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    },
+    {
+     "id": "changelog-line-only",
+     "use": false,
+     "runs": 3,
+     "with": 3,
+     "without": 3
+    }
+   ],
+   "promoted": false,
+   "committed": false,
+   "costUsd": 0.63,
+   "pass": true
+  }
+ ],
+ "pass": {
+  "all": true
+ }
+}

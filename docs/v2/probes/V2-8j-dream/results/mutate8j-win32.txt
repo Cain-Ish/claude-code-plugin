@@ -1,4 +1,4 @@
-platform win32, copy c8m2, test/dream8d.mjs, dream8f.mjs and dream8c.mjs alone
+platform win32, copy c8l2, test/dream8d.mjs, dream8f.mjs and dream8c.mjs alone
 killed    (X-2) a named path placed by strings only
 killed    (X-2) a session spelled through a link
 killed    (X-2) the longest spelling first

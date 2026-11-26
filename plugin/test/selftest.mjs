@@ -79,15 +79,16 @@ assert.match(fs.readFileSync(path.join(PLUGIN, 'agents', 'dream-analyzer.md'), '
 assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8'), /^allowed-tools: Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/dream\.mjs":\*\)$/m);
 // S8: every other skill and command grants its own script only, never a bare Bash(node:*)
 const grantsOf = (f) => [...fs.readFileSync(path.join(PLUGIN, f), 'utf8').matchAll(/^allowed-tools: (.*)$/gm)].map((m) => m[1]);
-for (const [f, script] of [['skills/setup/SKILL.md', 'hook.mjs'], ['skills/status/SKILL.md', 'status.mjs'], ['commands/onboard.md', 'hook.mjs']]) {
-  assert.deepEqual(grantsOf(f), [`Bash(node "\${CLAUDE_PLUGIN_ROOT}/scripts/${script}":*)`], f);
+// 8l (audit 6): setup's and onboard's grants cover only their own command of hook.mjs
+for (const [f, script] of [['skills/setup/SKILL.md', 'hook.mjs" setup'], ['skills/status/SKILL.md', 'status.mjs"'], ['commands/onboard.md', 'hook.mjs" onboard']]) {
+  assert.deepEqual(grantsOf(f), [`Bash(node "\${CLAUDE_PLUGIN_ROOT}/scripts/${script}:*)`], f);
 }
 // 8e: tailor's grant covers its ! block (cli, which never starts a trial) and the making steps' writes (draft) only;
 // a trial starts from the line the person types with Claude Code's ! prefix (06, 8e, as amended)
 assert.deepEqual(grantsOf('skills/tailor/SKILL.md'), ['Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" cli:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" draft:*)']);
-// 06, section 3: the skills, each run only when the user invokes it, so none costs listing context
+// 06, section 3: the skills; 8l (the user's word): Claude may start each, so none carries disable-model-invocation
 assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'skills')), ['dream', 'setup', 'status', 'tailor']);
-for (const s of fs.readdirSync(path.join(PLUGIN, 'skills'))) assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8'), /^---\n[\s\S]*?^disable-model-invocation: true$[\s\S]*?\n---\n/m, s);
+for (const s of fs.readdirSync(path.join(PLUGIN, 'skills'))) assert.doesNotMatch(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8'), /disable-model-invocation/, s);
 
 // D18: no model and no network, and hooks spawn only git. A tripwire over the product scripts' source, not a proof:
 // imports in either quote style (side-effect ones too) from these modules only; from child_process only spawnSync,
@@ -131,7 +132,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '784bdf5ebbce', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '8896d4cb1c40', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -976,8 +977,8 @@ ${NAME}` } });
   const versions = (from) => fs.readdirSync(path.join(PLUGIN, 'test', 'earlier')).filter((v) => fs.existsSync(path.join(PLUGIN, 'test', 'earlier', v, from))).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
   assert.deepEqual(OLD.map(([from, , earlier]) => [from, earlier]), OLD.map(([from]) => [from, versions(from).map((v) => sum(old(v, from)))]));
   assert.deepEqual(Object.fromEntries(FILES.filter(([, to]) => to.startsWith('.claude/') || to === '.project-map/README.md').map(([from]) => [from, sum(now(from))])), {
-    'claude/rules/project-map.md': '4bbeddbff188310c', 'claude/skills/map-review/SKILL.md': '6d3e35da1c6033c9', 'claude/agents/decision-checker.md': 'f0eeade059f64cce',
-    'claude/agents/codebase-guide.md': '26df656f4d0a6b34', 'claude/agents/memory-curator.md': '3f840cf3fd21dcb5', 'project-map/README.md': '15a4bb133893f00e',
+    'claude/rules/project-map.md': '4bbeddbff188310c', 'claude/skills/map-review/SKILL.md': '2c564cbd2d263dac','claude/agents/decision-checker.md': 'f0eeade059f64cce',
+    'claude/agents/codebase-guide.md': '26df656f4d0a6b34', 'claude/agents/memory-curator.md': '3f840cf3fd21dcb5', 'project-map/README.md': 'e2ebd48478e808f3',
   }, 'a template changed: list its old hash in setup.mjs (FILES), keep its old text under test/earlier/, then pin the new hash here');
   const cases = [
     { name: 'dotClaudeOnly', pre: (r) => w(r, '.claude/CLAUDE.md', '# Mine\n'), want: { '.claude/CLAUDE.md': `# Mine\n\n${SECTION}\n` }, absent: ['CLAUDE.md'], says: 'Added to files that existed (1): .claude/CLAUDE.md (the team-memory section)' },
@@ -1059,18 +1060,18 @@ ${NAME}` } });
   const T = path.join(tmp, 'setup-empty');
   assert.ok(fs.readFileSync(path.join(T, 'CLAUDE.md'), 'utf8').split('\n').length < 40);
   assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /^---\npaths:\n {2}- "\.project-map\/\*\*"\n---\n/);
-  assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /^disable-model-invocation: true$/m);
+  assert.doesNotMatch(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /disable-model-invocation/); // 8l: Claude may start it
   // 06, section 4, 4c: N2, the rule names the four status kinds and origin, and the README defines origin; N3, review
   // walks a status report's stale entries; N1, the analyzer has no failure kind; N4, the manifest names an author
   assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /<superseded\|narrowed\|expired\|done>[\s\S]*- origin: dream <date>/);
   assert.match(fs.readFileSync(path.join(T, '.project-map/README.md'), 'utf8'), /- origin: dream <date>/);
   assert.match(fs.readFileSync(path.join(T, '.claude/skills/map-review/SKILL.md'), 'utf8'), /stale entries a `\/second-brain:status` report[\s\S]*It changed: update the quote or the source/);
   assert.ok(!/^\s*- failure:/m.test(fs.readFileSync(path.join(PLUGIN, 'agents', 'dream-analyzer.md'), 'utf8')));
-  // 06, section 5, 5a: P1, the README's placement table (six homes, the other homes only offered) and the rule's
+  // 06, section 5, 5a: P1, the README's placement table (seven homes since 8l, the other homes only offered) and the rule's
   // pointer to it, which loads whenever Claude touches a map file; P2, the dream skill's draft-writing rules
   const readme = fs.readFileSync(path.join(T, '.project-map/README.md'), 'utf8');
   assert.match(readme, /^## Where it belongs\n[\s\S]*Claude only offers the other homes/m);
-  assert.equal((readme.split('## Where it belongs')[1].split('\n## ')[0].match(/^\| (?!What it is|---)/gm) ?? []).length, 6);
+  assert.equal((readme.split('## Where it belongs')[1].split('\n## ')[0].match(/^\| (?!What it is|---)/gm) ?? []).length, 7); // 8l: the agent row
   assert.match(readme, /^\| A rule a tool can enforce[^\n]*offer the user a check/m);
   assert.match(fs.readFileSync(path.join(T, '.claude/rules/project-map.md'), 'utf8'), /^---[\s\S]*?---\n# [^\n]*\n\nBefore adding an entry, check the table "Where it belongs" in `\.project-map\/README\.md`/);
   const dreamSkill = fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8');
@@ -1196,10 +1197,11 @@ ${NAME}` } });
   const big = index(r).split('\n').find((l) => l.startsWith('.project-map/: '));
   assert.ok(big.length < 3000 && big.includes('topic00.md (1 entry)') && !big.includes('A long description'), big.slice(0, 300));
   for (let k = 0; k < 40; k++) fs.rmSync(path.join(r, '.project-map', `topic${String(k).padStart(2, '0')}.md`));
-  // the line reaches the user through systemMessage, and never Claude's context
+  // the person's line reaches the user through systemMessage, never Claude's context; 8l: Claude gets its own line
+  // (fix8l.mjs), and none in a headless session
   make(10, 1);
   state({ seen: {}, lastDream: '2026-11-19T12:00:00Z' });
-  o = run({ session_id: 's6f', cwd: r, source: 'clear', transcript_path: tp });
+  o = run({ session_id: 's6f', cwd: r, source: 'clear', transcript_path: tp }, { CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' });
   assert.match(o.systemMessage, /a dream is due: 10 new sessions/);
   assert.ok(!o.hookSpecificOutput.additionalContext.includes('dream is due'));
 }
@@ -1871,6 +1873,7 @@ ${NAME}` } });
 }
 { const f8d = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8k-dream.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8d.status, 0, f8d.stdout + f8d.stderr); } // 8k, group B: the dream side
 { const f8m = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8m-dream.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8m.status, 0, f8m.stdout + f8m.stderr); } // 8m: the dream's older gaps
+{ const f8l = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8l.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8l.status, 0, f8l.stdout + f8l.stderr); } // 8l: the text step
 
 // 06, section 8, 8k, group C: one case per item of the trial side (fix8k-trial.mjs, which also runs on its own)
 {

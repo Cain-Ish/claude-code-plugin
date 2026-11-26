@@ -334,7 +334,7 @@ await tryCheck('(4) and (5) texts', async () => {
   const mr = fs.readFileSync(path.join(PLUGIN, 'templates', 'claude', 'skills', 'map-review', 'SKILL.md'), 'utf8');
   const { FILES } = await import(pathToFileURL(path.join(PLUGIN, 'scripts', 'setup.mjs')).href);
   const row = (FILES ?? []).find(([from]) => from === 'claude/skills/map-review/SKILL.md');
-  check('(4) and (5) texts', an.includes('agent-task') && an.includes('artifact-correction') && an.includes('usage.json') && sk.includes('change/skills/<name>/SKILL.md') && sk.includes('agents/<name>.md')
+  check('(4) and (5) texts', an.includes('agent-task') && an.includes('artifact-correction') && sk.includes('usage.json') && sk.includes('change/skills/<name>/SKILL.md') && sk.includes('agents/<name>.md')
     && mr.includes('.claude/agents/*.md.draft') && mr.includes('git diff --no-index') && mr.includes('which replaces the file a change draft sits beside') && !an.includes('Name the task') && (row?.[2] ?? []).includes('7ff1c09c889ebe9c'), JSON.stringify(row));
 });
 

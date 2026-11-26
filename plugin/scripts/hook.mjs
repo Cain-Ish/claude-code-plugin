@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MAP, CAP, git, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft, safeName } from './map.mjs';
+import { MAP, CAP, git, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft, safeName, stateDir } from './map.mjs';
 import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
@@ -36,17 +36,26 @@ if (old) {
   const idx = index(root, notes);
   // the marker only serves the forced decision: a missing or read-only TEMP must not cost the rest (D18, 2g)
   if (idx) try { openEpoch(input.session_id); } catch {}
+  // 06, 8l: a session the SDK started (claude -p, sdk-ts, sdk-py) has no person to tell, so Claude is not told a dream
+  // is due there
+  const person = !String(process.env.CLAUDE_CODE_ENTRYPOINT ?? '').startsWith('sdk-');
+  let due = false;
   if (idx !== null && ['startup', 'clear'].includes(input.source)) {
     try { const w = waiting(root); if (w) notes.push(w); } catch {}
     const data = process.env.CLAUDE_PLUGIN_DATA;
     if (data) {
-      try { const d = dreamDue(root, data, input.transcript_path); if (d) notes.push(d); } catch {}
-      try { const l = dreamLeft(root, data); if (l) notes.push(l); } catch {}
+      let held = '';
+      try { held = dreamLeft(root, data); } catch {}
+      // the review of 8l: not while a dream holds the lock
+      try { const d = dreamDue(root, data, input.transcript_path); if (d) { notes.push(d); due = person && !held; } } catch {}
+      if (held) notes.push(held);
+      // Q-15 (06, 8m): what a dream's finish or abort put back, told to the person once; a headless session leaves it
+      if (person) try { const f = path.join(stateDir(root, data), 'undone.txt'); const u = fs.readFileSync(f, 'utf8').trim(); fs.rmSync(f); if (u) notes.push(u); } catch {}
     }
   }
   // Q-8 (06, 8k): with no index, outside git or where git cannot run, Claude gets nothing (it got 2,215 bytes); in a
   // repo, index() has told the person why
-  emit('SessionStart', idx === null ? '' : startText(idx).text, notes.length ? notes.join('\n') : undefined);
+  emit('SessionStart', idx === null ? '' : startText(idx, due).text, notes.length ? notes.join('\n') : undefined);
 } else if (which === 'prompt') {
   // the hook also fires on a background subagent's report and another session's message: the force waits for a typed
   // prompt (06, 2i). shortcut: matched on the wrappers transcripts record; another form spends the force as before

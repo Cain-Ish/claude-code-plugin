@@ -42,7 +42,7 @@ const M = [
   ['Q-3 the timeout', J, '"read"], "timeout": 10', '"read"]', ANY],
   ['Q-8 a repo whose git cannot run says so', M_, "if (fs.existsSync(path.join(root, '.git'))) notes.push(", 'if (false) notes.push(', ANY],
   ["Q-8 why: git does not trust the folder", M_, String.raw`/safe\.directory/.test(tracked.stderr ?? '')`, 'false', ANY],
-  ['Q-8 nothing outside git', H, "idx === null ? '' : startText(idx).text", 'startText(idx).text', ANY],
+  ['Q-8 nothing outside git', H, "idx === null ? '' : startText(idx, due).text", 'startText(idx, due).text', ANY],
   ['Q-9 the catalog skips an ended entry', M_, '!ended(b) && reviewOn(b) < today', 'reviewOn(b) < today', ANY],
   ['Q-9 the labels skip an ended entry', M_, 'const review = !ended(b) && reviewOn(b);', 'const review = reviewOn(b);', ANY],
   ['Q-10 a grown transcript', M_, '(!Object.hasOwn(seen, f) || grown(path.join(d, f), seen[f]))', '!Object.hasOwn(seen, f)', ANY],

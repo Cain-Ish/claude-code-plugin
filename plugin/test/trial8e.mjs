@@ -360,14 +360,14 @@ await tryCheck('(6) draft refusals', () => {
     && /exists; nothing is overwritten/.test(got.live) && /not a link/.test(got.linked) && got.good === '.claude/skills/good/SKILL.md.draft,.claude/skills/good/run.mjs', JSON.stringify(got));
 });
 
-// (7) the texts: tailor is started only by a person, passes the words by a quoted heredoc, and never runs a trial
-// itself; map-review shows verdicts by blob ids, stale, not judged and untested, and offers removal on a yes; the
+// (7) the texts: tailor passes the words by a quoted heredoc (8l: Claude may start it, and the delimiter is
+// improbable), and never runs a trial itself; map-review shows verdicts by blob ids, stale, not judged and untested, and offers removal on a yes; the
 // dream's handoff to review is unchanged (D33)
 await tryCheck('(7) texts', () => {
   const tl = fs.readFileSync(path.join(PLUGIN, 'skills', 'tailor', 'SKILL.md'), 'utf8');
   const mr = fs.readFileSync(path.join(PLUGIN, 'templates', 'claude', 'skills', 'map-review', 'SKILL.md'), 'utf8');
   const dm = fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8');
-  check('(7) texts', /^disable-model-invocation: true$/m.test(tl) && tl.includes("```!\nnode \"${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs\" cli <<'SECOND_BRAIN_WORDS'\n$ARGUMENTS\nSECOND_BRAIN_WORDS\n```")
+  check('(7) texts', tl.includes("```!\nnode \"${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs\" cli <<'SECOND_BRAIN_WORDS_q7Xk2Vw9'\n$ARGUMENTS\nSECOND_BRAIN_WORDS_q7Xk2Vw9\n```")
     && !/!`[^`]*\$ARGUMENTS/.test(tl) && tl.includes('Never run `trial.mjs` yourself except `draft`')
     // attempt 4 (the user's word): a request that names no task surveys the repo, lists gaps with evidence, and asks
     && tl.includes('**A request that names no task**') && tl.includes('**Survey, read only.**') && tl.includes('**List the gaps you found.**')

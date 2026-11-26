@@ -1,7 +1,6 @@
 ---
 name: dream
-description: Runs a dream over this repo's past sessions. It reads them, finds decisions the team memory missed, entries a later decision replaced, and corrections or procedures that repeat, and proposes them for review. Use when session start says a dream is due, or after a stretch of work.
-disable-model-invocation: true
+description: Runs a dream over this repo's past sessions. It reads them, finds decisions the team memory missed, entries a later decision replaced, and corrections or procedures that repeat, and proposes them for review. Use when asked for a dream, or when told one is due, then after the person's current task, saying so first.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/dream.mjs":*)
 ---
 !`node "${CLAUDE_PLUGIN_ROOT}/scripts/dream.mjs" prepare "${CLAUDE_PLUGIN_DATA}"`
@@ -14,10 +13,9 @@ running or stopped, ask whether one is still running in another session; if none
 above with `abort` in place of `prepare`, then tell them to run `/second-brain:dream` again.
 
 1. **Analyze.** For each digest above, use the Agent tool with subagent_type `second-brain:dream-analyzer`, giving it
-   the digest's path, the path of `.project-map/.dream-run/usage.json` (each digest's uses and touched files), and the
-   steering file's path when the report above names one. Send up to 4 Agent calls in one
-   message with `run_in_background` false, and wait for their
-   results before you send the next ones. Do every step, finish included, in this one turn: the permission this skill
+   the digest's path, and the steering file's path when the report above names one; nothing else (`usage.json` is
+   for step 3). Send up to 4 Agent calls in one message with `run_in_background` false, and wait for their results
+   before you send the next ones. Do every step, finish included, in this one turn: the permission this skill
    gives the finish command ends with the turn. Done when every digest has its candidates.
 2. **Read the map:** every `.md` file in `.project-map/`, outside `.dream-run/`, except `steering.md`: the analyzers
    had its committed text, and its working copy may hold edits no one reviewed.
@@ -48,10 +46,11 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      > <the person's words, quoted exactly from the U or Q line>
 
      - id: <a short unique slug>
-     - source: <who stated it, as the session shows it>, <YYYY-MM-DD of the session>
+     - source: <who stated it, as the session shows it>, <YYYY-MM-DD of its line>
      - when: ["<kind of work it applies to>"]
      ```
-     For a Q line, the source reads `<who>, chosen from Claude's options`. An entry holds only these lines; finish
+     A line's date is the last `D: <date>` line above it, or else its digest's first date in the report above. For
+     a Q line, the source reads `<who>, chosen from Claude's options`. An entry holds only these lines; finish
      drops any other.
    - `status.md`: one line per status:
      `<entry id> | - status: <superseded|narrowed|expired|done> <date> by <new id>: <what still holds>`. The new id
@@ -77,7 +76,10 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      commands and output styles, to `CLAUDE.md` and to `.mcp.json`, and reports any change to the settings files.
 5. **Finish.** Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/dream.mjs" finish "${CLAUDE_PLUGIN_DATA}"` and show
    the user its report. If it asks for approval, ask the user to approve it. If anything went wrong before this step,
-   run the same command with `abort` in place of `finish`: it puts the map back as it was.
+   run the same command with `abort` in place of `finish`: it puts the map back as it was. A finish that stopped is
+   retried before any review: a retry puts back every change made to the map since prepare, a review's too. Run every
+   command with the Bash tool, never PowerShell (the grant covers Bash), from the repo's top, never from inside
+   `.project-map/.dream-run/`, which finish removes.
 6. **Tell the user** what was proposed, and why, in a few lines per kind. Nothing counts as reviewed until it is
    committed. Then ask whether to review the proposals now, and wait for the answer:
    - Now: read `.claude/skills/map-review/SKILL.md` and follow it in this session, where this dream's reasons are at

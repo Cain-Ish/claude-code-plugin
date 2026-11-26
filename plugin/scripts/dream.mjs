@@ -220,7 +220,7 @@ export async function digestFrom(file, start, accept, skills = new Set(), end = 
   const reads = new Set();
   const uses = [], fails = {};
   let open = [];
-  let first = null, last = null, cwd = null, inDream = false, endId = null;
+  let first = null, last = null, cwd = null, inDream = false, endId = null, shown = null;
   const input = fs.createReadStream(file, { start, ...(end !== Infinity && { end: end - 1 }), encoding: 'utf8' });
   const rl = readline.createInterface({ input, crlfDelay: Infinity });
   // Claude's Skill or Agent call ends the uses still open; a person's typed /<name> is added beside them
@@ -239,7 +239,7 @@ export async function digestFrom(file, start, accept, skills = new Set(), end = 
     const calls = r.type === 'assistant' ? content.filter((x) => x?.type === 'tool_use') : [];
     // Claude Code records a slash command as a command-name record, not as a typed prompt (/code-review's finding)
     const cmd = r.type === 'user' && typeof r.message?.content === 'string' ? /<command-name>\/([^<\s]+)<\/command-name>/.exec(r.message.content)?.[1] : null;
-    const t = tag(r, names, rel);
+    let t = tag(r, names, rel);
     // the skill's text with prepare's output in it; the read of the session that runs a dream begins at or before it
     const meta = r.type === 'user' && r.isMeta ? textOf(r.message?.content) : '';
     if (cmd === 'second-brain:dream' || calls.some((x) => used(x)?.name === 'second-brain:dream') || t.some((l) => /^U: (\[sdk-cli[^\]]*\] )?\/second-brain:dream(\s|$)/.test(l)) || /^Dream prepared: /m.test(meta)) { inDream = true; endId = null; continue; }
@@ -252,6 +252,12 @@ export async function digestFrom(file, start, accept, skills = new Set(), end = 
       continue;
     }
     if (r.timestamp) { first ??= r.timestamp; last = r.timestamp; }
+    // the review of 8l: a skill the person starts by typing /<name> gets the line a Skill call gets, so a correction after
+    // it can name it (the wrapper and the skill's text are otherwise dropped)
+    if (cmd && (skills.has(cmd) || cmd.includes(':')) && !t.length) t = [`T: Skill ${one(cmd, 80)}`];
+    // R-d (06, 8l): a D line where the date changes, so evidence carries its date (the first is prepare's report's)
+    const day = t.length && typeof r.timestamp === 'string' ? r.timestamp.slice(0, 10) : null;
+    if (day) { if (day !== (shown ?? String(first).slice(0, 10))) lines.push(`D: ${day}`); shown = day; }
     // each reading call's own line: tag() gives an assistant record one line per text and per tool call, in order
     const at = lines.length;
     let off = 0;
@@ -568,7 +574,7 @@ export async function prepare(root, data) {
       [...byPkg.keys()].some((k) => k !== '(no package)') ? `Files these sessions touched, by package: ${[...byPkg].sort().map(([k, v]) => `${k} ${v}`).join(', ')}. Each digest's packages are in ${RUN}/usage.json.` : '',
       left.length ? `${left.length} more session(s) wait for the next dream (the cap is ${MAX_SESSIONS} sessions or ${MAX_BYTES >> 20} MB a run).` : '',
       digests.length ? '' : 'Nothing new to read since the last dream: run finish now to close it.',
-      steer.status === 0 ? `Steering: ${RUN}/steering.md, the team's word on what matters here, as HEAD holds it. Give its path to each analyzer with its digest.` : '',
+      steer.status === 0 ? `Steering: ${RUN}/steering.md, the team's word on what matters here, as HEAD holds it.` : '',
       leftover,
     ].filter(Boolean).join('\n');
   } catch (e) { unlock(dir); throw e; }

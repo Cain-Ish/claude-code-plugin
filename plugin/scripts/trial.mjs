@@ -3,7 +3,8 @@
 // types /second-brain:tailor show <name>, reads it, then types the line it printed with Claude Code's ! prefix, and
 // this script does the rest, detached.
 //   cli                        the tailor skill's ! block, the person's words on stdin: "show <name>" shows a trial;
-//                              any other words hand over to the making steps. It never starts a trial
+//                              "cases <path>" hands over to the cases step alone; any other words hand over to the
+//                              making steps. It never starts a trial
 //   run <name> <hash>          the person's yes, typed with ! as show printed it
 //   draft <name> <kind>        the making steps' only write
 //   exec <name> <hash> <token> the detached run that `run` starts, handed run's lock by the token
@@ -46,9 +47,23 @@ export function validate(root, spec, text = JSON.stringify(spec)) {
   const unknown = (o, known) => Object.keys(o ?? {}).filter((k) => !known.includes(k));
   if (unknown(spec, FIELDS).length) errs.push(`fields it does not know: ${unknown(spec, FIELDS).join(', ')}`);
   const a = String(spec?.artifact ?? '');
+  let art = null;
   if (!HOMES.test(a) || a.split('/').includes('..')) errs.push('the artifact must be a skill, agent or rule file under .claude/, a draft or live');
   else if (!plainFile(path.join(root, a)) || !inRepo(root, path.join(root, a))) errs.push(`the artifact is not a plain file in the repo: ${a}`);
+  else if (kindOf(a) === 'skill') try { art = fs.readFileSync(path.join(root, a), 'utf8'); } catch { errs.push(`the artifact cannot be read: ${a}`); }
   const cases = Array.isArray(spec?.cases) ? spec.cases : [];
+  // L-2 (06, 8l): a skill's should-use prompt never names it, or "with" wins by the name alone; audit 5: one only a
+  // person starts (disable-model-invocation) is reached only by its command, so that prompt starts with /<name>
+  if (art !== null) {
+    const fm = art.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? '';
+    const n = fm.match(/^name:[ \t]*["']?([^"'\r\n]+?)["']?[ \t]*$/m)?.[1] || a.split('/')[2];
+    const e = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const flagged = /^disable-model-invocation:[ \t]*true[ \t]*$/m.test(fm);
+    for (const c of cases.filter((x) => x?.use !== false && typeof x?.prompt === 'string')) {
+      if (flagged && !new RegExp(`^/${e}(?![\\w.-])`).test(c.prompt.trim())) errs.push(`case ${c.id}: only a person starts ${n}, so the prompt starts with /${n}`);
+      else if (!flagged && new RegExp(`(?:^|\\s)/${e}(?![\\w-]|[./]\\w)|\`${e}\`|(?<![\\w.-])["']?${e}["']?\\s+skill\\b|\\bskill\\s+["'\`]?${e}(?![\\w.-])|skills/${e}/`, 'i').test(c.prompt)) errs.push(`case ${c.id}: the prompt names the skill ${n}; say the task as a person would`);
+    }
+  }
   if (cases.length < 3) errs.push('three cases or more');
   if (!cases.some((c) => c?.use === false)) errs.push('one case where it should not be used (use: false)');
   const ids = new Set();
@@ -89,6 +104,15 @@ export function describe(root, commit, artifact) {
   const change = draft && git(root, 'cat-file', '-e', `${commit}:${live}`).status === 0;
   const extras = kind === 'skill' && draft ? extrasOf(root, path.posix.dirname(live)) : [];
   return { live, kind, name, text, draft, change, extras };
+}
+
+// C-4 (06, 8l): cases for an artifact that is already there, a draft (a dream's) or a live one; no draft is made
+export function casesFor(root, a) {
+  if (!HOMES.test(a) || a.split('/').includes('..')) throw new Error('cases takes the path of a skill, agent or rule file under .claude/, a draft or live');
+  if (!plainFile(path.join(root, a)) || !inRepo(root, path.join(root, a))) throw new Error(`not a plain file in the repo: ${a}`);
+  const live = a.replace(/\.draft$/, '');
+  const name = kindOf(live) === 'skill' ? live.split('/')[2] : path.posix.basename(live, '.md');
+  return `Tailor: write only the cases for ${a}, a ${kindOf(live)}: step 5 below, in ${MAP}/evals/${name}.json, then step 6. Make no draft, and change no artifact.`;
 }
 
 function load(root, name) {
@@ -396,9 +420,14 @@ if (path.basename(process.argv[1] ?? '') === 'trial.mjs') {
       // the person's words, on stdin from the skill's quoted heredoc, so the shell never reads them
       const words = process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8').trim();
       const m = /^show\s+(\S+)$/.exec(words);
+      const c = /^cases\s+(\S+)$/.exec(words);
+      // P-7 (06, 8l): the guidelines only where something is made, so show does not carry them
+      const guide = () => fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'tailor', 'guidelines.md'), 'utf8');
       if (m) console.log(show(root, m[1]));
       else if (/^run\b/.test(words)) console.log('A trial starts only from the line that /second-brain:tailor show <name> prints, typed by you with its ! at the start.');
-      else console.log('Tailor: make one agent, skill or path rule for a gap this repo shows. Follow the steps below.');
+      else if (c) console.log(`${casesFor(root, c[1])}\n\n${guide()}`);
+      else if (/^cases\b/.test(words)) console.log('Use: /second-brain:tailor cases <the path of a skill, agent or rule file under .claude/, a draft or live>');
+      else console.log(`Tailor: make one agent, skill or path rule for a gap this repo shows. Follow the steps below.\n\n${guide()}`);
     } else if (cmd === 'run') console.log(start(root, rest[0], rest[1]));
     else if (cmd === 'exec') {
       try { await exec(root, rest[0], rest[1], rest[2]); } catch (e) {

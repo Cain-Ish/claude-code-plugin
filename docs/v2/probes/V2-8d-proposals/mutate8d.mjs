@@ -58,11 +58,11 @@ const M = [
   ['(3) the report by package', D, "[...byPkg.keys()].some((k) => k !== '(no package)') ? `Files these sessions touched", "false ? `Files these sessions touched"],
   ['(3) a rule naming a folder the repo lacks', D, "{ drop('rule paths naming a folder the repo lacks'); continue; }", '{}'],
   ['(4) the analyzer\'s agent-task', AN, '  - agent-task: a task a person hands over, or does by hand, which one agent could hold.\n', ''],
-  ['(4) the analyzer gets usage.json', AN, "When you are given the run's `usage.json`", 'When you are given the run file'],
+  // 8l: '(4) the analyzer gets usage.json' went with P-3 (06, 8l): the main session keeps usage.json
   ['(4) the skill stages change drafts', SK, '`change/skills/<name>/SKILL.md` or `change/agents/<name>.md`', '`changes/<name>`'],
   ['(5) the template lists agent drafts', MR, ' and\n   `.claude/agents/*.md.draft`', ''],
   ['(5) the template shows a change as a diff', MR, '(`git diff --no-index <file> <file>.draft`)', ''],
-  ['(5) the 2.5.1 template listed for update', SU, ", '7ff1c09c889ebe9c']]", ']]'],
+  ['(5) the 2.5.1 template listed for update', SU, ", '7ff1c09c889ebe9c'", ''],
 ];
 const fast = Boolean(process.env.MUT_FAST);
 const only = process.env.MUT_ONLY ? new RegExp(process.env.MUT_ONLY) : null;

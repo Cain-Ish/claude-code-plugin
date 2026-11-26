@@ -374,15 +374,19 @@ export function dreamDue(root, data, transcriptPath, now = Date.now()) {
 export const CAP = 10_000;
 const notListed = (n) => `(${n} more ${n === 1 ? 'directory' : 'directories'} not listed: session start is past the `
   + '10,000-character limit of one hook output.)';
-export function startText(idx) {
-  const full = idx ? `${INSTRUCTION}\n\n${idx}\n${NAME}` : `${INSTRUCTION}\n\n${NAME}`;
+// 06, 8l (the user's word): Claude is told when a dream is due, inside the cap, so a cut index keeps the line
+export const DUE = 'A dream is due for this project\'s team memory. After the person\'s current task, say so, then start '
+  + 'the second-brain:dream skill unless they decline.';
+export function startText(idx, due = false) {
+  const end = due ? `${NAME}\n${DUE}` : NAME;
+  const full = idx ? `${INSTRUCTION}\n\n${idx}\n${end}` : `${INSTRUCTION}\n\n${end}`;
   let [head, ...dirs] = (idx ?? '').trimEnd().split('\n');
   if (full.length <= CAP) return { text: full, listed: dirs.length, total: dirs.length };
   const m = dirs.findIndex((l) => l.startsWith(`${MAP}/: `));
   if (m > 0) dirs = [dirs[m], ...dirs.slice(0, m), ...dirs.slice(m + 1)];
-  const at = (k) => `${INSTRUCTION}\n\n${[head, ...dirs.slice(0, k)].join('\n')}\n${notListed(dirs.length - k)}\n\n${NAME}`;
+  const at = (k) => `${INSTRUCTION}\n\n${[head, ...dirs.slice(0, k)].join('\n')}\n${notListed(dirs.length - k)}\n\n${end}`;
   // one forward pass (J1): each directory listed adds its line and takes at most one digit off the count
-  const fixed = INSTRUCTION.length + 2 + head.length + 1 + 2 + NAME.length;
+  const fixed = INSTRUCTION.length + 2 + head.length + 1 + 2 + end.length;
   let k = 0;
   for (let used = fixed; k < dirs.length && used + dirs[k].length + 1 + notListed(dirs.length - k - 1).length <= CAP; k++) used += dirs[k].length + 1;
   return { text: at(k), listed: k, total: dirs.length };
