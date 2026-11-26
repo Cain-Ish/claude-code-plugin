@@ -10518,3 +10518,73 @@ product commit: every self-test job passed; Windows' load job missed, report-onl
   `network.hosts`. They matter only for a directory submission.
 - **Corrected the same day:** #115's tick on "trial copies leave no project folder" is undone. 06's later note (the
   rethink of 2026-11-25) keeps it open.
+
+### 8: the audit after the release (2026-11-26), on the user's word
+
+> fully check if all planned in research and plans points (including lamis makut structure and exposing only plugins
+> code + all required files not all repo) are fully working and nothing has been postpone or skipped. Two is run
+> /ponytail:ponytail-audit to check if our code is correct, we do not overengineered code, duplication, issues, gaps
+> or incorrect approach
+
+Five readers, none given the register: a plan trace (Claude), three flow audits (Claude: hooks and status; the
+dream; tailor, trial and setup), and Gemini 4 Argon on the approach and lean (through T3, plan mode, repo paths
+only). Every finding below was reproduced by its reader in a scratch repo, or checked in the code here; claims that
+did not hold were dropped (an `index.ignore` line with a trailing slash works; `/home/dashboard` at a text's end is
+private by Q-14's own rule).
+
+**Into the register, new (AU = this audit):**
+- AU-1 (fix, security): `trial.mjs draft` writes agent and skill drafts with `memory: user`, `permissionMode`,
+  `hooks`, `mcpServers` or a skill's `allowed-tools`, all of which the dream's finish refuses (X-4, J-1 and 8o's
+  `memory: user` gate were built on the dream side only). The trial's "with" arm then runs them.
+- AU-2 (fix, P-1's class): the verdict's blob ids cover the main file and the case file only. A script beside a skill
+  draft, or a check script, can change and map-review still calls the verdict current.
+- AU-3 (fix): after a dream, map-review commits only the files it changed, so the dream's line in `dreams.md` stays
+  uncommitted and the next prepare refuses ("still waiting for review"); a dream that proposed nothing does the
+  same. Seen for real (the line was committed by hand). The due line does not check this, so Claude is told to start
+  a dream that will be refused.
+- AU-4 (release): `main`'s README says "2.6.0 in progress" and "the last release is 2.5.1", and tells users to pin
+  `#v2.3.0`, a tag whose tree is the whole repo (tests in the cache). The tag `v2.6.0` sits on `v2` (678 files), so
+  every release's source archive is the whole repo. 8n checked `main`'s tree, not the tags.
+- AU-5: the trial's lock is per worktree, so two linked worktrees run two trials at once (D34's one at a time).
+- AU-6 (security): a dream skill draft may carry `!` command lines in its body; J-1's gate reads front matter only.
+- AU-7: the shortcut "one `git show` per map file" on each Bash, PowerShell or Grep command that names the map: about
+  6 topic files with entries pass D18's 100 ms (measured; the field repos have at most 2 today).
+- AU-8: session start's cut stops at the first directory that does not fit, so one large early directory hides every
+  later one (the README says "as many directories as fit").
+- AU-9: `show` warns for a bare `Bash` only, not `PowerShell` or `Bash(*)`, which the hooks treat as the same.
+- AU-10: a finish that arrives after a newer prepare took the two-hour lock over uses up the newer run.
+- AU-11: a case-only rename of a committed map file leaves its entries "unreviewed" for good (`git show` by the
+  disk name; Q-12's class).
+- AU-12: onboard and status misreport an untrusted repo or a missing git ("not a git repository", "never
+  committed"); session start names the reason.
+- AU-13: a map folder linked inside the repo: prepare runs, finish always refuses ("a link"), so each dream is lost.
+- AU-14: setup re-proposes its section every run to a UTF-16 `CLAUDE.md` that holds it (`read` does not decode).
+- AU-15: the trial copy's git does not track committed files that `.gitignore` matches (`add -A` without `-f`).
+- AU-16: the source re-check reads a cited file of any size, and through a link (a 32 MB source added 571 ms per Read).
+- AU-17 (D10): map-review offers to promote a draft it calls untested (the research's G5, "map-review runs the paired
+  check before it promotes", was never placed); `field-check` was promoted untested on 2.5.1.
+- AU-18: `session_…` ids are not in `PRIVATE`.
+- AU-19: three rules for what a map file is: a staged tailor draft counts as team memory and gets Bash labels; a
+  staged dream proposal gets Bash labels.
+- AU-20: the dream neither puts back nor reports an edit to `.claude/hooks/` scripts.
+- Smaller, recorded: `index.ignore` lines ignore git's letter-case folding; a trial whose copies all fail gives no
+  reason; four templates (`CLAUDE.template.md`'s section, `decisions.md`, `dreams.md`, `gitattributes.txt`) have no
+  self-test that forces an upgrade path; a change draft may drop a skill's `disallowed-tools` if Claude Code reads that
+  key for skills (not confirmed: no installed skill uses it); a removed worktree's sessions lose their root (Gemini,
+  by reading, not reproduced).
+- Lean (about 60 lines): front matter parsed six ways (one shared pattern also fixes `draft`'s byte-order-mark
+  refusal); three git blob readers; `trial.mjs`'s own `git` and `clear`; status's copy of the entry checks; unused
+  exports `casesFile` and `usageLines`.
+- Known already: a path's tail after a space (8a's leftovers), one digest's size cap and Q-12's rest (8o's 2.6.1
+  list), the run hash visible to the model (X-5).
+
+**The plan trace's process findings:** D32 and D33 re-locked without the live session their records required; 8l was
+called a pass with its check (e), the live test, not run; D16 ran as a substitute without the user's word; PM7 was
+skipped; 48 of the 122 commits from v2.5.1 to v2.6.0 lack a step-gate line; the register's "later" bucket (about 60
+items) and the 2.6.1 list were placed by the agent's triage, not the user's word, and the "your word needed" items
+(K-8, S-3, S-4, T-2, T-4) were never asked. The improve half of the loop has never run in a real repo, and no artifact
+has gone through make, test and promote. Lost items found (recorded only in running text): 8a's three kept leftovers,
+the audit's two "later" items of 8m's amendment, 8l's three "recorded" items, and the two counted-run confounds.
+
+- **Next:** 2.6.1 starts with PM7's count and entries, then AU-1 to AU-4 before any other fix, then the user's word
+  on the postponed items.
