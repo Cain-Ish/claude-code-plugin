@@ -1,12 +1,12 @@
 # v2 architecture
 
-**Status:** written for 2.3.0; the plugin is now 2.5.1, with 2.5.2 in 06, section 8 ([DECISIONS.md](DECISIONS.md):
-D10 and D18 reopened on 2026-11-24, with their 2026-11-20 locks governing 2.5.1; D34 BLOCKED). Rewritten for the redesign onto Anthropic's layout (06, section 3; D29-D32). The 2.2.0 page is in git
+**Status:** written for 2.3.0; the plugin is now 2.6.0, in progress (06, section 8; [DECISIONS.md](DECISIONS.md): D10
+re-locked on the built surface, D18 reopened until the release bench). Rewritten for the redesign onto Anthropic's layout (06, section 3; D29-D32). The 2.2.0 page is in git
 history. One page by design (charter, definition of done item 3).
 
 ## What runs
 
-A Claude Code plugin with 4 hook events, 3 skills, 1 command and 1 read-only plugin agent. It has no MCP server and
+A Claude Code plugin with 4 hook events, 4 skills, 1 command and 1 read-only plugin agent. It has no MCP server and
 makes no model call in a hook (V2-D18). Setup puts Anthropic's layout into the repo: `CLAUDE.md`, a path-scoped rule,
 a review skill, three project agents and the team memory in `.project-map/` (V2-D29). The repo's own documents and
 that memory stay the source of its knowledge.
@@ -29,7 +29,8 @@ Everything a person needs is readable and correctable with the plugin off (PM4).
 | `.claude/rules/*.md.draft`, `.claude/skills/*/SKILL.md.draft` | a dream's rule and skill drafts. Claude Code loads only names ending in `.md`, so a draft binds nothing until `/map-review` promotes it | the dream's finish step | D31 |
 | `.project-map/.dream-run/` | one dream's digests and staged proposals, removed when it closes; never listed | `/second-brain:dream` | D31 |
 | `${CLAUDE_PLUGIN_DATA}/repos/<repoKey>/` | per machine: `dirs.log` (the transcript folders session start has seen), `state.json` (sessions a dream has read, the last dream), `dream.lock`, `undone/` (snapshots a failed dream restores) | session start (one `dirs.log` line); the dream | D31, D32 |
-| no cache | the index is built at each session start from git's file list, plus the untracked files under `.project-map/` | the plugin | D15, D18 |
+| `.project-map/index.ignore` (optional) | lines naming folders or patterns, from the repo's root, that the index and the forced decision leave out. The map's own folder is always listed | the team, committed | D22 (8k) |
+| no cache | the index is built at each session start from git's file list (less `index.ignore`'s lines), plus the untracked files under `.project-map/` | the plugin | D15, D18 |
 
 ## Hooks
 
@@ -40,8 +41,8 @@ is missing.
 
 | Event | What it does | Bytes | Reaches (D12) | Decision |
 | --- | --- | --- | --- | --- |
-| `SessionStart`: `startup`, `clear`, `resume`, `compact` | the capture instruction, then the document index by directory. Once map files have front matter, the map's line is a catalog: each topic file's description and its counts of entries, due entries and proposals. Past Claude Code's 10,000-character cap, the index is cut at a directory, with the map's line kept first. Then the line asking Claude to name the decisions it followed | 1,794 B + the index + 304 B | Claude's context | D13, D14, D22, D23, D30 |
-| the same, `startup` and `clear` only | for the user, in `systemMessage`: what waits for review (proposals, drafts); a dream that is due (10 or more new sessions; 7 days with 3 or more; sessions Claude Code's cleanup deletes within 5 days); a dream that did not finish. On any source, a line while v1's shims are on disk | 0 in Claude's context | the user only | D27, D32 |
+| `SessionStart`: `startup`, `clear`, `resume`, `compact`, `fork` | the capture instruction, then the document index by directory. Once map files have front matter, the map's line is a catalog: each topic file's description and its counts of entries, due entries and proposals. Past Claude Code's 10,000-character cap, the index is cut at a directory, with the map's line kept first. Then the line asking Claude to name the decisions it followed. Outside headless sessions, with no dream running, one line saying a dream is due (D32, D33) | 1,794 B + the index + 304 B, +149 B when a dream is due | Claude's context | D13, D14, D22, D23, D30 |
+| the same, `startup` and `clear` only | for the user, in `systemMessage`: what waits for review (proposals, drafts); a dream that is due (10 or more new sessions; 7 days with 3 or more; sessions Claude Code's cleanup deletes within 5 days); a dream that did not finish. On any source, a line while v1's shims are on disk | 0 in Claude's context (Claude's own due line is in the row above) | the user only | D27, D32 |
 | `UserPromptSubmit`, the first typed prompt and the first after each compaction (a subagent's report or another session's message is skipped) | the forced decision: per index directory yes or no, then read the yes ones before changing anything | 227 B | Claude's context | D22 |
 | `PostToolUse` after a Read of a `.project-map/*.md` file | labels its entries. Uncommitted: "unreviewed, not yet committed". A source naming a repo file is re-found in it now: found, no label; not found, "not found word for word in <path>". Any other source: "unverified quote" (committed ones share one line of ranges). Also: "cannot read <path>"; `status: …`; "proposed by a dream <date>, not yet accepted"; "review due since <date>"; "replaced by <id>, which the map does not hold". A file that fails to parse gets one fail-closed label. Past the cap, labels are cut, and the last line says to treat every later entry as unreviewed | per read | Claude's context | D14, D16, D28, D30 |
 | `PostToolUse` and `PostToolUseFailure` on Bash, started by `if: Bash(*.project-map*)` | every uncommitted entry's labels, and the labels of committed entries the command's output shows | per command | Claude's context | D14 (06, 2o) |
@@ -51,17 +52,18 @@ a decision check to. Not used: `PreToolUse` (D18), `SubagentStart` (subagents do
 
 ## Skills, command and agents
 
-Each skill and the command grants Bash only for its own script. The skills set `disable-model-invocation`, so only
-the user starts them.
+Each skill and the command grants Bash only for its own script. No plugin skill sets `disable-model-invocation`: Claude
+may start each, and its first start by Claude asks the person for permission once (D18, 8l).
 
 | Name | What it does | Decision |
 | --- | --- | --- |
 | `/second-brain:setup` | creates the layout above at the top of a git repo. Refuses a home folder, and any target a link would carry out of the repo. Warns when auto memory is off. Its report names the branch and the uncommitted work already there (N9), the kept plugin files that differ from this version's templates (N10), and where the agents keep notes (N11) | D29 |
 | `/second-brain:dream` | *prepare*: lock, snapshot, and turn unread transcripts into tagged digests. *Analyze*: one `dream-analyzer` call per digest. *Stage*: the main session writes proposals. *Finish*: format lint, privacy and secret scan, and provenance (a proposal must rest on the user's typed lines, a chosen answer or a tracked file); committed entries are never changed; drafts are written. *Close*: compare with the snapshot, write the log line, move the watermark. All in one turn, since the skill's grant ends with it | D31 |
 | `/second-brain:status` | the report: stale entries (the read hook's states, plus a source committed after its `verified` date, and a repo path the entry names that is gone (N12)), what waits for review, the last dream and the sessions since, uncommitted agent memory. Changes no file | D30, D32 |
+| `/second-brain:tailor` | makes an agent, skill or path rule from a gap: a survey of gaps, then `make <name>` drafts it and runs its trial; `cases <path>` writes cases for an existing draft or live artifact. The trial runs each case with and without the artifact in a copy, only cases the person was shown and approved; it gives a verdict and never promotes or commits | D34, D35 |
 | `/second-brain:onboard` | checks that Node and git are present and reports the index, with a count of uncommitted map files | D15 |
 | `dream-analyzer` (plugin agent) | reads one digest and returns candidates, each resting on a typed or chosen line. Tools: Read, Grep, Glob | D31 |
-| `decision-checker`, `codebase-guide`, `memory-curator` (project agents, from setup) | check a change against the recorded decisions; keep navigation notes; flag due and duplicate entries. `memory: project`, no Bash | D20, D21, D29 |
+| `decision-checker`, `codebase-guide`, `memory-curator` (project agents, from setup) | check a change against the recorded decisions; keep navigation notes; flag due and duplicate entries. `memory: project`, no Bash. It also gives them Write and Edit with no path scope, so their limit to their memory folder is an instruction, not a guard | D20, D21, D29 |
 | `/map-review` (project skill, from setup) | walks the user through proposals, drafts and due entries, then the commit | D29, D31 |
 
 ## Budgets (PM8)
@@ -69,7 +71,8 @@ the user starts them.
 - Always on, per session: 1,794 B of instruction, 304 B of naming, and the index: 0.3 KB in a fresh repo after setup,
   2 KB in P1, 6 KB in P2. Plus 227 B per forced decision.
 - Hooks: added p95 at most 100 ms (V2-D18). 2.3.0's release bench: at most 62.7 ms at 8 concurrent (06, S8).
-- Surface: 4 hook events, 3 skills, 1 command, 1 plugin agent, 0 MCP servers.
+- Surface: 4 hook events, 4 skills, 1 command, 1 plugin agent, 0 MCP servers. 2.6.0's always-on cost is 404 tokens
+  (`claude plugin details`); its hook bench is due at the release (D18).
 
 ## Known weaknesses, each with its trigger
 

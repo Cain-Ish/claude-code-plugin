@@ -1,6 +1,6 @@
 # second-brain v2: working rules
 
-This branch holds v2 of the second-brain plugin. The product is `plugin/` (2.5.0). v2 replaced v1 on `main` at
+This branch holds v2 of the second-brain plugin. The product is `plugin/` (2.6.0 in progress). v2 replaced v1 on `main` at
 2.0.0; v1 is frozen on branch `v1` (tag `v1-final`). Read v1 with `git show v1-final:<path>` when evidence is
 needed; never copy v1 code or rules in.
 

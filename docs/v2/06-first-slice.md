@@ -9321,6 +9321,8 @@ be revised:
 - C-11: a stale hash comment in `setup.mjs:14`.
 - `04-architecture.md`, the charter's D34 entry, the ledger's frontier block (D20 deferred, D28 waiting) and a D14 note
   for 8h are stale. The "graph" item was never closed after the talk was read. #115 lacked 8c to 8h.
+  - **R-l closed (2026-11-26): not taken** (research of 2026-11-23, [the DevCon note](research/2026-11-23-ai-native-devcon.md),
+    section 4: git and Claude Code's transcripts already hold the record).
 
 **release**
 - Group M (A1, S8, D16's drift, D14's injection), on the final candidate.
@@ -10282,3 +10284,25 @@ at their bars. If either misses, 8l is BLOCKED and the bars that need every run 
 - **Next:** the records, the release stop (group M, D18's bench, the final audit, 8n), the live test (the other
   session), and a stop before `main`. 8n's tooling is in `probes/V2-8n-main/` (dry run: 28 files, 266 KB, against
   `main`'s 449 files, 3.7 MB).
+
+### 8: the records (2026-11-26)
+
+The records step, after 8k, 8m and 8l passed (product `8896d4cb1c40`, version 2.6.0 in progress). Documents only;
+`plugin/` is unchanged and nothing is committed here.
+- **Re-locked on their results** (each record and its status-table row):
+  - D22 on 8k (`index.ignore`); D31 on 8m and 8l; D32 and D33 on 8l's result, (a), (b) and (c);
+  - D10 on the built surface (C-9): 4 hook events, 4 skills all model-invocable, 1 plugin agent, 1 command, tailor and
+    its trial.
+- **D18 stays REOPENED**, its surface settled (C-9). Its trigger to re-lock is "the release bench": rule 1 allows LOCKED
+  only after the check passes, D18's budget is measured, and the hooks changed after the last bench (8k, 8l). **D03**
+  stays REOPENED until 8n runs at the release.
+- **D36 added** (OPEN, after 2.6.0, monorepo scopes; the rethink note), as a table row and a short record.
+- **D18's boundary sentence** has a note: `index.ignore` lines reach `git ls-files` as pathspecs in an argument array,
+  no shell (8k: the two reviews).
+- **The ledger's frontier block** is replaced by the current state: 2.6.0 built through 8m, the release stop next.
+- **Stale versions (L-18):** the working rules and the charter say 2.6.0 in progress; `04-architecture.md` says the same
+  and now states what 8e to 8l built: four skills that Claude may start, tailor and its trial, the due line,
+  `index.ignore`, the `fork` source, and Q-5 (`memory: project` gives the project agents Write and Edit with no path
+  scope, so their write limit is an instruction).
+- **R-l closed** in the register: not taken.
+- **Not done here:** the charter's D34 entry, and #115's steps; the map issue is updated at the step's commit.
