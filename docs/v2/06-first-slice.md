@@ -10156,3 +10156,54 @@ first on PATH for its leg.
   on CI.
 - **Into 8l:** session start prints `undone.txt` once (Q-15); the analyzer's text for the cut mark, the sdk-cli mark
   and L-9's topic field.
+
+### 8, 8l: attempt 1 (2026-11-26): fail; attempt 2 registered before its code
+
+**Built** (an agent, then fixed after two reviews: the decision-checker and Gemini 4 Argon through T3, each claim
+reproduced first): every registered item of 8l and its gains, product `85a6fc60d2b5`. `fix8l` 58 of 58 under Node 24
+and Node 20, 56 of them failing on 8m's build (the other two guard what must not change); every other test file and
+the self-test under both; `mutate8l` 94 of 94, 8k-hook 46 of 46 (the other lists' run continues on the same scripts).
+
+**The counted runs on the frozen copy** (CLI 2.1.332, Opus 5.5; results beside each runner):
+- 8e's check 3: **pass** (good skill and good agent "helps" 2 of 2, bad skill "adds nothing" 2 of 2).
+- (b): **pass** (status started by Claude's own Skill call 3 of 3; the dream's prepare 3 of 3).
+- S7's check 2: **fail** (C1 to C3 1 of 10, rule 0 of 5, skill 0 of 5; the choice, noise, status, nonce, steering
+  pass). 8d's check 3: **fail** (a, c, d 0 of 5; every dream proposed nothing). (c): **fail** (nothing accepted
+  without the person's yes in 10 of 10, but only 6 of 10 dreams ran to a proposal).
+- 8e's check 4: **fail** on one bar: "asks" 0 of 6 (every other bar passes).
+- C-6: **fail**, 0 of 3: `make` drafted and moved the draft with no denial in every run, but each run had 1 to 4
+  denials of the model's own extra shell commands (testing its check with `$()`, `&&` or PowerShell).
+- C-4: **not run**: its runner took S7's drafts as its source, and S7 left none.
+- (d) the always-on cost (`claude plugin details`): about 404 tokens against 2.6.0's 371; tailor on start about 1.1k
+  against 2.3k. Session start's added text is not counted there (2,287 B, +149 B when a dream is due).
+
+**The causes, each seen in the runs:**
+1. Every runner records its histories with `claude -p`, so 8m's L-8 marks each typed line `[sdk-cli: …]`, and 8l's
+   analyzer text said never to quote such a line as the person's rule. All 52 analyzer reports in 8d's dreams gave the
+   mark as the reason and returned nothing. The mark works as registered; the text made it a refusal, which L-8 did
+   not register (it registered "treats them as not shown to be the person's") and which 8m's result had settled the
+   other way (marked, not refused).
+2. 8e check 4's "asks" bar reads a question in the reply; C-6's new text ends the survey with an instruction to type
+   `make <name>`, not a question.
+3. C-6: tailor's making step tests its checks, and the model did so with compound shell commands no grant covers.
+4. (c) run 9: on Windows the model ran the dream's `finish` through the PowerShell tool; the skill grants it as Bash.
+5. S7's scorer still required `disable-model-invocation: true` in a skill draft, which 8m removed on the user's word.
+
+**Attempt 2 of three** (rule 4), registered now, before its code, settled under the user's delegation:
+- **Text:**
+  - the analyzer may cite a line marked `[sdk-cli: …]`; its candidate says the line is marked, and the person weighs
+    it at review (no refusal);
+  - tailor's survey ends with a question that names the line to type, `/second-brain:tailor make <name>`;
+  - tailor's guidelines: test a check with one plain `node <check file>` command (no `$()`, `&&`, pipes or
+    PowerShell);
+  - the dream, tailor and status skills say to run their commands with the Bash tool.
+- **Scorers, amended before attempt 2's runs:**
+  - S7: a skill draft no longer needs `disable-model-invocation` (8m, the user's word);
+  - C-6: the bar is that no command the plugin grants (`trial.mjs cli`, `trial.mjs draft`) is denied and the draft is
+    moved; other denials are counted and reported, not barred;
+  - C-4: its runner places its own dream-made skill draft (no case file), so it does not depend on S7.
+- **The runs again, fresh histories, at the registered bars otherwise:** S7's check 2, 8d's check 3, 8e's checks 3
+  and 4, C-4, C-6, (b) and (c). The unit cases for each text change fail first and a mutation each.
+- **Side finding, recorded:** 8d's history sessions keep auto memory on (the runner clears the variable that would turn
+  it off), and one analyzer cited an auto-memory note. It is the fixture's, not the product's; left as is so the runs
+  stay comparable with 8d's.

@@ -1,0 +1,71 @@
+{
+ "survey": "Make agents for this repo.",
+ "runs": 3,
+ "passed": 0,
+ "costUsd": 2.94,
+ "rows": [
+  {
+   "run": 1,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": "pricing-change",
+   "makeOk": true,
+   "drafts": [
+    ".claude/skills/pricing-change/SKILL.md.draft"
+   ],
+   "leftInDrafts": 0,
+   "denials": [
+    "Bash",
+    "PowerShell",
+    "PowerShell",
+    "Bash"
+   ],
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 1,
+   "pass": false
+  },
+  {
+   "run": 2,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": "pricing-change",
+   "makeOk": true,
+   "drafts": [
+    ".claude/skills/pricing-change/SKILL.md.draft"
+   ],
+   "leftInDrafts": 0,
+   "denials": [
+    "Bash",
+    "Bash",
+    "PowerShell",
+    "PowerShell"
+   ],
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 1.1,
+   "pass": false
+  },
+  {
+   "run": 3,
+   "surveyOk": true,
+   "surveyMade": false,
+   "name": "pricing-change",
+   "makeOk": true,
+   "drafts": [
+    ".claude/skills/pricing-change/SKILL.md.draft"
+   ],
+   "leftInDrafts": 0,
+   "denials": [
+    "Bash"
+   ],
+   "surveyDenials": [],
+   "committed": false,
+   "costUsd": 0.84,
+   "pass": false
+  }
+ ],
+ "pass": {
+  "all": false
+ }
+}

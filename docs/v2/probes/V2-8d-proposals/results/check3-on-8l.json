@@ -1,0 +1,97 @@
+{
+ "runs": 5,
+ "finished": 5,
+ "a": 0,
+ "b": 5,
+ "c": 0,
+ "d": 0,
+ "e": 5,
+ "lowerRules": [
+  0,
+  0,
+  0,
+  0,
+  0
+ ],
+ "nothingLive": 5,
+ "nothingCommitted": 5,
+ "sessionsFailed": 0,
+ "costUsd": 2.68,
+ "per": [
+  {
+   "run": 1,
+   "finished": true,
+   "costUsd": 0.56,
+   "a": false,
+   "b": true,
+   "c": false,
+   "d": false,
+   "e": true,
+   "lowerRules": 0,
+   "nothingLive": true,
+   "nothingCommitted": true
+  },
+  {
+   "run": 2,
+   "finished": true,
+   "costUsd": 0.52,
+   "a": false,
+   "b": true,
+   "c": false,
+   "d": false,
+   "e": true,
+   "lowerRules": 0,
+   "nothingLive": true,
+   "nothingCommitted": true
+  },
+  {
+   "run": 3,
+   "finished": true,
+   "costUsd": 0.54,
+   "a": false,
+   "b": true,
+   "c": false,
+   "d": false,
+   "e": true,
+   "lowerRules": 0,
+   "nothingLive": true,
+   "nothingCommitted": true
+  },
+  {
+   "run": 4,
+   "finished": true,
+   "costUsd": 0.53,
+   "a": false,
+   "b": true,
+   "c": false,
+   "d": false,
+   "e": true,
+   "lowerRules": 0,
+   "nothingLive": true,
+   "nothingCommitted": true
+  },
+  {
+   "run": 5,
+   "finished": true,
+   "costUsd": 0.53,
+   "a": false,
+   "b": true,
+   "c": false,
+   "d": false,
+   "e": true,
+   "lowerRules": 0,
+   "nothingLive": true,
+   "nothingCommitted": true
+  }
+ ],
+ "pass": {
+  "a": false,
+  "b": true,
+  "c": false,
+  "d": false,
+  "e": true,
+  "live": true,
+  "committed": true,
+  "all": false
+ }
+}
