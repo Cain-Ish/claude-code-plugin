@@ -315,6 +315,9 @@ await tryCheck('(5) not judged, and no write through a link', async () => {
   const savedTmp = Object.fromEntries(tmpVars.map((k) => [k, process.env[k]]));
   Object.assign(process.env, env, { STUB_FAIL: '' }, Object.fromEntries(tmpVars.map((k) => [k, innerTmp])));
   let innerV;
+  // no session starts at all: every one would fail here anyway, so the stand-in's log is what tells (8m's review)
+  const logLines = () => (fs.existsSync(env.STUB_LOG) ? fs.readFileSync(env.STUB_LOG, 'utf8').split('\n').filter(Boolean).length : 0);
+  const sessionsBefore = logLines();
   try { innerV = await T.exec(inner.r, 'pricing', innerHash); } finally {
     for (const k of Object.keys(env)) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
     for (const k of tmpVars) if (savedTmp[k] === undefined) delete process.env[k]; else process.env[k] = savedTmp[k];
@@ -328,7 +331,7 @@ await tryCheck('(5) not judged, and no write through a link', async () => {
   const linkRefused = refused(() => T.record(away.r, 'pricing', { verdict: 'helps' })) && !fs.existsSync(path.join(awayDir, 'pricing.json'));
   const privateRefused = refused(() => T.record(inner.r, 'leak', { note: 'bob@example.com' })) && !fs.existsSync(path.join(inner.r, '.project-map', '.trial', 'leak.json'));
   check('(5) not judged, and no write through a link', v?.verdict === 'not judged' && v.failed === 18 && onDisk.verdict === 'not judged' && fs.readFileSync(outside, 'utf8') === 'outside\n'
-    && stopped.status === 1 && after.verdict === 'not judged' && after.stopped === true && innerV?.verdict === 'not judged' && innerV.failed === 18 && fs.readdirSync(innerTmp).length === 0
+    && stopped.status === 1 && after.verdict === 'not judged' && after.stopped === true && innerV?.verdict === 'not judged' && innerV.failed === 18 && logLines() === sessionsBefore && fs.readdirSync(innerTmp).length === 0
     && linkRefused && privateRefused, JSON.stringify({ v: v?.verdict, failed: v?.failed, outside: fs.readFileSync(outside, 'utf8'), after, inner: innerV?.verdict, innerFailed: innerV?.failed, linkRefused, privateRefused }));
 });
 

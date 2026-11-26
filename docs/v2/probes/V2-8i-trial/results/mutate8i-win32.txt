@@ -1,4 +1,4 @@
-platform win32, copy c8k-M, trial8e.mjs alone
+platform win32, copy c8m2, trial8e.mjs alone
 killed    (8i-1) X-1: the main file by its exact name: (8i-1) X-1
 killed    (8i-1) X-1: nothing beside it named as the main file or a draft: (8i-1) X-1
 killed    (8i-2) P-1: artifactBlob of the text that ran: (8i-2) P-1
@@ -21,8 +21,6 @@ killed    (8i-10) the copy's project folder removed: (8i-10) no project folder l
 killed    (8i-10) never a project folder holding a transcript: (8i-10) no project folder left
 killed    (8e 5) the blob ids recorded: (5) a run end to end; (8i-2) P-1
 killed    (8e 5) the copies deleted: (5) a run end to end; (5) not judged, and no write through a link; (8i-6) K-3
-MISSING   (8e 5) one session at a time
+killed    (8e 5) one session at a time: (5) a run end to end
 killed    (8e 6) an empty field is no value: (6) draft refusals; (8i-7) K-4
-23 of 24 killed; 1 survived or could not be applied
-
-Then its one entry with moved extra anchors, updated to 8k's lock code (MUT_FAST, MUT_ONLY): 1 of 1 killed. 24 of 24.
+24 of 24 killed

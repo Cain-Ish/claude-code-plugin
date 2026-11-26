@@ -38,8 +38,7 @@ const M = [
   ['(K-4) a block list read', D, "\n  ?? new RegExp(`^${k}:[ \\\\t]*((?:\\\\n[ \\\\t]*-[ \\\\t]+\\\\S.*)+)`, 'm').exec(fm?.[1] ?? '')?.[1].split(/\\n[ \\t]*-[ \\t]+/).slice(1).join(', ')", ''],
   // 5, P-2: git-ignored files left out of the touched files
   ['(P-2) ignored files left out', D, 'm.touched.filter((f) => kept.has(f))', 'm.touched'],
-  ['(P-2) the rest checked again after git stops', D, 'rest = x.status > 1 ? rest.slice(k / 4 + 1) : [];', 'rest = [];'],
-  ['(P-2) the path git stops at left out', D, 'rest.slice(k / 4 + 1)', '(kept.add(rest[k / 4]), rest.slice(k / 4 + 1))'],
+  // (8m) the retry after git stops, and the path it stops at, went with J-4's filter: git is given no path it stops at
   ['(P-2) a "!" pattern keeps its file', D, " || f[k + 2].startsWith('!')", ''],
 ];
 const fast = Boolean(process.env.MUT_FAST);

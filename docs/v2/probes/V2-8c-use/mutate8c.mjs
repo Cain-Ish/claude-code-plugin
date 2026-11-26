@@ -29,7 +29,7 @@ const M = [
   ['(2) a typed line after a use', D, '{ for (const u of open) u.after = true; open = []; }', '{ open = []; }'],
   ['(2) a call ends the open uses', D, 'open = ends ? [e] : [...open, e];', 'open = [...open, e];'],
   ['(2) failed results by tool', D, 'fails[t] = (fails[t] ?? 0) + 1;', ''],
-  ['(2) a sidechain failure is not the session\'s', D, "if (r.type === 'user' && !r.isSidechain && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_result' && x.is_error)", "if (r.type === 'user' && Array.isArray(r.message?.content)) for (const x of r.message.content) if (x?.type === 'tool_result' && x.is_error)"],
+  ['(2) a sidechain failure is not the session\'s', D, "if (r.type === 'user' && !r.isSidechain) for (const x of content) if (x?.type === 'tool_result' && x.is_error)", "if (r.type === 'user') for (const x of content) if (x?.type === 'tool_result' && x.is_error)"],
   ['(2) use counted before the nothing-typed skip', D, '      // 8c (D35): use is counted for every session of this repo the dream reads,', "      if (!dg.lines.some((l) => /^(U|Q): /.test(l))) { manifest.push({ f: c.f, end: c.size, skipped: 'nothing typed' }); continue; }\n      // 8c (D35): use is counted for every session of this repo the dream reads,"],
   ['(2) subagent runs read', D, "files = fs.readdirSync(d).filter((f) => f.endsWith('.meta.json')).sort();", 'files = [];'],
   ['(2) a run counts by its Agent call', D, "(typeof m.toolUseId === 'string' && calls.has(m.toolUseId))", "typeof m.toolUseId === 'string'"],

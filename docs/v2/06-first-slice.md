@@ -10117,3 +10117,42 @@ each in its own temp folder; Node 20 first on PATH for its leg, its children log
   code; those four lists match 8m, which lands next.
 - **Doubted:** is it over-built? 8k's own size is the registered items plus the review's four fixes. One mechanism was
   wider than registered (the per-line fallback) and is now as registered.
+
+### 8, 8m: result (2026-11-26): pass; moved into `plugin/` (product `784bdf5ebbce`)
+
+Built by an agent on 8k's copy, then fixed after a fresh review (Gemini 4 Argon through T3, given only the diff); each
+of the review's claims was reproduced before its fix. All runs on Windows, each with its own temp folder, Node 20
+first on PATH for its leg.
+- **The items:** Q-6 (with the Skill-tool form), Q-7, Q-14, Q-15 (the dream side: `undone.txt`), Q-16, J-1, J-2, J-4,
+  L-8, L-9 (the code side), audit 1, 3, 4 and 8, no flag added to a skill draft, `by <id>` after a rename, and the
+  80-character cut after paths are made relative.
+- **The review's fixes** (14 reproduced and fixed): bare home paths and `file:///c/Users/…` stay private, and e-mail
+  addresses such as `alice@10x.dev` or `a@b.com:secret`; the cut mark counts only at a line's end, on U and Q lines;
+  the sdk-cli mark is not the person's words; Q-6's gate: a dream starts at its command, Skill call or prepare's output,
+  and ends at its finish or abort result, at prepare's refusal, or at the records' end, while an end with no start is
+  an ordinary line (no session's lines are wiped); a tool call with no input; a dream committed on a detached HEAD
+  counts as kept; L-9's topic named with its path; a submodule's files kept from `check-ignore`; a live file with a
+  byte-order mark; a regular file where a draft's folder goes.
+- **Settled here, by the user's delegation (2026-11-25: "answer all the question by self"):**
+  - `/users/<name>` is always private: a lost proposal costs less than a leaked name. `GET /users/:id`, Q-14's
+    registered case, still passes; a route such as `/users/me` is now treated as private.
+  - quotes from an sdk-cli session stay marked, not refused (L-8 registered the mark); 8l's analyzer text says how to
+    weigh them.
+  - typed lines after an abandoned dream are read.
+- **Deleted:** P-2's retry after git stops and its two 8j mutations: J-4's filter gives git no path it stops at.
+- **Found in the checks:** 8e's case for "no copy inside the repo" passed with the guard removed (every session fails
+  there anyway, and the copies are deleted). The case now also checks that no session started. The mutation is
+  killed; on 8k it had been killed by chance.
+
+**The checks:**
+1. `fix8m-dream` 24 of 24 under Node 24 and Node 20; on 8k's copy 22 of its 24 fail (the other two guard regressions
+   8m itself would have made). `fix8k-dream`, `fix8k-trial`, `fix8k-hook`, `dream8c`, `dream8d`, `dream8f`, `trial8e`
+   and the self-test pass under both.
+2. **Mutations** (MUT_FAST): 8m 59 of 59; 8k-dream 41, 8c 32, 8d 49, 8f 26, 8j 20 (two removed with P-2's retry),
+  8k-hook 46, 8i 24, 8k-trial 29, all killed; 8e 82 of 89 under MUT_FAST, its (7) self-test guards killed in full
+  mode, its "no copy inside the repo" killed after the case above, and three anchors gone since 8i (moved versions
+  killed in 8i's and 8k-trial's lists).
+- **Not run here:** a decision-checker pass (8m touches D31's dream only; 8l's review covers D31 and D35); macOS rests
+  on CI.
+- **Into 8l:** session start prints `undone.txt` once (Q-15); the analyzer's text for the cut mark, the sdk-cli mark
+  and L-9's topic field.

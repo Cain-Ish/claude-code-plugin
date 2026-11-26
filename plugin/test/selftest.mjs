@@ -131,7 +131,7 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
-assert.equal(product.digest('hex').slice(0, 12), '62048055c544', 'the product changed: record its hash with a new epoch (06)');
+assert.equal(product.digest('hex').slice(0, 12), '784bdf5ebbce', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));
@@ -1412,7 +1412,7 @@ ${NAME}` } });
   assert.ok(!fs.existsSync(path.join(r, '.project-map', 'stray.md')), 'a topic file written directly is removed');
   assert.ok(fs.existsSync(path.join(r, '.claude', 'rules', 'dates.md.draft')));
   assert.ok(!fs.existsSync(path.join(r, '.claude', 'rules', 'unscoped.md.draft')) && !fs.existsSync(path.join(r, '.claude', 'rules', 'badyaml.md.draft')));
-  assert.match(fs.readFileSync(path.join(r, '.claude', 'skills', 'release', 'SKILL.md.draft'), 'utf8'), /^---\ndisable-model-invocation: true\nname: release/);
+  assert.match(fs.readFileSync(path.join(r, '.claude', 'skills', 'release', 'SKILL.md.draft'), 'utf8'), /^---\nname: release\n/); // 8m: no flag added
   assert.ok(!fs.existsSync(path.join(r, '.claude', 'skills', 'once')), 'a skill from one session is dropped');
   assert.match(fin, /Undone, because they changed during the dream \(only its proposals reach the repo\): /);
   assert.match(fin, /Dropped: .*no typed or tracked source/);
@@ -1429,7 +1429,7 @@ ${NAME}` } });
   assert.ok(fs.existsSync(path.join(r, '.claude', 'rules', 'existing-2.md.draft')), 'a rule draft never takes a live rule\'s name');
   assert.equal(fs.readFileSync(path.join(r, '.claude', 'rules', 'existing.md'), 'utf8'), EXISTING);
   const flagged = fs.readFileSync(path.join(r, '.claude', 'skills', 'flagged', 'SKILL.md.draft'), 'utf8');
-  assert.equal(flagged.match(/^disable-model-invocation:.*$/gm).join('|'), 'disable-model-invocation: true', 'one flag, true');
+  assert.equal(flagged.match(/^disable-model-invocation:.*$/gm).join('|'), 'disable-model-invocation: false', 'the flag as proposed (8m)');
   // the devils-advocate review
   assert.ok(!fs.existsSync(path.join(r, '.project-map', 'late.md')), 'a commit made during the dream is no source');
   assert.ok(!fs.existsSync(path.join(r, '.project-map', 'bashpath.md')), 'a Git Bash path is private');
@@ -1475,10 +1475,11 @@ ${NAME}` } });
   assert.ok(!all(r).includes('aaaaaaaa-0000'));
   const sd = path.join(data, 'repos', repoKey(r));
   const st = JSON.parse(fs.readFileSync(path.join(sd, 'state.json'), 'utf8'));
-  // the 4 sessions read; the sibling's and the nested repo's sessions skipped and seen; the dream's own session seen
-  // for good; a session with no folder and one whose folder is gone, seen unread (/code-review)
+  // the 4 sessions read; the sibling's and the nested repo's sessions skipped and seen; the dream's own session read to
+  // its end, its line inside the dream in no digest (8m, Q-6); a session with no folder and one whose folder is gone, seen
+  // unread (/code-review)
   assert.equal(Object.keys(st.seen).length, 9);
-  assert.equal(st.seen['aaaaaaaa-0000-4000-8000-000000000005.jsonl'], Number.MAX_SAFE_INTEGER);
+  assert.ok(st.seen['aaaaaaaa-0000-4000-8000-000000000005.jsonl'] > 0 && st.seen['aaaaaaaa-0000-4000-8000-000000000005.jsonl'] < Number.MAX_SAFE_INTEGER);
   assert.ok(st.seen['aaaaaaaa-0000-4000-8000-000000000006.jsonl'] > 0 && st.seen['aaaaaaaa-0000-4000-8000-000000000007.jsonl'] > 0);
   assert.ok(Object.keys(st.seen).some((k) => k.startsWith('cccccccc-')));
   assert.ok(st.pending && st.lastDream);
@@ -1869,6 +1870,7 @@ ${NAME}` } });
   assert.equal(f8.status, 0, f8.stdout + f8.stderr);
 }
 { const f8d = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8k-dream.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8d.status, 0, f8d.stdout + f8d.stderr); } // 8k, group B: the dream side
+{ const f8m = spawnRaw('node', [path.join(PLUGIN, 'test', 'fix8m-dream.mjs')], { encoding: 'utf8', timeout: 600_000 }); assert.equal(f8m.status, 0, f8m.stdout + f8m.stderr); } // 8m: the dream's older gaps
 
 // 06, section 8, 8k, group C: one case per item of the trial side (fix8k-trial.mjs, which also runs on its own)
 {

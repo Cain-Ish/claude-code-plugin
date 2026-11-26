@@ -36,13 +36,8 @@ killed    git by full path: ls-tree (by fix8k-dream.mjs: git by full path)
 killed    git by full path: cat-file (by fix8k-dream.mjs: git by full path)
 killed    Q-11 no .git said plainly (by fix8k-dream.mjs: Q-11 dream with no .git)
 killed    8c (4) a status line only in a topic file (by dream8c.mjs: (4) steering)
-SURVIVED  review: .. after the root stays absolute
+killed    review: .. after the root stays absolute (by fix8k-dream.mjs: D-3 digests redacted, the repo's paths made relative first)
 killed    review: a root ends only before a path-ending character (by fix8k-dream.mjs: D-3 digests redacted, the repo's paths made relative first)
 killed    review: < before a home path (by fix8k-dream.mjs: D-2 key shapes)
-SURVIVED  review: a key header with digits
-39 of 41 killed; 2 survived or could not be applied
-
-Re-run after the two survivors (MUT_FAST, MUT_ONLY on both), with fix8k-dream.mjs given a literal <root>/../ path and an ED25519 key body (path.join had collapsed the .., and no key line had a digit header):
-killed    review: .. after the root stays absolute (by fix8k-dream.mjs: D-3 digests redacted, the repo's paths made relative first)
 killed    review: a key header with digits (by fix8k-dream.mjs: D-3 digests redacted, the repo's paths made relative first)
 41 of 41 killed
