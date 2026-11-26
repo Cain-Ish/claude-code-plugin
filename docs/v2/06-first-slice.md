@@ -10432,3 +10432,25 @@ Two unshipped template hashes stay in setup's list (8l attempt 1's and the text 
   name, gets no label; npm's `claude.cmd` on Windows cannot run trials; "fewer tokens and steps" (A1) is still not met.
 - **Installs:** from this release, `main` holds only the product, so a marketplace update downloads about 28 files
   (266 KB) instead of the whole repo.
+
+### 8: the release stop (2026-11-26): the user's choices; v2.6.0 tagged; the PR to `main`
+
+**The user's answers** (asked at the stop before `main`):
+- S8's dream-loop miss: ship 2.6.0 and name it as a known weakness; the rule-or-entry choice goes to 2.6.1.
+- `main`'s required check: the `validate` job of the product's one workflow (the user changes the ruleset).
+- The live test: release now; the other session live-tests the released build, and its findings go to 2.6.1.
+- The release: tag and open the PR; the user merges.
+
+**Done:**
+- Tag `v2.6.0` on `v2` (product `2bb76b13653a`).
+- 8n's check 1 on the product tree (29 files) passes; `check1.mjs` fixed first (a relative path cut names wrong, and a
+  checkout's `.git` counted as a file), with a doctored tree still failing on an extra, a test file and a missing
+  LICENSE. `claude plugin validate` passes on it.
+- Branch `release-2.6.0` from `main`: the whole tree replaced by the product (424 files removed, 16 changed, 4 added);
+  PR #121 to `main`, with the release notes and the ruleset step.
+- CI on `v2`'s last product commit: every self-test job passed on three systems; Windows' load job missed (prompt@8 and
+  read-other@8 above 100 ms with empty Node at 160 to 217 ms on that runner), report-only by the user's word on CI.
+
+**After the merge (the user's):** the ruleset change; then 8n's check 2 (an install of the old `main` updates to only
+the product) and check 3 (`claude plugin details` on a fresh install), D03 re-locks on them; the installs move; the
+other session's live test of the released build.
