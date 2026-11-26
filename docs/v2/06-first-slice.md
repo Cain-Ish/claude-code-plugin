@@ -10306,3 +10306,39 @@ The records step, after 8k, 8m and 8l passed (product `8896d4cb1c40`, version 2.
   scope, so their write limit is an instruction).
 - **R-l closed** in the register: not taken.
 - **Not done here:** the charter's D34 entry, and #115's steps; the map issue is updated at the step's commit.
+
+### 8, 8o: the final audit's fixes (registered 2026-11-26, before the code)
+
+Two audits of `plugin/` at `269ef978` by reviewers who had not seen the register: Gemini 4 Argon (through T3, plan
+mode) and a ponytail audit (a Claude agent). Each claim was checked in the code, or by a probe, before it was placed.
+
+**Refuted by a probe:** tailor's heredoc breakout. A project skill built the same way, invoked with arguments that
+close the heredoc and add `touch PWNED`: Claude Code's permission check parsed the whole `!` command, refused it ("The
+following parts require approval: touch PWNED"), and nothing ran. A model-invoked skill also needs `Skill(...)` allowed.
+
+**8o, fixed before the release** (the register's "fix" bar: a locked decision's boundary, or security):
+1. **D14 on Windows and for Grep:** a Grep whose path or glob names the map, and a PowerShell command that names it,
+   carry the same labels a Bash command does (the Bash route and 8h's naming test, reused). Seen: a Windows session
+   ran the dream's step through PowerShell (8l attempt 1), and Grep's content mode shows an entry's text.
+2. **An agent or change draft with `memory: user`** is refused by finish, as a power: its notes are written outside the
+   repo. `memory: project` stays allowed (the templates and tailor's guidelines use it).
+3. **map-review:** each proposal and each draft waits for the person's answer before any edit; before the commit, any
+   other uncommitted change in the files to commit is shown, and committed only on the person's yes (D14: the commit
+   is the review). The template's old hash joins setup's list (D29).
+4. **`show`:** a case that lists bare `Bash` adds one sentence, that its sessions may run any command as the person,
+   outside the copy too (X-3's rest, now said).
+5. **The root README:** the claims that the skills and the dream's skill drafts are user-only are corrected, and the
+   old alpha benchmark logs give way to a link (it ships on `main`).
+
+**The checks:** a case for each that fails on `269ef978`'s product and passes, under Node 24 and Node 20; a mutation
+each; every list's anchors; the self-test; `claude plugin validate`. The counted model runs are not voided: no fixture
+lists bare Bash or `memory: user`, and no counted run reads map-review's template or the hooks' label text. D18's bench
+then runs once, after this last hook change. Three attempts.
+
+**Into the register for 2.6.1 (later):** a Read of the map in another letter case, or through an 8.3 name, gets no
+label (Q-12's class; a probe on macOS first); npm's `claude.cmd` (K-8); one session's digest has no size cap; the data
+folder's check ignores `CLAUDE_CODE_PLUGIN_CACHE_DIR`; the 80/300/600 cuts come before redaction (the transcript
+already held the whole value, and finish scans each proposal); git's ENOBUFS reads as "git not found"; a rule case with
+`"tools": []`; `trial.mjs draft` with a subfolder or extra files; a source cited through a link out of the repo is read
+by the re-find; absolute paths in dream's and setup's reports; the dream's `undone/` folder is never cleaned; the
+duplicated front-matter and draft code (the refactor step).
