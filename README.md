@@ -15,10 +15,10 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.6.1` is the latest release: 2.6.0 (the dream reads use and steering, proposes agents, changes and package
+**Status:** `2.6.2` is the latest release: 2.6.0 (the dream reads use and steering, proposes agents, changes and package
 rules from that use, and digests sessions more cheaply; `/second-brain:tailor` makes and trials one artifact) with the
-post-release audit's fixes. Work goes on in branch `v2`.
-- It has been tested in live Claude Code sessions on Windows only. 2.6.1 is in a live test in this repo.
+post-release audit's fixes (2.6.1) and their review's (2.6.2). Work goes on in branch `v2`.
+- It has been tested in live Claude Code sessions on Windows only. 2.6.2 is in a live test in this repo.
 - On macOS and Linux, only its self-test has run, in CI. Windows and macOS are the targets; Linux is skipped for now.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
 
@@ -297,7 +297,7 @@ claude plugin install second-brain@second-brain --scope project
 ```
 
 - `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
-- To pin a release, add its tag to the repo in the first command, such as `Cain-Ish/claude-code-plugin#v2.6.1`. From
+- To pin a release, add its tag to the repo in the first command, such as `Cain-Ish/claude-code-plugin#v2.6.2`. From
   `v2.6.1` on, a release tag holds only the plugin; an earlier tag holds the whole repo, its tests and notes included.
   Without a tag, `claude plugin marketplace update second-brain`, then `claude plugin update second-brain@second-brain`,
   bring the latest release.

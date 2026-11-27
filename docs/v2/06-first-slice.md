@@ -10846,3 +10846,19 @@ from `v2.6.0` to the shipped 2.6.1) found these; each is checked in the code her
 **The checks:** new cases in `fix261` fail on 2.6.1's product (`git archive v2.6.1 plugin`) and pass on the build; a
 mutation of each new guard fails its case; the self-test; `claude plugin validate`; CI on three systems; D18's bench
 before the release; the release as 2.6.1's (product tree, PR, tag on `main`'s merge commit, check 1 on the tag).
+
+### 10, result (2026-11-27): pass; moved into `plugin/` (2.6.2, product `eba16349aafa`)
+
+- `fix261` holds 21 cases: the two new ones (R-1 with R-4, R-2) fail on 2.6.1's product and pass on the build; the 19
+  of section 9 pass on both. The self-test passes; `claude plugin validate` on the plugin and the marketplace.
+- Mutations: 47 of 47 killed (`results/mutate262-win32.txt`), five of them new: R-1's guard on the link loop and on the
+  folder itself, R-4's on the leftover report, R-2's fences in the change gate and its inline command to the closing
+  backtick.
+- **D18's bench, judged on the pair, named here:** the hooks load `hook.mjs`, `map.mjs` and `setup.mjs`, and 2.6.2
+  changes them by one operator in `logWaits`, on a path the bench does not reach (no dream is pending in its state).
+  Both runs of the bench at 2.6.2 (`results/pairbench-262-reference.json`, 2.6.1 the control) found the machine slower
+  than the run of section 9 an hour before (empty Node's p95 at 8 concurrent 76 and 72 ms, against 61; CPU at 9%
+  between them): 2.6.1 and 2.6.2 level, the Bash map read at 8 concurrent 100.7 and 102.1 ms, every other kind within
+  100. Section 9's run, on the quiet machine, passed with the same hook code (80.8 ms). As D18's re-lock of 2026-10-27
+  judged a run under outside load on its pair, this one counts as 2.6.1's pass; a re-run on the quiet machine goes to
+  #115.

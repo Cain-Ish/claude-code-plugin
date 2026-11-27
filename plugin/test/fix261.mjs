@@ -381,6 +381,59 @@ await tryCheck('AU-20 the dream watches .claude/hooks', async () => {
   check('AU-20 the dream watches .claude/hooks', back && kept, JSON.stringify({ back, kept, rec: fs.existsSync(rec), fin }));
 });
 
+// R-1 and R-4 (06, 10): a record from before 2.6.1, which watched nothing in .claude/hooks: its abort leaves a linked
+// hook folder in place, and a new prepare's report on it names no hook file as changed
+await tryCheck('R-1 an older record keeps hook links', async () => {
+  const { r, g, data } = dreamRepo({ '.claude/hooks/check.sh': 'echo ok\n', 'scripts/lib/run.sh': 'echo lib\n' });
+  fs.symlinkSync(path.join(r, 'scripts', 'lib'), path.join(r, '.claude', 'hooks', 'lib'), 'junction');
+  await D.prepare(r, data);
+  const dir = M.stateDir(r, data);
+  const rec = path.join(dir, 'run', 'run.json');
+  // as 2.6.0 wrote it: no id, no dirs, nothing of .claude/hooks listed
+  const older = () => { const job = JSON.parse(fs.readFileSync(rec, 'utf8')); delete job.dirs; delete job.id; job.watched = job.watched.filter((x) => !x.startsWith('.claude/hooks/')); job.links = Object.fromEntries(Object.entries(job.links ?? {}).filter(([x]) => !x.startsWith('.claude/hooks'))); fs.writeFileSync(rec, JSON.stringify(job)); fs.rmSync(path.join(dir, 'run', 'snapshot', '.claude', 'hooks'), { recursive: true, force: true }); };
+  older();
+  D.abort(r, data);
+  const linkKept = fs.lstatSync(path.join(r, '.claude', 'hooks', 'lib'), { throwIfNoEntry: false })?.isSymbolicLink() === true;
+  // a run of that shape whose lock went stale, then a new prepare
+  await D.prepare(r, data);
+  older();
+  const old = Date.now() / 1000 - 3 * 3600;
+  fs.utimesSync(path.join(dir, 'dream.lock'), old, old);
+  const report = await D.prepare(r, data);
+  // and .claude/hooks itself a link
+  const two = dreamRepo({ 'scripts/hooks/check.sh': 'echo ok\n' });
+  fs.mkdirSync(path.join(two.r, '.claude'), { recursive: true });
+  fs.symlinkSync(path.join(two.r, 'scripts', 'hooks'), path.join(two.r, '.claude', 'hooks'), 'junction');
+  await D.prepare(two.r, two.data);
+  const rec2 = path.join(M.stateDir(two.r, two.data), 'run', 'run.json');
+  const job2 = JSON.parse(fs.readFileSync(rec2, 'utf8'));
+  delete job2.dirs;
+  delete job2.id;
+  job2.links = Object.fromEntries(Object.entries(job2.links ?? {}).filter(([x]) => !x.startsWith('.claude/hooks')));
+  fs.writeFileSync(rec2, JSON.stringify(job2));
+  D.abort(two.r, two.data);
+  const folderKept = fs.lstatSync(path.join(two.r, '.claude', 'hooks'), { throwIfNoEntry: false })?.isSymbolicLink() === true;
+  check('R-1 an older record keeps hook links', linkKept && folderKept && /did not finish/.test(report) && !report.includes('.claude/hooks'), JSON.stringify({ linkKept, folderKept, report: report.split('\n').filter((l) => /did not finish|hooks/.test(l)) }));
+});
+
+// R-2 (06, 10): a change that moves a command out of a code block, or edits a multi-line inline command's next line, is
+// refused; one that leaves the commands and fences as they are is written
+await tryCheck('R-2 where a command sits', async () => {
+  const sk = (name, body) => `---\nname: ${name}\ndescription: Does ${name}. Use when asked to do ${name}.\n---\n${body}`;
+  const example = sk('example', 'The syntax, as an example:\n\`\`\`markdown\n!\`rm -rf dist\`\n\`\`\`\nThen go on.\n');
+  const multi = sk('multi', 'First:\n!\`git status\n--short\`\nThen go on.\n');
+  const keep = sk('keep', 'First:\n!\`git status --short\`\nThen go on.\n');
+  const use = (J, k, s) => [J({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: `${s}${k}`, name: 'Skill', input: { skill: s } }] } }), J({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `${s}${k}`, content: 'ok' }] } })];
+  const { r, data, stage } = dreamRepo({ '.claude/skills/example/SKILL.md': example, '.claude/skills/multi/SKILL.md': multi, '.claude/skills/keep/SKILL.md': keep }, undefined, (J, k) => ['example', 'multi', 'keep'].flatMap((s) => use(J, k, s)));
+  const prep = await D.prepare(r, data);
+  stage('change/skills/example/SKILL.md', sk('example', 'The syntax:\n!\`rm -rf dist\`\nThen go on.\n'));
+  stage('change/skills/multi/SKILL.md', sk('multi', 'First:\n!\`git status\n&& rm -rf dist\`\nThen go on.\n'));
+  stage('change/skills/keep/SKILL.md', sk('keep', 'First, to see the tree:\n!\`git status --short\`\nThen go on with the task.\n'));
+  const fin = D.finish(r, data, runId(prep));
+  const has = (p) => fs.existsSync(path.join(r, '.claude', 'skills', p, 'SKILL.md.draft'));
+  check('R-2 where a command sits', !has('example') && !has('multi') && has('keep') && /(^|\D)2 change to a command line \(!\)/.test(fin), fin);
+});
+
 for (const [k, v] of [['CLAUDE_CONFIG_DIR', saved.cfg], ['SECOND_BRAIN_TRIAL_CLAUDE', saved.stub], ['TEMP', saved.TEMP], ['TMP', saved.TMP], ['TMPDIR', saved.TMPDIR]]) if (v === undefined) delete process.env[k]; else process.env[k] = v;
 // the slow stand-in may still hold a copy for a few seconds
 if (slowUsed) await new Promise((done) => setTimeout(done, 6500));

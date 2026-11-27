@@ -364,7 +364,8 @@ export function lastDream(root, st) {
 }
 // the due line's reading of it, with no git call (D32): the line is in the working tree, and git's index file was not
 // written since that dream finished, so no commit can hold it. shortcut: a git command that rewrites the index (a
-// status refresh) makes it read as committed, and prepare then says why it refuses
+// status refresh) makes it read as committed, and prepare then says why it refuses; a commit made in another worktree,
+// or without the index, reads as waiting until this worktree's index is written (R-3's review, 06, 10)
 function logWaits(root, st) {
   if (!st.pending || !st.lastDream) return false;
   const at = typeof st.pending.root === 'string' && fs.existsSync(st.pending.root) ? st.pending.root : root;
@@ -372,7 +373,7 @@ function logWaits(root, st) {
     if (!fs.readFileSync(path.join(at, MAP, 'dreams.md'), 'utf8').includes(st.pending.line)) return false;
     let g = path.join(at, '.git');
     if (fs.statSync(g).isFile()) g = path.resolve(at, /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(g, 'utf8'))[1]);
-    return fs.statSync(path.join(g, 'index')).mtimeMs <= Date.parse(st.lastDream);
+    return fs.statSync(path.join(g, 'index')).mtimeMs < Date.parse(st.lastDream);
   } catch { return false; }
 }
 export function dreamDue(root, data, transcriptPath, now = Date.now()) {
