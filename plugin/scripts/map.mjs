@@ -159,7 +159,10 @@ const walk = (root, d, seen) => fs.readdirSync(path.join(root, d), { withFileTyp
   seen.add(real);
   return under(root, p, seen);
 });
-export const mapMd = (root) => under(root, MAP).filter((p) => p.endsWith('.md') && !p.includes('/.dream-run/'));
+// the team memory's files, as waiting, status and the ids count them: outside the dream's run folder, and tailor's
+// staging folder, which holds a draft, not team memory (AU-19, 06, 9). The labels still cover both: what they hold is
+// uncommitted (D14)
+export const mapMd = (root) => under(root, MAP).filter((p) => p.endsWith('.md') && !p.includes('/.dream-run/') && !p.startsWith(`${MAP}/drafts/`));
 // the ids the map's files hold; null when a file cannot be listed or read, so no id is called missing on a partial read
 // (06, section 4, 4h: the altitude review)
 export const mapIdsOf = (root) => { try { return new Set(mapMd(root).flatMap((f) => { const b = readMapFile(root, f); if (!b) throw new Error('unreadable'); return idsIn(decode(b)); })); } catch { return null; } };
@@ -207,6 +210,8 @@ function ignoreCase(root) {
 // as two glob pathspecs, the line and everything under it, so git's own matching leaves both out. The map's own files
 // still come from its folder, below, so no line can unlist them
 const IGNORE = `${MAP}/index.ignore`;
+// why a git call failed, as the person is told; onboard and status say it too (AU-12, 06, 9)
+export const gitWhy = (r) => (r.error ? 'git was not found on PATH' : /safe\.directory/.test(r.stderr ?? '') ? "git does not trust this folder (another user owns it; see git's safe.directory)" : "git could not list this repository's files");
 const excluded = (ls) => ls.flatMap((l) => [`:(exclude,glob)${l}`, `:(exclude,glob)${l}/**`]);
 export function index(root, notes = []) {
   let skip = [];
@@ -221,7 +226,7 @@ export function index(root, notes = []) {
   }
   if (tracked.status !== 0) {
     // Q-8 (06, 8k): a repo whose git cannot run tells the person why; a folder outside git stays silent
-    if (fs.existsSync(path.join(root, '.git'))) notes.push(`second-brain: the project map needs git, and ${tracked.error ? 'git was not found on PATH' : /safe\.directory/.test(tracked.stderr ?? '') ? "git does not trust this folder (another user owns it; see git's safe.directory)" : "git could not list this repository's files"}, so this session has no map.`);
+    if (fs.existsSync(path.join(root, '.git'))) notes.push(`second-brain: the project map needs git, and ${gitWhy(tracked)}, so this session has no map.`);
     return null;
   }
   // letter case is folded as git folds it under core.ignorecase, ASCII letters only (D16's second difference; 06, 2h)
@@ -343,6 +348,33 @@ export const unseenIn = (dirs, seen, current = null) => dirs.flatMap((d) => {
 // folder that the dream has not read and that is not this one. Session start learns its folder here (one line).
 // shortcut: at most 50 unseen transcripts are stat'ed, in folder order, for age and expiry; stat them all, oldest
 // first, if a repo collects more between dreams
+// the last dream: kept once its log line is committed on the tip of any local branch or HEAD (Audit 1, 06, 8m: a branch
+// switch keeps it); waiting while the line is only in the working tree of the worktree that made it (while that one
+// exists). null with no dream pending. Prepare acts on it (AU-3, 06, 9: the due line reads it with no git call)
+export function lastDream(root, st) {
+  if (!st.pending) return null;
+  const here = fs.realpathSync.native(root);
+  const at = typeof st.pending.root === 'string' && fs.existsSync(st.pending.root) ? st.pending.root : here;
+  // and HEAD, when it names a commit: a detached one is on no branch (an unborn one would make git grep fail)
+  const tips = [...(git(at, 'for-each-ref', '--format=%(objectname)', 'refs/heads').stdout?.split('\n') ?? []), git(at, 'rev-parse', '--verify', '-q', 'HEAD').stdout?.trim()].filter(Boolean);
+  // with no revision, git grep would search the working tree
+  const kept = tips.length > 0 && git(at, 'grep', '-q', '-F', '-e', st.pending.line, ...tips, '--', `${MAP}/dreams.md`).status === 0;
+  const work = (() => { try { return fs.readFileSync(path.join(at, MAP, 'dreams.md'), 'utf8'); } catch { return ''; } })();
+  return { at, here, kept, waits: !kept && work.includes(st.pending.line) };
+}
+// the due line's reading of it, with no git call (D32): the line is in the working tree, and git's index file was not
+// written since that dream finished, so no commit can hold it. shortcut: a git command that rewrites the index (a
+// status refresh) makes it read as committed, and prepare then says why it refuses
+function logWaits(root, st) {
+  if (!st.pending || !st.lastDream) return false;
+  const at = typeof st.pending.root === 'string' && fs.existsSync(st.pending.root) ? st.pending.root : root;
+  try {
+    if (!fs.readFileSync(path.join(at, MAP, 'dreams.md'), 'utf8').includes(st.pending.line)) return false;
+    let g = path.join(at, '.git');
+    if (fs.statSync(g).isFile()) g = path.resolve(at, /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(g, 'utf8'))[1]);
+    return fs.statSync(path.join(g, 'index')).mtimeMs <= Date.parse(st.lastDream);
+  } catch { return false; }
+}
 export function dreamDue(root, data, transcriptPath, now = Date.now()) {
   const dir = stateDir(root, data);
   const st = loadState(dir);
@@ -364,6 +396,8 @@ export function dreamDue(root, data, transcriptPath, now = Date.now()) {
   const n = unseen.length;
   const days = (now - (st.lastDream ? Date.parse(st.lastDream) : oldest)) / day;
   if (!(n >= 10 || (days >= 7 && n >= 3) || expiring > 0)) return '';
+  // AU-3 (06, 9): the next prepare refuses while the last dream's log line waits, so no dream is called due then
+  if (logWaits(root, st)) return `second-brain: a dream would be due (${n} new session${n === 1 ? '' : 's'}), but the last dream's line in ${MAP}/dreams.md is not committed. ${reviewStep(root)} and commit that file with the review; the next dream waits for it.`;
   return `second-brain: a dream is due: ${n} new session${n === 1 ? '' : 's'} since ${st.lastDream ? `the dream of ${dreamDate(st)}` : 'tracking began'}`
     + `${expiring ? `; ${expiring} will be deleted by Claude Code's cleanup within 5 days` : ''}. Run /second-brain:dream.`;
 }
@@ -384,12 +418,13 @@ export function startText(idx, due = false) {
   if (full.length <= CAP) return { text: full, listed: dirs.length, total: dirs.length };
   const m = dirs.findIndex((l) => l.startsWith(`${MAP}/: `));
   if (m > 0) dirs = [dirs[m], ...dirs.slice(0, m), ...dirs.slice(m + 1)];
-  const at = (k) => `${INSTRUCTION}\n\n${[head, ...dirs.slice(0, k)].join('\n')}\n${notListed(dirs.length - k)}\n\n${end}`;
-  // one forward pass (J1): each directory listed adds its line and takes at most one digit off the count
+  // one forward pass (J1): each directory listed adds its line and takes at most one digit off the count. AU-8 (06, 9):
+  // one that does not fit is skipped, not the end of the list, so a large directory early on hides no later one
   const fixed = INSTRUCTION.length + 2 + head.length + 1 + 2 + end.length;
-  let k = 0;
-  for (let used = fixed; k < dirs.length && used + dirs[k].length + 1 + notListed(dirs.length - k - 1).length <= CAP; k++) used += dirs[k].length + 1;
-  return { text: at(k), listed: k, total: dirs.length };
+  const listed = [];
+  let used = fixed;
+  for (const d of dirs) if (used + d.length + 1 + notListed(dirs.length - listed.length - 1).length <= CAP) { listed.push(d); used += d.length + 1; }
+  return { text: `${INSTRUCTION}\n\n${[head, ...listed].join('\n')}\n${notListed(dirs.length - listed.length)}\n\n${end}`, listed: listed.length, total: dirs.length };
 }
 
 // The forced decision's epoch: every session start opens one, the first prompt after it closes it. A marker file in
@@ -471,11 +506,20 @@ function shown(all, output) {
 // cannot be read, so one locked file costs no other entry its label. Each file is read once per run, lowercased
 export const refinder = (root) => {
   const docs = new Map();
+  let base;
   return (at, quote) => {
     try {
-      if (!fs.statSync(path.join(root, at), { throwIfNoEntry: false })?.isFile()) return false;
-      if (!docs.has(at)) docs.set(at, decode(fs.readFileSync(path.join(root, at))).toLowerCase());
-      return foundIn(quote, docs.get(at));
+      const p = path.join(root, at);
+      const st = fs.statSync(p, { throwIfNoEntry: false });
+      if (!st?.isFile()) return false;
+      // AU-16 (06, 9): read as a map file is (readMapFile's test, with one real path per file on the read hook's
+      // path): 4 MB or less, inside the repo, so a huge source or a link out of the repo is never read; it cannot be
+      if (!docs.has(at)) {
+        base ??= fs.realpathSync.native(root);
+        const real = fs.realpathSync.native(p);
+        docs.set(at, st.size <= MAP_CAP && (real === base || real.startsWith(base + path.sep)) ? decode(fs.readFileSync(p)).toLowerCase() : null);
+      }
+      return docs.get(at) === null ? null : foundIn(quote, docs.get(at));
     } catch { return null; }
   };
 };
@@ -485,9 +529,54 @@ export const refinder = (root) => {
 // now, and one not found says so without claiming a change; any other entry carries its capture date as unverified.
 // Given a command's output (06, 2o): every entry HEAD does not hold, whatever the output shows, since which entries a
 // reshaped output shows cannot be told (2n's three rounds); and the committed entries it shows, by 2n's rule.
-// shortcut: one git call per map file on each Bash command that names the folder; batch them (git cat-file --batch)
-// if a map ever holds more than a handful of files
-export function labels(root, file, output) {
+// AU-7 (06, 9): HEAD's text of the map files given, in one git call, by name; a file HEAD lacks has no key. AU-11:
+// one HEAD lacks by its disk name, in a repo whose git folds letter case, is read by the one tracked name that folds to
+// it, so a rename by letter case only keeps its entries committed. The map folder's tree comes in the same call, so
+// only such a rename costs a second one. shortcut: only the folder's own files are matched so; a topic file in a
+// subfolder renamed by case only stays unreviewed, look subtrees up if maps ever nest
+const catFile = (root, specs) => {
+  const out = spawnSync(exe('git'), ['cat-file', '--batch'], { cwd: root, input: specs.map((s) => `${s}\n`).join(''), maxBuffer: 64 << 20 }).stdout ?? Buffer.alloc(0);
+  const got = [];
+  let at = 0;
+  for (let i = 0; i < specs.length && at < out.length; i++) {
+    const nl = out.indexOf(10, at);
+    if (nl < 0) break;
+    // "<oid> <type> <size>", or "<spec> missing"
+    const m = /^([0-9a-f]+) (\w+) (\d+)$/.exec(out.toString('utf8', at, nl));
+    if (!m) { at = nl + 1; continue; }
+    got[i] = { oid: m[1], type: m[2], body: out.subarray(nl + 1, nl + 1 + Number(m[3])) };
+    at = nl + 1 + Number(m[3]) + 1;
+  }
+  return got;
+};
+// a tree's file names: "<mode> <name>\0" then the id's bytes, per entry
+const fileNames = (tree) => {
+  const names = [];
+  for (let at = 0; at < tree.body.length;) {
+    const sp = tree.body.indexOf(32, at), nul = tree.body.indexOf(0, sp);
+    if (sp < 0 || nul < 0) break;
+    if (tree.body.toString('latin1', at, sp).startsWith('100')) names.push(tree.body.toString('utf8', sp + 1, nul));
+    at = nul + 1 + tree.oid.length / 2;
+  }
+  return names;
+};
+export function headTexts(root, files) {
+  const named = files.filter((f) => !/[\r\n]/.test(f));
+  const folds = ignoreCase(root);
+  const got = catFile(root, [...named.map((f) => `HEAD:${f}`), ...(folds ? [`HEAD:${MAP}`] : [])]);
+  const heads = new Map();
+  named.forEach((f, i) => got[i]?.type === 'blob' && heads.set(f, got[i].body));
+  const tree = folds ? got[named.length] : null;
+  const lost = named.filter((f) => !heads.has(f) && !f.slice(MAP.length + 1).includes('/'));
+  if (!lost.length || tree?.type !== 'tree') return heads;
+  const fold = (p) => p.replace(/[A-Z]+/g, (s) => s.toLowerCase());
+  const names = fileNames(tree);
+  const pairs = lost.flatMap((f) => { const ts = names.filter((t) => fold(t) === fold(f.slice(MAP.length + 1))); return ts.length === 1 ? [[f, `${MAP}/${ts[0]}`]] : []; });
+  if (pairs.length) catFile(root, pairs.map(([, t]) => `HEAD:${t}`)).forEach((b, i) => b?.type === 'blob' && heads.set(pairs[i][0], b.body));
+  return heads;
+}
+
+export function labels(root, file, output, heads) {
   let bytes;
   // a missing file has nothing to label; any other failure throws, and the read hook labels the file as a whole
   try { bytes = readMapFile(root, file); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; }
@@ -496,8 +585,9 @@ export function labels(root, file, output) {
   if (output?.includes('\0') && utf16(bytes)) output = undefined;
   const all = entries(decode(bytes));
   if (!all.length) return '';
-  const head = spawnSync(exe('git'), ['show', `HEAD:./${file}`], { cwd: root, maxBuffer: 64 << 20 });
-  const held = new Set(head.status === 0 ? entries(decode(head.stdout)) : []);
+  // the Bash hook reads every file's HEAD text at once; a Read reads its one file's here
+  const head = (heads ?? headTexts(root, [file])).get(file);
+  const held = new Set(head ? entries(decode(head)) : []);
   const seen = output === undefined ? null : shown(all, output);
   const picked = all.map((b, i) => !seen || !held.has(b) || seen[i]);
   const refind = refinder(root);

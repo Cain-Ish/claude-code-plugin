@@ -10736,3 +10736,33 @@ its item where the registered check would have failed:
   draft is tried again before it is promoted (D10 errs that way); a "not judged" verdict gets the line that tests the
   draft again instead of nothing. Gemini's second finding (the report's first line) was already gone: the run id is a
   line of its own, since the dream's own digest keys on "Dream prepared: ".
+
+### 9, result (2026-11-27): pass; moved into `plugin/` (2.6.1, product `4d459d7cec7d`)
+
+Built in a copy outside the repo, then moved into `plugin/` unchanged (`diff -r` empty). Every item passes as
+registered or as amended above:
+- **`fix261`**, 19 cases (AU-4's runs at the release): all 19 fail on 2.6.0's product (`git archive v2.6.0 plugin`) and
+  pass on the build, Node 24 here; Node 20 and macOS and Linux run it in CI's self-test. The self-test passes (four
+  older cases updated where 2.6.1 moves what they pinned: the trial lock's path, three template sentences).
+- **Mutations** (`probes/V2-9-fixes/mutate261.mjs`, MUT_FAST): 42 of 42 killed on Windows; the one that needs git as
+  a script on PATH (AU-3, no git call at session start) runs where CI's self-test runs the case, not as a mutation.
+- **AU-7:** the Bash hook on 8 topic files with entries, 30 paired runs at 1 session: 2.6.0 adds 151.6 ms at p95 (over
+  D18's 100 ms), 2.6.1 adds 45.8 ms (`results/bench7-win32.txt`).
+- **D18's bench** at 1 and 8 concurrent (`results/pairbench-reference.json`; 2.6.0 the control, without the data folder
+  as in 8o): every kind within 100 ms, 0 errors. Added p95, control / 2.6.1, ms:
+
+| | session start | prompt | read-other | read-map | bash-map | bash-other | grep-map | grep-other |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| @1 | 38.9 / 48.1 | 10.7 / 10.3 | 10.6 / 10.6 | 39.4 / 42.0 | 41.2 / 43.3 | 9.8 / 10.0 | 42.5 / 43.0 | 10.1 / 10.3 |
+| @8 | 62.4 / 75.1 | 22.2 / 24.0 | 25.2 / 27.4 | 75.2 / 77.7 | 74.9 / 80.8 | 22.6 / 22.3 | 79.4 / 83.6 | 22.6 / 20.8 |
+
+  Empty Node's p95 at most 61.4 ms at 8. Session start's gap is the due line's work, which the control skips (8o's
+  candidate: 43.4 and 67.5). A first run found AU-16's re-find 4.6 ms slower on 30 cited sources (each went through
+  `readMapFile`'s `inRepo`); the re-find now reads each source with one real path, 1.9 ms over 2.6.0.
+- **Reviews:** Gemini 4 Argon on the diff (7 findings, 6 held and fixed, 1 already gone) and the decision-checker (two
+  conflicts, D32 and D14/D16, both fixed by a second attempt; the rest above). `claude plugin validate`: plugin and
+  marketplace pass.
+- **Into the register (later):** the dream's own map listing still takes in tailor's staging folder during a dream
+  (Gemini, outside AU-19's surfaces); `catFile` is a fourth git blob reader (the refactors); the due line's
+  index-time reading reads as committed after any git command that rewrites the index (prepare then says why); a topic
+  file in a subfolder renamed by letter case only stays unreviewed.

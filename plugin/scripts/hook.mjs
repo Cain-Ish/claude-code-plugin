@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MAP, CAP, git, index, openEpoch, takeForce, labels, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft, safeName, stateDir } from './map.mjs';
+import { MAP, CAP, git, index, openEpoch, takeForce, labels, headTexts, rel, toplevel, startText, under, V1_LEFT, waiting, dreamDue, dreamLeft, safeName, stateDir } from './map.mjs';
 import { setup } from './setup.mjs';
 
 // note: a line for the user, not for Claude's context (V2-D27)
@@ -22,7 +22,7 @@ const input = old || ['onboard', 'setup'].includes(which) ? {} : JSON.parse(read
 const root = toplevel(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
 // fail closed: whatever goes wrong, the file's entries are not delivered as reviewed (D14, D18)
 const closed = (file, why = 'could not be computed') => `[project map] The labels for ${safeName(file)} ${why}: treat every entry in it as unreviewed and unverified.\n`;
-const labelled = (file, output) => { try { return labels(root, file, output); } catch { return closed(file); } };
+const labelled = (file, output, heads) => { try { return labels(root, file, output, heads); } catch { return closed(file); } };
 
 if (old) {
   if (which === 'session-start') process.stdout.write(JSON.stringify({ systemMessage: 'The project map needs Node 20 or later; install it, or disable the plugin.' }));
@@ -47,7 +47,8 @@ if (old) {
       let held = '';
       try { held = dreamLeft(root, data); } catch {}
       // the review of 8l: not while a dream holds the lock
-      try { const d = dreamDue(root, data, input.transcript_path); if (d) { notes.push(d); due = person && !held; } } catch {}
+      // AU-3 (06, 9): nor while the last dream's log line waits for its commit, which the due line then names
+      try { const d = dreamDue(root, data, input.transcript_path); if (d) { notes.push(d); due = person && !held && d.startsWith('second-brain: a dream is due'); } } catch {}
       if (held) notes.push(held);
       // Q-15 (06, 8m): what a dream's finish or abort put back, told to the person once; a headless session leaves it
       if (person) try { const f = path.join(stateDir(root, data), 'undone.txt'); const u = fs.readFileSync(f, 'utf8').trim(); fs.rmSync(f); if (u) notes.push(u); } catch {}
@@ -93,7 +94,10 @@ if (old) {
   // alike) cannot tell which file a read reaches, so it fails closed (attempt 4)
   const twice = new Set((files ?? []).filter((f, i) => i && files[i - 1] === f));
   if (files) files = [...new Set(files)];
-  const walked = (f) => { if (twice.has(f)) return closed(f); const t = labelled(f, output); return t || fs.existsSync(path.join(root, f)) ? t : closed(f); };
+  // every file's HEAD text in one git call (AU-7, 06, 9); should it fail, each file reads its own
+  let heads;
+  try { if (files?.length) heads = headTexts(root, files); } catch {}
+  const walked = (f) => { if (twice.has(f)) return closed(f); const t = labelled(f, output, heads); return t || fs.existsSync(path.join(root, f)) ? t : closed(f); };
   // the files share one output: whole files' labels while they fit beside the closing lines of the rest, and one
   // line for all when those alone would not fit (D18, J3; 06 2m)
   const texts = files === null ? [[`${MAP}/`, closed(`${MAP}/`)]] : files.map((f) => [f, walked(f)]).filter(([, t]) => t);
@@ -111,17 +115,20 @@ if (old) {
   console.log(setup(root, path.resolve(path.dirname(process.argv[1]), '..')));
 } else if (which === 'onboard') {
   const gitVersion = git(root, '--version').stdout?.trim();
-  const idx = index(root);
+  // AU-12 (06, 9): why git cannot list the repo, as session start says it
+  const why = [];
+  const idx = index(root, why);
   const fit = startText(idx);
   const mapDir = path.join(root, MAP);
   const mapFiles = fs.existsSync(mapDir) ? fs.readdirSync(mapDir).filter((f) => f.endsWith('.md')) : [];
   // 06, 2q: a map file HEAD lacks keeps its entries labelled unreviewed until it is committed
-  const tracked = git(root, 'ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', MAP).stdout?.split('\0') ?? [];
-  const loose = mapFiles.filter((f) => !tracked.includes(`${MAP}/${f}`)).length;
+  // with no git that runs, what is committed cannot be told, so it is not said (AU-12)
+  const tracked = idx === null ? null : git(root, 'ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', MAP).stdout?.split('\0') ?? [];
+  const loose = tracked ? mapFiles.filter((f) => !tracked.includes(`${MAP}/${f}`)).length : 0;
   console.log([
     `Node ${process.version}${Number(process.versions.node.split('.')[0]) < 20 ? ': the project map needs Node 20 or later' : ''}`,
     gitVersion ?? 'git not found: the project map needs git',
-    idx === null ? 'Not a git repository: the index lists the files git tracks, so it is empty here.'
+    idx === null ? (why.length ? why.join(' ').replace(/^second-brain: the/, 'The').replace(/this session has no map/, 'the index is empty here') : 'Not a git repository: the index lists the files git tracks, so it is empty here.')
       : `Index: ${fit.total ? idx.split('\n').slice(1, -1).reduce((n, l) => n + l.replace(/, \d+ (?:due|proposed)\b/g, '').split(', ').length, 0) : 0} documents in ${fit.total} directories, ${Buffer.byteLength(idx)} bytes at session start.`,
     ...(fit.listed < fit.total ? [`Warning: session start is past the 10,000-character limit of one hook output, so it lists ${fit.listed} of the index's ${fit.total} directories.`] : []),
     `Map: ${mapFiles.length} file(s) in ${MAP}/${loose ? `; ${loose} not committed, so their entries stay labelled "unreviewed" until they are` : ''}.`,

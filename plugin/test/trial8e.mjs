@@ -372,7 +372,7 @@ await tryCheck('(7) texts', () => {
     // attempt 4 (the user's word): a request that names no task surveys the repo, lists gaps with evidence, and asks
     && tl.includes('**A request that names no task**') && tl.includes('**Survey, read only.**') && tl.includes('**List the gaps you found.**')
     && tl.includes('**Ask which to make, and stop.** Make nothing until the person picks one')
-    && mr.includes('.project-map/.trial/<name>.json') && mr.includes('artifactBlob') && mr.includes('call it stale') && mr.includes('"Not judged"') && mr.includes('call the draft untested') && mr.includes('not stale') && mr.includes('Remove it only on')
+    && mr.includes('.project-map/.trial/<name>.json') && mr.includes('`blobs`') && mr.includes('call it stale') && mr.includes('"Not judged"') && mr.includes('call the draft untested') && mr.includes('not stale') && mr.includes('Remove it only on')
     && dm.includes('Then ask whether to review the proposals now'), 'a text is missing');
 });
 
@@ -449,7 +449,7 @@ await tryCheck('(8i-5) C-8: one trial at a time', async () => {
   if (!need('(8i-5) C-8: one trial at a time')) return;
   const { r } = repo(D, SKILL);
   const hash = hashOf(cli(r, 'show pricing'));
-  const lock = path.join(r, '.project-map', '.trial', '.lock');
+  const lock = path.join(r, '.git', 'second-brain-trial.lock');
   fs.mkdirSync(path.dirname(lock), { recursive: true });
   fs.writeFileSync(lock, String(process.pid));
   const env = stubEnv('lock.log', { STUB_REPO: r });

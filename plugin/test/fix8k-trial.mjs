@@ -198,7 +198,7 @@ await tryCheck('L-14 run takes the lock itself', async () => {
   await sleep(500);
   const children = fs.existsSync(pids) ? fs.readFileSync(pids, 'utf8').trim().split('\n').map(Number) : [];
   let lock = '';
-  try { lock = fs.readFileSync(path.join(r, '.project-map', '.trial', '.lock'), 'utf8'); } catch {}
+  try { lock = fs.readFileSync(path.join(r, '.git', 'second-brain-trial.lock'), 'utf8'); } catch {}
   for (const p of children) try { process.kill(p); } catch {}
   check('L-14 run takes the lock itself', /started/.test(first) && /another trial is running/.test(second) && children.length === 1 && lock === String(children[0]), JSON.stringify({ first, second, children, lock }));
 });
@@ -208,7 +208,7 @@ await tryCheck('L-14 run takes the lock itself', async () => {
 await tryCheck('L-14 exec takes the lock its token names', () => {
   const { r } = repo();
   const hash = hashOf(cli(r, 'show pricing'));
-  const lock = path.join(r, '.project-map', '.trial', '.lock');
+  const lock = path.join(r, '.git', 'second-brain-trial.lock');
   fs.mkdirSync(path.dirname(lock), { recursive: true });
   fs.writeFileSync(lock, String(process.pid));
   const res = spawnSync(NODE, [TRIAL, 'exec', 'pricing', hash, String(process.pid)], { cwd: r, env: envWith(stubVars('token.log')), encoding: 'utf8' });
@@ -225,7 +225,7 @@ await tryCheck('L-14 a refused run keeps the verdict', () => {
   fs.mkdirSync(dir, { recursive: true });
   const prior = '{\n "verdict": "helps"\n}\n';
   fs.writeFileSync(path.join(dir, 'pricing.json'), prior);
-  fs.writeFileSync(path.join(dir, '.lock'), String(process.pid));
+  fs.writeFileSync(path.join(r, '.git', 'second-brain-trial.lock'), String(process.pid));
   const res = spawnSync(NODE, [TRIAL, 'exec', 'pricing', hash], { cwd: r, env: envWith({ SECOND_BRAIN_TRIAL_CLAUDE: undefined }), encoding: 'utf8' });
   const now = fs.readFileSync(path.join(dir, 'pricing.json'), 'utf8');
   check('L-14 a refused run keeps the verdict', /another trial is running/.test(res.stdout) && now === prior, JSON.stringify({ out: res.stdout, now }));

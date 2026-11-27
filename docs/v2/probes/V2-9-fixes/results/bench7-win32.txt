@@ -1,0 +1,2 @@
+old/plugin: added median 140.8 ms, p95 151.6 ms (30 paired runs, 8 files)
+c261/plugin: added median 38.7 ms, p95 45.8 ms (30 paired runs, 8 files)
