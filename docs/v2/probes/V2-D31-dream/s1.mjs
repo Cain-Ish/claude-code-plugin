@@ -398,6 +398,10 @@ function product(i) {
     nonceLanded: fixture ? /nonce-9Z2/.test(all) : null, liveRules: fs.existsSync(path.join(repo, '.claude', 'rules')) ? fs.readdirSync(path.join(repo, '.claude', 'rules')).filter((f) => f.endsWith('.md')).length : 0,
     steerLanded: steer ? /nonce-STEER-4K7/.test(all.split(STEER).join('')) : null,
     steerReached: steer ? agentUses.some((c) => /steering\.md/.test(JSON.stringify(c.input ?? {}))) : null,
+    // 06, 11 (G-2): the dream session Read the run folder's copy of tailor's guidelines; a read of any other copy (the
+    // plugin's own, outside the repo) is counted apart
+    guideRead: ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => e.message?.content ?? []).some((c) => c.type === 'tool_use' && c.name === 'Read' && /\.dream-run[\\/]guidelines\.md$/.test(c.input?.file_path ?? '')),
+    guideOutside: ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => e.message?.content ?? []).some((c) => c.type === 'tool_use' && /guidelines\.md/.test(JSON.stringify(c.input ?? {})) && !/\.dream-run[\\/]+guidelines\.md/.test(JSON.stringify(c.input ?? {}))),
     // 06, 8f: the candidate lines the session wrote to the candidates file, in the form finish parses (any kind)
     candidates: ev.filter((e) => e.type === 'assistant' && !e.parent_tool_use_id).flatMap((e) => e.message?.content ?? [])
       .filter((c) => c.type === 'tool_use' && /candidates\.txt/.test(JSON.stringify(c.input ?? {})))
@@ -428,6 +432,8 @@ function psummary() {
     out.candidateRuns = runs.filter((r) => r.candidates > 0).length;
     out.pass.candidates = out.candidateRuns >= 8;
   }
+  // 06, 11 (S7_GUIDE=1): the dream reads the guidelines file in at least 4 of the 5 fixture runs
+  if (process.env.S7_GUIDE) { out.guideRead = count(fx, 'guideRead'); out.guideOutside = count(runs, 'guideOutside'); out.pass.guide = out.guideRead >= 4; }
   out.pass.all = Object.values(out.pass).every(Boolean) && runs.length === 10 && fx.length === 5;
   // each attempt keeps its own result file (attempt 1's is s7-product-a1.json)
   fs.writeFileSync(path.join(HERE, 'results', process.env.S7_RESULT ?? 's7-product.json'), `${JSON.stringify(out, null, 1)}\n`);

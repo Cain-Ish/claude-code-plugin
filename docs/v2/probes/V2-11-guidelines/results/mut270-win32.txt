@@ -1,0 +1,8 @@
+killed  G-1 no copy
+killed  G-1 no line
+killed  G-2 no sentence
+killed  G-4 a repo path in a skill
+killed  G-2 no cases clause
+killed  G-4 a repo path a script prints
+killed  G-4 a research note in an agent
+7 of 7 killed

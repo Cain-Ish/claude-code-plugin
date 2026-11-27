@@ -10938,3 +10938,39 @@ The map holds its two working rules (`research-feeds-the-guidelines`, `plugin-is
 - **(d)** The self-test; `claude plugin validate`; CI on three systems (Node 20); D18's bench before the release,
   judged as section 9's (the hooks are unchanged); check 1 on the product tree (29 files, `guidelines.md` in them).
 - *Then:* the release as 2.6.2's, on the user's yes (the stop before `main`).
+
+### 11: the decision-checker's review, before the counted runs (2026-11-27)
+
+The build was in a copy (`c270`), as the copy rule asks. The `decision-checker` agent read its diff against this
+registration and the ledger. It found no conflict in the code with D14, D18, D29 or D03, and these, each taken before
+any counted run:
+1. **The guidelines carry tailor's case steps,** and the dream writes nothing but proposals (step 4); finish watches only
+   `.md` files in `.project-map/`, so a case file the dream wrote would be neither checked nor put back (older than
+   this build). *Taken:* G-2's sentence adds "a draft's cases are tailor's, not the dream's"; the older gap goes to the
+   register (#115 item 34).
+2. **Agent and change drafts are not in S7's fixtures.** *Taken:* **(e)** 8d's check 3 on the build, at its bars
+   (`fixture8d.mjs`, 5 runs; `results/check3-on-11.json`), added here, after the review.
+3. **D34's lock evidence (check 4, tailor's making, 12 runs) is not re-run.** *Named, not taken:* G-3 is a section
+   appended after the making and case sections that check 4's guardrails test, and tailor's steps are unchanged; its
+   deterministic tests pass. Re-running it is the user's call (#115 item 36).
+4. **Case (a)'s "finish takes nothing" could not fail.** *Taken:* the case stages an entry that quotes the guidelines,
+   and finish must drop it (no typed or tracked source).
+5. **`guideRead` counted any tool call that named the file.** *Taken, before the product runs started:* only a Read
+   of the run folder's copy counts; a read of any other copy (the plugin's own, outside the repo) is counted apart
+   (`guideOutside`). The bar runs with `S7_GUIDE=1`.
+6. **G-4, built narrower than registered:** the scan matches `docs/v2/`, `docs/agents/` and `research/<date>-` notes,
+   not every `docs/` path, since the README template's index example is `docs/archive`. *Taken:* it covers `scripts/`
+   too, whose printed text Claude reads.
+7. **G-3's first lines named no study;** *taken:* they name the verification post and the four studies. **Its opening
+   line** was in neither the registration nor the research; *taken:* "on a person's request or from a dream's change
+   draft", G1's own reach. The note marks ACE and Probe-and-Refine as a subagent's reading, not checked at the paper.
+8. **The mutations had no script on disk;** *taken:* `probes/V2-11-guidelines/mut270.mjs`.
+- **Two readings, stated for the re-lock:** a draft's body may carry guidelines text, which is not quote-checked (D31's
+  trigger names text from an untracked file); and the guidelines come from the install, not from the repo's HEAD
+  (D35's "only text a commit has seen steers the dream"). Both hold as before: the guidelines are the plugin's own
+  text, as tailor has printed them since 8e, and a draft binds only once a person promotes it.
+
+**After the review, the deterministic checks on the final build** (product `09c498261e0a`):
+- (a) case (5) fails on 2.6.2's product (no copy, no line) and passes on the build; (b) the self-test passes, G-2's
+  sentence and G-4's scan in it; 7 of 7 mutations killed (`probes/V2-11-guidelines/results/mut270-win32.txt`);
+  `claude plugin validate` passes.
