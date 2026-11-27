@@ -10862,3 +10862,15 @@ before the release; the release as 2.6.1's (product tree, PR, tag on `main`'s me
   100. Section 9's run, on the quiet machine, passed with the same hook code (80.8 ms). As D18's re-lock of 2026-10-27
   judged a run under outside load on its pair, this one counts as 2.6.1's pass; a re-run on the quiet machine goes to
   #115.
+
+### 10: the release (2026-11-27): 2.6.2 released
+
+- CI on `fa9ad052`: the self-test and the load job passed on Windows, macOS and Linux (Node 20).
+- The product tree (29 files, from `fa9ad052`); PR #123, `validate` and GitGuardian passed, merged (`3d841a00`). The
+  tag `v2.6.2` on that merge commit; check 1 passes on its archive, and its product equals `v2`'s byte for byte.
+- GitHub release `v2.6.2`. In a throwaway config, an install from `main` is 2.6.2 with the 29 files.
+- **Section 9's release record, verified after the fact:** `v2.6.1`'s product equals `v2`'s at the time byte for byte
+  (`git diff` on `plugin/` without tests, the manifests, README and LICENSE: empty), and its source archive holds the 29
+  files.
+- **Not done here:** the user's installs were not moved (the update commands are in section 9's release record).
+- **Next:** the live test of 2.6.2; #115 items 29, 33, 34 and D18's bench re-run on the quiet machine.
