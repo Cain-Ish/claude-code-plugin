@@ -5,7 +5,7 @@
 // path the entry names that is gone (N12).
 import fs from 'node:fs';
 import path from 'node:path';
-import { MAP, entries, sourcePath, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, dreamDate, git, quoteOf, proposedOn, reviewOn, statusOf, replacedBy, refinder, unseenIn, mapMd, mapIdsOf, readMapFile, decode, ended as isEnded } from './map.mjs';
+import { MAP, entries, sourcePath, stateDir, loadState, knownDirs, dreamDue, waiting, localDate, toplevel, dreamDate, git, quoteOf, proposedOn, reviewOn, statusOf, replacedBy, refinder, unseenIn, mapMd, mapIdsOf, readMapFile, decode, gitWhy, ended as isEnded } from './map.mjs';
 import { FILES, sum } from './setup.mjs';
 
 const count = (s) => (s ?? '').split('\n').filter(Boolean).length;
@@ -20,6 +20,9 @@ export function status(root, data) {
   if (!fs.existsSync(path.join(root, MAP))) return `This repo has no team memory (${MAP}/). Run /second-brain:setup to create it.`;
   // Q-11 (06, 8k): the state is kept per git repository, so with no .git there is nothing to report, said plainly
   if (!fs.existsSync(path.join(root, '.git'))) return `This folder is not in a git repository, and the team memory (${MAP}/) is kept per repository. Run /second-brain:status inside one.`;
+  // AU-12 (06, 9): git that cannot run here is named, as session start names it, never read as "never committed"
+  const probe = git(root, 'rev-parse', '--git-dir');
+  if (probe.status !== 0) return `The team memory needs git, and ${gitWhy(probe)}, so there is nothing to report here.`;
   const today = localDate();
   const files = mapMd(root);
   // 06, 8k: map files are read as the hooks read them (readMapFile), and one that cannot be read is named

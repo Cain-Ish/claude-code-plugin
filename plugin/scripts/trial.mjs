@@ -14,8 +14,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { MAP, toplevel, inRepo, configDir, exe } from './map.mjs';
-import { PRIVATE } from './dream.mjs';
+import { MAP, toplevel, inRepo, configDir, exe, gitDir } from './map.mjs';
+import { PRIVATE, powersIn, commandLines } from './dream.mjs';
 
 export const casesFile = (root, name) => path.join(root, MAP, 'evals', `${name}.json`);
 const CHECKS = `${MAP}/evals/checks/`;
@@ -141,24 +141,28 @@ function load(root, name) {
   return { spec, info, commit, checks, rel, hash: h.digest('hex').slice(0, 12), runs: (c) => c.runs ?? spec.runs ?? 3 };
 }
 
+const POWER = { permissionMode: 'permissionMode, so its sessions may skip permission prompts', hooks: 'hooks, commands that run as you on Claude Code\'s events',
+  mcpServers: 'mcpServers, servers its sessions start', 'allowed-tools': 'allowed-tools, what it runs without asking', memory: 'a memory other than project or local, so its notes are written outside the repo (memory: user is your home folder)',
+  odd: 'a top-level line that is not a plain key, which can spell any power unseen' };
 // what run would do, for the person to read before they type its line; nothing runs
 const quote = (t) => t.split(/\r?\n/).map((l) => `  | ${l}`).join('\n');
 export function show(root, name, self = fileURLToPath(import.meta.url)) {
   const { spec, info, checks, hash, runs } = load(root, name);
-  const fm = info.text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
-  // a fenced ! block is kept whole, to its closing fence (C-1)
-  let fenced = false;
-  const bangs = info.text.split('\n').filter((l) => { const keep = fenced || /!`|^\s*```!/.test(l); fenced = fenced ? !/^\s*```\s*$/.test(l) : /^\s*```!/.test(l); return keep; });
+  const fm = info.text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/)?.[1];
+  const bangs = commandLines(info.text);
   const sessions = spec.cases.reduce((s, c) => s + runs(c) * 2, 0);
   return [`Trial of ${spec.artifact} (${info.kind}${info.name ? ` "${info.name}"` : ''}): "with" ${info.draft ? 'has the draft in place' : 'has it as the commit holds it'}, "without" ${info.change ? 'has the file as the commit holds it' : info.draft ? 'has nothing there' : 'has it removed'}.`,
     `${sessions} sessions, each in its own copy of the last commit outside the repo, as claude -p with acceptEdits, only the case's tools, project settings only, every hook off, no MCP server and no transcript kept. Each one costs usage. Each case's check script decides a pass.`,
     fm ? `Its front matter:\n${fm.split(/\r?\n/).map((l) => `  ${l}`).join('\n')}` : 'It has no front matter.',
+    // AU-1 (06, 9): each power it sets, named with what it does, as for a bare Bash below; the dream refuses them all
+    ...(info.kind === 'rule' ? [] : powersIn(info.kind, info.text).map((k) => `Warning: it sets ${POWER[k]}. "with" runs that way, and promoting it keeps it.`)),
     bangs.length ? `Its command lines:\n${bangs.map((l) => `  ${l.trim()}`).join('\n')}` : 'It runs no command lines.',
     `Its whole text, which "with" runs:\n${quote(info.text)}`,
     // a file with a NUL byte is binary, so it is named, not printed as text (B-4, 06, 8k); the hash covers its bytes
     ...(info.extras.length ? [`Files beside it, which "with" adds: ${info.extras.map((e) => e.rel).join(', ')}`, ...info.extras.map((e) => (e.body.includes(0) ? `The file ${e.rel} is binary (${e.body.length} bytes), so it is not shown.` : `The file ${e.rel}:\n${quote(e.body.toString('utf8'))}`))] : []),
-    // 8o (X-3's rest): a bare Bash approves every command, and the copy is no sandbox
-    ...spec.cases.map((c) => `- case ${c.id} (${c.use === false ? 'should not be used' : 'should be used'}), ${runs(c)} run(s) per arm\n  prompt: ${c.prompt}\n  tools: ${(c.tools ?? DEFAULT_TOOLS).join(', ')}${(c.tools ?? []).some((t) => t.trim() === 'Bash') ? '\n  Bash with no pattern: its sessions may run any command as you, outside the copy too.' : ''}\n  check: ${c.check}`),
+    // 8o (X-3's rest): a bare Bash approves every command, and the copy is no sandbox; AU-9 (06, 9): PowerShell too,
+    // which the hooks treat as Bash, and either with the pattern *
+    ...spec.cases.map((c) => `- case ${c.id} (${c.use === false ? 'should not be used' : 'should be used'}), ${runs(c)} run(s) per arm\n  prompt: ${c.prompt}\n  tools: ${(c.tools ?? DEFAULT_TOOLS).join(', ')}${[...new Set((c.tools ?? []).map((t) => /^(Bash|PowerShell)(?:\(\s*\*\s*\))?$/.exec(t.trim())?.[1]).filter(Boolean))].map((s) => `\n  ${s} with no pattern: its sessions may run any command as you, outside the copy too.`).join('')}\n  check: ${c.check}`),
     ...Object.entries(checks).map(([k, t]) => `The check script ${k}, which runs with node on each session's work:\n${quote(t)}`),
     'To run it, type this line yourself; the ! runs it in your shell, so no model starts it:',
     `! node "${self.split(path.sep).join('/')}" run ${name} ${hash}`].join('\n');
@@ -203,9 +207,10 @@ export const childEnv = () => Object.fromEntries(Object.entries(unlinked()).filt
 const checkEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|HOME|USERPROFILE|TEMP|TMP|TMPDIR|LANG|LC_ALL)$/i.test(k)));
 
 // a commit in a copy, with no signing and no hooks of the user's (a hooks folder that does not exist), and the same
-// message in every arm; a failure stops that run, so a session never runs on a tree it was not meant to see
+// message in every arm; a failure stops that run, so a session never runs on a tree it was not meant to see. -f: a file
+// the commit holds that .gitignore matches (force-added) stays tracked, so a session's edit to it shows (AU-15, 06, 9)
 const GIT_COPY = ['-c', 'user.name=trial', '-c', 'user.email=trial@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=.git/no-hooks', '-c', 'core.autocrlf=false'];
-const commit = (dir) => { for (const a of [['add', '-A'], ['commit', '-qm', 'trial copy', '--allow-empty']]) { const r = git(dir, ...GIT_COPY, ...a); if (r.status !== 0) throw new Error(`git ${a[0]} failed in a copy: ${String(r.stderr).trim()}`); } };
+const commit = (dir) => { for (const a of [['add', '-A', '-f'], ['commit', '-qm', 'trial copy', '--allow-empty']]) { const r = git(dir, ...GIT_COPY, ...a); if (r.status !== 0) throw new Error(`git ${a[0]} failed in a copy: ${String(r.stderr).trim()}`); } };
 // a copy of one commit, with no history: each blob it holds (no links, no submodules, no path with a backslash, a
 // colon, a .git or .. segment), then a fresh repository, so the session's git sees a clean tree. The evals folder
 // never reaches a copy, nor the drafts' staging folder, which "without" must not see (C-7)
@@ -314,9 +319,10 @@ export function record(root, name, out) {
   put(root, [[`${name}.json`, text]]);
 }
 
-// one trial at a time per repo (D34): exec holds a lock with its process id; a lock whose process has ended is taken over
+// one trial at a time per repo (D34): exec holds a lock with its process id; a lock whose process has ended is taken
+// over. AU-5 (06, 9): the lock sits in the git folder the repo's worktrees share, so a linked worktree sees it too
 const RUNNING = 'another trial is running in this repo: type the line again once its verdict lands';
-const lockOf = (root) => path.join(root, MAP, '.trial', '.lock');
+const lockOf = (root) => path.join(gitDir(root), 'second-brain-trial.lock');
 function holder(root) {
   let pid = 0;
   try { pid = Number(fs.readFileSync(lockOf(root), 'utf8')); } catch {}
@@ -324,7 +330,7 @@ function holder(root) {
   try { return pid > 0 && process.kill(pid, 0) ? pid : 0; } catch (e) { return e.code === 'EPERM' ? pid : 0; }
 }
 function take(root) {
-  const lock = path.join(put(root, []), '.lock');
+  const lock = lockOf(root);
   if (!holder(root)) fs.rmSync(lock, { force: true });
   try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); } catch { throw new Error(RUNNING); }
   return lock;
@@ -340,8 +346,12 @@ export async function exec(root, name, hash, token) {
   if (hash !== t.hash) throw new Error('the case file or the artifact changed after the run started');
   // git's blob ids, which /map-review computes again to tell a stale verdict: of the text that runs and of the case
   // file at the trial's commit, taken now, so an edit during the run leaves the verdict stale (P-1)
-  const artifactBlob = spawnSync(exe('git'), ['hash-object', '--stdin', `--path=${t.spec.artifact}`], { cwd: root, input: t.info.text, encoding: 'utf8', windowsHide: true }).stdout.trim();
-  const casesBlob = git(root, 'rev-parse', `${t.commit}:${t.rel}`).stdout.trim();
+  const hashOf = (rel, body) => spawnSync(exe('git'), ['hash-object', '--stdin', `--path=${rel}`], { cwd: root, input: body, encoding: 'utf8', windowsHide: true }).stdout.trim();
+  const at = (rel) => git(root, 'rev-parse', `${t.commit}:${rel}`).stdout.trim();
+  const artifactBlob = hashOf(t.spec.artifact, t.info.text);
+  const casesBlob = at(t.rel);
+  // AU-2 (06, 9): and of every other file it runs from, the check scripts and the files beside a skill draft
+  const blobs = { [t.spec.artifact]: artifactBlob, [t.rel]: casesBlob, ...Object.fromEntries(Object.keys(t.checks).map((k) => [k, at(k)])), ...Object.fromEntries(t.info.extras.map((e) => [e.rel, hashOf(e.rel, e.body)])) };
   let held = '';
   try { held = fs.readFileSync(lockOf(root), 'utf8'); } catch {}
   const lock = token && [token, String(process.pid)].includes(held) ? lockOf(root) : take(root);
@@ -370,7 +380,7 @@ export async function exec(root, name, hash, token) {
     }
   }
   const rows = t.spec.cases.map((c) => ({ id: c.id, use: c.use !== false, runs: t.runs(c), with: pass[`${c.id}\0with`] ?? 0, without: pass[`${c.id}\0without`] ?? 0 }));
-  const out = { artifact: t.spec.artifact, kind: t.info.kind, hash, artifactBlob, casesBlob, date: new Date().toISOString().slice(0, 10), failed, ...(why && { why }), ...(left.length && { copiesLeft: left }), cases: rows, verdict: verdict(rows, failed) };
+  const out = { artifact: t.spec.artifact, kind: t.info.kind, hash, artifactBlob, casesBlob, blobs, date: new Date().toISOString().slice(0, 10), failed, ...(why && { why }), ...(left.length && { copiesLeft: left }), cases: rows, verdict: verdict(rows, failed) };
   record(root, name, out);
   fs.rmSync(lock, { force: true });
   return out;
