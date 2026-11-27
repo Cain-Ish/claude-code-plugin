@@ -10588,3 +10588,100 @@ the audit's two "later" items of 8m's amendment, 8l's three "recorded" items, an
 
 - **Next:** 2.6.1 starts with PM7's count and entries, then AU-1 to AU-4 before any other fix, then the user's word
   on the postponed items.
+
+## 9: 2.6.1, the audit's fixes (registered 2026-11-27, before the code)
+
+> Implement fixes then verify them and merge. PR and merge changes so we can live test them
+
+The user, 2026-11-27, after the audit's report. **Scope:** AU-1 to AU-20 (section 8, the audit after the release).
+**Out, and kept in #115:** S8's rule-or-entry choice; the five never-asked items (K-8, S-3, S-4, T-2, T-4); the audit's
+smaller items and lean (the refactors); 8o's 2.6.1 list; D36. The stop before `main` is lifted by the user's words
+above.
+
+**9a, PM7 first.** The count of fix commits per part over 30 days (2026-10-28 to 2026-11-27), in the form of the
+ledger's last one (DECISIONS, "PM7, 2026-10-27"), and a keep-or-kill entry for each part at 5 or more that a fix below
+touches, before its code moves into `plugin/`. The existing entries' kill triggers are read first. The session-start
+cut's entry has the trigger "a further fix to the cut", and AU-8 is one: rule 4's rethink goes in the ledger before
+AU-8's code, or AU-8 leaves 2.6.1. The count goes in 2.6.1's release notes.
+
+**9b, AU-1 to AU-4,** then **9c, AU-5 to AU-20,** in one copy of `plugin/` outside the repo; each fix with the pass
+condition below.
+1. **AU-1:** `trial.mjs draft` refuses an agent or skill draft whose front matter the dream refuses: `permissionMode`,
+   `hooks`, `mcpServers` or a top-level line that is not a plain key (the dream's `powers`), an agent's memory other
+   than project or local (`userMemory`), and a skill's `allowed-tools`. The trial's `load` refuses a draft artifact that
+   sets one too, so `show` and `exec` refuse a `.draft` written by hand. *Pass:* `draft` refuses each form, also with
+   no line end after the closing `---`, and writes an agent with `memory: project` and a plain skill; `show` and
+   `exec` on a hand-written agent draft with `permissionMode` throw before any session starts.
+2. **AU-2:** the verdict records `blobs`, git's blob id of every file the trial ran from: the artifact's text, the case
+   file, each check script and each file beside a skill draft; `artifactBlob` and `casesBlob` stay, for an older
+   map-review. Map-review's template calls a verdict stale when any of them differs. *Pass:* an `exec` with a stand-in
+   claude writes `blobs` naming those four kinds of file, each equal to `git hash-object` of the file; after an edit to
+   the file beside the draft, its id differs; the template's sentence is pinned.
+3. **AU-3:** map-review's commit step commits `.project-map/dreams.md` with the review when it holds a line not yet
+   committed; the dream's report names it in its Next line, also when nothing was proposed; while the last dream's log
+   line is only in the working tree, the due line says the dream waits for that commit instead of "a dream is due",
+   and session start does not tell Claude to start one. *Pass:* after a finish that proposed nothing, its report's Next
+   line names `.project-map/dreams.md`; with 10 unseen sessions, the session-start hook gives the waiting line and no
+   "A dream is due" text, and gives both once that line is committed; this holds with 2.6.0's map-review in place too;
+   the template's sentence is pinned.
+4. **AU-4:** the root README says 2.6.1 is the release; its pin advice names `#v2.6.1` and says earlier tags hold the
+   whole repo. The tag `v2.6.1` goes on `main`'s merge commit, so the tag's tree and the release's source archives are
+   the product only (the agent's choice, named to the user; old tags stay where they are). *Pass:* 8n's `check1.mjs`
+   on `git archive v2.6.1`; the README lines read.
+5. **AU-5:** the trial's lock lives in the git folder a repo's worktrees share. *Pass:* with a lock held by a live
+   process, `start` from a linked worktree refuses as another trial running; a lock whose process ended is taken over.
+6. **AU-6:** the dream refuses a skill draft whose body holds a command line (an inline `!` before a backtick, or a
+   fenced block opened with three backticks and `!`), and a skill change draft that adds a command line the live skill
+   lacks. *Pass:* finish drops both, with the reason in its report; a draft with a `!` in prose and none of those forms
+   is written.
+7. **AU-7:** a Bash, PowerShell or Grep command that names the map reads every map file's HEAD text in one git call.
+   *Pass:* on a map of 8 topic files with entries, the Bash hook's added time over an empty Node at 1 session, 30
+   paired runs here, is under 2.6.0's p95 on the same repo and input, and at or under D18's 100 ms; D18's bench
+   (`bench.mjs`, as CI runs it) passes after the last hook change.
+8. **AU-8:** session start's cut lists every directory that fits, skipping one that does not, and its count names
+   those left out; the map's line stays first. *Pass:* an index whose first directory alone takes 9,000 characters,
+   followed by 41 short ones: the 41 are listed, the text is at most 10,000 characters, and the count says 1; the
+   self-test's cut cases pass.
+9. **AU-9:** `show` warns for `Bash` and `PowerShell` with no pattern or the pattern `*`. *Pass:* `Bash`,
+   `PowerShell`, `Bash(*)` and `PowerShell(*)` each warn once; `Bash(git status)` does not.
+10. **AU-10:** each prepare gives its run an id, which its report prints and the skill passes to finish and to its
+    abort; finish, and abort given an id, refuse any other run's. Abort with no id, the skill's route for a dream that
+    stopped in another session, stays as it is. *Pass:* prepare A, its lock aged past two hours, prepare B: finish
+    with A's id refuses and leaves B's run, state and lock as they were; finish with B's id finishes.
+11. **AU-11:** the labels read HEAD's text by the name git tracks: when HEAD has no file by the disk name and the
+    repo's git folds letter case, the one tracked name that folds to it. *Pass:* with `core.ignorecase` true, a map
+    file committed as `Decisions.md` and named `decisions.md` on disk keeps its committed entries' labels as
+    committed, on Read and on Bash.
+12. **AU-12:** onboard and status name why git cannot run (not found, or the folder not trusted), as session start
+    does. *Pass:* with `GIT_TEST_ASSUME_DIFFERENT_OWNER=1`, onboard and status say git does not trust the folder; with
+    no git on PATH, status says git was not found; neither says "Not a git repository" or "never committed".
+13. **AU-13:** prepare refuses a map folder or log that is a link, as finish does, before any analysis. *Pass:* a map
+    folder linked to a folder inside the repo: prepare throws, and the state is unchanged.
+14. **AU-14:** setup reads a kept file decoded as the hooks read it. *Pass:* a committed UTF-16 `CLAUDE.md` that holds
+    the team-memory section gets no proposal of it.
+15. **AU-15:** the trial copy's commit adds with `-f`. *Pass:* a copy of a commit holding a force-added file that
+    `.gitignore` matches tracks it.
+16. **AU-16:** the source re-find reads a cited file as map files are read: a regular file of 4 MB or less inside the
+    repo. *Pass:* a 5 MB source and a link to a file outside the repo each label "cannot read"; a plain source is found
+    as before.
+17. **AU-17:** map-review offers to promote a draft only on a current trial verdict that is judged; an untested or
+    stale draft gets only the line that tests it (D10: "each is tested against a run without it, and kept only on a
+    person's yes"). Setup's list gains 2.6.0's template text (`d2e13952443549c2`, kept under `test/earlier`), so a
+    repo's unchanged 2.6.0 copy takes the new text. *Pass:* the sentence pinned; setup on a repo holding 2.6.0's
+    map-review, committed and unchanged, updates it.
+18. **AU-18:** `PRIVATE` holds `session_` followed by 20 or more letters and digits. *Pass:* such an id is private;
+    `session_handler` and `session_timeout_ms` are not.
+19. **AU-19:** one rule for what a map file is: a `.md` file under `.project-map/`, outside `.dream-run/` and
+    `drafts/`, used by the map listing, the index, the Read hook and the Bash walk. *Pass:* a staged
+    `.project-map/drafts/<name>/SKILL.md` holding an entry is not counted as waiting, not indexed, and not labelled on
+    Read or Bash; a staged proposal under `.dream-run/` gets no Bash labels.
+20. **AU-20:** the dream watches `.claude/hooks/`. *Pass:* a committed hook script changed during a dream is put back by
+    finish, and its report names it.
+
+**The checks,** registered now: `test/fix261.mjs` holds one case per item, run against a plugin folder given; each
+case fails on 2.6.0's product (`git archive v2.6.0 plugin`) and passes on the copy, under Node 24 here and Node 20 in
+CI's self-test on Windows, macOS and Linux (the self-test runs it); AU-4's check runs at the release. A mutation of each
+new guard fails its case (`probes/V2-9-fixes/mutate261.mjs`, MUT_FAST). Every other test file and the self-test pass;
+`claude plugin validate plugin`; D18's bench as in item 7; an independent review of the diff by Gemini (plan mode, repo
+text only). Three attempts per item; an item that fails its third leaves 2.6.1 for #115, and the release goes on
+without it. 2.6.1's notes carry 9a's count.
