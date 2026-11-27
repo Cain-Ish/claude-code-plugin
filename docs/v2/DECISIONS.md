@@ -2381,6 +2381,61 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   largest added p95 is 75.6 ms (a Grep naming the map, at 8 concurrent); a Grep elsewhere adds 10.4 ms at 1 and 27.7
   ms at 8; empty Node's p95 at most 61.4 ms; CPU 8.8%; 0 errors. The surface: 4 hook events (PostToolUse now matches
   Read, Bash, PowerShell and Grep), 4 skills, 1 plugin agent, 1 command.
+- **PM7, 2026-11-27 (06, 9a): the count before 2.6.1, which 2.6.0's notes left out.** Fix commits per part from
+  2026-10-28 to 2026-11-27 (a commit that moved a step into `plugin/` counts once for each part it fixed; 8a's commit
+  and its revert, and 5d's attempt and its revert, count nothing). Counted by Gemini 4 Argon from the commit bodies
+  (plan mode), spot-checked here; borderline `feat` commits are left out:
+  - *over the line:* the Bash, PowerShell and Grep labels 15; the dream's finish and its gates 11; the dream's prepare
+    10; setup 8; status 6; the templates 6 (map-review most); the source re-find 5; the Read labels 5;
+  - *under it:* the trial and tailor 4; onboarding 4; the session-start text and cut 3; the index 3; the due line 3;
+    the analyzer 3; the forced decision 1.
+  - *Kill triggers read first:* the labels' entry of 2026-11-07 fired that day and its rethink led to 2o; the Bash
+    handler's later fixes (8h, 8k's H1, 8o's routes) had no entry, and the first entry below is it. The untracked
+    listing's entry (D16, 2026-10-27, "any further fix to this listing") fired, unrecorded, with 8k's H3 and H4: the
+    walk it shares with the labels stopped following links out of the repo and reading FIFOs. Rethink: those are the
+    walk's safety, not the listing's logic; killing the listing (tracked files only) hides a new topic file from
+    session start, so it stays, and its trigger stands. The cut's entry (below, "a further fix to the cut") fires with
+    AU-8.
+- **PM7 keep or kill, 2026-11-27, one per part over the line that 2.6.1 touches** (06, 9). Each: the outcome metric;
+  what killing it costs; the choice; the trigger that sends it to a rethink instead of another fix.
+  - *The Bash, PowerShell and Grep labels* (AU-7, AU-11, AU-19). Metric: C5, must-label reads labelled. Kill: most map
+    reads go through Bash (9 of 11 in the field), so the common route goes unlabelled. 2.6.1 changes how HEAD's text
+    is read and which files count, not the command check. **Keep.** Trigger: a further fix to the command check
+    (`includes(MAP)` after H1's folding), or a field count with a must-label Bash read unlabelled: then label every
+    command output that holds a map entry's heading, whatever the command.
+  - *The Read labels* (AU-11, AU-19). Metric: C5. Kill: the review-is-the-commit policy loses its mechanism. **Keep.**
+    Trigger: a further fix to the read hook's path matching (X-2 regressed 8g's there): then match by the path the tool
+    reports it read.
+  - *The dream's finish and its gates* (AU-3, AU-6, AU-10, AU-18, AU-20). Metric: no draft reaches `.claude/` with a
+    power the person did not set, and proposals pass review (the log's "accepted"). Kill: no skill, agent or change
+    drafts, entries only; that drops the user's goal (D34, D35: each repo's own agents and skills). **Keep.** The
+    gates are a denylist that has grown five times (8j, J-1, J-2, 8o, AU-6). Trigger: one more power found past them:
+    then an allowlist of front-matter keys per kind, and no command lines at all.
+  - *The dream's prepare* (AU-3, AU-10, AU-13). Metric: each session since the last dream is read once, none lost or
+    read twice. Kill: no dream (D31). **Keep.** Trigger: a further fix to the lock or the pending record after 2.6.1:
+    then one lock file per repo in the shared git folder, as AU-5 does for the trial, with the run id inside it.
+  - *Setup* (AU-14, AU-17's list). Metric: only missing files created, nothing of the repo's changed, earlier templates
+    updated (D29). Kill: no completion or update of existing files, everything handed to the person; the field needed
+    the updates (2.5.1, N10). **Keep.** Trigger: a further fix to appending to an existing file: then setup only
+    creates and updates, and hands every addition to the person.
+  - *Status* (AU-12). Metric: Claude starts it and the person gets a true report (8l). Kill: session start's notes
+    alone. **Keep.** Trigger: a further fix to its own copy of the entry checks: then it reports the read hook's
+    labels per file instead (the audit's lean item).
+  - *The templates* (AU-2, AU-3, AU-17: map-review). Metric: a review commits what the dream and the trial need, and
+    promotes only what D10 allows. Kill: the review moves into the plugin as its own skill, so its text ships with each
+    release and no hash list is kept; D33 placed it in the repo. **Keep** for 2.6.1. Trigger: a further change to
+    map-review's text after 2.6.1: then D33 reopens on moving it into the plugin.
+  - *The source re-find* (AU-16). Metric: D16's, an entry whose quote left its file says so. Kill: every entry
+    "unverified quote" (D16's option a). **Keep.** Trigger: a further fix to `sourcePath`'s reading of the source line:
+    then the cited file gets a line of its own in the entry format instead of being parsed out of the source.
+- **PM7's kill trigger fired, 2026-11-27: the session-start cut** (06, 9, AU-8; the entry of 2026-10-27). Rule 4's
+  rethink before the code. The guard keeps the text under the 10,000-character cliff, past which Claude saw a
+  2,000-character preview (the cap probe); it cut at the first directory that did not fit, so one large directory
+  early on hid every later one (1 of 42 listed in 2,362 characters, the audit). Options: (a) the guard skips a
+  directory that does not fit and goes on; (b) no guard (the cliff); (c) every directory without its file names past
+  the cap, 5d's attempt, which failed its pull check and was reverted (2026-11-23). **Choice: (a),** the smallest
+  change that keeps the measured outcome (D23's line and the map's line inside the cap). Trigger, from now: a further
+  fix to the cut, or Claude Code dropping its cap: then D22 reopens on what the index holds past the cap.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
