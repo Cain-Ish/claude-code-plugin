@@ -10685,3 +10685,14 @@ new guard fails its case (`probes/V2-9-fixes/mutate261.mjs`, MUT_FAST). Every ot
 `claude plugin validate plugin`; D18's bench as in item 7; an independent review of the diff by Gemini (plan mode, repo
 text only). Three attempts per item; an item that fails its third leaves 2.6.1 for #115, and the release goes on
 without it. 2.6.1's notes carry 9a's count.
+
+**9b, AU-1 attempt 1 failed (2026-11-27), before any result counted.** The self-test on the copy: 12 of 8e's and
+8i's trial cases fail, since their skill draft sets `allowed-tools` and `permissionMode` on purpose. D34's (T), locked,
+has `show` print the whole front matter so that "the person approves what runs" (8e, item 2); a skill tailor makes
+may need `allowed-tools` to run its own script. The dream refuses those keys because no person wrote its drafts;
+tailor's are made on the person's request and shown before any run. Refusing them re-argues D34 with no trigger fired.
+**Attempt 2, registered now:** `draft` and the trial write and run a draft as D34 has it; `show` names, on a line of
+its own, each power the artifact sets and what it lets the sessions do (`permissionMode`, `hooks`, `mcpServers`, a
+skill's `allowed-tools`, an agent's memory other than project or local, a top-level line that is not a plain key), as
+8o did for a bare Bash. *Pass:* `show` of an agent draft with each of them, and of a skill draft with
+`allowed-tools`, names each; a plain draft's `show` has no such line; 8e's and 8i's cases pass.
