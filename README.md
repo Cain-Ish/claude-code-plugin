@@ -146,7 +146,9 @@ post-release audit's fixes (2.6.1) and their review's (2.6.2). Work goes on in b
   call, each failed tool result, each read of a map file, and the 4 tool lines before each typed line. On this repo's
   own sessions that left 31% of the lines. Its report also names the topic files read, then corrected again in the same
   session. A skill draft is written as proposed, with no `disable-model-invocation` added: it never loads until
-  `/map-review` promotes it, and after that Claude may start it too.
+  `/map-review` promotes it, and after that Claude may start it too. Since 2.7.0 the dream writes each draft by
+  tailor's guidelines, which ship in the plugin and which prepare copies into its run folder; a procedure with side
+  effects, such as a release, then gets `disable-model-invocation` from the guidelines, not from finish.
 
   Since 2.6.0 its report also counts what the sessions did:
   - each of the repo's own skills and agents: how often it was used, and how often a typed line followed a use;

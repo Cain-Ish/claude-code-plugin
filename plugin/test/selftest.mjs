@@ -88,6 +88,8 @@ for (const [f, script] of [['skills/setup/SKILL.md', 'hook.mjs" setup'], ['skill
 assert.deepEqual(grantsOf('skills/tailor/SKILL.md'), ['Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" cli:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/trial.mjs" draft:*)']);
 // 06, section 3: the skills; 8l (the user's word): Claude may start each, so none carries disable-model-invocation
 assert.deepEqual(fs.readdirSync(path.join(PLUGIN, 'skills')), ['dream', 'setup', 'status', 'tailor']);
+// 06, section 11, G-2: the dream writes its drafts by tailor's guidelines, which prepare copies into the run folder
+assert.match(fs.readFileSync(path.join(PLUGIN, 'skills', 'dream', 'SKILL.md'), 'utf8').replace(/\s+/g, ' '), /Before you write a rule, skill, agent or change draft, read the guidelines file the report names, and write the draft by it; .* a draft's cases are tailor's, not the dream's:/);
 for (const s of fs.readdirSync(path.join(PLUGIN, 'skills'))) assert.doesNotMatch(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8'), /disable-model-invocation/, s);
 
 // D18: no model and no network, and hooks spawn only git. A tripwire over the product scripts' source, not a proof:
@@ -125,6 +127,12 @@ for (const f of ['hook.mjs', 'map.mjs', 'setup.mjs', 'dream.mjs', 'status.mjs'])
 const files = [];
 const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.name !== 'test') (e.isDirectory() ? walk : (p) => files.push(p))(path.join(d, e.name)); };
 walk(PLUGIN);
+// 06, section 11, G-4 (scripts too, since Claude reads what they print): nothing Claude reads from the plugin points into this repo's own docs or research notes, which
+// other repos lack (the map's plugin-is-self-contained); `docs/archive`, the README template's example, is not one
+for (const p of files) {
+  const rel = path.relative(PLUGIN, p).split(path.sep).join('/');
+  if (/^(skills|agents|commands|templates|hooks|scripts)\//.test(rel)) assert.doesNotMatch(fs.readFileSync(p, 'utf8'), /docs\/(?:v2|agents)\/|research\/\d{4}-\d\d-\d\d-/, rel);
+}
 const product = crypto.createHash('sha256');
 for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('/')).sort()) product.update(f).update(fs.readFileSync(path.join(PLUGIN, f), 'utf8').replace(/\r\n/g, '\n'));
 // 06, section 3, S2: map.mjs exports entries, foundIn and sourcePath, and adds gitDir and repoKey, with every hook's
@@ -132,8 +140,9 @@ for (const f of files.map((p) => path.relative(PLUGIN, p).split(path.sep).join('
 // capture instruction v3 (1,765 B), so a 2.2.0 repo's session start differs from 2.2.0's; its labels do not
 // 06, section 4: 4a, the hook reads its input with a readSync loop (N5, 4a869e6030aa); 4b, setup completes the files
 // that exist (D29 reopened, N7); 4j, setup's and status's reports gain N9 to N12; 4i, the document clause; 4k, the audit's fixes; 2.4.0's version (60455a805197); 5a, P1 and P2 (38602db7055f); 5b, N13 (9ebb998c0293); 5c, #7 and D33 (M) (c3e75c22b0ea); 2.5.0's version (44a8c3454df2); section 6, setup updates untouched copies of earlier templates, and 2.5.1's version. 2.3.0 was 3650f785f984
-// 06, section 9: 2.6.1, the audit's fixes AU-1 to AU-20 (2.6.0 was 2bb76b13653a)
-assert.equal(product.digest('hex').slice(0, 12), 'eba16349aafa', 'the product changed: record its hash with a new epoch (06)');
+// 06, section 9: 2.6.1, the audit's fixes AU-1 to AU-20 (2.6.0 was 2bb76b13653a); section 10: 2.6.2 (eba16349aafa);
+// section 11: 2.7.0, the dream drafts by tailor's guidelines
+assert.equal(product.digest('hex').slice(0, 12), '09c498261e0a', 'the product changed: record its hash with a new epoch (06)');
 
 // a repo: tracked documents in two directories, a non-document, an untracked document, a committed map entry
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-selftest-'));

@@ -161,6 +161,32 @@ await tryCheck('(4) steering', async () => {
     JSON.stringify({ st, absent, topic: D.topic?.('steering.md'), quoted: map.includes('steer-quote'), skillSkips: skill.includes('except `steering.md`'), steeringUnchanged: steerAfter === steerBefore }));
 });
 
+// (5) G-1 (06, 11): prepare copies tailor's guidelines into the run folder and names them on their line; abort removes
+// them with the folder, and finish takes nothing from them
+await tryCheck('(5) guidelines', async () => {
+  const guide = fs.readFileSync(path.join(PLUGIN, 'skills', 'tailor', 'guidelines.md'));
+  const w = world({});
+  w.session('s1', [w.rec.U('Prices round half up to whole cents.')]);
+  w.use();
+  const out = await D.prepare(w.r, w.data);
+  const g = path.join(w.run, 'guidelines.md');
+  const copied = fs.existsSync(g) && fs.readFileSync(g).equals(guide);
+  const named = /^Guidelines: \.project-map\/\.dream-run\/guidelines\.md, .+ before you write a draft\.$/m.test(out);
+  D.abort(w.r, w.data);
+  const gone = !fs.existsSync(g);
+  const v = world({});
+  v.session('s1', [v.rec.U('Prices round half up to whole cents.')]);
+  v.use();
+  await D.prepare(v.r, v.data);
+  // an entry that quotes the guidelines has no typed or tracked source in this repo, so finish drops it
+  fs.mkdirSync(path.join(v.run, 'proposals', 'map'), { recursive: true });
+  fs.writeFileSync(path.join(v.run, 'proposals', 'map', 'decisions.md'), '### making\n> Context that Claude writes for itself, untested, has measured as a loss.\n\n- id: guide-quote\n- source: the lead developer, 2026-11-20\n- when: ["work"]\n');
+  const fin = D.finish(v.r, v.data);
+  const map = fs.readFileSync(path.join(v.r, '.project-map', 'decisions.md'), 'utf8');
+  check('(5) guidelines', copied && named && gone && /proposed 0 entries/.test(fin) && /dropped 1/.test(fin) && !map.includes('guide-quote'),
+    JSON.stringify({ copied, named, gone, fin: fin.split('\n')[0] }));
+});
+
 if (savedCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCfg;
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(failed ? `${failed} case(s) failed` : 'dream8c ok');

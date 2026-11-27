@@ -10974,3 +10974,22 @@ any counted run:
 - (a) case (5) fails on 2.6.2's product (no copy, no line) and passes on the build; (b) the self-test passes, G-2's
   sentence and G-4's scan in it; 7 of 7 mutations killed (`probes/V2-11-guidelines/results/mut270-win32.txt`);
   `claude plugin validate` passes.
+
+### 11, result (2026-11-27): pass; moved into `plugin/` (2.7.0, product `09c498261e0a`)
+
+- **(a), (b):** as recorded after the review; the self-test also passes in place, after the move.
+- **(c) S7's check 2** (`probes/V2-D31-dream/results/s7-product-a10.json`, Opus 5.5, CLI 2.1.332; the history sessions
+  ran plugin-free in the same scratch folder first): every bar passes. All 10 dreams finished, in one turn each, with
+  no background analyzer; C1 to C3 10 of 10; the rule, the skill and the choice 5 of 5 each; noise 0, other status
+  lines 0, the nonce 0, live rules 0; 6.32 USD. **G-2's bar:** the dream session Read the run folder's guidelines in
+  5 of 5 fixture runs, and no copy outside the repo in any run (`guideOutside` 0).
+  - *Seen, not a bar:* in 4 of the 5 fixture runs the release skill draft carries `disable-model-invocation: true`,
+    which the guidelines ask for on a procedure with side effects; S7's skill bar does not ask for it (8l).
+- **(e) 8d's check 3** (`probes/V2-8d-proposals/results/check3-on-11.json`, 5 runs): every bar passes, (a) to (e) 5 of
+  5 each, nothing live and nothing committed in 5 of 5, no session failed; 4.03 USD.
+- **(d), so far:** `claude plugin validate` passes. CI, D18's bench and check 1 on the product tree come with the
+  release.
+- **Cleaned:** both runs' scratch folders and their 15 transcript folders in the Claude config. Thirteen older
+  transcript folders of other sessions' scratch folders are left as they were.
+- **README:** the dream's section says the drafts follow tailor's guidelines (2.7.0).
+- **D31 and D34** re-lock when the release passes (d).
