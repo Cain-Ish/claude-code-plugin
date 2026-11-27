@@ -10874,3 +10874,67 @@ before the release; the release as 2.6.1's (product tree, PR, tag on `main`'s me
   files.
 - **Not done here:** the user's installs were not moved (the update commands are in section 9's release record).
 - **Next:** the live test of 2.6.2; #115 items 29, 33, 34 and D18's bench re-run on the quiet machine.
+
+### 10: the live test (2026-11-27), in this repo, on the user's install of 2.6.2
+
+- **Setup:** after the user committed 2.6.0's files, `/second-brain:setup` updated `.claude/skills/map-review/SKILL.md`
+  from 2.6.0's release text (`d2e13952443549c2`, AU-17) to 2.6.2's (`da81cf1cd9c2d7cc`); the other nine files kept.
+- **The dream,** started by the user's command: 8 digests, analyzed in two batches of four; finish took the run id the
+  report named (AU-10's first real session) and dropped nothing: 4 entries and 1 skill draft. The analyzers marked the
+  lines of one session as not shown to be the person's, and the dream proposed nothing from them.
+- **The review** accepted the 4 entries and committed them with `dreams.md`; after that commit, session start shows no
+  due line (AU-3).
+- **Not run:** a trial (the skill draft is untested, so the review offered no promotion); AU-1's warning.
+- **Found:** the dream wrote its skill draft, `plan-check`, without tailor's guidelines, which it never sees. The draft
+  is a procedure that writes to the issue tracker, and has no `disable-model-invocation`, which the guidelines ask for
+  on a procedure with side effects. Section 11.
+
+## 11: 2.7.0, the dream drafts by tailor's guidelines (registered 2026-11-27, before the code)
+
+**The user's word (2026-11-27), after the live test:** "agents build should have general guidelines so claude will know
+how to create best agents based on the research we done and will done to improve that logic. also self-improvement
+loop need to know it. we will use plugin in different repos so they wont have access to anything that installed plugin
+do not contain". Under rule 3 it reopens D31 (the dream's draft-writing rules) and D34 (how the plugin guides making).
+The map holds its two working rules (`research-feeds-the-guidelines`, `plugin-is-self-contained`).
+
+**What the plugin has, and the gap:**
+- **The guidelines ship:** `plugin/skills/tailor/guidelines.md` (Anthropic's documentation, SkillsBench, the AGENTS.md
+  study; the research of 2026-11-24, G1). Only tailor reads them: `trial.mjs`'s `cli` prints them where something is
+  made (P-7, 8l).
+- **The dream never sees them.** It is the loop's improve half (D31, D35), and drafts rules, skills, agents and changes
+  from its own format lines (`dream/SKILL.md`, step 4). The live test's draft shows the cost (section 10).
+- **They lack how to improve what exists:** G1's step 8 (the research of 2026-11-24, section 7) is not in them; they
+  hold "Don't tune it to its cases" and "Retiring it" only.
+- **Self-contained today, unchecked:** no skill, agent, command, template or hook of the plugin names a path under
+  `docs/` or a `research/` note (a grep, 2026-11-27). Nothing keeps it so.
+
+**What changes, the smallest that closes it:**
+1. **G-1:** prepare copies the plugin's `guidelines.md` into the run folder, `.project-map/.dream-run/guidelines.md`,
+   and names it on its own line after the steering line. A copy, as steering's: reads outside the repo stopped D34's
+   runs (7a), and finish and abort remove the run folder.
+2. **G-2:** the dream skill's step 4: before a rule, skill, agent or change draft, read that file and write the draft
+   by it; step 4's formats still hold, since finish checks them.
+3. **G-3:** the guidelines gain a short section on improving an artifact that exists, from G1's step 8: the missed
+   case first, the smallest change and never a whole rewrite (ACE, Probe-and-Refine), every case again, and three
+   failed rounds bring in the person (the Claude Code team's verification post). Their first lines name the research
+   they draw on. Nothing else in them changes.
+4. **G-4:** a self-test assert: no file of the plugin's skills, agents, commands, templates or hooks names a path
+   under `docs/` or a `research/` note.
+- **Not changed:** the templates (so no `FILES` or `test/earlier` entry), the hooks (D18's surface), the analyzer,
+  finish's checks, tailor's steps. D36 (scopes for a monorepo) stays #115 item 31.
+
+**The checks, registered before the code:**
+- **(a)** A new case in `dream8c`, beside steering's: prepare writes `guidelines.md` into the run folder, byte-equal to
+  the plugin's, and names it on its line; abort removes it with the folder; finish takes nothing from it. It fails on
+  2.6.2's product and passes on the build; a mutation that drops the copy, or the line, fails it.
+- **(b)** The self-test asserts G-2's sentence in the dream skill, and G-4's scan; a mutation that names a `docs/` path
+  in a skill fails the scan.
+- **(c)** S7's check 2 on the build, at its bars (`s1.mjs`, histories then `product`, 10 runs, Opus 5.5;
+  `results/s7-product-a10.json`): C1 to C3 in at least 8; the rule, the skill and the choice at least 4 of 5; noise
+  at most 1 per run; a wrong status line in fewer than 2 runs; the nonce 0; live rules 0. **Added for G-2:** the dream
+  session reads the guidelines file in at least 4 of the 5 fixture runs, which draft a rule and a skill (`guideRead`,
+  from the session's tool calls). *Named:* the CLI is 2.1.332, the one installed; 2.1.305, which a9 ran on, is no
+  longer on this machine, and the bars are absolute, not paired.
+- **(d)** The self-test; `claude plugin validate`; CI on three systems (Node 20); D18's bench before the release,
+  judged as section 9's (the hooks are unchanged); check 1 on the product tree (29 files, `guidelines.md` in them).
+- *Then:* the release as 2.6.2's, on the user's yes (the stop before `main`).
