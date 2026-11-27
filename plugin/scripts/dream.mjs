@@ -565,6 +565,9 @@ export async function prepare(root, data) {
     // analyzers, never a source
     const steer = git(root, 'show', `HEAD:./${MAP}/steering.md`);
     if (steer.status === 0) fs.writeFileSync(path.join(run, 'steering.md'), steer.stdout);
+    // G-1 (06, 11): tailor's guidelines, for the drafts the dream writes; a copy, as steering's, since reads outside the
+    // repo stopped D34's runs (7a)
+    fs.copyFileSync(new URL('../skills/tailor/guidelines.md', import.meta.url), path.join(run, 'guidelines.md'));
     // the commit the tracked sources come from; none before the first commit (rev-parse would print "HEAD" itself)
     const pinned = git(root, 'rev-parse', '--verify', '-q', 'HEAD');
     // AU-10 (06, 9): the run's id, which finish and the skill's abort must name, so a finish that comes after a newer
@@ -587,6 +590,7 @@ export async function prepare(root, data) {
       digests.length ? '' : 'Nothing new to read since the last dream: run finish now to close it.',
       `Run id: ${id} (finish and abort take it).`,
       steer.status === 0 ? `Steering: ${RUN}/steering.md, the team's word on what matters here, as HEAD holds it.` : '',
+      `Guidelines: ${RUN}/guidelines.md, how to make a rule, skill or agent; read it before you write a draft.`,
       leftover,
     ].filter(Boolean).join('\n');
   } catch (e) { unlock(dir); throw e; }

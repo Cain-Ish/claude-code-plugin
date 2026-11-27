@@ -1,7 +1,8 @@
 # Guidelines
 
-These come from Claude Code's documentation (subagents, skills, memory, the features overview) and Anthropic's skill
-authoring guide, re-read on 2026-11-24. They are principles, not a field list.
+These come from Claude Code's documentation (subagents, skills, memory, the features overview), Anthropic's skill
+authoring guide and the Claude Code team's post on verification, re-read on 2026-11-24, and from four studies:
+SkillsBench, the AGENTS.md study, ACE and Probe-and-Refine. They are principles, not a field list.
 
 ## Make nothing without a gap
 
@@ -83,3 +84,14 @@ order, or a step that must be exact, the procedure is the gap, and its home is a
   `node <check file>` command: no `$()`, `&&`, pipes or PowerShell. Write no other file to test it.
 - **Don't tune it to its cases.** A change that only makes these cases pass is not a better artifact.
 - **Retiring it.** When the trial says it adds nothing or hurts, /map-review offers to remove it, on the user's yes.
+
+## Improving one that exists
+
+Improving a live agent, skill or rule, on a person's request or from a dream's change draft:
+- **The missed case first.** Add a case from the correction it answers, one the live version fails.
+- **The smallest change** that answers it, never a rewrite of the whole file. Whole-context rewrites collapsed the
+  context and fell below the baseline (ACE, 2026); a few small edits per round improved a repo's guidance
+  (Probe-and-Refine, 2026).
+- **Every case again,** not only the new one.
+- **Three rounds at most.** "If a check is still failing after three rounds, Claude stops and brings in a human" (the
+  Claude Code team on verification, 2026).

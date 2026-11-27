@@ -39,7 +39,9 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      that used it (`uses` per digest in `usage.json`). It holds the whole file with the smallest change that answers
      the corrections.
 4. **Write each proposal under `.project-map/.dream-run/proposals/`.** The finish step applies them, after it checks
-   them:
+   them. Before you write a rule, skill, agent or change draft, read the guidelines file the report names, and write
+   the draft by it; the formats below still hold, since finish checks them, and a draft's cases are tailor's, not the
+   dream's:
    - `map/<topic>.md`: the entries to add to the topic file of that name. Each entry:
      ```
      ### <the part of the project it governs>
