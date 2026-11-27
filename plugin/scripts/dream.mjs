@@ -84,21 +84,23 @@ const watchable = (f) => typeof f === 'string' && !f.includes('\\') && !f.split(
 const inside = (root, p) => plain(root, p) && !lstat(p)?.isSymbolicLink() && inRepo(root, path.dirname(p));
 // puts the watched set back to the snapshot. Each file it replaces or removes is copied to undone/ first, so nothing
 // is destroyed: another session may have captured an entry during the dream
+// AU-20 (06, 9; R-1 and R-4, 06, 10): a record from before 2.6.1 watched nothing in .claude/hooks, so restore and the
+// leftover report leave that folder, its files and its links alone for it
+const watchedBy = (dirs) => (f) => (dirs ?? []).includes('.claude/hooks') || (f !== '.claude/hooks' && !f.startsWith('.claude/hooks/'));
 function restore(root, dir, runDir, list, before, dirs) {
+  const theirs = watchedBy(dirs);
   const snap = path.join(runDir, 'snapshot');
   const keep = new Set(list);
   const undone = path.join(dir, 'undone', stamp());
   const changed = [];
   const save = (f) => { const to = path.join(undone, f); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.cpSync(path.join(root, f), to, { recursive: true }); };
   for (const [f, to] of Object.entries(links(root))) {
-    if (before[f] === to) continue;
+    if (!theirs(f) || before[f] === to) continue;
     fs.mkdirSync(path.dirname(path.join(undone, f)), { recursive: true });
     fs.writeFileSync(path.join(undone, `${f}.link`), `${to}\n`);
     fs.rmSync(path.join(root, f), { force: true });
     changed.push(`removed the link ${f}`);
   }
-  // AU-20 (06, 9): a record from before 2.6.1 watched no hook script, so none is removed for it
-  const theirs = (f) => !f.startsWith('.claude/hooks/') || (dirs ?? []).includes('.claude/hooks');
   for (const f of watched(root)) if (!keep.has(f) && theirs(f) && plain(root, path.join(root, f))) { save(f); fs.rmSync(path.join(root, f), { force: true }); changed.push(`removed ${f}`); }
   for (const f of list) {
     const p = path.join(root, f);
@@ -409,7 +411,7 @@ export async function prepare(root, data) {
       const snap = path.join(runDir, 'snapshot');
       const here = old.root === real(root);
       const differ = here
-        ? [...new Set([...watched(root), ...old.watched])].filter((f) => { try { return !fs.readFileSync(path.join(root, f)).equals(fs.readFileSync(path.join(snap, f))); } catch { return true; } })
+        ? [...new Set([...watched(root).filter(watchedBy(old.dirs)), ...old.watched])].filter((f) => { try { return !fs.readFileSync(path.join(root, f)).equals(fs.readFileSync(path.join(snap, f))); } catch { return true; } })
         : [];
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.renameSync(runDir, to);
@@ -634,9 +636,19 @@ export function powersIn(kind, t) {
   if (odd(fm)) set.push('odd');
   return set;
 }
-// AU-6 (06, 9): a skill's command lines, which run when it loads: an inline !` or a fenced ```! block, whole to its
-// closing fence (show's reading, C-1)
-export const commandLines = (t) => { let fenced = false; return t.split('\n').filter((l) => { const keep = fenced || /!`|^\s*```!/.test(l); fenced = fenced ? !/^\s*```\s*$/.test(l) : /^\s*```!/.test(l); return keep; }); };
+// AU-6 (06, 9): a skill's command lines, which run when it loads: an inline !` to its closing backtick, on a later line
+// too, or a fenced ```! block, whole to its closing fence (show's reading, C-1). R-2 (06, 10): with fences, every code
+// fence's line too, in file order, so a change that moves a command into or out of a code block is seen
+export const commandLines = (t, fences = false) => {
+  let fenced = false, open = false;
+  return t.split('\n').filter((l) => {
+    if (fenced) { fenced = !/^\s*```\s*$/.test(l); return true; }
+    if (open) { open = !l.includes('`'); return true; }
+    if (/^\s*```!/.test(l)) { fenced = true; return true; }
+    if (/!`/.test(l)) { open = !l.slice(l.lastIndexOf('!`') + 2).includes('`'); return true; }
+    return fences && /^\s*```/.test(l);
+  });
+};
 const MADE = new Set(FILES.map(([, to]) => to));
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'entry';
 // every ellipsis-separated segment of a proposed quote has 3 or more words, so none goes unchecked (the read hook's
@@ -934,8 +946,9 @@ export function finish(root, data, id) {
     // X-4: a change keeps what the skill or agent may run as the live file has it (J-2, 06, 8m: and may not), so a
     // removed disallowedTools is a widening too; the person changes that by hand
     if (['allowed-tools', 'tools', 'disallowedTools'].some((k) => entry(fm, k) !== entry(liveFm, k))) { drop('change to allowed-tools or tools'); continue; }
-    // AU-6 (06, 9): a skill's change keeps its command lines exactly as the live file has them, in order
-    if (c.kind === 'skill' && commandLines(t).join('\n') !== commandLines(liveText).join('\n')) { drop('change to a command line (!)'); continue; }
+    // AU-6 (06, 9): a skill's change keeps its command lines exactly as the live file has them, in order, and where they
+    // sit among its code fences (R-2, 06, 10)
+    if (c.kind === 'skill' && commandLines(t, true).join('\n') !== commandLines(liveText, true).join('\n')) { drop('change to a command line (!)'); continue; }
     if (fs.existsSync(`${c.live}.draft`)) { drop('a draft already waits'); continue; }
     if (!inside(root, `${c.live}.draft`)) { drop('a link on its path'); continue; }
     if (c.kind === 'skill') {
