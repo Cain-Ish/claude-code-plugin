@@ -10696,3 +10696,43 @@ its own, each power the artifact sets and what it lets the sessions do (`permiss
 skill's `allowed-tools`, an agent's memory other than project or local, a top-level line that is not a plain key), as
 8o did for a bare Bash. *Pass:* `show` of an agent draft with each of them, and of a skill draft with
 `allowed-tools`, names each; a plain draft's `show` has no such line; 8e's and 8i's cases pass.
+
+**9b and 9c, the reviews of the candidate (2026-11-27), before any result counted.** The self-test passed on the
+copy (Node 24); 32 of 35 mutations were killed (two anchors were wrong, one survived: AU-7's case had git folding
+letter case, so the AU-11 fallback read every file again). Gemini 4 Argon (plan mode, the diff) and the
+decision-checker agent then found these; each is checked in the code here, and each counts as a failed attempt of
+its item where the registered check would have failed:
+- **AU-3, attempt 1 failed (V2-D32):** "Session start adds no git call". The due line's wait check ran three git calls
+  at every session start while a dream was due. *Attempt 2:* no git call: the line waits when it is in the working
+  tree and git's index file has not been written since that dream finished (a commit always writes it). *Pass:* as
+  registered, plus the session-start hook spawns no git call beyond `ls-files` on that path.
+- **AU-19, attempt 1 failed (V2-D14, V2-D16):** taking `.dream-run/` and `drafts/` out of the labels lets
+  uncommitted, entry-shaped text reach Claude unlabelled (D14's trigger by its letter), and taking `drafts/` out of
+  the index is a further fix to the untracked listing (D16's PM7 trigger). *Attempt 2:* only the map listing that
+  counts team memory (`mapMd`: waiting, status, ids) leaves out `drafts/`, as it already leaves out `.dream-run/`;
+  labels and the index stay as 2.6.0 has them. *Pass:* a staged draft holding a proposed entry is not counted as
+  waiting.
+- **AU-1, attempt 2 failed; attempt 3:** a non-plain top-level line was named only when no other power was set, and a
+  closing `---` with spaces after it hid every power. *Pass:* as attempt 2, plus a draft with `hooks` and a quoted
+  key gets both lines, and one whose closing `---` ends in spaces gets its line. This is AU-1's last attempt.
+- **AU-6, attempt 1 failed:** a change could drop the guard lines of a fenced command block, since each remaining line
+  was in the live file. *Attempt 2:* a skill's change keeps its command lines exactly as the live file has them, in
+  order. *Pass:* as registered, plus a change that drops lines from a fenced block is refused.
+- **AU-10, attempt 1 failed:** a finish typed with no id still applied a newer run. *Attempt 2:* `finish` run as a
+  command with no id refuses a run whose record has one; in-process callers and abort with no id stay as they are.
+  *Pass:* as registered, plus that command refuses and leaves the newer run as it was.
+- **AU-12, attempt 1 failed:** onboard, when git cannot run, still said every map file was "not committed". *Pass:* as
+  registered, and onboard says nothing about what is committed then.
+- **AU-20, attempt 1 failed:** a run record from before 2.6.1 lists no hook script, so its finish or abort would
+  remove every `.claude/hooks/` file (saved in `undone/` first). *Attempt 2:* the record names the folders it watched,
+  and a restore leaves `.claude/hooks/` alone for a record that does not name it. *Pass:* as registered, plus an
+  abort of a record without it leaves the hook scripts in place.
+- **AU-11's cost:** with git folding letter case (Windows' and macOS' default), every read of an uncommitted map file
+  ran `git ls-tree` too. The map folder's tree now comes in the same `cat-file` call. *Pass:* as registered, plus a
+  map file whose name folds to two tracked names is read as uncommitted; the mutations get its guard.
+- **Registered too late, added now:** D18's bench at 8 concurrent on the reference machine before the release (D18:
+  "checked again before each release"), paired against 2.6.0's product, as for 8o.
+- **Departures kept, named here:** a verdict from before 2.6.1 has no `blobs`, so map-review calls it stale and its
+  draft is tried again before it is promoted (D10 errs that way); a "not judged" verdict gets the line that tests the
+  draft again instead of nothing. Gemini's second finding (the report's first line) was already gone: the run id is a
+  line of its own, since the dream's own digest keys on "Dream prepared: ".
