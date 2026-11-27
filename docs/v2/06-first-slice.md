@@ -10882,9 +10882,10 @@ before the release; the release as 2.6.1's (product tree, PR, tag on `main`'s me
 - **The dream,** started by the user's command: 8 digests, analyzed in two batches of four; finish took the run id the
   report named (AU-10's first real session) and dropped nothing: 4 entries and 1 skill draft. The analyzers marked the
   lines of one session as not shown to be the person's, and the dream proposed nothing from them.
-- **The review** accepted the 4 entries and committed them with `dreams.md`; after that commit, session start shows no
-  due line (AU-3).
-- **Not run:** a trial (the skill draft is untested, so the review offered no promotion); AU-1's warning.
+- **The review** accepted the 4 entries and committed them with `dreams.md`.
+- **Not run:** a trial (the skill draft is untested, so the review offered no promotion); AU-1's warning; AU-3, which no
+  session could reach: the due line needs 10 new sessions (or 3 over 7 days), and about 1 had passed since the dream,
+  so its absence after the commit shows nothing (corrected after the fact; the session-start event run was hand-made).
 - **Found:** the dream wrote its skill draft, `plan-check`, without tailor's guidelines, which it never sees. The draft
   is a procedure that writes to the issue tracker, and has no `disable-model-invocation`, which the guidelines ask for
   on a procedure with side effects. Section 11.
