@@ -10993,3 +10993,18 @@ any counted run:
   transcript folders of other sessions' scratch folders are left as they were.
 - **README:** the dream's section says the drafts follow tailor's guidelines (2.7.0).
 - **D31 and D34** re-lock when the release passes (d).
+
+### 11, (d) (2026-11-27): CI, D18's bench, check 1
+
+- **CI** on `f7ed5137`: the self-test and the load job passed on Windows, macOS and Linux (Node 20).
+- **Check 1** on the product tree built from `f7ed5137`: 29 files, `skills/tailor/guidelines.md` among them, and
+  `plugin.json` at 2.7.0.
+- **D18's bench, not in its reference state,** named here (`probes/V2-11-guidelines/results/pairbench-270-loaded.json`,
+  2.6.2 the control, 200 calls per kind at 1 and 8 concurrent): the machine ran at 30 to 35% CPU throughout, from a
+  process outside this work, against the 10% the reference state asks. At 1 session every kind's added p95 is within
+  100 ms for both builds. At 8 concurrent both builds exceed it on two map kinds by the same margin: a map-file Read
+  101.1 and 104.4 ms, a map Grep 124.9 and 129.2 ms. The hooks load `hook.mjs`, `map.mjs` and `setup.mjs`, and 2.7.0
+  leaves all three byte-identical to 2.6.2 (`git diff v2.6.2 -- plugin/scripts plugin/hooks` touches only
+  `dream.mjs`), so the two columns measure the same code, and their spread (up to 11 ms on session start) is the
+  run's noise. This run cannot judge D18; it shows no difference between the builds. The quiet-machine run stays #115
+  item 35. Whether to release on it is the user's call.
