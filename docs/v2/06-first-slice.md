@@ -10771,3 +10771,50 @@ registered or as amended above:
   different-owner switch. A fault of the case's set-up, not of the product (the hash is unchanged): the case now runs
   git with no global or system config, and still fails on 2.6.0. Every other case passed there, on Node 20, the
   AU-3 count of git's calls on macOS and Linux among them.
+
+### 9: the release (2026-11-27): 2.6.1 released
+
+On the user's word ("PR and merge changes so we can live test them"):
+- CI on `ad119d97`: the self-test and the load job passed on Windows, macOS and Linux (Node 20).
+- 8n's check 1 on the product tree (29 files, built from `ad119d97` by `product.mjs`); PR #122 replaced `main`'s tree
+  (11 files changed), `validate` and GitGuardian passed, merged with a merge commit (`5a8b29d4`).
+- **AU-4's check:** the tag `v2.6.1` sits on that merge commit; check 1 passes on `git archive v2.6.1` (29 files), and
+  the release's source archive holds the same 29. The root README on `main` says 2.6.1 and advises `#v2.6.1`.
+- GitHub release `v2.6.1` with the notes below. In a throwaway config, an install from `main` is 2.6.1, its marketplace
+  clone holds the 29 files, and `claude plugin details` lists the 5 skills, 1 agent and 4 hook events.
+- **Not done here:** the installs in this repo and the field repos were not moved (the other session's live install
+  stays as it is); each moves with `claude plugin marketplace update second-brain` and `claude plugin update
+  second-brain@second-brain`, then a restart. In this repo, `/map-review` and the map README take 2.6.1's text only
+  through setup, once the person commits setup's last update of them.
+- **Next:** the live test of 2.6.1; then 2.6.1's open items (#115, 29 and 32).
+
+**2.6.1's release notes** (as published):
+**second-brain 2.6.1** (product `4d459d7cec7d`): the post-release audit's fixes, AU-1 to AU-20.
+- **Dreams keep going after a review:** `/map-review` now commits `.project-map/dreams.md` with the review, the dream's
+  report names it, and while the last dream's log line waits for its commit, session start says so instead of "a
+  dream is due", with no git call. Run `/second-brain:setup` to take the new `/map-review`: it updates an unchanged
+  2.6.0 copy.
+- **Only tested drafts are promoted:** `/map-review` offers to promote a draft only on a current trial verdict; an
+  untested or stale one, or one "not judged", gets the line that tests it. A verdict goes stale when any file it ran
+  from changes: the check scripts and the files beside a skill draft too. A verdict from 2.6.0 counts as stale.
+- **Trials say what a draft may do:** `/second-brain:tailor show` names each power a draft sets (`permissionMode`,
+  `hooks`, `mcpServers`, a skill's `allowed-tools`, an agent's memory outside the repo, a key that is not plain) and
+  warns for `PowerShell` and `Bash(*)` as for a bare `Bash`. One trial runs at a time across a repo's worktrees, and a
+  trial's copy tracks files that were force-added past `.gitignore`.
+- **The dream's gates:** a skill draft with a command line (`!`) is refused, and so is a change to a skill's command
+  lines; an edit to `.claude/hooks/` during a dream is put back; a finish that comes after a newer dream took the lock
+  over applies nothing (each run has an id the skill passes); a map folder that is a link stops prepare, not finish;
+  `session_` ids count as private.
+- **Labels and session start:** the labels of many map files read HEAD in one git call (a Bash read of 8 topic
+  files: 152 ms added at p95 before, 46 ms now); a map file renamed by letter case only keeps its committed labels; a cited source over 4 MB, or through a
+  link out of the repo, is not read; session start's index skips a directory that does not fit instead of stopping
+  there.
+- **Reports:** onboard and status say when git is missing or does not trust the folder; setup finds its section in a
+  UTF-16 `CLAUDE.md`; a staged tailor draft no longer counts as waiting.
+- **Release:** the tag `v2.6.1` sits on `main`, so its source archive and `#v2.6.1` hold only the plugin. Earlier tags
+  hold the whole repo.
+- **PM7's count** (fix commits per part, 2026-10-28 to 2026-11-27): Bash/PowerShell/Grep labels 15, the dream's
+  finish 11, its prepare 10, setup 8, status 6, the templates 6, the source re-find 5, the Read labels 5. Each has a
+  keep-or-kill entry in the ledger (V2-D18's record), and the session-start cut's kill trigger led to a rethink first.
+- **Known weaknesses, unchanged:** S8's dream-loop miss (a repeated correction filed as an entry, not a path rule);
+  Windows 8.3 names; npm's `claude.cmd` cannot run trials; A1 ("fewer tokens and steps") is still not met.

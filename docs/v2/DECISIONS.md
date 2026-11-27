@@ -108,6 +108,9 @@ Frontier (rule 6): **the concept phase is done** (gate 2026-10-22, [research/202
   without tests at the release's hash. Check 3: `claude plugin validate`, and `claude plugin details` on that install.
   Check 4: `main`'s ruleset requires `validate` and GitGuardian. From now on a release copies the product onto `main`
   (`probes/V2-8n-main/product.mjs`) and never merges `main` into `v2`.
+- **Observation, 2026-11-27 (06, 9, AU-4):** 2.6.1's tag sits on `main`'s merge commit, so the tag's tree, the release's
+  source archives and a `#v2.6.1` pin hold only the product (29 files, check 1). The agent's choice, named to the user;
+  the tags up to `v2.6.0` stay where they are, on `v2`. No trigger fired.
 
 ### V2-D04 — Home of v2 planning knowledge
 - **Choice:** everything about v2 (charter, process, decisions, research, probes) lives on branch `v2` under
@@ -2436,6 +2439,10 @@ Each has a draft check. It is finalised (pre-registered) when work on the decisi
   the cap, 5d's attempt, which failed its pull check and was reverted (2026-11-23). **Choice: (a),** the smallest
   change that keeps the measured outcome (D23's line and the map's line inside the cap). Trigger, from now: a further
   fix to the cut, or Claude Code dropping its cap: then D22 reopens on what the index holds past the cap.
+- **Checked again before 2.6.1 (2026-11-27; 06, 9 result):** the reference bench at 1 and 8 concurrent, 2.6.0 the
+  control, 200 calls per kind: every hook kind within 100 ms, the largest a Grep that names the map at 8 concurrent
+  (83.6 ms), 0 errors (`probes/V2-9-fixes/results/pairbench-reference.json`). A Bash read naming 8 topic files, over the
+  budget on 2.6.0 (151.6 ms), adds 45.8 ms (AU-7). No trigger fired; D18 stays LOCKED.
 
 ### V2-D19 — Measurement at scale
 - **Question:** A1 (D17) runs on a 16-file fixture. How is value measured where the user's projects actually are: a
