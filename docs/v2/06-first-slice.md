@@ -11009,3 +11009,27 @@ any counted run:
   `dream.mjs`), so the two columns measure the same code, and their spread (up to 11 ms on session start) is the
   run's noise. This run cannot judge D18; it shows no difference between the builds. The quiet-machine run stays #115
   item 35. Whether to release on it is the user's call.
+
+### 11: the release (2026-11-27): 2.7.0 released
+
+- **The user's word** (asked after (d)): "Release now"; D34's check 4 "Accept as named"; the `plan-check` draft: only
+  the user starts it, then a trial.
+- CI on `04462aa0` (the version lines): the self-test and the load job passed on Windows, macOS and Linux (Node 20).
+  The D26 leftovers job failed once on Linux (its data folder gained a file during the run) and passed on its re-run;
+  the commit changed no file that job reads but README's status lines.
+- The product tree (29 files, from `04462aa0`; check 1 passes); PR #124, `validate` and GitGuardian passed, merged
+  (`6023f655`). The tag `v2.7.0` on that merge commit; check 1 passes on its archive, which equals the product built
+  from `v2` file for file.
+- GitHub release `v2.7.0`. In a throwaway config, an install from `main` is 2.7.0 (29 files in the marketplace's
+  copy); its `prepare` names `Guidelines: .project-map/.dream-run/guidelines.md`, the copy equals the installed
+  guidelines byte for byte, and `abort` removes the run folder. This is the check S7 and 8d could not make, since
+  they loaded the build with `--plugin-dir`.
+- **D31 and D34 re-locked** (DECISIONS.md).
+- **The `plan-check` draft** carries `disable-model-invocation: true`, and tailor wrote its cases
+  (`.project-map/evals/plan-check.json`, three checks, each tested failing with no output and passing on a correct
+  one). Its cases list no Bash: the skill writes to the map issue, and a trial session with Bash could edit the real
+  issue on every run. So a trial judges the reading half only (open decisions, the newest step), not the checks it
+  runs. The trial is the user's to start.
+- **Not done here:** the user's installs were not moved; the other two repos are on 2.6.0, and each updates from inside
+  it. D18's quiet-machine bench stays #115 item 35, now owed for 2.6.2 and 2.7.0.
+- **Cleaned:** the release worktree and branch, the build copies, the throwaway install, older build copies of 9 and 10.
