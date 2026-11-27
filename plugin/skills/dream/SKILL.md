@@ -73,9 +73,10 @@ above with `abort` in place of `prepare`, then tell them to run `/second-brain:d
      line. It is not a proposal: finish counts each correction that came after a read of a map file in the same
      session, and reports which files were read, then corrected again.
    - Write nothing else. Finish puts back any other change to `.project-map/`, to `.claude/` rules, skills, agents,
-     commands and output styles, to `CLAUDE.md` and to `.mcp.json`, and reports any change to the settings files.
-5. **Finish.** Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/dream.mjs" finish "${CLAUDE_PLUGIN_DATA}"` and show
-   the user its report. If it asks for approval, ask the user to approve it. If anything went wrong before this step,
+     commands, output styles and hook scripts, to `CLAUDE.md` and to `.mcp.json`, and reports any change to
+     the settings files.
+5. **Finish.** Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/dream.mjs" finish "${CLAUDE_PLUGIN_DATA}" <run>`, where
+   `<run>` is the run id the report above names ("Run id: <id>"), and show the user its report. If it asks for approval, ask the user to approve it. If anything went wrong before this step,
    run the same command with `abort` in place of `finish`: it puts the map back as it was. A finish that stopped is
    retried before any review: a retry puts back every change made to the map since prepare, a review's too. Run every
    command with the Bash tool, never PowerShell (the grant covers Bash), from the repo's top, never from inside

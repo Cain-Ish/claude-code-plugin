@@ -9,14 +9,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { git, inRepo, configDir, utf16 } from './map.mjs';
+import { git, inRepo, configDir, utf16, decode } from './map.mjs';
 
 // the third field: the hashes (sum, below) of the texts earlier releases shipped for that file, 2.3.0's then 2.4.0's.
 // A release that changes a template adds its old hash here, and its old text to test/earlier/ (the self-test checks)
 export const FILES = [
   ['CLAUDE.template.md', 'CLAUDE.md'],
   ['claude/rules/project-map.md', '.claude/rules/project-map.md', ['ee1a057e8299bc76', 'a35728b3712e83a5']],
-  ['claude/skills/map-review/SKILL.md', '.claude/skills/map-review/SKILL.md', ['3b63bc2d0cb5baa3', '744cac5ea8919e92', '7ff1c09c889ebe9c', '2c564cbd2d263dac', '6d3e35da1c6033c9', '7e5d413c03dfa3ea']],
+  ['claude/skills/map-review/SKILL.md', '.claude/skills/map-review/SKILL.md', ['3b63bc2d0cb5baa3', '744cac5ea8919e92', '7ff1c09c889ebe9c', '2c564cbd2d263dac', '6d3e35da1c6033c9', '7e5d413c03dfa3ea', 'd2e13952443549c2']],
   ['claude/agents/decision-checker.md', '.claude/agents/decision-checker.md'],
   ['claude/agents/codebase-guide.md', '.claude/agents/codebase-guide.md'],
   ['claude/agents/memory-curator.md', '.claude/agents/memory-curator.md'],
@@ -69,7 +69,8 @@ export function setup(root, pluginRoot) {
   // files fail here) and shows unchanged (an empty `git status`), so the addition is its diff's only change; any other
   // file stays as it is, and the text goes to the user (06, section 4, 4b; agy's reviews). The old bytes stay a prefix;
   // the text takes the file's line ending, after a newline if the file lacks a final one
-  const read = (f) => { try { return fs.readFileSync(path.join(root, f), 'utf8'); } catch { return ''; } };
+  // decoded as the hooks read it, so a UTF-16 file's section is found (AU-14, 06, 9)
+  const read = (f) => { try { return decode(fs.readFileSync(path.join(root, f))); } catch { return ''; } };
   // --no-optional-locks: a status refresh would rewrite .git/index
   const unchanged = (f) => { const s = git(root, '--no-optional-locks', 'status', '--porcelain', '--', f); return s.status === 0 && s.stdout === ''; };
   const safe = (f) => {

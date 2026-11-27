@@ -15,10 +15,10 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.6.0` in progress on branch `v2`: the dream reads use and steering, proposes agents, changes and
-package rules from that use, and digests sessions more cheaply; `/second-brain:tailor` makes and trials one artifact.
-The last release is `2.5.1`.
-- It has been tested in live Claude Code sessions on Windows only. 2.6.0 is in a live test in this repo.
+**Status:** `2.6.1` is the latest release: 2.6.0 (the dream reads use and steering, proposes agents, changes and package
+rules from that use, and digests sessions more cheaply; `/second-brain:tailor` makes and trials one artifact) with the
+post-release audit's fixes. Work goes on in branch `v2`.
+- It has been tested in live Claude Code sessions on Windows only. 2.6.1 is in a live test in this repo.
 - On macOS and Linux, only its self-test has run, in CI. Windows and macOS are the targets; Linux is skipped for now.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
 
@@ -180,7 +180,9 @@ The last release is `2.5.1`.
     you pick one.
   - `/second-brain:tailor show <name>` prints what a trial would run: the cases, the draft's front matter and command
     lines, the files beside it, each check script, and a line for you to type with `!`. Nothing runs until you type
-    that line, so a model cannot start a trial.
+    that line, so a model cannot start a trial. Since 2.6.1 it also names each power the draft sets (`permissionMode`,
+    `hooks`, `mcpServers`, a skill's `allowed-tools`, an agent's memory outside the repo) and what it lets the sessions
+    do, as it does for a case that lists `Bash` or `PowerShell` with no pattern.
   - The trial runs each case 3 to 5 times, with the draft and without it, each time in a copy of your last commit
     outside the repo, one headless `claude -p` session at a time, with only the case's tools and every hook off. Your
     check scripts decide each pass; no model judges. The verdict ("helps", "adds nothing", "hurts", "mixed", or "not
@@ -295,8 +297,10 @@ claude plugin install second-brain@second-brain --scope project
 ```
 
 - `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
-- To pin a release, add `#v2.3.0` to the repo in the first command. Without it, `claude plugin marketplace update
-  second-brain`, then `claude plugin update second-brain@second-brain`, bring the latest release.
+- To pin a release, add its tag to the repo in the first command, such as `Cain-Ish/claude-code-plugin#v2.6.1`. From
+  `v2.6.1` on, a release tag holds only the plugin; an earlier tag holds the whole repo, its tests and notes included.
+  Without a tag, `claude plugin marketplace update second-brain`, then `claude plugin update second-brain@second-brain`,
+  bring the latest release.
 - To try the plugin only for yourself in one repo, use `--scope local` for both commands instead.
 - Start Claude at the repo's root. With a project-scope install, the plugin does not load when Claude starts in a
   subdirectory (checked on 2.1.311). A local-scope install keeps its settings in the same root `.claude/` folder, so
@@ -370,9 +374,11 @@ Then remove them in this order:
 - **After a dream** (2.3.0), run `/map-review`. It walks you through:
   - each proposed entry: accept it (its `- proposed:` line becomes `- origin: dream <date>`, with a `- verified:`
     line), or reject it;
-  - each draft rule, skill or agent: its trial verdict first (stale when the draft or its cases changed since,
-    untested when there is none), then promote it by dropping `.draft`, or delete it. A draft beside a file of the same
-    name is a change to that file, shown as a diff; promoting it replaces the file (2.6.0);
+  - each draft rule, skill or agent: its trial verdict first (stale when the draft, its cases, its check scripts or
+    the files beside it changed since; untested when there is none). Since 2.6.1 only a draft with a current verdict is
+    offered for promotion, by dropping `.draft`; an untested or stale one gets the line that tests it. Or delete it. A
+    draft beside a file of the same name is a change to that file, shown as a diff; promoting it replaces the file
+    (2.6.0);
   - a live skill, agent or rule whose own trial says "adds nothing" or "hurts": an offer to remove it, done only on
     your yes (2.6.0);
   - each entry whose review date has passed.
