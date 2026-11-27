@@ -30,7 +30,9 @@ const text = (f) => { try { return fs.readFileSync(path.join(PLUGIN, f), 'utf8')
 const flat = (s) => s.replace(/\s+/g, ' ');
 const MR = 'templates/claude/skills/map-review/SKILL.md';
 const MR260 = fs.readFileSync(path.join(HERE, 'earlier', '2.6.0-release', 'claude', 'skills', 'map-review', 'SKILL.md'), 'utf8');
-const saved = { cfg: process.env.CLAUDE_CONFIG_DIR, stub: process.env.SECOND_BRAIN_TRIAL_CLAUDE };
+const saved = { cfg: process.env.CLAUDE_CONFIG_DIR, stub: process.env.SECOND_BRAIN_TRIAL_CLAUDE, TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+// the trials this file starts in-process (and their detached runs) make their copies here, which goes at the end
+for (const k of ['TEMP', 'TMP', 'TMPDIR']) process.env[k] = ostemp;
 // children run as from a plain shell, never with the session's own plugin variables, project or config
 const clean = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(NoDefaultCurrentDirectoryInExePath|CLAUDE_PLUGIN_DATA|CLAUDE_PLUGIN_ROOT|CLAUDE_PROJECT_DIR|CLAUDE_CONFIG_DIR|CLAUDE_CODE_ENTRYPOINT)$/i.test(k))), TEMP: ostemp, TMP: ostemp, TMPDIR: ostemp };
 let n = 0;
@@ -379,7 +381,7 @@ await tryCheck('AU-20 the dream watches .claude/hooks', async () => {
   check('AU-20 the dream watches .claude/hooks', back && kept, JSON.stringify({ back, kept, rec: fs.existsSync(rec), fin }));
 });
 
-for (const [k, v] of [['CLAUDE_CONFIG_DIR', saved.cfg], ['SECOND_BRAIN_TRIAL_CLAUDE', saved.stub]]) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+for (const [k, v] of [['CLAUDE_CONFIG_DIR', saved.cfg], ['SECOND_BRAIN_TRIAL_CLAUDE', saved.stub], ['TEMP', saved.TEMP], ['TMP', saved.TMP], ['TMPDIR', saved.TMPDIR]]) if (v === undefined) delete process.env[k]; else process.env[k] = v;
 // the slow stand-in may still hold a copy for a few seconds
 if (slowUsed) await new Promise((done) => setTimeout(done, 6500));
 try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}

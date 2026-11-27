@@ -10776,7 +10776,7 @@ registered or as amended above:
 
 On the user's word ("PR and merge changes so we can live test them"):
 - CI on `ad119d97`: the self-test and the load job passed on Windows, macOS and Linux (Node 20).
-- 8n's check 1 on the product tree (29 files, built from `ad119d97` by `product.mjs`); PR #122 replaced `main`'s tree
+- 8n's check 1 on the product tree (29 files, built at `5a152535` by `product.mjs`; `ad119d97` changed only a test, so the product is the same); PR #122 replaced `main`'s tree
   (11 files changed), `validate` and GitGuardian passed, merged with a merge commit (`5a8b29d4`).
 - **AU-4's check:** the tag `v2.6.1` sits on that merge commit; check 1 passes on `git archive v2.6.1` (29 files), and
   the release's source archive holds the same 29. The root README on `main` says 2.6.1 and advises `#v2.6.1`.
@@ -10818,3 +10818,31 @@ On the user's word ("PR and merge changes so we can live test them"):
   keep-or-kill entry in the ledger (V2-D18's record), and the session-start cut's kill trigger led to a rethink first.
 - **Known weaknesses, unchanged:** S8's dream-loop miss (a repeated correction filed as an entry, not a path rule);
   Windows 8.3 names; npm's `claude.cmd` cannot run trials; A1 ("fewer tokens and steps") is still not met.
+
+## 10: 2.6.2, the review of 2.6.1's shipped code (registered 2026-11-27, before the code)
+
+The code written after 9's reviews had no review of its own (the advisor's point). Gemini 4 Argon (plan mode, the diff
+from `v2.6.0` to the shipped 2.6.1) found these; each is checked in the code here. On the user's word of section 9
+("Implement fixes then verify them and merge"):
+1. **R-1 (3a, data):** a dream prepared on 2.6.0 and finished or aborted on 2.6.1 removes every symlink at or under
+   `.claude/hooks/` (restore's link loop has no AU-20 guard). *Fix:* the guard covers the link loop and the folder
+   itself. *Pass:* a 2.6.0-shaped record's abort leaves a symlinked hook script (a junction on Windows) in place.
+2. **R-2 (5b, security):** AU-6's change gate compares command lines only, so a change can unwrap an inert
+   `` !`…` `` example from a normal code fence, or edit the continuation of a multi-line `` !`…` ``, and pass. *Fix:*
+   `commandLines` keeps the lines up to an inline command's closing backtick, and the change gate compares the command
+   lines and the code-fence lines together, in file order. *Pass:* both changes are refused; a change that leaves them
+   as they are is written.
+3. **R-3 (1a):** a commit in the same millisecond as finish reads as still waiting (`<=`). *Fix:* `<`. No case: one
+   operator, named here.
+4. **R-4 (3b):** prepare's report on a stale 2.6.0 run lists every `.claude/hooks/` file as differing from its snapshot.
+   *Fix:* the same guard. *Pass:* that report names none of them.
+- **Recorded as shortcuts, not fixed:** a commit made in another worktree, or without the index, reads as waiting until
+  this worktree's index is written (1b; prepare decides); the change gate also refuses a harmless edit to the prose on
+  a line that holds an inline command (5a, the safe side).
+- **Also:** `fix261`'s AU-5 case left one trial copy in the system TEMP per run (the detached run inherited it); the file
+  now points TEMP at its own folder. The release record named `ad119d97` as the build; it was `5a152535`, with the same
+  product. Both corrected (the advisor's points).
+
+**The checks:** new cases in `fix261` fail on 2.6.1's product (`git archive v2.6.1 plugin`) and pass on the build; a
+mutation of each new guard fails its case; the self-test; `claude plugin validate`; CI on three systems; D18's bench
+before the release; the release as 2.6.1's (product tree, PR, tag on `main`'s merge commit, check 1 on the tag).
