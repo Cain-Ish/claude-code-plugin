@@ -15,10 +15,12 @@ entries in plain Markdown files. On demand, `/second-brain:dream` reads your pas
 memory missed. You review and commit all of it like any other change. These are instructions Claude follows, not
 locks: no hook blocks a write.
 
-**Status:** `2.6.2` is the latest release: 2.6.0 (the dream reads use and steering, proposes agents, changes and package
+**Status:** `2.7.0` is the latest release: 2.6.0 (the dream reads use and steering, proposes agents, changes and package
 rules from that use, and digests sessions more cheaply; `/second-brain:tailor` makes and trials one artifact) with the
-post-release audit's fixes (2.6.1) and their review's (2.6.2). Work goes on in branch `v2`.
-- It has been tested in live Claude Code sessions on Windows only. 2.6.2 is in a live test in this repo.
+post-release audit's fixes (2.6.1) and their review's (2.6.2); since 2.7.0 the dream writes its drafts by tailor's
+guidelines. Work goes on in branch `v2`.
+- It has been tested in live Claude Code sessions on Windows only. 2.6.2 had a live test in this repo, and 2.7.0 is in
+  one.
 - On macOS and Linux, only its self-test has run, in CI. Windows and macOS are the targets; Linux is skipped for now.
 - v1 (0.57.1) is frozen on branch [`v1`](https://github.com/Cain-Ish/claude-code-plugin/tree/v1) and tag `v1-final`.
 
@@ -146,7 +148,9 @@ post-release audit's fixes (2.6.1) and their review's (2.6.2). Work goes on in b
   call, each failed tool result, each read of a map file, and the 4 tool lines before each typed line. On this repo's
   own sessions that left 31% of the lines. Its report also names the topic files read, then corrected again in the same
   session. A skill draft is written as proposed, with no `disable-model-invocation` added: it never loads until
-  `/map-review` promotes it, and after that Claude may start it too.
+  `/map-review` promotes it, and after that Claude may start it too. Since 2.7.0 the dream writes each draft by
+  tailor's guidelines, which ship in the plugin and which prepare copies into its run folder; a procedure with side
+  effects, such as a release, then usually gets `disable-model-invocation` from the guidelines, not from finish.
 
   Since 2.6.0 its report also counts what the sessions did:
   - each of the repo's own skills and agents: how often it was used, and how often a typed line followed a use;
@@ -297,7 +301,7 @@ claude plugin install second-brain@second-brain --scope project
 ```
 
 - `--scope project` writes `.claude/settings.json`, which your team shares once it is committed.
-- To pin a release, add its tag to the repo in the first command, such as `Cain-Ish/claude-code-plugin#v2.6.2`. From
+- To pin a release, add its tag to the repo in the first command, such as `Cain-Ish/claude-code-plugin#v2.7.0`. From
   `v2.6.1` on, a release tag holds only the plugin; an earlier tag holds the whole repo, its tests and notes included.
   Without a tag, `claude plugin marketplace update second-brain`, then `claude plugin update second-brain@second-brain`,
   bring the latest release.
