@@ -1,6 +1,6 @@
 # v2 architecture
 
-**Status:** written for 2.3.0; the plugin is now 2.6.2, released 2026-11-27 (06, sections 8 to 10; [DECISIONS.md](DECISIONS.md): D10
+**Status:** written for 2.3.0; the plugin is now 2.7.0, released 2026-11-27 (06, sections 8 to 11; [DECISIONS.md](DECISIONS.md): D10
 re-locked on the built surface, D18 re-locked on the release bench). Rewritten for the redesign onto Anthropic's layout (06, section 3; D29-D32). The 2.2.0 page is in git
 history. One page by design (charter, definition of done item 3).
 

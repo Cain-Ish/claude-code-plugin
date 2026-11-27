@@ -1,7 +1,7 @@
 # second-brain v2 — charter
 
 **Status:** the concept phase ran from 2026-10-19 to 2026-10-22. v2 replaced v1 on `main` at 2.0.0 (2026-11-12) and is
-at 2.6.2 (released 2026-11-27; `main` and the release tags hold only the product) on branch `v2`. This file is the working brief for v2. It replaces the original request
+at 2.7.0 (released 2026-11-27; `main` and the release tags hold only the product) on branch `v2`. This file is the working brief for v2. It replaces the original request
 (quoted at the end) and says what changed and why. Process: [01-process.md](01-process.md). Decisions:
 [DECISIONS.md](DECISIONS.md).
 
