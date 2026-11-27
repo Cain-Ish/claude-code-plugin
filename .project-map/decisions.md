@@ -45,3 +45,55 @@ description: Working rules for this repo that are not v2's ledger decisions (tho
 - source: the user, 2026-10-22
 - when: ["planning or running probes", "deciding whether to stop and ask"]
 - verified: 2026-11-25 copied from the agent's notes, where it was saved on 2026-10-22
+
+### checking that planned work is finished
+> make a full status check of all features, improvements and changes. compare them with the planned features to add. confirm if all is added … add changes if needed and ponytail audit at the end
+
+- id: full-status-check-then-audit
+- source: the user (said in two sessions), 2026-11-25
+- when: ["checking that planned work is finished", "before a release"]
+- origin: dream 2026-11-27
+- verified: 2026-11-27 accepted in review
+
+### commits while another session shares the working tree
+> commit explicit paths only; … re-read the tail of 06 before you append to it; … run `git pull --rebase` before pushing
+
+- id: shared-tree-commits
+- source: the user, 2026-11-25
+- when: ["committing or pushing while another session works in this repo"]
+- origin: dream 2026-11-27
+- verified: 2026-11-27 accepted in review
+
+### long runs
+> keep track of repeats and time - react to not lose time and tokens
+
+- id: track-repeats-and-time
+- source: the user, 2026-11-26
+- when: ["long or unattended runs", "retrying a step that keeps failing"]
+- origin: dream 2026-11-27
+- verified: 2026-11-27 accepted in review
+
+### cleaning up after a run
+> remember to clean up when you finish it cause last time similar session left 8gb leftovers
+
+- id: clean-up-leftovers
+- source: the user, 2026-11-26
+- when: ["ending a run that made copies, worktrees or temp folders"]
+- origin: dream 2026-11-27
+- verified: 2026-11-27 accepted in review
+
+### guidelines for making agents and skills
+> agents build should have general guidelines so claude will know how to create best agents based on the research we done and will done to improve that logic. also self-improvement loop need to know it
+
+- id: research-feeds-the-guidelines
+- source: the user, 2026-11-27
+- when: ["researching how agents or skills are made", "changing tailor's guidelines or the dream's drafts"]
+- verified: 2026-11-27 stated by the user
+
+### what the installed plugin can rely on
+> we will use plugin in different repos so they wont have access to anything that installed plugin do not contain
+
+- id: plugin-is-self-contained
+- source: the user, 2026-11-27
+- when: ["building or changing the plugin", "writing text a skill or agent of the plugin reads"]
+- verified: 2026-11-27 stated by the user
