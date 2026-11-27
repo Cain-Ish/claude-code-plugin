@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-A builder replaces a registered mechanism with a "better" one that the registration never named. In 8j, the builder "went wider than registered" (06 records this). In 8k, the index.ignore fallback probes each line on its own where the registration re-ran the call once without any of the file's lines, and the excludes gained `glob` magic and a `/**` pair. In 8l, map-review's "when" gained "due entries", the due line gained "unless they decline", and README/guidelines lines with no placement (`[private]`, L-22) were built.
+A builder replaces a registered mechanism with a "better" one that the registration never named. In 8j, the builder "went wider than registered" (06 records this). In 8k, the index.ignore fallback probes each line on its own where the registration re-ran the call once without any of the file's lines, and the excludes gained `glob` magic and a `/**` pair. In 8l, map-review's "when" gained "due entries", the due line gained "unless they decline", and README/guidelines lines with no placement (`[private]`, L-22) were built. In 11, G-4's "a path under docs/" became `docs/(v2|agents)/` (reason in a code comment only), and G-3 gained a scope line ("from a dream's evidence or a trial's verdict") that hands tailor's case steps to the dream.
 
 **Why:** the user's rule is that every check is pre-registered. A widened mechanism runs on paths that no registered check covers, and it can break the registered guarantee in edge cases.
 
