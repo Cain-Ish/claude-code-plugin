@@ -275,7 +275,10 @@ await tryCheck('AU-12 why git cannot run', () => {
   const { r } = repoWith({ [MAPF]: entry('dates', 'Dates show as DD.MM.YYYY across the app.') });
   const data = path.join(tmp, `data${n}`);
   const statusOf = (env) => spawnSync(NODE, ['--input-type=module', '-e', `const { status } = await import(${JSON.stringify(pathToFileURL(path.join(PLUGIN, 'scripts', 'status.mjs')).href)}); console.log(status(${JSON.stringify(r)}, ${JSON.stringify(data)}));`], { encoding: 'utf8', env: { ...clean, ...env }, cwd: r }).stdout;
-  const owner = { GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' };
+  // no global or system git config, which on CI's runners trusts every folder (safe.directory=*)
+  const empty = path.join(tmp, 'empty.gitconfig');
+  fs.writeFileSync(empty, '');
+  const owner = { GIT_TEST_ASSUME_DIFFERENT_OWNER: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: empty };
   const onb = spawnSync(NODE, [HOOK, 'onboard'], { encoding: 'utf8', env: { ...clean, CLAUDE_PROJECT_DIR: r, ...owner } }).stdout;
   const st = statusOf(owner);
   const noGit = clean.PATH.split(path.delimiter).filter((d) => !['git', 'git.exe'].some((f) => fs.existsSync(path.join(d, f)))).join(path.delimiter);

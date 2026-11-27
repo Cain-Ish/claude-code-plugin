@@ -10766,3 +10766,8 @@ registered or as amended above:
   (Gemini, outside AU-19's surfaces); `catFile` is a fourth git blob reader (the refactors); the due line's
   index-time reading reads as committed after any git command that rewrites the index (prepare then says why); a topic
   file in a subfolder renamed by letter case only stays unreviewed.
+- **CI, first run on `5a152535`:** the load job passed on all three systems; the self-test failed on all three in one
+  case, AU-12's: the runners' global git config trusts every folder (`safe.directory=*`), so git ignored the
+  different-owner switch. A fault of the case's set-up, not of the product (the hash is unchanged): the case now runs
+  git with no global or system config, and still fails on 2.6.0. Every other case passed there, on Node 20, the
+  AU-3 count of git's calls on macOS and Linux among them.
